@@ -34,6 +34,17 @@ final class GameScene: SKScene {
     /// future layers (overlays, UI, effects) cleanly separated by z-order.
     private let tileLayer = SKNode()
 
+    /// Sits between the scene and `tileLayer`, carrying the one shader
+    /// effect this project has (`RetroShader`) — see that file for why an
+    /// `SKEffectNode` and not `tileLayer` itself. Not rasterized: the map
+    /// underneath changes every simulation tick (new density, hazard
+    /// flashes, traffic cars, panning/zooming), so the offscreen render
+    /// this node composites has to redo every frame, same as any other
+    /// live post-process. That's a real per-frame cost, but it's one
+    /// Metal shader pass over the whole map, not per-tile or per-icon
+    /// work, so it scales with screen resolution rather than city size.
+    private let retroEffectLayer = SKEffectNode()
+
     /// Grid coordinate -> sprite, so updating one tile is O(1) instead of a
     /// scene-graph search.
     private var tileNodes: [GridPosition: SKSpriteNode] = [:]
@@ -94,7 +105,10 @@ final class GameScene: SKScene {
         addChild(cameraNode)
 
         tileLayer.zPosition = 0
-        addChild(tileLayer)
+        retroEffectLayer.shader = RetroShader.make()
+        retroEffectLayer.addChild(tileLayer)
+        addChild(retroEffectLayer)
+        RetroShader.updateAspect(retroEffectLayer.shader!, size: size)
 
         buildTileNodes()
         centerCameraOnMap()
@@ -108,6 +122,9 @@ final class GameScene: SKScene {
         // that as-is for now rather than adding "did the player pan on
         // purpose?" tracking for a fairly minor annoyance.
         centerCameraOnMap()
+        if let shader = retroEffectLayer.shader {
+            RetroShader.updateAspect(shader, size: size)
+        }
     }
 
     // MARK: - Camera pan & zoom
