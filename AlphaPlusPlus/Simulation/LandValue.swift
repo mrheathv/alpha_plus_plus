@@ -32,6 +32,13 @@ enum LandValue {
     /// has to be able to walk to it.
     static let transitFalloffDistance = 6
 
+    /// A subway stop's reach, wider than a bus-stop-equivalent
+    /// `.publicTransit`'s — the whole reason to pay `.subway`'s higher
+    /// price and ongoing upkeep is that it serves a bigger area, the same
+    /// "pricier, higher-capacity version" relationship `.highway` has with
+    /// `.road`.
+    static let subwayFalloffDistance = 9
+
     /// Coverage from a service building (police/fire) falls off over a
     /// wider radius than road frontage — a station serves a neighborhood,
     /// not just its own tile's edges.
@@ -83,10 +90,11 @@ enum LandValue {
     static func value(at position: GridPosition, in map: CityMap) -> Double {
         let road = roadValue(at: position, in: map)
         let transit = falloffValue(nearestZone: .publicTransit, falloffDistance: transitFalloffDistance, at: position, in: map)
+        let subway = falloffValue(nearestZone: .subway, falloffDistance: subwayFalloffDistance, at: position, in: map)
         let police = falloffValue(nearestZone: .policeStation, falloffDistance: serviceFalloffDistance, at: position, in: map)
         let fire = falloffValue(nearestZone: .fireStation, falloffDistance: serviceFalloffDistance, at: position, in: map)
         let stadium = falloffValue(nearestZone: .stadium, falloffDistance: stadiumFalloffDistance, at: position, in: map)
-        let positives = max(road, transit, police, fire, stadium)
+        let positives = max(road, transit, subway, police, fire, stadium)
 
         // The power plant penalty is subtracted from the combined positive
         // score, not folded into the same `max` — it's not competing to be
@@ -110,10 +118,19 @@ enum LandValue {
     /// tile's land value enough to stall further growth — "you built too
     /// much around one road" becomes a real, felt consequence instead of
     /// something only `Traffic`'s overlay shows.
+    ///
+    /// `.highway` counts equally alongside `.road` throughout — whichever
+    /// one is actually closer wins the base value (via the `max` of both
+    /// `falloffValue` calls, same falloff distance for both), and either
+    /// one adjacent contributes to the congestion check. A highway isn't a
+    /// *different* kind of frontage, just a higher-capacity `.road`.
     private static func roadValue(at position: GridPosition, in map: CityMap) -> Double {
-        let base = falloffValue(nearestZone: .road, falloffDistance: roadFalloffDistance, at: position, in: map)
+        let base = max(
+            falloffValue(nearestZone: .road, falloffDistance: roadFalloffDistance, at: position, in: map),
+            falloffValue(nearestZone: .highway, falloffDistance: roadFalloffDistance, at: position, in: map)
+        )
         let worstAdjacentCongestion = position.orthogonalNeighbors()
-            .filter { map.contains($0) && map[$0].zone == .road }
+            .filter { map.contains($0) && (map[$0].zone == .road || map[$0].zone == .highway) }
             .map { Traffic.congestion(at: $0, in: map) }
             .max() ?? 0
         return base * (1 - congestionPenalty * worstAdjacentCongestion)

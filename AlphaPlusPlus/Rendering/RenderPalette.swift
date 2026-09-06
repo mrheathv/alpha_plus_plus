@@ -58,6 +58,10 @@ enum RenderPalette {
             return SKColor(srgbRed: 0.75, green: 0.90, blue: 0.15, alpha: 1.0)  // electric chartreuse
         case .stadium:
             return SKColor(srgbRed: 0.85, green: 0.20, blue: 0.55, alpha: 1.0)  // magenta, "entertainment lights"
+        case .highway:
+            return SKColor(srgbRed: 0.26, green: 0.28, blue: 0.32, alpha: 1.0)  // darker, heavier-duty gray than plain road
+        case .subway:
+            return SKColor(srgbRed: 0.10, green: 0.42, blue: 0.58, alpha: 1.0)  // deep transit blue — same family as publicTransit's teal, richer
         }
     }
 
@@ -139,6 +143,8 @@ enum RenderPalette {
         case .publicTransit: return "Transit Stop"
         case .powerPlant: return "Power Plant"
         case .stadium: return "Stadium"
+        case .highway: return "Highway"
+        case .subway: return "Subway"
         }
     }
 }

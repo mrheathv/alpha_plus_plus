@@ -49,6 +49,61 @@ final class TrafficTests: XCTestCase {
         XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 1.0, accuracy: 0.0001)
     }
 
+    // MARK: - Highway capacity
+
+    /// A `.highway`'s whole reason to exist: the exact same neighboring
+    /// load that puts a plain road at 0.25 congestion should put a highway
+    /// at half that — it absorbs twice the traffic before feeling it.
+    func testHighwayHasHalfTheCongestionOfARoadUnderTheSameLoad() {
+        var map = CityMap(width: 3, height: 3)
+        let highwayPosition = GridPosition(x: 1, y: 1)
+        map[highwayPosition].zone = .highway
+        map[GridPosition(x: 0, y: 1)].zone = .residential
+        map[GridPosition(x: 0, y: 1)].density = 5
+
+        XCTAssertEqual(Traffic.congestion(at: highwayPosition, in: map), 0.125, accuracy: 0.0001)
+    }
+
+    func testHighwayCongestionStillCapsAtOne() {
+        var map = CityMap(width: 5, height: 5)
+        let highwayPosition = GridPosition(x: 2, y: 2)
+        map[highwayPosition].zone = .highway
+        for neighbor in highwayPosition.orthogonalNeighbors() {
+            map[neighbor].zone = .commercial
+            map[neighbor].density = 5
+        }
+
+        // Same total load that caps a plain road at 1.0 only reaches half
+        // of a highway's doubled capacity.
+        XCTAssertEqual(Traffic.congestion(at: highwayPosition, in: map), 0.5, accuracy: 0.0001)
+    }
+
+    /// A subway stop moves people without adding load to any road — it
+    /// should report no congestion of its own even sitting in the thick of
+    /// dense development, the same as `.publicTransit` already does.
+    func testSubwayHasNoCongestionOfItsOwn() {
+        var map = CityMap(width: 3, height: 3)
+        let subwayPosition = GridPosition(x: 1, y: 1)
+        map[subwayPosition].zone = .subway
+        for neighbor in subwayPosition.orthogonalNeighbors() {
+            map[neighbor].zone = .commercial
+            map[neighbor].density = 5
+        }
+
+        XCTAssertEqual(Traffic.congestion(at: subwayPosition, in: map), 0)
+    }
+
+    /// A highway neighbor must count as a "road neighbor" for orientation
+    /// purposes exactly like a plain road would.
+    func testIsHorizontallyOrientedCountsHighwayNeighborsLikeRoad() {
+        var map = CityMap(width: 3, height: 3)
+        let position = GridPosition(x: 1, y: 1)
+        map[GridPosition(x: 0, y: 1)].zone = .highway
+        map[GridPosition(x: 2, y: 1)].zone = .road
+
+        XCTAssertTrue(Traffic.isHorizontallyOriented(at: position, in: map))
+    }
+
     // MARK: - carCount
 
     func testCarCountIsZeroWhenCongestionIsZero() {

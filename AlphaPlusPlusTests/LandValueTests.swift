@@ -89,6 +89,23 @@ final class LandValueTests: XCTestCase {
         XCTAssertEqual(LandValue.value(at: GridPosition(x: 1, y: 0), in: map), 0.75, accuracy: 0.0001)
     }
 
+    /// The congestion-dampening feedback loop applies through a `.highway`
+    /// neighbor exactly like a `.road` neighbor — it's the same frontage
+    /// mechanic, just on a higher-capacity road.
+    func testCongestionOnAnAdjacentHighwayDampensItsOwnFrontageValue() {
+        var map = CityMap(width: 5, height: 5)
+        let position = GridPosition(x: 0, y: 0)
+        let highwayPosition = GridPosition(x: 1, y: 0)
+        map[highwayPosition].zone = .highway
+        map[GridPosition(x: 2, y: 0)].zone = .commercial
+        map[GridPosition(x: 2, y: 0)].density = 5 // loads the highway with congestion
+
+        let dampenedValue = LandValue.value(at: position, in: map)
+
+        XCTAssertLessThan(dampenedValue, 0.75) // below the undampened frontage value
+        XCTAssertGreaterThan(dampenedValue, 0) // but not wiped out
+    }
+
     // MARK: - Congestion dampens road value, but not enough to defeat growth
 
     /// Caught by hands-on testing, not a unit test: a zone with only bare
@@ -135,6 +152,45 @@ final class LandValueTests: XCTestCase {
         // get (a 4th neighbor would be off the map): (5+5+5)/20 = 0.75.
         XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 0.75, accuracy: 0.0001)
         XCTAssertLessThan(LandValue.value(at: position, in: map), 0.65)
+    }
+
+    // MARK: - Highway (a pricier, higher-capacity road)
+
+    /// Same falloff distance, same formula — a highway one tile away
+    /// should value a tile identically to a plain road one tile away.
+    func testHighwayContributesLandValueWithTheSameFalloffAsARoad() {
+        var map = CityMap(width: 10, height: 10)
+        map[GridPosition(x: 0, y: 0)].zone = .highway
+
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 1, y: 0), in: map), 0.75, accuracy: 0.0001)
+    }
+
+    /// Whichever of a road or a highway is actually closer should win —
+    /// mirroring `testValueUsesTheNearestRoadWhenMultipleExist`, just with
+    /// the two zone types mixed instead of two roads.
+    func testValueUsesWhicheverOfRoadOrHighwayIsNearer() {
+        var map = CityMap(width: 10, height: 10)
+        map[GridPosition(x: 0, y: 0)].zone = .road // distance 5 from (5,0)
+        map[GridPosition(x: 5, y: 1)].zone = .highway // distance 1 from (5,0)
+
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 5, y: 0), in: map), 0.75, accuracy: 0.0001)
+    }
+
+    // MARK: - Subway (a pricier, wider-reaching transit stop)
+
+    func testSubwayContributesLandValueOverAWiderRadiusThanPublicTransit() {
+        var map = CityMap(width: 20, height: 20)
+        map[GridPosition(x: 10, y: 10)].zone = .subway
+
+        // subwayFalloffDistance is 9: value = 1 - distance/9.
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 13, y: 10), in: map), 1 - 3.0 / 9.0, accuracy: 0.0001)
+
+        // Distance 7 sits *beyond* transitFalloffDistance (6) -- a plain
+        // publicTransit stop this far away would already contribute 0 --
+        // but is still within subwayFalloffDistance (9), the whole point
+        // of paying more for a subway.
+        XCTAssertGreaterThan(LandValue.value(at: GridPosition(x: 17, y: 10), in: map), 0)
+        XCTAssertLessThan(LandValue.transitFalloffDistance, 7)
     }
 
     // MARK: - Service coverage (police/fire)

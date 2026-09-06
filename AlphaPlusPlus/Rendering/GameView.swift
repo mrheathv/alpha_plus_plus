@@ -171,7 +171,7 @@ struct GameView: View {
     /// to it — hard-coded rather than filtered from `ZoneType.allCases` at
     /// view-build time, since the set of fundable zones is exactly as fixed
     /// as `ServiceFunding`'s own five named fields.
-    private static let fundableZones: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .powerPlant, .stadium]
+    private static let fundableZones: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .subway, .powerPlant, .stadium]
 
     private var budgetRow: some View {
         HStack(spacing: 16) {

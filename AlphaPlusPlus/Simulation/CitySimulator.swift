@@ -56,15 +56,16 @@ enum CitySimulator {
         return next
     }
 
-    /// Is any tile sharing an edge with `position` a road *or* a transit
-    /// stop? Either one counts as "connected" for growth purposes — a
-    /// transit stop is a cheaper, area-covering alternative to a road, not
-    /// a lesser substitute (see `ZoneType.publicTransit`).
+    /// Is any tile sharing an edge with `position` a road, a highway, a
+    /// transit stop, or a subway? All four count equally as "connected" for
+    /// growth purposes — `.highway`/`.subway` are pricier, higher-capacity
+    /// versions of `.road`/`.publicTransit` (see `ZoneType`'s own doc
+    /// comment), not a *different kind* of access.
     static func hasAccess(at position: GridPosition, in map: CityMap) -> Bool {
         position.orthogonalNeighbors().contains { neighbor in
             guard map.contains(neighbor) else { return false }
             let zone = map[neighbor].zone
-            return zone == .road || zone == .publicTransit
+            return zone == .road || zone == .publicTransit || zone == .highway || zone == .subway
         }
     }
 

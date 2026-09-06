@@ -164,6 +164,31 @@ final class CitySimulatorTests: XCTestCase {
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
     }
 
+    // MARK: - Highway and subway grant access exactly like their cheaper counterparts
+
+    /// `.highway` is a pricier `.road`, not a different kind of connection —
+    /// it must grant access exactly like a plain road does.
+    func testHighwayAloneProvidesAccessForGrowth() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .highway
+
+        let next = CitySimulator.advance(map)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
+    }
+
+    /// `.subway` is a pricier `.publicTransit`, same relationship.
+    func testSubwayAloneProvidesAccessForGrowth() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .subway
+
+        let next = CitySimulator.advance(map)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
+    }
+
     // MARK: - Footprints grow/decay as one unit
 
     func testAllCellsOfAFootprintShareOneDensityAfterGrowth() {

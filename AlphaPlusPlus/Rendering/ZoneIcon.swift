@@ -35,7 +35,10 @@ enum ZoneIcon {
     /// something now stands here).
     static func makeNode(for zone: ZoneType, density: Int) -> SKNode? {
         switch zone {
-        case .empty, .road:
+        case .empty, .road, .highway:
+            // `.highway` gets no icon, same reasoning as plain `.road`: a
+            // flat (if darker) color already reads as an uninterrupted
+            // stretch of road — see `RenderPalette.fullColor(for:)`.
             return nil
         case .residential:
             switch growthTier(for: density) {
@@ -63,6 +66,7 @@ enum ZoneIcon {
         case .publicTransit: return transitIcon()
         case .powerPlant: return powerPlantIcon()
         case .stadium: return stadiumIcon()
+        case .subway: return subwayIcon()
         }
     }
 
@@ -441,6 +445,31 @@ enum ZoneIcon {
         container.addChild(detail(rect: CGRect(x: -24, y: 1, width: 48, height: 9), fill: glassColor))
         container.addChild(dot(radius: 6, at: CGPoint(x: -17, y: -17), fill: darkAccent))
         container.addChild(dot(radius: 6, at: CGPoint(x: 17, y: -17), fill: darkAccent))
+        return container
+    }
+
+    /// A subway: a station entrance kiosk over a pair of rail tracks, not
+    /// another wheeled vehicle — `.publicTransit`'s bus already owns that
+    /// silhouette, and a track-and-tie motif reads as "rail" at a glance
+    /// the way a second bus wouldn't distinguish itself from the first.
+    private static func subwayIcon() -> SKNode {
+        let kioskRect = CGRect(x: -22, y: -2, width: 44, height: 32)
+        let kiosk = shape(CGPath(roundedRect: kioskRect, cornerWidth: 10, cornerHeight: 10, transform: nil))
+
+        let container = SKNode()
+        container.addChild(withShadow([kiosk]))
+        container.addChild(edgeShading(for: kioskRect))
+        container.addChild(detail(rect: CGRect(x: -11, y: -2, width: 22, height: 20), fill: darkAccent))
+
+        // Two rails with cross-ties beneath the kiosk, built from straight
+        // lines/rects only, same constraint as every other icon here.
+        let railTopY: CGFloat = -22
+        let railBottomY: CGFloat = -32
+        container.addChild(detail(rect: CGRect(x: -32, y: railTopY, width: 64, height: 3), fill: darkAccent))
+        container.addChild(detail(rect: CGRect(x: -32, y: railBottomY, width: 64, height: 3), fill: darkAccent))
+        for tieX in stride(from: CGFloat(-28), through: 28, by: 14) {
+            container.addChild(detail(rect: CGRect(x: tieX - 1.5, y: railBottomY, width: 3, height: railTopY - railBottomY + 3), fill: outlineColor))
+        }
         return container
     }
 

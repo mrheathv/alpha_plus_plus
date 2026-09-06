@@ -13,18 +13,42 @@ enum Traffic {
 
     /// Four orthogonal neighbors, each capable of holding up to the highest
     /// `ZoneType.maxDensity` (5) — the theoretical ceiling `congestion(at:in:)`
-    /// normalizes against.
+    /// normalizes against for a plain `.road` tile.
     private static let maxPossibleLoad = 4.0 * 5.0
 
-    /// Non-road tiles (including tiles off the map) have no congestion by
-    /// definition — congestion describes road capacity, not general
-    /// busy-ness of a place.
+    /// A `.highway` tile's whole reason to cost 4x a plain road: it
+    /// absorbs twice the neighboring development before feeling as
+    /// congested. Same shape of ceiling as `maxPossibleLoad`, just a
+    /// bigger one — not a different formula, so a highway isn't "immune"
+    /// to traffic, just harder to actually jam.
+    private static let highwayMaxPossibleLoad = maxPossibleLoad * 2
+
+    /// Is this a tile that carries road traffic — a plain `.road` or the
+    /// higher-capacity `.highway`? Shared by `congestion(at:in:)` (deciding
+    /// whether a tile has congestion at all) and `isHorizontallyOriented(at:in:)`
+    /// (deciding what counts as a "road neighbor" for orienting the ambient
+    /// traffic animation) — one definition of "road-like," not two that
+    /// could drift apart.
+    private static func isRoadLike(_ zone: ZoneType) -> Bool {
+        zone == .road || zone == .highway
+    }
+
+    /// How much of its capacity this tile's neighboring development is
+    /// using, 0 (empty) to 1 (at capacity). Non-road-like tiles (including
+    /// tiles off the map) have no congestion by definition — congestion
+    /// describes road capacity, not general busy-ness of a place. A
+    /// `.subway`/`.publicTransit` stop is deliberately excluded here too:
+    /// it moves people without adding to what a road has to carry, which
+    /// is the whole point of it as an alternative to one.
     static func congestion(at position: GridPosition, in map: CityMap) -> Double {
-        guard map.contains(position), map[position].zone == .road else { return 0 }
+        guard map.contains(position) else { return 0 }
+        let zone = map[position].zone
+        guard isRoadLike(zone) else { return 0 }
+        let capacity = zone == .highway ? highwayMaxPossibleLoad : maxPossibleLoad
         let neighborDensitySum = position.orthogonalNeighbors()
             .filter { map.contains($0) }
             .reduce(0) { $0 + map[$1].density }
-        return min(1, Double(neighborDensitySum) / maxPossibleLoad)
+        return min(1, Double(neighborDensitySum) / capacity)
     }
 
     /// How many ambient "cars" `GameScene` should animate driving along a
@@ -52,7 +76,7 @@ enum Traffic {
     /// traffic routing.
     static func isHorizontallyOriented(at position: GridPosition, in map: CityMap) -> Bool {
         func roadNeighborCount(_ positions: [GridPosition]) -> Int {
-            positions.filter { map.contains($0) && map[$0].zone == .road }.count
+            positions.filter { map.contains($0) && isRoadLike(map[$0].zone) }.count
         }
         let horizontal = roadNeighborCount([
             GridPosition(x: position.x - 1, y: position.y),

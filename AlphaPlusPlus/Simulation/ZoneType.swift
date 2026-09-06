@@ -30,6 +30,16 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     case publicTransit
     case powerPlant
     case stadium
+    // The genre-parity "transit variety" gap: `.highway` is a road that
+    // trades a higher price for handling more neighboring development
+    // before it congests (see `Traffic.congestionCapacity(for:)`);
+    // `.subway` is a `.publicTransit` stop that trades a higher price
+    // (and ongoing upkeep, unlike a bus stop's flat road-tier cost) for a
+    // wider land-value reach (`LandValue.subwayFalloffDistance`). Both are
+    // *alongside* their cheaper counterpart, not a replacement for it —
+    // same relationship `.publicTransit` already has with `.road`.
+    case highway
+    case subway
 }
 
 extension ZoneType {
@@ -59,6 +69,11 @@ extension ZoneType {
         // a service station to match sitting on 9 tiles instead of 4.
         case .powerPlant: return 2000
         case .stadium: return 2500
+        // Priced as "the upgraded version of the cheaper option right
+        // above it": 4x a plain road (still just a road, no ongoing
+        // upkeep — see `upkeepCost`), a bit under 3x a transit stop.
+        case .highway: return 200
+        case .subway: return 400
         }
     }
 
@@ -70,7 +85,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -90,11 +105,19 @@ extension ZoneType {
     /// growth depends on becomes self-defeating.
     var upkeepCost: Int {
         switch self {
-        case .empty, .residential, .commercial, .industrial, .road: return 0
+        // `.highway` is still just a road (no staff, no ongoing service to
+        // fund) — its higher `placementCost` already reflects the bigger
+        // one-time build; nothing recurring on top of that, matching
+        // `.road`'s own 0.
+        case .empty, .residential, .commercial, .industrial, .road, .highway: return 0
         case .policeStation, .fireStation: return 20
         case .publicTransit: return 5
         case .powerPlant: return 50
         case .stadium: return 40
+        // `.subway` *is* a service, same as `.publicTransit` (staffed
+        // stations, not just track) — priced above a bus stop's upkeep to
+        // match its wider land-value reach (`LandValue.subwayFalloffDistance`).
+        case .subway: return 15
         }
     }
 
@@ -108,7 +131,7 @@ extension ZoneType {
     /// everything built on it) doesn't care how big a zone is.
     var footprintSize: Int {
         switch self {
-        case .empty, .road, .publicTransit: return 1
+        case .empty, .road, .publicTransit, .highway, .subway: return 1
         case .residential, .commercial, .industrial, .policeStation, .fireStation: return 2
         case .powerPlant, .stadium: return 3
         }

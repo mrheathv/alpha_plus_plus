@@ -463,7 +463,8 @@ final class GameScene: SKScene {
         guard let node = tileNodes[position] else { return }
         let existingCars = node.children.filter { $0.name == Self.trafficCarNodeName }
 
-        guard controller.overlayMode == .none, map[position].zone == .road else {
+        let zone = map[position].zone
+        guard controller.overlayMode == .none, zone == .road || zone == .highway else {
             existingCars.forEach { $0.removeFromParent() }
             return
         }

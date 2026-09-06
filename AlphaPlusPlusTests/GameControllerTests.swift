@@ -524,4 +524,39 @@ final class GameControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.upkeepCost, Int(Double(ZoneType.fireStation.upkeepCost) * 1.5))
     }
+
+    // MARK: - Highway and subway placement
+
+    func testPlacingAHighwayChargesItsOwnCostAndSetsTheZone() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        let startingTreasury = controller.treasury
+        controller.selectedTool = .highway
+
+        controller.place(at: position)
+
+        XCTAssertEqual(controller.map[position].zone, .highway)
+        XCTAssertEqual(controller.treasury, startingTreasury - ZoneType.highway.placementCost)
+    }
+
+    /// `.highway` costs money to place but nothing to keep running — a
+    /// pricier road, not a service.
+    func testHighwayContributesNothingToUpkeepCost() {
+        let controller = GameController()
+        controller.selectedTool = .highway
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        XCTAssertEqual(controller.upkeepCost, 0)
+    }
+
+    /// `.subway` *is* a service (like `.publicTransit`) — placing one
+    /// should show up in upkeep, funded at the default 100% until told
+    /// otherwise.
+    func testSubwayContributesItsUpkeepCostAtDefaultFunding() {
+        let controller = GameController()
+        controller.selectedTool = .subway
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        XCTAssertEqual(controller.upkeepCost, ZoneType.subway.upkeepCost)
+    }
 }

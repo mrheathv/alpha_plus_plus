@@ -25,6 +25,10 @@ struct ServiceFunding: Equatable, Codable, Sendable {
     var publicTransit: Double = 1.0
     var powerPlant: Double = 1.0
     var stadium: Double = 1.0
+    // `.subway` is a staffed service like `.publicTransit` (see
+    // `ZoneType.upkeepCost`), so it gets its own dial the same way; a
+    // plain `.highway` doesn't — it's still just a road, not a service.
+    var subway: Double = 1.0
 
     /// How well-funded `zone` currently is. Never optional — every
     /// `ZoneType` has an answer, even the ones that can't be funded at all.
@@ -35,7 +39,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .publicTransit: return publicTransit
         case .powerPlant: return powerPlant
         case .stadium: return stadium
-        case .empty, .residential, .commercial, .industrial, .road: return 1.0
+        case .subway: return subway
+        case .empty, .residential, .commercial, .industrial, .road, .highway: return 1.0
         }
     }
 
@@ -51,7 +56,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .publicTransit: publicTransit = level
         case .powerPlant: powerPlant = level
         case .stadium: stadium = level
-        case .empty, .residential, .commercial, .industrial, .road: break
+        case .subway: subway = level
+        case .empty, .residential, .commercial, .industrial, .road, .highway: break
         }
     }
 }
