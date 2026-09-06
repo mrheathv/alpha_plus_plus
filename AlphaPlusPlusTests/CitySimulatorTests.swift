@@ -108,10 +108,16 @@ final class CitySimulatorTests: XCTestCase {
     /// always means grow (or hold at cap), never decay, no matter what the
     /// building's current density already is.
     func testRoadAdjacentTileGrowsRatherThanDecays() {
-        var map = CityMap(width: 3, height: 3)
+        var map = CityMap(width: 5, height: 5)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 0, y: 0)].density = 2
         map[GridPosition(x: 2, y: 0)].zone = .road
+        // Density 2 -> 3 crosses CitySimulator's water-required threshold,
+        // so this fixture needs a real, connected supply -- a pipe
+        // touching the building, connected to a funded tower.
+        map[GridPosition(x: 2, y: 1)].zone = .pipe
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
+        map.waterSupply = Water.computeSupply(for: map)
 
         let next = CitySimulator.advance(map)
 
@@ -143,10 +149,62 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 0, y: 0)].density = 4
         map[GridPosition(x: 2, y: 0)].zone = .road // touches (1,0)
         map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 0, y: 2)) // covers (0,2)-(1,3), distance 1 from (0,1)
+        // Density 4 -> 5 crosses the water-required threshold too.
+        map[GridPosition(x: 2, y: 1)].zone = .pipe
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
+        map.waterSupply = Water.computeSupply(for: map)
 
         let next = CitySimulator.advance(map)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 5)
+    }
+
+    // MARK: - Water gates growth from level 3 onward
+
+    /// Below the water threshold, growth needs only road access + land
+    /// value — this building reaches level 2 with no water anywhere.
+    func testGrowthBelowTheWaterThresholdNeedsNoWaterSupply() {
+        var map = CityMap(width: 6, height: 6)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 0, y: 0)].density = 1
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        // No pipes, no tower anywhere.
+
+        let next = CitySimulator.advance(map)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2)
+    }
+
+    /// At the water threshold, the same building holds rather than
+    /// growing — access and land value alone aren't enough anymore, and
+    /// (like an insufficient land value) this holds the level rather than
+    /// causing decay.
+    func testGrowthAtTheWaterThresholdStallsWithoutAConnectedSupply() {
+        var map = CityMap(width: 6, height: 6)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 0, y: 0)].density = 2
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        // Still no pipes, no tower.
+
+        let next = CitySimulator.advance(map)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2)
+    }
+
+    /// The positive case: the same building, now with a real connected
+    /// water supply, clears the threshold and reaches level 3.
+    func testGrowthAtTheWaterThresholdSucceedsWithAConnectedSupply() {
+        var map = CityMap(width: 6, height: 6)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
+        map[GridPosition(x: 0, y: 0)].density = 2
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1)) // covers (3,1)-(4,2)
+        map[GridPosition(x: 2, y: 1)].zone = .pipe // one tile, touching both the residential's (1,1) and the tower's (3,1)
+        map.waterSupply = Water.computeSupply(for: map)
+
+        let next = CitySimulator.advance(map)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 3)
     }
 
     // MARK: - Transit as an alternate access

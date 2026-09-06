@@ -35,6 +35,18 @@ struct CityMap: Equatable, Codable, Sendable {
     /// zero congestion everywhere, same as an untouched road always has.
     var trafficLoad = TrafficLoad()
 
+    /// Which `.pipe` tiles are actually connected to a funded water
+    /// tower, as of the last time `Water.computeSupply(for:)` ran and
+    /// someone assigned the result here (`GameController.advanceSimulation()`
+    /// does this once per simulation tick, alongside `trafficLoad`). Same
+    /// reasoning as `trafficLoad`: `Water.hasSupply(at:in:)` and
+    /// `CitySimulator.advance` both read it, and a real pipe-network
+    /// search isn't cheap enough to redo per single-tile query. Defaults
+    /// to empty, so a fresh `CityMap` (or one built directly in a test,
+    /// never advanced) reports no water anywhere, same as an untouched
+    /// map has no traffic load anywhere.
+    var waterSupply = WaterSupply()
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width

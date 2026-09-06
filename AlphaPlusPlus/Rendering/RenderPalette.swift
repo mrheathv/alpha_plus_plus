@@ -62,6 +62,10 @@ enum RenderPalette {
             return SKColor(srgbRed: 0.26, green: 0.28, blue: 0.32, alpha: 1.0)  // darker, heavier-duty gray than plain road
         case .subway:
             return SKColor(srgbRed: 0.10, green: 0.42, blue: 0.58, alpha: 1.0)  // deep transit blue — same family as publicTransit's teal, richer
+        case .waterTower:
+            return SKColor(srgbRed: 0.20, green: 0.68, blue: 0.80, alpha: 1.0)  // aqua — distinct from every existing blue/teal
+        case .pipe:
+            return SKColor(srgbRed: 0.38, green: 0.55, blue: 0.58, alpha: 1.0)  // a muted, desaturated version of waterTower's aqua — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
         }
     }
 
@@ -119,6 +123,21 @@ enum RenderPalette {
         return trafficLow.blended(withFraction: fraction, of: trafficHigh) ?? trafficLow
     }
 
+    /// Color for the "Show Water" overlay — a plain two-color read, not a
+    /// gradient like land value/traffic: `Water.hasSupply(at:in:)` is
+    /// binary (a tile either has a connected pipe touching it or it
+    /// doesn't), so there's no in-between value to blend toward. Reuses
+    /// `waterTower`'s own aqua for "supplied" — the overlay and the
+    /// building that provides it should read as the same thing — against
+    /// a dim, desaturated version for "not supplied," the same "muted
+    /// version of the real color" relationship `.pipe` has to `.waterTower`.
+    private static let waterSupplied = SKColor(srgbRed: 0.20, green: 0.68, blue: 0.80, alpha: 1.0)
+    private static let waterUnsupplied = SKColor(srgbRed: 0.16, green: 0.20, blue: 0.21, alpha: 1.0)
+
+    static func waterColor(for hasSupply: Bool) -> SKColor {
+        hasSupply ? waterSupplied : waterUnsupplied
+    }
+
     /// Body and outline for the small ambient "cars" `GameScene` animates
     /// driving along road tiles (see `Traffic.carCount(forCongestion:)`).
     /// Pale, headlight-like body so they stand out against road's own gray.
@@ -145,6 +164,8 @@ enum RenderPalette {
         case .stadium: return "Stadium"
         case .highway: return "Highway"
         case .subway: return "Subway"
+        case .waterTower: return "Water Tower"
+        case .pipe: return "Pipe"
         }
     }
 }

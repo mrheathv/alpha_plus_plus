@@ -40,6 +40,17 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // same relationship `.publicTransit` already has with `.road`.
     case highway
     case subway
+    // The genre-parity "water & sewage" gap: unlike every access/coverage
+    // mechanic above (a single adjacency or falloff-distance check),
+    // water is a real network — a building needs an unbroken chain of
+    // `.pipe` tiles connecting it back to a `.waterTower`, checked via
+    // `Water.hasSupply(at:in:)` against `CityMap.waterSupply`, the same
+    // "cache a network search, don't redo it per tile" shape
+    // `Traffic.computeLoad` already uses for routed commutes. `.pipe` is
+    // deliberately *not* an access provider like `.road` — see
+    // `CitySimulator.hasAccess` — it carries water, not people or cars.
+    case pipe
+    case waterTower
 }
 
 extension ZoneType {
@@ -74,6 +85,12 @@ extension ZoneType {
         // upkeep — see `upkeepCost`), a bit under 3x a transit stop.
         case .highway: return 200
         case .subway: return 400
+        // A `.pipe` is priced below a road (simpler than paving a
+        // street). `.waterTower` sits in the same civic-building tier
+        // as Police/Fire, priced a bit under them — no staff, just
+        // pumps and a tank.
+        case .pipe: return 40
+        case .waterTower: return 700
         }
     }
 
@@ -85,7 +102,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .pipe, .waterTower: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -118,6 +135,11 @@ extension ZoneType {
         // stations, not just track) — priced above a bus stop's upkeep to
         // match its wider land-value reach (`LandValue.subwayFalloffDistance`).
         case .subway: return 15
+        // `.pipe` is still just infrastructure, same reasoning as
+        // `.highway`'s 0 — nothing to staff. `.waterTower` *is* a
+        // service, same tier as Police/Fire.
+        case .pipe: return 0
+        case .waterTower: return 20
         }
     }
 
@@ -131,8 +153,8 @@ extension ZoneType {
     /// everything built on it) doesn't care how big a zone is.
     var footprintSize: Int {
         switch self {
-        case .empty, .road, .publicTransit, .highway, .subway: return 1
-        case .residential, .commercial, .industrial, .policeStation, .fireStation: return 2
+        case .empty, .road, .publicTransit, .highway, .subway, .pipe: return 1
+        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower: return 2
         case .powerPlant, .stadium: return 3
         }
     }

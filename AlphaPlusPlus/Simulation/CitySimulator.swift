@@ -47,6 +47,9 @@ enum CitySimulator {
                 guard nextLevel <= tile.zone.maxDensity else { continue }
                 let bestLandValue = footprint.map { LandValue.value(at: $0, in: map) }.max() ?? 0
                 guard bestLandValue >= requiredLandValue(toReach: nextLevel) else { continue }
+                if nextLevel >= Self.waterRequiredFromLevel {
+                    guard footprint.contains(where: { Water.hasSupply(at: $0, in: map) }) else { continue }
+                }
                 for cell in footprint { next[cell].density = nextLevel }
             } else if tile.density > 0 {
                 let previousLevel = tile.density - 1
@@ -87,4 +90,16 @@ enum CitySimulator {
         default: return 0.8
         }
     }
+
+    /// Below this level, a zone only needs today's road access + land
+    /// value — a starter lot doesn't need city utilities yet. At this
+    /// level and above, it *additionally* needs a real, connected water
+    /// supply (`Water.hasSupply(at:in:)`), not just land value clearing
+    /// the bar `requiredLandValue(toReach:)` already sets. Same "one more
+    /// threshold, not a bolted-on second system" shape as the land-value
+    /// gate itself: losing water later doesn't cause decay, exactly like
+    /// insufficient land value doesn't — it just holds growth where it
+    /// is until the supply comes back. A first guess like every other
+    /// number in this file.
+    private static let waterRequiredFromLevel = 3
 }

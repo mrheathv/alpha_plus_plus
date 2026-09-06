@@ -559,4 +559,39 @@ final class GameControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.upkeepCost, ZoneType.subway.upkeepCost)
     }
+
+    // MARK: - Pipe and Water Tower placement
+
+    func testPlacingAPipeChargesItsOwnCostAndSetsTheZone() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        let startingTreasury = controller.treasury
+        controller.selectedTool = .pipe
+
+        controller.place(at: position)
+
+        XCTAssertEqual(controller.map[position].zone, .pipe)
+        XCTAssertEqual(controller.treasury, startingTreasury - ZoneType.pipe.placementCost)
+    }
+
+    /// `.pipe` costs money to place but nothing to keep running — same
+    /// reasoning as `.highway`, it's still just infrastructure.
+    func testPipeContributesNothingToUpkeepCost() {
+        let controller = GameController()
+        controller.selectedTool = .pipe
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        XCTAssertEqual(controller.upkeepCost, 0)
+    }
+
+    /// `.waterTower` *is* a service (like Police/Fire) — placing one
+    /// should show up in upkeep, funded at the default 100% until told
+    /// otherwise.
+    func testWaterTowerContributesItsUpkeepCostAtDefaultFunding() {
+        let controller = GameController()
+        controller.selectedTool = .waterTower
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        XCTAssertEqual(controller.upkeepCost, ZoneType.waterTower.upkeepCost)
+    }
 }

@@ -132,7 +132,7 @@ struct GameView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 260)
+            .frame(width: 320) // 4 segments now that Water joined Normal/Land Value/Traffic
 
             HStack(spacing: 6) {
                 Text("New city size:").foregroundStyle(.secondary)
@@ -171,7 +171,7 @@ struct GameView: View {
     /// to it — hard-coded rather than filtered from `ZoneType.allCases` at
     /// view-build time, since the set of fundable zones is exactly as fixed
     /// as `ServiceFunding`'s own five named fields.
-    private static let fundableZones: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .subway, .powerPlant, .stadium]
+    private static let fundableZones: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .subway, .powerPlant, .stadium, .waterTower]
 
     private var budgetRow: some View {
         HStack(spacing: 16) {

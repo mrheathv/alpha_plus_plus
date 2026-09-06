@@ -29,6 +29,12 @@ struct ServiceFunding: Equatable, Codable, Sendable {
     // `ZoneType.upkeepCost`), so it gets its own dial the same way; a
     // plain `.highway` doesn't — it's still just a road, not a service.
     var subway: Double = 1.0
+    // `.waterTower` is a service too, but `Water.computeSupply(for:)`
+    // only ever checks `level(for: .waterTower) > 0` — the network is
+    // either live or offline, no continuous strength dial the way a
+    // falloff-distance service gets (see that function's own doc comment
+    // for why). `.pipe` doesn't get one, same reasoning as `.highway`.
+    var waterTower: Double = 1.0
 
     /// How well-funded `zone` currently is. Never optional — every
     /// `ZoneType` has an answer, even the ones that can't be funded at all.
@@ -40,7 +46,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .powerPlant: return powerPlant
         case .stadium: return stadium
         case .subway: return subway
-        case .empty, .residential, .commercial, .industrial, .road, .highway: return 1.0
+        case .waterTower: return waterTower
+        case .empty, .residential, .commercial, .industrial, .road, .highway, .pipe: return 1.0
         }
     }
 
@@ -57,7 +64,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .powerPlant: powerPlant = level
         case .stadium: stadium = level
         case .subway: subway = level
-        case .empty, .residential, .commercial, .industrial, .road, .highway: break
+        case .waterTower: waterTower = level
+        case .empty, .residential, .commercial, .industrial, .road, .highway, .pipe: break
         }
     }
 }

@@ -23,7 +23,7 @@ final class ServiceFundingTests: XCTestCase {
 
     /// Every fundable service gets its own independent dial — setting one
     /// must never bleed into another.
-    func testAllSixFundableServicesTrackIndependently() {
+    func testAllSevenFundableServicesTrackIndependently() {
         var funding = ServiceFunding()
         funding.setLevel(0.5, for: .policeStation)
         funding.setLevel(0.75, for: .fireStation)
@@ -31,6 +31,7 @@ final class ServiceFundingTests: XCTestCase {
         funding.setLevel(1.5, for: .powerPlant)
         funding.setLevel(0.25, for: .stadium)
         funding.setLevel(0.6, for: .subway)
+        funding.setLevel(0.8, for: .waterTower)
 
         XCTAssertEqual(funding.level(for: .policeStation), 0.5)
         XCTAssertEqual(funding.level(for: .fireStation), 0.75)
@@ -38,13 +39,15 @@ final class ServiceFundingTests: XCTestCase {
         XCTAssertEqual(funding.level(for: .powerPlant), 1.5)
         XCTAssertEqual(funding.level(for: .stadium), 0.25)
         XCTAssertEqual(funding.level(for: .subway), 0.6)
+        XCTAssertEqual(funding.level(for: .waterTower), 0.8)
     }
 
-    /// Zoned land, roads, `.highway`, and `.empty` aren't fundable —
-    /// `setLevel` is a harmless no-op for them rather than trapping, so a
-    /// caller iterating every `ZoneType` doesn't need to filter down to the
-    /// fundable ones first. `.highway` specifically: it's a pricier road,
-    /// not a service — no staff to fund, same as plain `.road`.
+    /// Zoned land, roads, `.highway`, `.pipe`, and `.empty` aren't
+    /// fundable — `setLevel` is a harmless no-op for them rather than
+    /// trapping, so a caller iterating every `ZoneType` doesn't need to
+    /// filter down to the fundable ones first. `.highway`/`.pipe`
+    /// specifically: both are pricier infrastructure, not a service — no
+    /// staff to fund, same as plain `.road`.
     func testSetLevelIsANoOpForNonFundableZones() {
         var funding = ServiceFunding()
         funding.setLevel(0.1, for: .residential)
@@ -52,6 +55,7 @@ final class ServiceFundingTests: XCTestCase {
         funding.setLevel(0.1, for: .industrial)
         funding.setLevel(0.1, for: .road)
         funding.setLevel(0.1, for: .highway)
+        funding.setLevel(0.1, for: .pipe)
         funding.setLevel(0.1, for: .empty)
 
         for zone in ZoneType.allCases {

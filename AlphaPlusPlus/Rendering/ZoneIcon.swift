@@ -41,10 +41,11 @@ enum ZoneIcon {
     /// pattern, just another `variant(for:)` call and another function.
     static func makeNode(for zone: ZoneType, density: Int, seed: GridPosition) -> SKNode? {
         switch zone {
-        case .empty, .road, .highway:
-            // `.highway` gets no icon, same reasoning as plain `.road`: a
-            // flat (if darker) color already reads as an uninterrupted
-            // stretch of road — see `RenderPalette.fullColor(for:)`.
+        case .empty, .road, .highway, .pipe:
+            // `.highway`/`.pipe` get no icon, same reasoning as plain
+            // `.road`: a flat (if differently colored) fill already reads
+            // as an uninterrupted stretch of network — see
+            // `RenderPalette.fullColor(for:)`.
             return nil
         case .residential:
             switch growthTier(for: density) {
@@ -73,6 +74,7 @@ enum ZoneIcon {
         case .powerPlant: return powerPlantIcon()
         case .stadium: return stadiumIcon()
         case .subway: return subwayIcon()
+        case .waterTower: return waterTowerIcon()
         }
     }
 
@@ -612,6 +614,36 @@ enum ZoneIcon {
         for tieX in stride(from: CGFloat(-28), through: 28, by: 14) {
             container.addChild(detail(rect: CGRect(x: tieX - 1.5, y: railBottomY, width: 3, height: railTopY - railBottomY + 3), fill: outlineColor))
         }
+        return container
+    }
+
+    /// A water tower: an elevated tank on three splayed support legs — the
+    /// classic silhouette, built the same way the power plant's cooling
+    /// towers are (the shared `trapezoid` primitive), just narrow-to-narrow
+    /// rather than narrow-to-wide.
+    private static func waterTowerIcon() -> SKNode {
+        let tankRect = CGRect(x: -26, y: 6, width: 52, height: 34)
+        let tank = texturedShape(CGPath(roundedRect: tankRect, cornerWidth: 12, cornerHeight: 10, transform: nil), texture: wallGradient)
+
+        let container = SKNode()
+        container.addChild(withShadow([tank]))
+        container.addChild(edgeShading(for: tankRect))
+        container.addChild(detail(rect: CGRect(x: -26, y: 6, width: 52, height: 4), fill: darkAccent)) // support band at the tank's base
+
+        let leftLeg = shape(trapezoid(
+            bottomLeft: CGPoint(x: -34, y: -34), bottomRight: CGPoint(x: -28, y: -34),
+            topRight: CGPoint(x: -10, y: 6), topLeft: CGPoint(x: -16, y: 6)
+        ), fill: darkAccent)
+        let rightLeg = shape(trapezoid(
+            bottomLeft: CGPoint(x: 28, y: -34), bottomRight: CGPoint(x: 34, y: -34),
+            topRight: CGPoint(x: 16, y: 6), topLeft: CGPoint(x: 10, y: 6)
+        ), fill: darkAccent)
+        let centerLeg = shape(rect: CGRect(x: -3, y: -34, width: 6, height: 40), fill: darkAccent)
+        container.addChild(leftLeg)
+        container.addChild(rightLeg)
+        container.addChild(centerLeg)
+        container.addChild(detail(rect: CGRect(x: -24, y: -14, width: 48, height: 4), fill: outlineColor)) // cross-brace tying the legs together
+
         return container
     }
 

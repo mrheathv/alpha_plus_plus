@@ -258,6 +258,7 @@ final class GameController: ObservableObject {
         // copies both carry it forward automatically since it's just
         // another field on the struct they copy.
         map.trafficLoad = Traffic.computeLoad(for: map)
+        map.waterSupply = Water.computeSupply(for: map)
         let (hazarded, strikes) = CityHazards.apply(to: map, using: &rng)
         lastHazardStrikes = strikes
         map = CitySimulator.advance(hazarded)
