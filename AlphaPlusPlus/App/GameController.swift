@@ -41,6 +41,21 @@ final class GameController: ObservableObject {
 
     static let startingTreasury = 10_000
 
+    /// The player's own lever on `taxRevenue`, as a fraction of the default
+    /// rate: 1.0 is the rate every existing balance number was tuned
+    /// against (so a city nobody has touched behaves exactly as it did
+    /// before this existed), 0.5 halves tax income, 1.5 raises it by half.
+    /// A single city-wide rate rather than separate residential/commercial/
+    /// industrial rates — matching SimCity Classic's original mechanic
+    /// (later games split it further; this is the first rung of that
+    /// ladder, not the top of it). Real SimCity games also let a rate set
+    /// too high suppress growth or drive residents out — deliberately not
+    /// modeled yet, since that's a second mechanic (something like a
+    /// "happiness" feedback into `CitySimulator`) layered on top of "the
+    /// player can move this number," not a requirement for the lever to
+    /// exist at all.
+    @Published var taxRate: Double = 1.0
+
     /// Whether the simulation clock is running. `GameScene`'s per-frame
     /// `update(_:)` reads this to decide whether it's time to call
     /// `advanceSimulation()` again; it lives here rather than as private
@@ -206,8 +221,9 @@ final class GameController: ObservableObject {
     /// already has.
     func resetMap() {
         let size = selectedMapSize.dimension
-        map = CityMap(width: size, height: size)
+        map = CityMap(width: size, height: size) // a fresh CityMap's serviceFunding already defaults to 1.0 for everything
         treasury = Self.startingTreasury
+        taxRate = 1.0
         isRunning = false
         history.removeAll()
         lastHazardStrikes = []
@@ -277,7 +293,7 @@ final class GameController: ObservableObject {
     /// itself" mechanic is something you can see coming, not just notice
     /// after the fact when the number moves.
     var taxRevenue: Int {
-        population * Self.taxPerPopulation + jobs * Self.taxPerJob
+        Int(Double(population * Self.taxPerPopulation + jobs * Self.taxPerJob) * taxRate)
     }
 
     /// What every placed service/infrastructure building costs to run this
@@ -285,8 +301,35 @@ final class GameController: ObservableObject {
     /// Station costs the same to keep staffed whether the residential
     /// blocks around it are half-empty or fully grown. `ZoneType.upkeepCost`
     /// is 0 for zoned land and roads, so this only ever counts services.
+    ///
+    /// Each building's share is scaled by its own `fundingLevel(for:)` —
+    /// the same lever that weakens its coverage in `LandValue.falloffValue`
+    /// weakens what it costs to run, in the same direction: fund a station
+    /// at 50% and it's both cheaper and less effective, not just one or
+    /// the other.
     var upkeepCost: Int {
-        map.tiles.filter { $0.isBuildingAnchor }.reduce(0) { $0 + $1.zone.upkeepCost }
+        map.tiles.filter { $0.isBuildingAnchor }.reduce(0) { partial, tile in
+            let base = tile.zone.upkeepCost
+            guard base > 0 else { return partial }
+            return partial + Int(Double(base) * fundingLevel(for: tile.zone))
+        }
+    }
+
+    /// How well-funded `zone` currently is (1.0 = full funding). Reads
+    /// straight through to `map.serviceFunding`, which is where the
+    /// simulation itself (`LandValue.falloffValue`) reads it too — this
+    /// accessor exists so `GameView` doesn't need to know `CityMap` is
+    /// where funding state actually lives.
+    func fundingLevel(for zone: ZoneType) -> Double {
+        map.serviceFunding.level(for: zone)
+    }
+
+    /// Sets how well-funded `zone` is, city-wide — one dial per service
+    /// type (matching how the genre's own funding sliders work), not one
+    /// per individual building. A no-op for a non-fundable zone, via
+    /// `ServiceFunding.setLevel(_:for:)`.
+    func setFundingLevel(_ level: Double, for zone: ZoneType) {
+        map.serviceFunding.setLevel(level, for: zone)
     }
 
     /// What `advanceSimulation()` actually deposits (or withdraws) this

@@ -65,14 +65,19 @@ struct GameView: View {
 
     // MARK: - Toolbar
 
-    /// Two rows: zoning/simulation controls (what you're actively doing) on
-    /// top, view options and the stats readout (what you're watching) below.
+    /// Three rows: zoning/simulation controls (what you're actively doing)
+    /// on top, view options and the stats readout (what you're watching) in
+    /// the middle, budget levers (what you're paying for) on the bottom.
     /// One long row of ~14 controls plus three stats stopped being scannable
-    /// once transit, overlays, and map size all landed in the same pass.
+    /// once transit, overlays, and map size all landed in the same pass —
+    /// same reasoning applies now that the tax rate and five funding levels
+    /// need somewhere to live, rather than cramming them into a row that's
+    /// already dense.
     private var toolbar: some View {
         VStack(spacing: 8) {
             zoningRow
             viewAndStatsRow
+            budgetRow
         }
         .padding(8)
         .background(.bar)
@@ -155,6 +160,63 @@ struct GameView: View {
 
             statsReadout
         }
+    }
+
+    /// The two levers `GameController` exposes for "how well-funded is the
+    /// city" — one city-wide tax rate, plus one funding level per fundable
+    /// service. Every other zone (`.residential`/`.commercial`/`.industrial`/
+    /// `.road`/`.empty`) has nothing to show here: `ServiceFunding.level(for:)`
+    /// always reports 1.0 for them because funding isn't a concept that
+    /// applies, so this row only ever lists the five that actually respond
+    /// to it — hard-coded rather than filtered from `ZoneType.allCases` at
+    /// view-build time, since the set of fundable zones is exactly as fixed
+    /// as `ServiceFunding`'s own five named fields.
+    private static let fundableZones: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .powerPlant, .stadium]
+
+    private var budgetRow: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 4) {
+                Text("Tax Rate").foregroundStyle(.secondary)
+                Stepper(value: $controller.taxRate, in: 0.25 ... 2.0, step: 0.25) {
+                    Text(percentLabel(controller.taxRate)).monospacedDigit()
+                }
+            }
+
+            Divider().frame(height: 16)
+
+            Text("Funding:").foregroundStyle(.secondary)
+            ForEach(Self.fundableZones, id: \.self) { zone in
+                fundingControl(for: zone)
+            }
+
+            Spacer()
+        }
+        .font(.callout)
+    }
+
+    /// One `Stepper` per fundable service. Reads/writes through
+    /// `GameController.fundingLevel(for:)`/`setFundingLevel(_:for:)` rather
+    /// than binding to a `@Published` property directly — funding isn't
+    /// one flat property on the controller, it's per-zone state living on
+    /// `CityMap.serviceFunding` (see that type's own doc comment for why),
+    /// so this small hand-built `Binding` is the adapter between "SwiftUI
+    /// wants a single value to bind a control to" and "the real value is
+    /// keyed by which service this particular control is for."
+    private func fundingControl(for zone: ZoneType) -> some View {
+        let binding = Binding<Double>(
+            get: { controller.fundingLevel(for: zone) },
+            set: { controller.setFundingLevel($0, for: zone) }
+        )
+        return HStack(spacing: 4) {
+            Text(RenderPalette.displayName(for: zone))
+            Stepper(value: binding, in: 0.5 ... 1.5, step: 0.25) {
+                Text(percentLabel(binding.wrappedValue)).monospacedDigit()
+            }
+        }
+    }
+
+    private func percentLabel(_ level: Double) -> String {
+        "\(Int((level * 100).rounded()))%"
     }
 
     private var statsReadout: some View {

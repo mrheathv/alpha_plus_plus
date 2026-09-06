@@ -124,9 +124,20 @@ enum LandValue {
     /// `private`: `CityHazards` needs exactly this ("is *fire* coverage
     /// specifically low here?"), not the combined score `value(at:in:)`
     /// gives, where a nearby road could mask a complete lack of fire cover.
+    ///
+    /// Scaled by `map.serviceFunding.level(for: zone)` — this is the one
+    /// place underfunding a service actually does anything. A Police
+    /// Station funded at 50% projects half its usual land value *and*
+    /// (since `CityHazards.apply` reads coverage through this same
+    /// function) covers crime at half strength: one hook, both effects,
+    /// rather than two separate "funding matters here too" call sites to
+    /// keep in sync. `zone`s that aren't fundable report a funding level of
+    /// 1.0 (see `ServiceFunding.level(for:)`), so this is a no-op for
+    /// roads and every other non-service falloff.
     static func falloffValue(nearestZone zone: ZoneType, falloffDistance: Int, at position: GridPosition, in map: CityMap) -> Double {
         guard let distance = distanceToNearest(zone, from: position, in: map) else { return 0 }
-        return max(0, 1 - Double(distance) / Double(falloffDistance))
+        let base = max(0, 1 - Double(distance) / Double(falloffDistance))
+        return base * map.serviceFunding.level(for: zone)
     }
 
     private static func distanceToNearest(_ zone: ZoneType, from position: GridPosition, in map: CityMap) -> Int? {

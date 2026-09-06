@@ -435,4 +435,93 @@ final class GameControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.treasury, treasuryBeforeAdvance - ZoneType.policeStation.upkeepCost)
     }
+
+    // MARK: - Player-adjustable tax rate
+
+    func testDefaultTaxRateReproducesTheOriginalTaxFormulaExactly() {
+        let controller = GameController()
+        controller.selectedTool = .road
+        controller.place(at: GridPosition(x: 2, y: 0))
+        controller.selectedTool = .commercial
+        controller.place(at: GridPosition(x: 0, y: 0))
+        controller.advanceSimulation() // grows to density 1 -> 3 jobs
+
+        // Untouched, taxRate is 1.0: 3 jobs * $2 tax = $6, same as before
+        // this lever existed.
+        XCTAssertEqual(controller.taxRevenue, 6)
+    }
+
+    func testHalvingTheTaxRateHalvesTaxRevenue() {
+        let controller = GameController()
+        controller.selectedTool = .road
+        controller.place(at: GridPosition(x: 2, y: 0))
+        controller.selectedTool = .commercial
+        controller.place(at: GridPosition(x: 0, y: 0))
+        controller.advanceSimulation() // 3 jobs, $6 at full rate
+
+        controller.taxRate = 0.5
+
+        XCTAssertEqual(controller.taxRevenue, 3)
+    }
+
+    func testRaisingTheTaxRateAboveOneIncreasesRevenue() {
+        let controller = GameController()
+        controller.selectedTool = .road
+        controller.place(at: GridPosition(x: 2, y: 0))
+        controller.selectedTool = .commercial
+        controller.place(at: GridPosition(x: 0, y: 0))
+        controller.advanceSimulation() // 3 jobs, $6 at full rate
+
+        controller.taxRate = 1.5
+
+        XCTAssertEqual(controller.taxRevenue, 9)
+    }
+
+    func testResetMapRestoresTheTaxRateToDefault() {
+        let controller = GameController()
+        controller.taxRate = 0.5
+
+        controller.resetMap()
+
+        XCTAssertEqual(controller.taxRate, 1.0)
+    }
+
+    // MARK: - Per-service funding control
+
+    func testFundingLevelDefaultsToFullForEveryService() {
+        let controller = GameController()
+        XCTAssertEqual(controller.fundingLevel(for: .policeStation), 1.0)
+        XCTAssertEqual(controller.fundingLevel(for: .fireStation), 1.0)
+    }
+
+    func testSetFundingLevelIsReflectedByFundingLevel() {
+        let controller = GameController()
+        controller.setFundingLevel(0.5, for: .fireStation)
+
+        XCTAssertEqual(controller.fundingLevel(for: .fireStation), 0.5)
+        XCTAssertEqual(controller.fundingLevel(for: .policeStation), 1.0) // untouched
+    }
+
+    /// The other half of "cheaper and less effective": underfunding a
+    /// service must lower what it costs to run, not just weaken its
+    /// coverage (that side is `LandValueTests`' job).
+    func testUnderfundingAServiceLowersItsUpkeepCost() {
+        let controller = GameController()
+        controller.selectedTool = .policeStation
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        controller.setFundingLevel(0.5, for: .policeStation)
+
+        XCTAssertEqual(controller.upkeepCost, ZoneType.policeStation.upkeepCost / 2)
+    }
+
+    func testOverfundingAServiceRaisesItsUpkeepCostAboveTheBaseline() {
+        let controller = GameController()
+        controller.selectedTool = .fireStation
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        controller.setFundingLevel(1.5, for: .fireStation)
+
+        XCTAssertEqual(controller.upkeepCost, Int(Double(ZoneType.fireStation.upkeepCost) * 1.5))
+    }
 }

@@ -41,6 +41,54 @@ final class LandValueTests: XCTestCase {
         XCTAssertEqual(LandValue.value(at: GridPosition(x: 5, y: 0), in: map), 0.75, accuracy: 0.0001)
     }
 
+    // MARK: - Service funding scales coverage strength
+
+    /// The one place underfunding a service actually does anything: a
+    /// station funded at half strength should project half its usual land
+    /// value, not the same falloff a fully-funded station gives.
+    func testUnderfundedServiceProjectsProportionallyLessLandValue() {
+        var map = CityMap(width: 20, height: 20)
+        map[GridPosition(x: 10, y: 10)].zone = .fireStation
+        map.serviceFunding.setLevel(0.5, for: .fireStation)
+
+        // Fully funded, distance 4 on an 8-tile falloff would be 0.5; at
+        // half funding it should be half of that.
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 14, y: 10), in: map), 0.25, accuracy: 0.0001)
+    }
+
+    /// Funding above 1.0 is a real lever too, not clamped — a station
+    /// funded above the norm should out-project its usual falloff.
+    func testOverfundedServiceProjectsProportionallyMoreLandValue() {
+        var map = CityMap(width: 20, height: 20)
+        map[GridPosition(x: 10, y: 10)].zone = .policeStation
+        map.serviceFunding.setLevel(1.5, for: .policeStation)
+
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 10, y: 10), in: map), 1.5, accuracy: 0.0001)
+    }
+
+    /// Funding is per-service: underfunding Fire must never touch Police's
+    /// contribution, even measured at the exact same tile.
+    func testFundingOneServiceDoesNotAffectAnother() {
+        var map = CityMap(width: 20, height: 20)
+        let position = GridPosition(x: 10, y: 10)
+        map[position].zone = .policeStation
+        map.serviceFunding.setLevel(0.2, for: .fireStation) // unrelated service, starved
+
+        XCTAssertEqual(LandValue.value(at: position, in: map), 1.0, accuracy: 0.0001)
+    }
+
+    /// Road frontage isn't a fundable service — `ServiceFunding.level(for:)`
+    /// always reports 1.0 for `.road` — so it must stay unaffected no
+    /// matter how every actual service is funded.
+    func testRoadValueIsUnaffectedByServiceFundingLevels() {
+        var map = CityMap(width: 20, height: 20)
+        map[GridPosition(x: 0, y: 0)].zone = .road
+        map.serviceFunding.setLevel(0.1, for: .policeStation)
+        map.serviceFunding.setLevel(0.1, for: .fireStation)
+
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 1, y: 0), in: map), 0.75, accuracy: 0.0001)
+    }
+
     // MARK: - Congestion dampens road value, but not enough to defeat growth
 
     /// Caught by hands-on testing, not a unit test: a zone with only bare

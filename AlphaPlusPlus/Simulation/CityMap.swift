@@ -14,6 +14,13 @@ struct CityMap: Equatable, Codable, Sendable {
     let height: Int
     private(set) var tiles: [Tile]
 
+    /// How well-funded each service currently is — city configuration the
+    /// simulation itself reads (`LandValue.falloffValue`), not just a UI
+    /// setting layered on top. Defaults to full funding for everything, so
+    /// a `CityMap` nobody has touched behaves exactly as it did before this
+    /// existed.
+    var serviceFunding = ServiceFunding()
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width
