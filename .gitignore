@@ -1,0 +1,41 @@
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# ---- Xcode: user-specific state ----
+# Window layout, breakpoints, per-user schemes. Never share these.
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xcscmblueprint
+*.xccheckout
+
+# ---- Xcode: build output ----
+# DerivedData is Xcode's build cache. It is fully regenerated from source,
+# and it is large. It must never be committed.
+DerivedData/
+build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ---- Swift Package Manager ----
+.build/
+.swiftpm/
+Packages/
+# (Package.resolved is intentionally NOT ignored: for an app you want dependency
+#  versions pinned in source control. We have no dependencies yet.)
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+
+# ---- Playgrounds ----
+timeline.xctimeline
+playground.xcworkspace
+
+# ---- Misc tooling ----
+*.log
+.netrc
