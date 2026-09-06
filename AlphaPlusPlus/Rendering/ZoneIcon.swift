@@ -33,7 +33,13 @@ enum ZoneIcon {
     /// and for a growable zone at density 0 (just zoned, nothing built yet;
     /// the icon appearing at all is itself part of the signal that
     /// something now stands here).
-    static func makeNode(for zone: ZoneType, density: Int) -> SKNode? {
+    ///
+    /// `seed` — a building's anchor position — picks which *variant* a tier
+    /// with more than one draws (currently tier 1 of the three growable
+    /// zones, via `variant(for:optionCount:)`). Every other tier still
+    /// draws exactly one look; adding a second variant there is the same
+    /// pattern, just another `variant(for:)` call and another function.
+    static func makeNode(for zone: ZoneType, density: Int, seed: GridPosition) -> SKNode? {
         switch zone {
         case .empty, .road, .highway:
             // `.highway` gets no icon, same reasoning as plain `.road`: a
@@ -43,21 +49,21 @@ enum ZoneIcon {
         case .residential:
             switch growthTier(for: density) {
             case 0: return nil
-            case 1: return smallHouseIcon()
+            case 1: return variant(for: seed, optionCount: 2) == 0 ? smallHouseIcon() : smallCottageIcon()
             case 2: return mediumHouseIcon()
             default: return largeHousingIcon()
             }
         case .commercial:
             switch growthTier(for: density) {
             case 0: return nil
-            case 1: return smallShopIcon()
+            case 1: return variant(for: seed, optionCount: 2) == 0 ? smallShopIcon() : smallDinerIcon()
             case 2: return midriseOfficeIcon()
             default: return towerIcon()
             }
         case .industrial:
             switch growthTier(for: density) {
             case 0: return nil
-            case 1: return smallWarehouseIcon()
+            case 1: return variant(for: seed, optionCount: 2) == 0 ? smallWarehouseIcon() : smallDepotIcon()
             case 2: return factoryIcon()
             default: return bigFactoryIcon()
             }
@@ -68,6 +74,18 @@ enum ZoneIcon {
         case .stadium: return stadiumIcon()
         case .subway: return subwayIcon()
         }
+    }
+
+    /// Which of `optionCount` visual variants a building at `seed` (its
+    /// anchor position) should draw — deterministic and stable across
+    /// ticks and app launches, unlike `GridPosition`'s own `Hashable`
+    /// conformance, which Swift deliberately randomizes per process launch
+    /// (fine for dictionary buckets, wrong for "this exact lot always
+    /// looks the same"). A simple mix of `x`/`y`, not a real hash function
+    /// — this only ever needs to pick between 2-3 options, not distribute
+    /// uniformly across a huge space.
+    private static func variant(for seed: GridPosition, optionCount: Int) -> Int {
+        abs(seed.x &* 31 &+ seed.y) % optionCount
     }
 
     /// Which visual tier a growable zone's density falls into: 0 (nothing
@@ -124,6 +142,84 @@ enum ZoneIcon {
 
     private static func shape(rect: CGRect, fill: SKColor = wallColor, stroke: SKColor = outlineColor, lineWidth: CGFloat = 2) -> SKShapeNode {
         shape(CGPath(rect: rect, transform: nil), fill: fill, stroke: stroke, lineWidth: lineWidth)
+    }
+
+    // MARK: - Gradient fills
+
+    /// A real top-to-bottom gradient, not the flat-fill-plus-two-strips
+    /// stand-in `edgeShading` uses — the single biggest lever for "this
+    /// looks more like real art," since it's the main body of every
+    /// building. `SKShapeNode` can't fill with a gradient directly, but it
+    /// *can* fill with a texture — a tiny (4x64) bitmap rendered once with
+    /// Core Graphics' own gradient support and reused via `SKTexture`,
+    /// stretched to whatever rect or path it's applied to. Computed a
+    /// handful of times total (one per named `static let` gradient below),
+    /// never per-node, so hundreds of buildings on screen share the same
+    /// few cached textures rather than each rendering its own.
+    private static func gradientTexture(top: SKColor, bottom: SKColor) -> SKTexture {
+        let width = 4
+        let height = 64
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return SKTexture() }
+
+        let colors = [top.cgColor, bottom.cgColor] as CFArray
+        guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: [0, 1]),
+              let image = { () -> CGImage? in
+                  // Core Graphics' bitmap origin is the bottom-left, same as
+                  // SpriteKit's own coordinate space -- drawing from
+                  // `height` down to `0` puts `top` at the visually higher
+                  // end in both, with no flip to get wrong.
+                  context.drawLinearGradient(
+                      gradient,
+                      start: CGPoint(x: CGFloat(width) / 2, y: CGFloat(height)),
+                      end: CGPoint(x: CGFloat(width) / 2, y: 0),
+                      options: []
+                  )
+                  return context.makeImage()
+              }()
+        else { return SKTexture() }
+        return SKTexture(cgImage: image)
+    }
+
+    private static func lighter(_ color: SKColor, by fraction: CGFloat) -> SKColor {
+        color.blended(withFraction: fraction, of: .white) ?? color
+    }
+
+    private static func darker(_ color: SKColor, by fraction: CGFloat) -> SKColor {
+        color.blended(withFraction: fraction, of: .black) ?? color
+    }
+
+    /// Every building's wall gradient — light at the top, a bit darker at
+    /// the bottom, same "lit from above" logic `edgeShading` already used,
+    /// now smooth instead of two hard-edged strips.
+    private static let wallGradient = gradientTexture(top: lighter(wallColor, by: 0.5), bottom: darker(wallColor, by: 0.12))
+
+    /// Residential roofs get their own gradient in `roofColor`'s own hue,
+    /// rather than reusing `wallGradient` tinted — a flat `fillColor` tint
+    /// on top of a neutral gradient texture would multiply, not replace,
+    /// so a colored roof needs a gradient rendered in its own color from
+    /// the start.
+    private static let roofGradient = gradientTexture(top: lighter(roofColor, by: 0.35), bottom: darker(roofColor, by: 0.15))
+
+    /// A shape whose fill is a gradient texture rather than a flat color.
+    /// `fillColor` still has to be set (to white) even though a texture is
+    /// doing the actual coloring — `SKShapeNode` tints `fillTexture` by
+    /// `fillColor`, and white is the identity tint (shows the texture
+    /// exactly as rendered).
+    private static func texturedShape(_ path: CGPath, texture: SKTexture, stroke: SKColor = outlineColor, lineWidth: CGFloat = 2) -> SKShapeNode {
+        let node = SKShapeNode(path: path)
+        node.fillTexture = texture
+        node.fillColor = .white
+        node.strokeColor = stroke
+        node.lineWidth = lineWidth
+        return node
+    }
+
+    private static func texturedShape(rect: CGRect, texture: SKTexture, stroke: SKColor = outlineColor, lineWidth: CGFloat = 2) -> SKShapeNode {
+        texturedShape(CGPath(rect: rect, transform: nil), texture: texture, stroke: stroke, lineWidth: lineWidth)
     }
 
     /// A rect with no outline — used for window/accent details layered on
@@ -244,8 +340,8 @@ enum ZoneIcon {
     /// one door.
     private static func smallHouseIcon() -> SKNode {
         let bodyRect = CGRect(x: -24, y: -30, width: 48, height: 28)
-        let body = shape(rect: bodyRect)
-        let roof = shape(peakedRoofPath(left: -28, right: 28, base: -2, peak: CGPoint(x: 0, y: 26)), fill: roofColor)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
+        let roof = texturedShape(peakedRoofPath(left: -28, right: 28, base: -2, peak: CGPoint(x: 0, y: 26)), texture: roofGradient)
 
         let container = SKNode()
         container.addChild(withShadow([body, roof]))
@@ -254,11 +350,28 @@ enum ZoneIcon {
         return container
     }
 
+    /// Tier 1, variant B: a cottage with a chimney and a round window
+    /// instead of a plain door — same footprint and proportions as
+    /// `smallHouseIcon`, different enough silhouette that two freshly-grown
+    /// lots picked by `variant(for:optionCount:)` don't look identical.
+    private static func smallCottageIcon() -> SKNode {
+        let bodyRect = CGRect(x: -24, y: -30, width: 48, height: 28)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
+        let roof = texturedShape(peakedRoofPath(left: -28, right: 28, base: -2, peak: CGPoint(x: 0, y: 26)), texture: roofGradient)
+        let chimney = shape(rect: CGRect(x: 12, y: 12, width: 8, height: 18), fill: darkAccent)
+
+        let container = SKNode()
+        container.addChild(withShadow([body, roof, chimney]))
+        container.addChild(edgeShading(for: bodyRect))
+        container.addChild(dot(radius: 6, at: CGPoint(x: -6, y: -16), fill: glassColor))
+        return container
+    }
+
     /// Tier 2 (density 3–4): a taller two-story house with upstairs windows.
     private static func mediumHouseIcon() -> SKNode {
         let bodyRect = CGRect(x: -26, y: -32, width: 52, height: 42)
-        let body = shape(rect: bodyRect)
-        let roof = shape(peakedRoofPath(left: -30, right: 30, base: 10, peak: CGPoint(x: 0, y: 32)), fill: roofColor)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
+        let roof = texturedShape(peakedRoofPath(left: -30, right: 30, base: 10, peak: CGPoint(x: 0, y: 32)), texture: roofGradient)
 
         let container = SKNode()
         container.addChild(withShadow([body, roof]))
@@ -273,12 +386,12 @@ enum ZoneIcon {
     /// clearest "this lot is built out" silhouette of the three tiers.
     private static func largeHousingIcon() -> SKNode {
         let leftBodyRect = CGRect(x: -42, y: -30, width: 32, height: 30)
-        let leftBody = shape(rect: leftBodyRect)
-        let leftRoof = shape(peakedRoofPath(left: -44, right: -8, base: 0, peak: CGPoint(x: -26, y: 20)), fill: roofColor)
+        let leftBody = texturedShape(rect: leftBodyRect, texture: wallGradient)
+        let leftRoof = texturedShape(peakedRoofPath(left: -44, right: -8, base: 0, peak: CGPoint(x: -26, y: 20)), texture: roofGradient)
 
         let rightBodyRect = CGRect(x: 6, y: -30, width: 36, height: 36)
-        let rightBody = shape(rect: rightBodyRect)
-        let rightRoof = shape(peakedRoofPath(left: 4, right: 44, base: 6, peak: CGPoint(x: 24, y: 28)), fill: roofColor)
+        let rightBody = texturedShape(rect: rightBodyRect, texture: wallGradient)
+        let rightRoof = texturedShape(peakedRoofPath(left: 4, right: 44, base: 6, peak: CGPoint(x: 24, y: 28)), texture: roofGradient)
 
         let container = SKNode()
         container.addChild(withShadow([leftBody, leftRoof, rightBody, rightRoof]))
@@ -295,7 +408,7 @@ enum ZoneIcon {
     /// Tier 1: a single-story storefront with an awning and a display window.
     private static func smallShopIcon() -> SKNode {
         let bodyRect = CGRect(x: -28, y: -28, width: 56, height: 32)
-        let body = shape(rect: bodyRect)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
         let awning = shape(rect: CGRect(x: -30, y: 4, width: 60, height: 8), fill: outlineColor, stroke: .clear)
 
         let container = SKNode()
@@ -305,11 +418,26 @@ enum ZoneIcon {
         return container
     }
 
+    /// Tier 1, variant B: a diner-style storefront with a sign on a pole
+    /// instead of an awning — same body proportions as `smallShopIcon`.
+    private static func smallDinerIcon() -> SKNode {
+        let bodyRect = CGRect(x: -28, y: -28, width: 56, height: 30)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
+        let signPole = shape(rect: CGRect(x: -2, y: 2, width: 4, height: 14), fill: darkAccent)
+        let sign = shape(rect: CGRect(x: -16, y: 16, width: 32, height: 10), fill: emberColor, stroke: .clear)
+
+        let container = SKNode()
+        container.addChild(withShadow([body, signPole, sign]))
+        container.addChild(edgeShading(for: bodyRect))
+        container.addChild(detail(rect: CGRect(x: -22, y: -22, width: 44, height: 18), fill: glassColor))
+        return container
+    }
+
     /// Tier 2: a mid-rise office — taller body, a grid of windows, a flat
     /// roof cap.
     private static func midriseOfficeIcon() -> SKNode {
         let bodyRect = CGRect(x: -26, y: -30, width: 52, height: 50)
-        let body = shape(rect: bodyRect)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
         let roofCap = shape(rect: CGRect(x: -28, y: 20, width: 56, height: 6), fill: outlineColor, stroke: .clear)
 
         let container = SKNode()
@@ -328,7 +456,7 @@ enum ZoneIcon {
     /// a rooftop antenna.
     private static func towerIcon() -> SKNode {
         let bodyRect = CGRect(x: -20, y: -34, width: 40, height: 66)
-        let body = shape(rect: bodyRect)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
         let antenna = shape(rect: CGRect(x: -2, y: 32, width: 4, height: 16), fill: outlineColor)
 
         let container = SKNode()
@@ -348,7 +476,7 @@ enum ZoneIcon {
     /// Tier 1: a plain low warehouse with a garage door.
     private static func smallWarehouseIcon() -> SKNode {
         let bodyRect = CGRect(x: -32, y: -28, width: 64, height: 26)
-        let body = shape(rect: bodyRect)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
 
         let container = SKNode()
         container.addChild(withShadow([body]))
@@ -357,11 +485,25 @@ enum ZoneIcon {
         return container
     }
 
+    /// Tier 1, variant B: a loading depot — a wide low dock door instead of
+    /// a centered garage door, same body proportions as `smallWarehouseIcon`.
+    private static func smallDepotIcon() -> SKNode {
+        let bodyRect = CGRect(x: -32, y: -28, width: 64, height: 26)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
+
+        let container = SKNode()
+        container.addChild(withShadow([body]))
+        container.addChild(edgeShading(for: bodyRect))
+        container.addChild(detail(rect: CGRect(x: -32, y: -28, width: 22, height: 14), fill: darkAccent))
+        container.addChild(detail(rect: CGRect(x: 6, y: -28, width: 22, height: 14), fill: darkAccent))
+        return container
+    }
+
     /// Tier 2: a warehouse that's started producing something — one
     /// smokestack, one puff of smoke.
     private static func factoryIcon() -> SKNode {
         let bodyRect = CGRect(x: -30, y: -28, width: 60, height: 28)
-        let body = shape(rect: bodyRect)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
         let stack = shape(rect: CGRect(x: 6, y: 0, width: 12, height: 26), fill: darkAccent)
 
         let container = SKNode()
@@ -375,7 +517,7 @@ enum ZoneIcon {
     /// heights, more smoke.
     private static func bigFactoryIcon() -> SKNode {
         let bodyRect = CGRect(x: -38, y: -30, width: 76, height: 28)
-        let body = shape(rect: bodyRect)
+        let body = texturedShape(rect: bodyRect, texture: wallGradient)
         let shortStack = shape(rect: CGRect(x: -22, y: -2, width: 12, height: 22), fill: darkAccent)
         let tallStack = shape(rect: CGRect(x: 6, y: -2, width: 12, height: 32), fill: darkAccent)
 
@@ -398,7 +540,7 @@ enum ZoneIcon {
         path.addLine(to: CGPoint(x: 0, y: -32))
         path.addLine(to: CGPoint(x: -24, y: -6))
         path.closeSubpath()
-        let badge = shape(path)
+        let badge = texturedShape(path, texture: wallGradient)
 
         let container = SKNode()
         container.addChild(withShadow([badge]))
@@ -412,7 +554,7 @@ enum ZoneIcon {
     /// ember-colored flame nested inside for a two-tone look, and its own
     /// drop shadow like every other icon.
     private static func torchIcon() -> SKNode {
-        let outerFlame = shape(flamePath(scale: 1.0))
+        let outerFlame = texturedShape(flamePath(scale: 1.0), texture: wallGradient)
         let container = SKNode()
         container.addChild(withShadow([outerFlame]))
         let inner = shape(flamePath(scale: 0.55), fill: emberColor, stroke: .clear)
@@ -438,7 +580,7 @@ enum ZoneIcon {
     /// A bus: rounded body, a windshield band, two wheels.
     private static func transitIcon() -> SKNode {
         let bodyRect = CGRect(x: -30, y: -14, width: 60, height: 28)
-        let body = shape(CGPath(roundedRect: bodyRect, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        let body = texturedShape(CGPath(roundedRect: bodyRect, cornerWidth: 8, cornerHeight: 8, transform: nil), texture: wallGradient)
 
         let container = SKNode()
         container.addChild(withShadow([body]))
@@ -454,7 +596,7 @@ enum ZoneIcon {
     /// the way a second bus wouldn't distinguish itself from the first.
     private static func subwayIcon() -> SKNode {
         let kioskRect = CGRect(x: -22, y: -2, width: 44, height: 32)
-        let kiosk = shape(CGPath(roundedRect: kioskRect, cornerWidth: 10, cornerHeight: 10, transform: nil))
+        let kiosk = texturedShape(CGPath(roundedRect: kioskRect, cornerWidth: 10, cornerHeight: 10, transform: nil), texture: wallGradient)
 
         let container = SKNode()
         container.addChild(withShadow([kiosk]))
@@ -477,7 +619,7 @@ enum ZoneIcon {
     /// trapezoidal cooling towers of different heights.
     private static func powerPlantIcon() -> SKNode {
         let baseRect = CGRect(x: -38, y: -34, width: 76, height: 24)
-        let base = shape(rect: baseRect)
+        let base = texturedShape(rect: baseRect, texture: wallGradient)
         let towerA = shape(trapezoid(
             bottomLeft: CGPoint(x: -24, y: -4), bottomRight: CGPoint(x: -6, y: -4),
             topRight: CGPoint(x: -9, y: 24), topLeft: CGPoint(x: -21, y: 24)

@@ -25,7 +25,7 @@ struct TileRenderer {
         // SpriteKit debugger, which is handy while grayboxing).
         node.name = Self.nodeName(for: tile.position)
         syncPips(on: node, count: tile.density)
-        syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: footprintSize)
+        syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: footprintSize, seed: tile.position)
         return node
     }
 
@@ -41,7 +41,7 @@ struct TileRenderer {
     func update(_ node: SKSpriteNode, for tile: Tile) {
         node.color = RenderPalette.color(for: tile.zone, density: tile.density)
         syncPips(on: node, count: tile.density)
-        syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: tile.zone.footprintSize)
+        syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: tile.zone.footprintSize, seed: tile.position)
     }
 
     static func nodeName(for position: GridPosition) -> String {
@@ -102,9 +102,14 @@ struct TileRenderer {
     /// authors every shape in a fixed `ZoneIcon.designSize`-point square, so
     /// scaling it to fit this specific node — whatever its actual
     /// `footprintSize` — is one division, not a per-icon concern.
-    func syncIcon(on node: SKSpriteNode, zone: ZoneType, density: Int, footprintSize: Int) {
+    /// `seed` (a building's anchor position) picks which visual *variant*
+    /// `ZoneIcon` draws when a tier has more than one — deterministic per
+    /// building, so the same lot always renders the same look tick to
+    /// tick, but two different lots at the same growth tier don't have to
+    /// look pixel-identical.
+    func syncIcon(on node: SKSpriteNode, zone: ZoneType, density: Int, footprintSize: Int, seed: GridPosition) {
         node.children.filter { $0.name == Self.iconNodeName }.forEach { $0.removeFromParent() }
-        guard let icon = ZoneIcon.makeNode(for: zone, density: density) else { return }
+        guard let icon = ZoneIcon.makeNode(for: zone, density: density, seed: seed) else { return }
         icon.name = Self.iconNodeName
         // A small margin so the icon doesn't touch the tile's own edges,
         // leaving a sliver of the base color visible as a border.
