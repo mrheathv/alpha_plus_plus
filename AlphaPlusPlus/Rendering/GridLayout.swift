@@ -38,6 +38,27 @@ struct GridLayout {
         )
     }
 
+    /// How big to draw the one sprite that represents an entire N×N
+    /// building — `size` copies of `tileSize`, minus the same visual gutter
+    /// `spriteSize` uses, so a footprint-2 building's edge lines up with the
+    /// grid exactly the way a single tile's does. `spriteSize` itself is
+    /// just this with `size == 1`.
+    func spriteSize(forFootprint size: Int) -> CGSize {
+        CGSize(width: CGFloat(size) * tileSize - gap, height: CGFloat(size) * tileSize - gap)
+    }
+
+    /// Center point of an N×N building anchored at `origin` (its minimum-x,
+    /// minimum-y corner), in scene coordinates. Generalizes `point(for:)`
+    /// exactly: at `size == 1` this is `(origin.x + 0.5) * tileSize`, the
+    /// same expression `point(for:)` uses, since a 1×1 building's center is
+    /// just its one tile's center.
+    func centerPoint(ofFootprintOrigin origin: GridPosition, size: Int) -> CGPoint {
+        CGPoint(
+            x: (CGFloat(origin.x) + CGFloat(size) / 2) * tileSize,
+            y: (CGFloat(origin.y) + CGFloat(size) / 2) * tileSize
+        )
+    }
+
     /// Inverse of `point(for:)`: which tile contains this scene point?
     /// Returns `nil` if the point falls outside the map. Unused until we add
     /// click-to-place, but it belongs here with its counterpart.

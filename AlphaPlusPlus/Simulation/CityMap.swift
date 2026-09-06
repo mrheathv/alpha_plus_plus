@@ -45,4 +45,49 @@ struct CityMap: Equatable, Codable, Sendable {
             tiles[index(of: position)] = newValue
         }
     }
+
+    /// Every position in the `size`×`size` block anchored at `origin`
+    /// (extending toward +x/+y), or `[]` if *any* cell of that block would
+    /// fall outside the map.
+    ///
+    /// All-or-nothing on purpose: a building either fits entirely or it
+    /// doesn't get placed at all — there's no such thing as a building
+    /// clipped at the map edge. Callers (`GameController.place(at:)`,
+    /// `bulldoze(at:)`, and every footprint-aware loop in `CitySimulator`/
+    /// `CityHazards`) can treat an empty result as "invalid" without a
+    /// separate bounds check.
+    func footprintCells(origin: GridPosition, size: Int) -> [GridPosition] {
+        var cells: [GridPosition] = []
+        cells.reserveCapacity(size * size)
+        for dx in 0 ..< size {
+            for dy in 0 ..< size {
+                let cell = GridPosition(x: origin.x + dx, y: origin.y + dy)
+                guard contains(cell) else { return [] }
+                cells.append(cell)
+            }
+        }
+        return cells
+    }
+
+    /// Stamp `zone` across every cell of the footprint anchored at `origin`
+    /// (via `footprintCells(origin:size:)`, using `zone.footprintSize`),
+    /// each cell's `buildingOrigin` pointing back to `origin`. This is the
+    /// one place that writes a *whole* building's worth of tiles at once —
+    /// `GameController.place(at:)` uses it for real placement, and tests
+    /// use it to build well-formed multi-tile fixtures instead of poking
+    /// `map[position].zone = ...` one cell at a time, which for anything
+    /// wider than 1×1 would leave the other cells of the footprint
+    /// inconsistent with it (wrong zone, `buildingOrigin` still pointing at
+    /// themselves instead of `origin`).
+    ///
+    /// Doesn't validate bounds or occupancy itself — callers are expected
+    /// to have already decided the placement is legal (a footprint that
+    /// doesn't fit yields `[]` from `footprintCells` and this becomes a
+    /// silent no-op, same "let the caller check first" contract the
+    /// subscript above documents).
+    mutating func placeBuilding(zone: ZoneType, origin: GridPosition) {
+        for cell in footprintCells(origin: origin, size: zone.footprintSize) {
+            self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin)
+        }
+    }
 }

@@ -9,14 +9,48 @@ import Foundation
 ///      save/load later and for tests now ("after this step, is the map equal
 ///      to what I expect?").
 ///
-/// Intentionally minimal for Phase 1. Population, land value, density and
-/// service coverage are Phase 2 fields.
+/// Was minimal in Phase 1 (just position + zone). Phase 2 keeps adding the
+/// fields that make a zone something real: `density` first, then land value/
+/// service coverage (computed, not stored — see `LandValue`), and now
+/// `buildingOrigin` for zones that span more than one cell.
 struct Tile: Equatable, Codable, Sendable {
     var position: GridPosition
     var zone: ZoneType
 
-    init(position: GridPosition, zone: ZoneType = .empty) {
+    /// How developed this tile is: 0 (just zoned, nothing built) up to
+    /// `zone.maxDensity` (fully developed). Meaningless for `.empty`/`.road`
+    /// tiles, which stay at 0 since their `maxDensity` is 0.
+    ///
+    /// Lives on `Tile` rather than being derived/stored elsewhere because
+    /// it's per-tile state that persists independently of *why* it grew —
+    /// same reason `zone` is stored here instead of computed.
+    var density: Int
+
+    /// The position of this tile's building's *anchor* — its minimum-x,
+    /// minimum-y corner. For a plain 1×1 tile (a road, an empty cell, or
+    /// any zone with `footprintSize == 1`), that's always its own
+    /// `position`: a single tile is its own one-cell footprint, not a
+    /// special case of "no footprint."
+    ///
+    /// Defaulting every tile to `buildingOrigin == position` — rather than
+    /// making this `GridPosition?` and using `nil` for "not part of a
+    /// bigger building" — means `isBuildingAnchor` and every piece of
+    /// simulation/rendering code built on it never has to branch on
+    /// "is this even a multi-tile zone?" before asking "which building does
+    /// this cell belong to?" The answer is always this field, unconditionally.
+    var buildingOrigin: GridPosition
+
+    /// Is this tile the anchor of whatever building it belongs to? True for
+    /// every 1×1 tile (trivially — it's its own one-cell footprint) and for
+    /// the one corner of a bigger building that `GameController.place(at:)`
+    /// stamped as its origin. `GameScene` uses this to decide which cells
+    /// get a visible sprite: one per building, not one per cell.
+    var isBuildingAnchor: Bool { buildingOrigin == position }
+
+    init(position: GridPosition, zone: ZoneType = .empty, density: Int = 0, buildingOrigin: GridPosition? = nil) {
         self.position = position
         self.zone = zone
+        self.density = density
+        self.buildingOrigin = buildingOrigin ?? position
     }
 }
