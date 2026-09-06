@@ -425,14 +425,17 @@ final class GameScene: SKScene {
             node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
+            tileRenderer.clearNetworkGlow(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
+            tileRenderer.clearNetworkGlow(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
+            tileRenderer.clearNetworkGlow(on: node)
         }
         syncTrafficAnimation(at: position)
     }

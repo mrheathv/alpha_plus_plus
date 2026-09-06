@@ -12,7 +12,7 @@ enum RenderPalette {
 
     /// Behind the grid. Deliberately darker than every tile color so the map
     /// reads as an object sitting on a surface.
-    static let background = SKColor(srgbRed: 0.08, green: 0.09, blue: 0.10, alpha: 1.0)
+    static let background = SKColor(srgbRed: 0.04, green: 0.02, blue: 0.10, alpha: 1.0)
 
     /// Flash color for "you can't afford this" feedback, when `place(at:)`
     /// reports `.insufficientFunds`. Saturated red reads as an error against
@@ -35,37 +35,51 @@ enum RenderPalette {
     /// The tile's color at full development — what `color(for:density:)`
     /// blends *toward* as density rises. For `.empty`/`.road`, which never
     /// develop, this is just the only color they ever have.
-    private static func fullColor(for zone: ZoneType) -> SKColor {
+    ///
+    /// Retrowave palette: every hue below is a saturated neon rather than a
+    /// realistic material color (asphalt gray, brick red, grass green).
+    /// `ZoneIcon` reads this same function as each building's own "accent" —
+    /// the glow color for its silhouette's outline — so a zone's tile color
+    /// and the glow on the building standing on it are always the same
+    /// color by construction, not two palettes that have to be kept in
+    /// sync by hand. Internal rather than private for exactly that reason.
+    static func fullColor(for zone: ZoneType) -> SKColor {
         switch zone {
         case .empty:
-            // Unzoned land. Muted so that zoned tiles pop against it.
-            return SKColor(srgbRed: 0.22, green: 0.26, blue: 0.23, alpha: 1.0)
+            // Unzoned land: dark purple, matching the near-black background
+            // — the "night" every neon shape sits on.
+            return SKColor(srgbRed: 0.11, green: 0.06, blue: 0.20, alpha: 1.0)
         case .residential:
-            return SKColor(srgbRed: 0.30, green: 0.69, blue: 0.35, alpha: 1.0)  // green
+            return SKColor(srgbRed: 0.15, green: 0.95, blue: 0.55, alpha: 1.0)  // neon green (synthwave "grid green")
         case .commercial:
-            return SKColor(srgbRed: 0.20, green: 0.52, blue: 0.90, alpha: 1.0)  // blue
+            return SKColor(srgbRed: 0.20, green: 0.70, blue: 1.0, alpha: 1.0)  // electric cyan-blue
         case .industrial:
-            return SKColor(srgbRed: 0.88, green: 0.66, blue: 0.18, alpha: 1.0)  // amber
+            return SKColor(srgbRed: 1.0, green: 0.78, blue: 0.10, alpha: 1.0)  // neon amber/gold
         case .road:
-            return SKColor(srgbRed: 0.42, green: 0.43, blue: 0.45, alpha: 1.0)  // gray
+            // Neon magenta — roads as "the glowing grid," the top-down
+            // translation of a synthwave horizon's glowing ground grid.
+            return SKColor(srgbRed: 0.92, green: 0.16, blue: 0.62, alpha: 1.0)
         case .policeStation:
-            return SKColor(srgbRed: 0.16, green: 0.22, blue: 0.58, alpha: 1.0)  // deep indigo, distinct from commercial's lighter blue
+            return SKColor(srgbRed: 0.35, green: 0.35, blue: 1.0, alpha: 1.0)  // neon indigo-blue, distinct from commercial's cyan
         case .fireStation:
-            return SKColor(srgbRed: 0.70, green: 0.12, blue: 0.10, alpha: 1.0)  // brick red
+            return SKColor(srgbRed: 1.0, green: 0.20, blue: 0.20, alpha: 1.0)  // neon red
         case .publicTransit:
-            return SKColor(srgbRed: 0.15, green: 0.75, blue: 0.72, alpha: 1.0)  // teal, distinct from every other zone hue
+            return SKColor(srgbRed: 0.15, green: 1.0, blue: 0.90, alpha: 1.0)  // neon teal/aqua
         case .powerPlant:
-            return SKColor(srgbRed: 0.75, green: 0.90, blue: 0.15, alpha: 1.0)  // electric chartreuse
+            return SKColor(srgbRed: 0.85, green: 1.0, blue: 0.15, alpha: 1.0)  // electric chartreuse — already neon, kept
         case .stadium:
-            return SKColor(srgbRed: 0.85, green: 0.20, blue: 0.55, alpha: 1.0)  // magenta, "entertainment lights"
+            return SKColor(srgbRed: 1.0, green: 0.25, blue: 0.75, alpha: 1.0)  // hot pink, "entertainment lights"
         case .highway:
-            return SKColor(srgbRed: 0.26, green: 0.28, blue: 0.32, alpha: 1.0)  // darker, heavier-duty gray than plain road
+            // A hotter, brighter neon than plain road's magenta — "more
+            // voltage" reads as "bigger road" the same way a darker gray
+            // used to.
+            return SKColor(srgbRed: 0.85, green: 0.10, blue: 0.95, alpha: 1.0)
         case .subway:
-            return SKColor(srgbRed: 0.10, green: 0.42, blue: 0.58, alpha: 1.0)  // deep transit blue — same family as publicTransit's teal, richer
+            return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's teal, richer
         case .waterTower:
-            return SKColor(srgbRed: 0.20, green: 0.68, blue: 0.80, alpha: 1.0)  // aqua — distinct from every existing blue/teal
+            return SKColor(srgbRed: 0.25, green: 0.85, blue: 1.0, alpha: 1.0)  // neon sky-blue, distinct from every other blue/teal
         case .pipe:
-            return SKColor(srgbRed: 0.38, green: 0.55, blue: 0.58, alpha: 1.0)  // a muted, desaturated version of waterTower's aqua — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
+            return SKColor(srgbRed: 0.30, green: 0.55, blue: 0.65, alpha: 1.0)  // a muted, desaturated version of waterTower's neon blue — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
         }
     }
 
@@ -89,10 +103,10 @@ enum RenderPalette {
     }
 
     /// Low end of the land-value heatmap (worthless land, value 0).
-    private static let landValueLow = SKColor(srgbRed: 0.20, green: 0.16, blue: 0.30, alpha: 1.0)  // dim violet
+    private static let landValueLow = SKColor(srgbRed: 0.22, green: 0.10, blue: 0.35, alpha: 1.0)  // deep neon violet
 
     /// High end of the land-value heatmap (maximum value, 1).
-    private static let landValueHigh = SKColor(srgbRed: 1.0, green: 0.85, blue: 0.20, alpha: 1.0)  // gold
+    private static let landValueHigh = SKColor(srgbRed: 1.0, green: 0.90, blue: 0.25, alpha: 1.0)  // neon gold
 
     /// Color for the "Show Land Value" overlay: a violet-to-gold heatmap,
     /// chosen specifically so it can't be confused with any normal zone
@@ -108,10 +122,10 @@ enum RenderPalette {
     }
 
     /// Low end of the traffic heatmap (empty road, congestion 0).
-    private static let trafficLow = SKColor(srgbRed: 0.16, green: 0.42, blue: 0.20, alpha: 1.0)  // muted green
+    private static let trafficLow = SKColor(srgbRed: 0.15, green: 1.0, blue: 0.45, alpha: 1.0)  // neon green
 
     /// High end of the traffic heatmap (gridlocked, congestion 1).
-    private static let trafficHigh = SKColor(srgbRed: 0.85, green: 0.15, blue: 0.15, alpha: 1.0)  // hot red
+    private static let trafficHigh = SKColor(srgbRed: 1.0, green: 0.15, blue: 0.35, alpha: 1.0)  // neon red
 
     /// Color for the "Show Traffic" overlay: green-to-red, the universal
     /// "flowing to jammed" convention (traffic lights, live-traffic map
@@ -131,8 +145,8 @@ enum RenderPalette {
     /// building that provides it should read as the same thing — against
     /// a dim, desaturated version for "not supplied," the same "muted
     /// version of the real color" relationship `.pipe` has to `.waterTower`.
-    private static let waterSupplied = SKColor(srgbRed: 0.20, green: 0.68, blue: 0.80, alpha: 1.0)
-    private static let waterUnsupplied = SKColor(srgbRed: 0.16, green: 0.20, blue: 0.21, alpha: 1.0)
+    private static let waterSupplied = SKColor(srgbRed: 0.25, green: 0.85, blue: 1.0, alpha: 1.0)
+    private static let waterUnsupplied = SKColor(srgbRed: 0.12, green: 0.10, blue: 0.18, alpha: 1.0)
 
     static func waterColor(for hasSupply: Bool) -> SKColor {
         hasSupply ? waterSupplied : waterUnsupplied

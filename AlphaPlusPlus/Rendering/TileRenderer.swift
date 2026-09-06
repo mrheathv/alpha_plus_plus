@@ -1,4 +1,5 @@
 import SpriteKit
+import CoreGraphics
 
 /// Turns `Tile` *data* into SpriteKit *nodes*.
 ///
@@ -26,6 +27,7 @@ struct TileRenderer {
         node.name = Self.nodeName(for: tile.position)
         syncPips(on: node, count: tile.density)
         syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: footprintSize, seed: tile.position)
+        syncNetworkGlow(on: node, zone: tile.zone)
         return node
     }
 
@@ -42,6 +44,7 @@ struct TileRenderer {
         node.color = RenderPalette.color(for: tile.zone, density: tile.density)
         syncPips(on: node, count: tile.density)
         syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: tile.zone.footprintSize, seed: tile.position)
+        syncNetworkGlow(on: node, zone: tile.zone)
     }
 
     static func nodeName(for position: GridPosition) -> String {
@@ -122,5 +125,75 @@ struct TileRenderer {
     /// draws an overlay instead of normal zone colors.
     func clearIcon(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.iconNodeName }.forEach { $0.removeFromParent() }
+    }
+
+    // MARK: - Network glow (roads, highways, pipes)
+
+    private static let glowNodeName = "networkGlow"
+
+    /// A soft radial-gradient sprite, white fading to transparent, generated
+    /// once via `CGContext`/`CGGradient` and cached — not per-tile, and not
+    /// via `SKEffectNode`/`CIGaussianBlur` the way `ZoneIcon`'s building
+    /// glow works. Roads/highways/pipes can cover a large fraction of the
+    /// map (far more tiles than the handful of buildings that ever get a
+    /// blur pass), so a real per-tile Core Image blur here would be a real
+    /// frame-rate risk. Tinting one shared white texture and additively
+    /// blending it (`syncNetworkGlow`) gets the same "glowing" read at a
+    /// fraction of the cost: one extra cheap sprite draw per network tile,
+    /// no per-frame filter evaluation, and SpriteKit batches plain textured
+    /// sprites efficiently even by the hundreds.
+    private static let glowTexture: SKTexture = {
+        let diameter = 64
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil, width: diameter, height: diameter, bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return SKTexture() }
+
+        let components: [CGFloat] = [1, 1, 1, 0.85, 1, 1, 1, 0]
+        guard let gradient = CGGradient(colorSpace: colorSpace, colorComponents: components, locations: [0, 1], count: 2) else {
+            return SKTexture()
+        }
+        let center = CGPoint(x: CGFloat(diameter) / 2, y: CGFloat(diameter) / 2)
+        context.drawRadialGradient(gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: CGFloat(diameter) / 2, options: [])
+
+        guard let image = context.makeImage() else { return SKTexture() }
+        return SKTexture(cgImage: image)
+    }()
+
+    /// Adds (or removes) the soft glow behind a road/highway/pipe tile,
+    /// tinted that zone's own neon color (`RenderPalette.fullColor(for:)`
+    /// — the same accent value `ZoneIcon` reads for building glows, so a
+    /// road and the buildings along it always agree on what color "this
+    /// network" is). `.add` blend mode means overlapping glow from
+    /// adjacent network tiles brightens rather than just stacking flat
+    /// color on top of itself — a straight run of road reads as one
+    /// continuous brighter seam, exactly the "glowing grid line" look,
+    /// without any of the tiles needing to know about their neighbors.
+    /// Sized a bit larger than the tile itself so that brightening bleeds
+    /// across tile edges instead of stopping dead at each tile's own
+    /// boundary; drawn at a `zPosition` above the flat tile fills (but
+    /// below density pips) so the bleed is actually visible over a
+    /// neighboring tile's own color instead of being hidden behind it.
+    func syncNetworkGlow(on node: SKSpriteNode, zone: ZoneType) {
+        node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+        guard zone == .road || zone == .highway || zone == .pipe else { return }
+
+        let glow = SKSpriteNode(texture: Self.glowTexture)
+        glow.name = Self.glowNodeName
+        glow.color = RenderPalette.fullColor(for: zone)
+        glow.colorBlendFactor = 1
+        glow.blendMode = .add
+        glow.alpha = zone == .highway ? 0.8 : 0.55
+        let base = layout.spriteSize(forFootprint: zone.footprintSize)
+        glow.size = CGSize(width: base.width * 1.4, height: base.height * 1.4)
+        glow.zPosition = 0.5
+        node.addChild(glow)
+    }
+
+    /// Removes a tile's network glow — used alongside `clearPips`/`clearIcon`
+    /// when `GameScene` draws an overlay instead of normal zone colors.
+    func clearNetworkGlow(on node: SKSpriteNode) {
+        node.childNode(withName: Self.glowNodeName)?.removeFromParent()
     }
 }
