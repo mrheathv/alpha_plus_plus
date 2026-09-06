@@ -21,6 +21,20 @@ struct CityMap: Equatable, Codable, Sendable {
     /// existed.
     var serviceFunding = ServiceFunding()
 
+    /// Routed commute load per road tile, as of the last time someone
+    /// called `Traffic.computeLoad(for:)` and assigned the result here
+    /// (`GameController.advanceSimulation()` does this once per simulation
+    /// tick). Stored on `CityMap`, not recomputed on demand, for the same
+    /// reason `serviceFunding` is: `Traffic.congestion(at:in:)` and
+    /// `LandValue`'s road-frontage dampening both read it, and computing
+    /// real trip routing fresh for every single-tile query (as a full-map
+    /// refresh would do many times over) isn't viable the way a cheap
+    /// distance lookup is — unlike land value, this cache is a performance
+    /// necessity, not just a convenience. Defaults to empty, so a fresh
+    /// `CityMap` (or one built directly in a test, never advanced) reads
+    /// zero congestion everywhere, same as an untouched road always has.
+    var trafficLoad = TrafficLoad()
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width

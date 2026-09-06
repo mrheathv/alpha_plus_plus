@@ -22,60 +22,168 @@ final class TrafficTests: XCTestCase {
         XCTAssertEqual(Traffic.congestion(at: GridPosition(x: 1, y: 1), in: map), 0)
     }
 
-    func testCongestionScalesWithNeighboringDensity() {
-        var map = CityMap(width: 3, height: 3)
-        let roadPosition = GridPosition(x: 1, y: 1)
-        map[roadPosition].zone = .road
-        map[GridPosition(x: 0, y: 1)].zone = .residential
-        map[GridPosition(x: 0, y: 1)].density = 5 // one neighbor at max density
+    // MARK: - computeLoad: congestion comes from real routed commutes
 
-        // maxPossibleLoad is 4 neighbors * max density 5 = 20; one
-        // fully-grown neighbor contributes 5, so congestion = 5/20 = 0.25.
-        XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 0.25, accuracy: 0.0001)
+    /// Builds a straight one-tile-wide road from `x: 0` to `x: roadLength - 1`
+    /// along `y: 0`, with one residential building fronting it at the left
+    /// end and one commercial building (the only job in town) fronting it
+    /// at the right end — the minimal real "someone commutes along this
+    /// street to work" scenario every test in this section routes through.
+    private func straightCommuteMap(roadLength: Int, residentialDensity: Int, commercialDensity: Int = 1) -> CityMap {
+        var map = CityMap(width: roadLength, height: 3)
+        for x in 0 ..< roadLength {
+            map[GridPosition(x: x, y: 0)].zone = .road
+        }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 1))
+        map[GridPosition(x: 0, y: 1)].density = residentialDensity
+        map[GridPosition(x: 1, y: 1)].density = residentialDensity
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: roadLength - 2, y: 1))
+        map[GridPosition(x: roadLength - 2, y: 1)].density = commercialDensity
+        map[GridPosition(x: roadLength - 1, y: 1)].density = commercialDensity
+        return map
     }
 
-    func testCongestionCapsAtOneEvenWithMoreLoadThanModeled() {
-        // Surround a road on all four sides with maxed-out zones — this is
-        // the actual ceiling the model allows for, so it should land at
-        // exactly 1.0, not overshoot.
-        var map = CityMap(width: 5, height: 5)
-        let roadPosition = GridPosition(x: 2, y: 2)
-        map[roadPosition].zone = .road
-        for neighbor in roadPosition.orthogonalNeighbors() {
-            map[neighbor].zone = .commercial
-            map[neighbor].density = 5
-        }
+    func testCongestionReflectsTheDensityOfARealRoutedCommute() {
+        var map = straightCommuteMap(roadLength: 6, residentialDensity: 5)
+        map.trafficLoad = Traffic.computeLoad(for: map)
 
-        XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 1.0, accuracy: 0.0001)
+        // capacityPerRoadTile is 40; one fully-grown home's whole commute
+        // routes through every tile of this one-street town, so each of
+        // them carries load 5 -> congestion 5/40 = 0.125.
+        XCTAssertEqual(Traffic.congestion(at: GridPosition(x: 2, y: 0), in: map), 0.125, accuracy: 0.0001)
+    }
+
+    /// The scenario the whole rewrite exists to prove: one street serving
+    /// two separate houses on the way to one shop carries *both* commutes
+    /// on the segment they share, without the houses needing to connect to
+    /// each other — only to the street.
+    func testTwoHousesSharingOneStreetToTheSameJobAddTheirLoadOnTheSharedSegment() {
+        var map = CityMap(width: 14, height: 3)
+        for x in 0 ..< 14 {
+            map[GridPosition(x: x, y: 0)].zone = .road
+        }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 1))
+        map[GridPosition(x: 0, y: 1)].density = 3
+        map[GridPosition(x: 1, y: 1)].density = 3
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 4, y: 1))
+        map[GridPosition(x: 4, y: 1)].density = 4
+        map[GridPosition(x: 5, y: 1)].density = 4
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 9, y: 1))
+        map[GridPosition(x: 9, y: 1)].density = 1
+        map[GridPosition(x: 10, y: 1)].density = 1
+
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        // (7,0) sits between the second house and the shop -- on *both*
+        // commutes -- so it carries the sum, 3 + 4 = 7.
+        XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 7, y: 0)), 7)
+        // (2,0) sits between the first house and the second -- only the
+        // first house's commute passes it, not both.
+        XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 2, y: 0)), 3)
+    }
+
+    func testNoLoadAnywhereWhenNoJobIsReachable() {
+        var map = CityMap(width: 6, height: 3)
+        for x in 0 ..< 6 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 1))
+        map[GridPosition(x: 0, y: 1)].density = 5
+        map[GridPosition(x: 1, y: 1)].density = 5
+        // No commercial or industrial anywhere -- nobody has anywhere to commute to.
+
+        let load = Traffic.computeLoad(for: map)
+
+        for x in 0 ..< 6 {
+            XCTAssertEqual(load.load(at: GridPosition(x: x, y: 0)), 0)
+        }
+    }
+
+    /// A home with only transit access -- no road touching it at all --
+    /// generates zero road load, even parked right next to a busy road
+    /// elsewhere: it has nothing to route from.
+    func testResidentialWithOnlyTransitAccessGeneratesNoRoadLoad() {
+        var map = CityMap(width: 6, height: 6) // tall enough for a second, unrelated building below
+        for x in 0 ..< 6 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 1))
+        map[GridPosition(x: 0, y: 1)].density = 5
+        map[GridPosition(x: 1, y: 1)].density = 5
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 4, y: 1))
+        map[GridPosition(x: 4, y: 1)].density = 1
+        map[GridPosition(x: 5, y: 1)].density = 1
+        // A second home reachable only by subway, with no road frontage.
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 3))
+        map[GridPosition(x: 0, y: 3)].density = 5
+        map[GridPosition(x: 1, y: 3)].density = 5
+        map[GridPosition(x: 2, y: 3)].zone = .subway
+
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        // Every tile's load still comes only from the road-connected home's
+        // commute (which reaches the commercial's nearer frontage column at
+        // x=4, never needing to cross x=0 or x=5); the transit-only home
+        // contributed nothing anywhere.
+        var total = 0
+        for x in 0 ..< 6 { total += map.trafficLoad.load(at: GridPosition(x: x, y: 0)) }
+        XCTAssertEqual(total, 5 * 4) // x=1 through x=4
+    }
+
+    func testCongestionCapsAtOneEvenWithLoadWellPastCapacity() {
+        // Nine separate homes funnel down one shared street to the same
+        // single shop -- 9 * 5 = 45 routed trips through the tile right
+        // outside the shop, well past the 40-per-tile capacity.
+        var map = CityMap(width: 22, height: 3)
+        for x in 0 ..< 22 { map[GridPosition(x: x, y: 0)].zone = .road }
+        for house in 0 ..< 9 {
+            let origin = GridPosition(x: house * 2, y: 1)
+            map.placeBuilding(zone: .residential, origin: origin)
+            map[origin].density = 5
+            map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
+        }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 20, y: 1))
+        map[GridPosition(x: 20, y: 1)].density = 1
+        map[GridPosition(x: 21, y: 1)].density = 1
+
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertEqual(Traffic.congestion(at: GridPosition(x: 19, y: 0), in: map), 1.0, accuracy: 0.0001)
     }
 
     // MARK: - Highway capacity
 
-    /// A `.highway`'s whole reason to exist: the exact same neighboring
-    /// load that puts a plain road at 0.25 congestion should put a highway
-    /// at half that — it absorbs twice the traffic before feeling it.
+    /// A `.highway`'s whole reason to exist: the exact same routed load
+    /// that puts a plain road at 0.125 congestion should put a highway at
+    /// half that — it absorbs twice the traffic before feeling it.
     func testHighwayHasHalfTheCongestionOfARoadUnderTheSameLoad() {
-        var map = CityMap(width: 3, height: 3)
-        let highwayPosition = GridPosition(x: 1, y: 1)
-        map[highwayPosition].zone = .highway
-        map[GridPosition(x: 0, y: 1)].zone = .residential
-        map[GridPosition(x: 0, y: 1)].density = 5
+        var roadMap = straightCommuteMap(roadLength: 6, residentialDensity: 5)
+        roadMap.trafficLoad = Traffic.computeLoad(for: roadMap)
 
-        XCTAssertEqual(Traffic.congestion(at: highwayPosition, in: map), 0.125, accuracy: 0.0001)
+        var highwayMap = roadMap
+        for x in 0 ..< 6 { highwayMap[GridPosition(x: x, y: 0)].zone = .highway }
+        highwayMap.trafficLoad = Traffic.computeLoad(for: highwayMap)
+
+        let roadCongestion = Traffic.congestion(at: GridPosition(x: 2, y: 0), in: roadMap)
+        let highwayCongestion = Traffic.congestion(at: GridPosition(x: 2, y: 0), in: highwayMap)
+        XCTAssertEqual(highwayCongestion, roadCongestion / 2, accuracy: 0.0001)
     }
 
-    func testHighwayCongestionStillCapsAtOne() {
-        var map = CityMap(width: 5, height: 5)
-        let highwayPosition = GridPosition(x: 2, y: 2)
-        map[highwayPosition].zone = .highway
-        for neighbor in highwayPosition.orthogonalNeighbors() {
-            map[neighbor].zone = .commercial
-            map[neighbor].density = 5
+    /// The same 45-routed-trip load that fully caps a plain road at 1.0
+    /// (`testCongestionCapsAtOneEvenWithLoadWellPastCapacity`) should
+    /// leave a highway short of capacity, not also pinned at the ceiling.
+    func testHighwaysDoubledCapacityKeepsTheSameLoadBelowAFullCap() {
+        var map = CityMap(width: 22, height: 3)
+        for x in 0 ..< 22 { map[GridPosition(x: x, y: 0)].zone = .highway }
+        for house in 0 ..< 9 {
+            let origin = GridPosition(x: house * 2, y: 1)
+            map.placeBuilding(zone: .residential, origin: origin)
+            map[origin].density = 5
+            map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
         }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 20, y: 1))
+        map[GridPosition(x: 20, y: 1)].density = 1
+        map[GridPosition(x: 21, y: 1)].density = 1
 
-        // Same total load that caps a plain road at 1.0 only reaches half
-        // of a highway's doubled capacity.
-        XCTAssertEqual(Traffic.congestion(at: highwayPosition, in: map), 0.5, accuracy: 0.0001)
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertEqual(Traffic.congestion(at: GridPosition(x: 19, y: 0), in: map), 0.5625, accuracy: 0.0001)
     }
 
     /// A subway stop moves people without adding load to any road — it

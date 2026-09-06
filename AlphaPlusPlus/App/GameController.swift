@@ -250,6 +250,14 @@ final class GameController: ObservableObject {
     /// growth (and after hazards) means the treasury reflects the city this
     /// step is actually leaving you with.
     func advanceSimulation() {
+        // Routed commute load first, before hazards/growth run — both read
+        // it (via `LandValue`'s road-frontage dampening), and they should
+        // see this tick's freshly-computed congestion for the map as it
+        // stood at the start of the tick, not last tick's stale numbers.
+        // `CityHazards.apply`'s and `CitySimulator.advance`'s `next = map`
+        // copies both carry it forward automatically since it's just
+        // another field on the struct they copy.
+        map.trafficLoad = Traffic.computeLoad(for: map)
         let (hazarded, strikes) = CityHazards.apply(to: map, using: &rng)
         lastHazardStrikes = strikes
         map = CitySimulator.advance(hazarded)

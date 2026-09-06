@@ -89,21 +89,54 @@ final class LandValueTests: XCTestCase {
         XCTAssertEqual(LandValue.value(at: GridPosition(x: 1, y: 0), in: map), 0.75, accuracy: 0.0001)
     }
 
+    /// `houseCount` residential buildings in a row, columns `0, 2, 4, ...`,
+    /// all sharing one road east to a single commercial building at the far
+    /// end — the same "shared street" setup `TrafficTests` uses, here to
+    /// generate real, routed congestion for `LandValue`'s dampening to
+    /// react to. Returns the map plus the *entry-side* cell of the last
+    /// house (the column nearer the commercial building) — every house's
+    /// commute passes through that specific cell on its way east, so it's
+    /// where that house's own frontage congestion is actually heaviest,
+    /// unlike its anchor column, which only earlier houses' through-traffic
+    /// crosses.
+    private func fanInCommuteMap(houseCount: Int) -> (map: CityMap, lastHouseEntryCell: GridPosition) {
+        let width = houseCount * 2 + 2
+        var map = CityMap(width: width, height: 3)
+        for x in 0 ..< width { map[GridPosition(x: x, y: 0)].zone = .road }
+
+        var lastHouseEntryCell = GridPosition(x: 0, y: 1)
+        for house in 0 ..< houseCount {
+            let origin = GridPosition(x: house * 2, y: 1)
+            map.placeBuilding(zone: .residential, origin: origin)
+            map[origin].density = 5
+            map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
+            lastHouseEntryCell = GridPosition(x: origin.x + 1, y: origin.y)
+        }
+        let commercialOrigin = GridPosition(x: width - 2, y: 1)
+        map.placeBuilding(zone: .commercial, origin: commercialOrigin)
+        map[commercialOrigin].density = 1
+        map[GridPosition(x: commercialOrigin.x + 1, y: commercialOrigin.y)].density = 1
+        return (map, lastHouseEntryCell)
+    }
+
     /// The congestion-dampening feedback loop applies through a `.highway`
     /// neighbor exactly like a `.road` neighbor — it's the same frontage
     /// mechanic, just on a higher-capacity road.
     func testCongestionOnAnAdjacentHighwayDampensItsOwnFrontageValue() {
-        var map = CityMap(width: 5, height: 5)
-        let position = GridPosition(x: 0, y: 0)
-        let highwayPosition = GridPosition(x: 1, y: 0)
-        map[highwayPosition].zone = .highway
-        map[GridPosition(x: 2, y: 0)].zone = .commercial
-        map[GridPosition(x: 2, y: 0)].density = 5 // loads the highway with congestion
+        var (roadMap, roadCell) = fanInCommuteMap(houseCount: 5)
+        roadMap.trafficLoad = Traffic.computeLoad(for: roadMap)
+        let roadValue = LandValue.value(at: roadCell, in: roadMap)
 
-        let dampenedValue = LandValue.value(at: position, in: map)
+        var (highwayMap, highwayCell) = fanInCommuteMap(houseCount: 5)
+        for x in 0 ..< highwayMap.width { highwayMap[GridPosition(x: x, y: 0)].zone = .highway }
+        highwayMap.trafficLoad = Traffic.computeLoad(for: highwayMap)
+        let highwayValue = LandValue.value(at: highwayCell, in: highwayMap)
 
-        XCTAssertLessThan(dampenedValue, 0.75) // below the undampened frontage value
-        XCTAssertGreaterThan(dampenedValue, 0) // but not wiped out
+        // Same load, but a highway's doubled capacity means less
+        // congestion, and so less dampening -- its frontage value should
+        // come out higher than the identically-loaded plain road's.
+        XCTAssertGreaterThan(highwayValue, roadValue)
+        XCTAssertGreaterThan(highwayValue, 0)
     }
 
     // MARK: - Congestion dampens road value, but not enough to defeat growth
@@ -115,43 +148,33 @@ final class LandValueTests: XCTestCase {
     /// just another building sharing the same road, nothing pathological —
     /// pushed congestion past ~30% and erased that whole margin, so a zone
     /// with nothing wrong with it would stall one level short of the ceiling
-    /// the moment its street got busy. This pins the fix: moderate
-    /// congestion (50%, here from one fully-grown neighbor sharing the same
-    /// road tile) must still leave bare road frontage clearing 0.65.
+    /// the moment its street got busy. This pins the fix: moderate,
+    /// realistic congestion (two houses' routed commutes sharing one
+    /// street, 10 of 40 capacity = 25%) must still leave that frontage
+    /// clearing 0.65.
     func testBareRoadFrontageClearsTheLevel4ThresholdEvenUnderModerateNearbyCongestion() {
-        var map = CityMap(width: 5, height: 5)
-        let position = GridPosition(x: 1, y: 0)
-        let roadPosition = GridPosition(x: 2, y: 0)
-        map[position].zone = .residential
-        map[position].density = 5 // this zone's own share of its road's load
-        map[roadPosition].zone = .road
-        map[GridPosition(x: 3, y: 0)].zone = .commercial
-        map[GridPosition(x: 3, y: 0)].density = 5 // a neighbor sharing the same road tile
+        let (map, entryCell) = fanInCommuteMap(houseCount: 2)
+        var loadedMap = map
+        loadedMap.trafficLoad = Traffic.computeLoad(for: map)
+        let roadCell = GridPosition(x: entryCell.x, y: 0)
 
-        // (5 + 5) / 20 = 0.5 congestion: busy, but nowhere near gridlock.
-        XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 0.5, accuracy: 0.0001)
-        XCTAssertGreaterThanOrEqual(LandValue.value(at: position, in: map), 0.65)
+        XCTAssertEqual(Traffic.congestion(at: roadCell, in: loadedMap), 0.25, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(LandValue.value(at: entryCell, in: loadedMap), 0.65)
     }
 
     /// The flip side of the fix: congestion is still a real, felt penalty —
-    /// a road at true gridlock should cap a zone below level 4, not be
-    /// softened into meaninglessness.
+    /// a road busy enough should cap a zone below level 4, not be softened
+    /// into meaninglessness. Five houses funneling their routed commutes
+    /// onto the same final stretch (25 of 40 capacity = 62.5%) is well
+    /// past what bare frontage's 0.10 margin above 0.65 can absorb.
     func testGridlockedRoadFrontageFallsBelowTheLevel4Threshold() {
-        var map = CityMap(width: 5, height: 5)
-        let position = GridPosition(x: 1, y: 0)
-        let roadPosition = GridPosition(x: 2, y: 0)
-        map[position].zone = .residential
-        map[position].density = 5
-        map[roadPosition].zone = .road
-        map[GridPosition(x: 3, y: 0)].zone = .commercial
-        map[GridPosition(x: 3, y: 0)].density = 5
-        map[GridPosition(x: 2, y: 1)].zone = .industrial
-        map[GridPosition(x: 2, y: 1)].density = 5
+        let (map, entryCell) = fanInCommuteMap(houseCount: 5)
+        var loadedMap = map
+        loadedMap.trafficLoad = Traffic.computeLoad(for: map)
+        let roadCell = GridPosition(x: entryCell.x, y: 0)
 
-        // 3 fully-grown neighbors is as congested as this edge road tile can
-        // get (a 4th neighbor would be off the map): (5+5+5)/20 = 0.75.
-        XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 0.75, accuracy: 0.0001)
-        XCTAssertLessThan(LandValue.value(at: position, in: map), 0.65)
+        XCTAssertEqual(Traffic.congestion(at: roadCell, in: loadedMap), 0.625, accuracy: 0.0001)
+        XCTAssertLessThan(LandValue.value(at: entryCell, in: loadedMap), 0.65)
     }
 
     // MARK: - Highway (a pricier, higher-capacity road)
