@@ -161,8 +161,17 @@ struct GameView: View {
         HStack(spacing: 14) {
             statTile(label: "Population", value: "\(controller.population)", history: controller.history.map(\.population), color: .green)
             statTile(label: "Jobs", value: "\(controller.jobs)", history: controller.history.map(\.jobs), color: .blue)
-            statTile(label: "Treasury", value: "$\(controller.treasury) (+$\(controller.taxRevenue)/tick)", history: controller.history.map(\.treasury), color: .yellow)
+            statTile(label: "Treasury", value: "$\(controller.treasury) (\(netRevenueLabel)/tick)", history: controller.history.map(\.treasury), color: .yellow)
         }
+    }
+
+    /// "+$484" for a city in the black, "-$20" for one whose upkeep outpaces
+    /// its tax base — `netRevenue` can go negative now that services cost
+    /// something to run, so this can't just always prepend "+" the way the
+    /// old tax-only readout did.
+    private var netRevenueLabel: String {
+        let net = controller.netRevenue
+        return net < 0 ? "-$\(-net)" : "+$\(net)"
     }
 
     private func statTile(label: String, value: String, history: [Int], color: Color) -> some View {

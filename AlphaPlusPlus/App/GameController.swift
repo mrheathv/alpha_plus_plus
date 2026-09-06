@@ -237,7 +237,7 @@ final class GameController: ObservableObject {
         let (hazarded, strikes) = CityHazards.apply(to: map, using: &rng)
         lastHazardStrikes = strikes
         map = CitySimulator.advance(hazarded)
-        treasury += taxRevenue
+        treasury += netRevenue
         recordHistorySnapshot()
     }
 
@@ -278,6 +278,23 @@ final class GameController: ObservableObject {
     /// after the fact when the number moves.
     var taxRevenue: Int {
         population * Self.taxPerPopulation + jobs * Self.taxPerJob
+    }
+
+    /// What every placed service/infrastructure building costs to run this
+    /// step, summed across every building regardless of density — a Police
+    /// Station costs the same to keep staffed whether the residential
+    /// blocks around it are half-empty or fully grown. `ZoneType.upkeepCost`
+    /// is 0 for zoned land and roads, so this only ever counts services.
+    var upkeepCost: Int {
+        map.tiles.filter { $0.isBuildingAnchor }.reduce(0) { $0 + $1.zone.upkeepCost }
+    }
+
+    /// What `advanceSimulation()` actually deposits (or withdraws) this
+    /// step: tax revenue minus upkeep. Can go negative — a city with more
+    /// services than the tax base supports yet should feel that as a real
+    /// drain, not have it silently floored at zero.
+    var netRevenue: Int {
+        taxRevenue - upkeepCost
     }
 
     var population: Int {

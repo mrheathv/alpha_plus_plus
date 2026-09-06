@@ -383,4 +383,56 @@ final class GameControllerTests: XCTestCase {
 
         XCTAssertGreaterThan(controller.treasury, treasuryAfterPlacing)
     }
+
+    // MARK: - Upkeep
+
+    func testUpkeepCostIsZeroWithNoServiceBuildingsPlaced() {
+        let controller = GameController()
+        controller.selectedTool = .road
+        controller.place(at: GridPosition(x: 2, y: 0))
+        controller.selectedTool = .residential
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        // Zoned land and roads are the tax base, not city spending.
+        XCTAssertEqual(controller.upkeepCost, 0)
+    }
+
+    func testUpkeepCostSumsEveryPlacedServiceBuildingOnce() {
+        let controller = GameController()
+        controller.selectedTool = .policeStation
+        controller.place(at: GridPosition(x: 0, y: 0))
+        controller.selectedTool = .fireStation
+        controller.place(at: GridPosition(x: 5, y: 0))
+
+        // Once per *building*, not per cell — a 2x2 station is one upkeep
+        // charge, same reasoning as `totalDensity(of:)` for population/jobs.
+        XCTAssertEqual(controller.upkeepCost, ZoneType.policeStation.upkeepCost + ZoneType.fireStation.upkeepCost)
+    }
+
+    func testNetRevenueSubtractsUpkeepFromTaxRevenue() {
+        let controller = GameController()
+        controller.selectedTool = .road
+        controller.place(at: GridPosition(x: 2, y: 0))
+        controller.selectedTool = .residential
+        controller.place(at: GridPosition(x: 0, y: 0))
+        controller.selectedTool = .policeStation
+        controller.place(at: GridPosition(x: 5, y: 0))
+
+        XCTAssertEqual(controller.netRevenue, controller.taxRevenue - controller.upkeepCost)
+    }
+
+    /// The whole reason upkeep exists: a service with no tax base behind it
+    /// yet should show up as the treasury actually *shrinking* on advance,
+    /// not just growing more slowly than before.
+    func testAdvanceSimulationCanShrinkTreasuryWhenUpkeepExceedsTaxRevenue() {
+        let controller = GameController()
+        controller.selectedTool = .policeStation
+        controller.place(at: GridPosition(x: 0, y: 0))
+        // No zoned land at all: taxRevenue is 0, upkeepCost is not.
+        let treasuryBeforeAdvance = controller.treasury
+
+        controller.advanceSimulation()
+
+        XCTAssertEqual(controller.treasury, treasuryBeforeAdvance - ZoneType.policeStation.upkeepCost)
+    }
 }

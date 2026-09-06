@@ -75,6 +75,29 @@ extension ZoneType {
         }
     }
 
+    /// What it costs the treasury to keep this building running, once
+    /// placed, every simulation step — separate from `placementCost`, which
+    /// is a one-time charge. Only public services/infrastructure carry an
+    /// ongoing cost; residential/commercial/industrial zones (and roads,
+    /// and `.empty`) cost nothing to maintain because they're the tax base,
+    /// not city spending — see `GameController.taxRevenue`. Without this,
+    /// a city's economy was a one-way accumulator once growth hit its
+    /// density ceiling: nothing left to spend treasury on, so it just
+    /// climbed forever. Priced at roughly 2-3% of `placementCost` per tick,
+    /// same "first guess, needs playtesting" status as every other number
+    /// in this file — enough that running several services is a real,
+    /// felt drag on the treasury, not so much that building the services
+    /// growth depends on becomes self-defeating.
+    var upkeepCost: Int {
+        switch self {
+        case .empty, .residential, .commercial, .industrial, .road: return 0
+        case .policeStation, .fireStation: return 20
+        case .publicTransit: return 5
+        case .powerPlant: return 50
+        case .stadium: return 40
+        }
+    }
+
     /// How many cells on a side this zone occupies: a footprintSize-N zone
     /// covers an N×N block anchored at wherever it was placed (see
     /// `Tile.buildingOrigin`). Infrastructure that connects to a network
