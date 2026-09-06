@@ -55,11 +55,25 @@ enum LandValue {
     static let powerPlantPenaltyStrength = 0.5
 
     /// How much a jammed adjacent road cuts into that road's contribution
-    /// to land value, at `Traffic.congestion == 1`: a 40% haircut. Only the
+    /// to land value, at `Traffic.congestion == 1`: a 25% haircut. Only the
     /// road term is dampened — a station's protection doesn't get worse
     /// because traffic is bad nearby, but frontage on a gridlocked street
     /// is worse frontage than the same street free-flowing.
-    static let congestionPenalty = 0.4
+    ///
+    /// Tuned down from an initial 0.4 after playtesting exposed a
+    /// self-defeating feedback loop: bare road frontage alone sits at land
+    /// value 0.75 (`roadFalloffDistance`), just 0.10 above the 0.65 a zone
+    /// needs to reach density level 4 (`CitySimulator.requiredLandValue`).
+    /// At 0.4, *any* nearby development pushing congestion past ~30% — which
+    /// ordinary growth reaches easily, since the zone's own neighbors share
+    /// its road — erased that entire margin, so an ordinary zone with
+    /// nothing wrong with it would grow into stalling itself at level 3 the
+    /// moment its surroundings got busy. At 0.25, moderate congestion (up to
+    /// ~50%) still leaves comfortable room to clear level 4; only a road at
+    /// or near true gridlock caps growth below that — a real consequence,
+    /// but one that takes actual gridlock to trigger rather than any normal
+    /// amount of neighboring traffic.
+    static let congestionPenalty = 0.25
 
     /// `map` is a full `CityMap`, not just a list of positions to measure
     /// against, because that's what every other `Simulation/` function

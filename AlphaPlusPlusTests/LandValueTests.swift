@@ -41,6 +41,54 @@ final class LandValueTests: XCTestCase {
         XCTAssertEqual(LandValue.value(at: GridPosition(x: 5, y: 0), in: map), 0.75, accuracy: 0.0001)
     }
 
+    // MARK: - Congestion dampens road value, but not enough to defeat growth
+
+    /// Caught by hands-on testing, not a unit test: a zone with only bare
+    /// road frontage sits at land value 0.75 (`roadFalloffDistance`), just
+    /// 0.10 above the 0.65 `CitySimulator` requires for density level 4. At
+    /// the old `congestionPenalty` of 0.4, *ordinary* nearby development —
+    /// just another building sharing the same road, nothing pathological —
+    /// pushed congestion past ~30% and erased that whole margin, so a zone
+    /// with nothing wrong with it would stall one level short of the ceiling
+    /// the moment its street got busy. This pins the fix: moderate
+    /// congestion (50%, here from one fully-grown neighbor sharing the same
+    /// road tile) must still leave bare road frontage clearing 0.65.
+    func testBareRoadFrontageClearsTheLevel4ThresholdEvenUnderModerateNearbyCongestion() {
+        var map = CityMap(width: 5, height: 5)
+        let position = GridPosition(x: 1, y: 0)
+        let roadPosition = GridPosition(x: 2, y: 0)
+        map[position].zone = .residential
+        map[position].density = 5 // this zone's own share of its road's load
+        map[roadPosition].zone = .road
+        map[GridPosition(x: 3, y: 0)].zone = .commercial
+        map[GridPosition(x: 3, y: 0)].density = 5 // a neighbor sharing the same road tile
+
+        // (5 + 5) / 20 = 0.5 congestion: busy, but nowhere near gridlock.
+        XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 0.5, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(LandValue.value(at: position, in: map), 0.65)
+    }
+
+    /// The flip side of the fix: congestion is still a real, felt penalty —
+    /// a road at true gridlock should cap a zone below level 4, not be
+    /// softened into meaninglessness.
+    func testGridlockedRoadFrontageFallsBelowTheLevel4Threshold() {
+        var map = CityMap(width: 5, height: 5)
+        let position = GridPosition(x: 1, y: 0)
+        let roadPosition = GridPosition(x: 2, y: 0)
+        map[position].zone = .residential
+        map[position].density = 5
+        map[roadPosition].zone = .road
+        map[GridPosition(x: 3, y: 0)].zone = .commercial
+        map[GridPosition(x: 3, y: 0)].density = 5
+        map[GridPosition(x: 2, y: 1)].zone = .industrial
+        map[GridPosition(x: 2, y: 1)].density = 5
+
+        // 3 fully-grown neighbors is as congested as this edge road tile can
+        // get (a 4th neighbor would be off the map): (5+5+5)/20 = 0.75.
+        XCTAssertEqual(Traffic.congestion(at: roadPosition, in: map), 0.75, accuracy: 0.0001)
+        XCTAssertLessThan(LandValue.value(at: position, in: map), 0.65)
+    }
+
     // MARK: - Service coverage (police/fire)
 
     func testPoliceStationRaisesNearbyLandValueEvenFarFromAnyRoad() {
