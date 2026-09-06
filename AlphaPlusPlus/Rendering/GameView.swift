@@ -177,7 +177,9 @@ struct GameView: View {
         HStack(spacing: 16) {
             HStack(spacing: 4) {
                 Text("Tax Rate").foregroundStyle(.secondary)
-                Stepper(value: $controller.taxRate, in: 0.25 ... 2.0, step: 0.25) {
+                // 0% is a real setting (a tax holiday), same reasoning as
+                // funding's floor below.
+                Stepper(value: $controller.taxRate, in: 0 ... 2.0, step: 0.25) {
                     Text(percentLabel(controller.taxRate)).monospacedDigit()
                 }
             }
@@ -209,7 +211,11 @@ struct GameView: View {
         )
         return HStack(spacing: 4) {
             Text(RenderPalette.displayName(for: zone))
-            Stepper(value: binding, in: 0.5 ... 1.5, step: 0.25) {
+            // 0% is a real, expected lever (genre convention: fully
+            // defund a service you can't afford right now, rather than
+            // bulldoze it and lose the building entirely) -- not just a
+            // "reduced" floor at 50%.
+            Stepper(value: binding, in: 0 ... 2.0, step: 0.25) {
                 Text(percentLabel(binding.wrappedValue)).monospacedDigit()
             }
         }
