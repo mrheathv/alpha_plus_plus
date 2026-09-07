@@ -112,10 +112,14 @@ final class LandValueTests: XCTestCase {
             map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
             lastHouseEntryCell = GridPosition(x: origin.x + 1, y: origin.y)
         }
+        // Density 3 (job capacity 3 * 10 = 30) so every house's commute
+        // actually routes here regardless of houseCount up to 5 (max
+        // demand 5 * 5 = 25) -- these tests are about road congestion,
+        // not job capacity, which TrafficTests covers on its own.
         let commercialOrigin = GridPosition(x: width - 2, y: 1)
         map.placeBuilding(zone: .commercial, origin: commercialOrigin)
-        map[commercialOrigin].density = 1
-        map[GridPosition(x: commercialOrigin.x + 1, y: commercialOrigin.y)].density = 1
+        map[commercialOrigin].density = 3
+        map[GridPosition(x: commercialOrigin.x + 1, y: commercialOrigin.y)].density = 3
         return (map, lastHouseEntryCell)
     }
 

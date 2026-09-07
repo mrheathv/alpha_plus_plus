@@ -129,7 +129,12 @@ final class TrafficTests: XCTestCase {
     func testCongestionCapsAtOneEvenWithLoadWellPastCapacity() {
         // Nine separate homes funnel down one shared street to the same
         // single shop -- 9 * 5 = 45 routed trips through the tile right
-        // outside the shop, well past the 40-per-tile capacity.
+        // outside the shop, well past the 40-per-tile *road* capacity.
+        // The shop itself is fully built (density 5, so job capacity
+        // 5 * 10 = 50) specifically so every trip actually routes there —
+        // this test is about the road's ceiling, not the job's, which
+        // `testASaturatedJobRedirectsOverflowToTheNextNearestJobWithRoom`
+        // below covers on its own.
         var map = CityMap(width: 22, height: 3)
         for x in 0 ..< 22 { map[GridPosition(x: x, y: 0)].zone = .road }
         for house in 0 ..< 9 {
@@ -139,12 +144,83 @@ final class TrafficTests: XCTestCase {
             map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
         }
         map.placeBuilding(zone: .commercial, origin: GridPosition(x: 20, y: 1))
-        map[GridPosition(x: 20, y: 1)].density = 1
-        map[GridPosition(x: 21, y: 1)].density = 1
+        map[GridPosition(x: 20, y: 1)].density = 5
+        map[GridPosition(x: 21, y: 1)].density = 5
 
         map.trafficLoad = Traffic.computeLoad(for: map)
 
         XCTAssertEqual(Traffic.congestion(at: GridPosition(x: 19, y: 0), in: map), 1.0, accuracy: 0.0001)
+    }
+
+    // MARK: - Spreading commutes across multiple job sites
+
+    /// The behavior this whole mechanic exists for: once the nearest job
+    /// runs out of room, the next home in line routes past it to the
+    /// *next*-nearest job with capacity, instead of every home in reach
+    /// piling onto the one closest job regardless of how small it is.
+    func testASaturatedJobRedirectsOverflowToTheNextNearestJobWithRoom() {
+        var map = CityMap(width: 20, height: 3)
+        for x in 0 ..< 20 { map[GridPosition(x: x, y: 0)].zone = .road }
+
+        // Three fully-grown homes (density 5 each, commute weight 15
+        // total) upstream of a small shop whose capacity (density 1 * 10
+        // = 10) only covers the first two.
+        for x in [0, 3, 6] {
+            let origin = GridPosition(x: x, y: 1)
+            map.placeBuilding(zone: .residential, origin: origin)
+            map[origin].density = 5
+            map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
+        }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 10, y: 1)) // the near, small job
+        map[GridPosition(x: 10, y: 1)].density = 1
+        map[GridPosition(x: 11, y: 1)].density = 1
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 17, y: 1)) // the far, roomy job
+        map[GridPosition(x: 17, y: 1)].density = 5
+        map[GridPosition(x: 18, y: 1)].density = 5
+
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        // Every commute -- whichever job it ends at -- passes this tile,
+        // since it sits before both jobs: all 15 units of demand are
+        // accounted for somewhere, nobody silently vanished.
+        XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 8, y: 0)), 15)
+        // Strictly between the two jobs, only the third (overflow) home's
+        // commute continues -- the first two homes' trips ended at the
+        // near job and never reach this tile.
+        XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 14, y: 0)), 5)
+    }
+
+    /// The other half of the same behavior: if every reachable job is
+    /// already full, a home generates no commute at all, the same as if
+    /// no job existed in the first place
+    /// (`testNoLoadAnywhereWhenNoJobIsReachable`) -- it doesn't force
+    /// itself onto an already-saturated job just because nothing else is
+    /// in range.
+    func testNoLoadAnywhereWhenEveryReachableJobIsAtCapacity() {
+        var map = CityMap(width: 8, height: 3)
+        for x in 0 ..< 8 { map[GridPosition(x: x, y: 0)].zone = .road }
+        // Three homes (density 5 each) upstream of one small shop --
+        // capacity 1 * 10 = 10 covers exactly the first two.
+        for x in [0, 2, 4] {
+            let origin = GridPosition(x: x, y: 1)
+            map.placeBuilding(zone: .residential, origin: origin)
+            map[origin].density = 5
+            map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
+        }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 6, y: 1))
+        map[GridPosition(x: 6, y: 1)].density = 1
+        map[GridPosition(x: 7, y: 1)].density = 1
+
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        // (5,0) is the last tile before the shop's own frontage -- every
+        // successful commute passes through it regardless of which house
+        // it started from, so its load is exactly the two houses that fit
+        // (5 + 5), not the third that found no job with room left and
+        // contributed nothing. (Checking a sum across every tile instead
+        // would double- and triple-count each house's commute once per
+        // tile of road it crosses, which isn't what "at capacity" means.)
+        XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 5, y: 0)), 10)
     }
 
     // MARK: - Highway capacity
@@ -177,9 +253,12 @@ final class TrafficTests: XCTestCase {
             map[origin].density = 5
             map[GridPosition(x: origin.x + 1, y: origin.y)].density = 5
         }
+        // Fully built (density 5, job capacity 50) so all 45 trips
+        // actually route here -- see the matching comment on
+        // testCongestionCapsAtOneEvenWithLoadWellPastCapacity.
         map.placeBuilding(zone: .commercial, origin: GridPosition(x: 20, y: 1))
-        map[GridPosition(x: 20, y: 1)].density = 1
-        map[GridPosition(x: 21, y: 1)].density = 1
+        map[GridPosition(x: 20, y: 1)].density = 5
+        map[GridPosition(x: 21, y: 1)].density = 5
 
         map.trafficLoad = Traffic.computeLoad(for: map)
 

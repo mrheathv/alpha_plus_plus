@@ -4,18 +4,48 @@ import Foundation
 ///
 /// A road tile's load is the sum of every actual commute that routes
 /// through it: each residential building sends its population toward its
-/// *nearest reachable job* (a commercial or industrial building), routed
-/// via shortest path over the drivable network (`.road`/`.highway`), not
-/// straight-line distance — a real street shared by five houses on the way
-/// to one shop carries all five commutes, while a private stub off just
-/// one of them doesn't. See `computeLoad(for:)` for exactly how that's
-/// computed, and `TrafficLoad` for where the result lives.
+/// nearest reachable job *that still has room* (a commercial or industrial
+/// building — see `jobCapacityPerDensityLevel`), routed via shortest path
+/// over the drivable network (`.road`/`.highway`), not straight-line
+/// distance — a real street shared by five houses on the way to one shop
+/// carries all five commutes, while a private stub off just one of them
+/// doesn't. See `computeLoad(for:)` for exactly how that's computed, and
+/// `TrafficLoad` for where the result lives.
 ///
 /// It's visualized (`RenderPalette.trafficColor(for:)`, the "Show Traffic"
 /// overlay) before it changes any other mechanic, same order `LandValue`
 /// was introduced in: see it first, decide what it should affect once it's
 /// something you can actually look at.
 enum Traffic {
+
+    /// How much commute weight one job site can absorb per level of its
+    /// own density before a home looking for work there gets routed past
+    /// it to the next-nearest job with room instead. Without this, every
+    /// home in reach of the *same* nearest job piles its commute onto
+    /// identical road segments even when a second job sits two streets
+    /// over with nobody working there at all — realistic in the sense that
+    /// people really do all want the closest job, unrealistic in that a
+    /// single shop can't actually employ an entire neighborhood.
+    ///
+    /// Generously large (comfortably more than one fully-grown home's
+    /// worth of commute weight, which tops out at `ZoneType.maxDensity`,
+    /// 5) so a single home never gets split or blocked by a job that's
+    /// merely modest rather than genuinely oversubscribed — spreading is
+    /// meant to kick in once *several* dense homes lean on the same small
+    /// job, not the instant any job is less than fully built. A first
+    /// guess, same "needs playtesting" status as every other number here.
+    private static let jobCapacityPerDensityLevel = 10
+
+    /// One job site's road frontage and how much commute weight it can
+    /// still absorb — mutated as `computeLoad(for:)` assigns homes to it,
+    /// so processing homes in a different order can send them to different
+    /// jobs. Not `Codable`/exposed outside this file: it's scratch state
+    /// for one `computeLoad` call, not something any caller needs to hold
+    /// onto the way `TrafficLoad` itself is.
+    private struct JobSite {
+        let frontage: Set<GridPosition>
+        var remainingCapacity: Int
+    }
 
     /// How much routed commute load one road tile can carry before it
     /// reads as fully congested. Unlike the old local-density version of
@@ -69,46 +99,88 @@ enum Traffic {
         return min(1, Double(map.trafficLoad.load(at: position)) / capacity)
     }
 
-    /// Routes every residential building's commute to its nearest
-    /// reachable job and accumulates the result — the one real computation
-    /// behind `congestion(at:in:)`. Call once per simulation tick
-    /// (`GameController.advanceSimulation()` does this first, before
+    /// Routes every residential building's commute to its nearest reachable
+    /// job *with room left* and accumulates the result — the one real
+    /// computation behind `congestion(at:in:)`. Call once per simulation
+    /// tick (`GameController.advanceSimulation()` does this first, before
     /// hazards/growth run) and store the result on `map.trafficLoad`;
     /// everything else reads that cache rather than calling this directly.
     ///
+    /// Homes are processed in `map.tiles` order (row-major by position) —
+    /// deterministic, so the same map always assigns the same homes to the
+    /// same jobs, but otherwise arbitrary: whichever home happens to come
+    /// first in that order claims a shared job's capacity before a later
+    /// one does. Not modeled as "fair" or "closest home wins" — that would
+    /// need sorting every home by distance to every job before assigning
+    /// any of them, real complexity for a first cut of spreading commutes
+    /// out at all.
+    ///
     /// Deliberate v1 simplifications: a home always routes to its single
-    /// *nearest* job (by road-network hops, via plain unweighted BFS —
-    /// every hop costs the same, so there's no need for Dijkstra), never
-    /// splits trips across multiple destinations or reroutes around a
-    /// congested path. Real traffic assignment — the kind that would
-    /// notice a jam and try a different street — is exactly the
-    /// individual-agent complexity this project's aggregate-simulation
-    /// approach is choosing not to chase (see the roadmap's genre parity
-    /// check). Commercial and industrial are both valid job destinations
-    /// with no distinction between them, matching `GameController.jobs`
-    /// already summing both the same way.
+    /// nearest job with capacity (by road-network hops, via plain
+    /// unweighted BFS — every hop costs the same, so there's no need for
+    /// Dijkstra), never splits one home's commute across multiple
+    /// destinations or reroutes around a congested path. Real traffic
+    /// assignment — the kind that would notice a jam and try a different
+    /// street — is exactly the individual-agent complexity this project's
+    /// aggregate-simulation approach is choosing not to chase (see the
+    /// roadmap's genre parity check). Commercial and industrial are both
+    /// valid job destinations with no distinction between them, matching
+    /// `GameController.jobs` already summing both the same way.
     static func computeLoad(for map: CityMap) -> TrafficLoad {
         let drivable = Set(map.tiles.filter { isRoadLike($0.zone) }.map(\.position))
         guard !drivable.isEmpty else { return TrafficLoad() }
 
-        let jobFrontage = frontage(
-            ofBuildingsWhere: { $0.zone == .commercial || $0.zone == .industrial },
-            in: map,
-            drivable: drivable
-        )
-        guard !jobFrontage.isEmpty else { return TrafficLoad() }
+        var jobs = jobSites(in: map, drivable: drivable)
+        guard !jobs.isEmpty else { return TrafficLoad() }
+
+        // Every frontage tile maps back to whichever job site(s) it
+        // fronts, so the BFS below can answer "is this a job with room
+        // left?" with a dictionary lookup instead of scanning every job
+        // at every tile it visits.
+        var jobIndicesByFrontage: [GridPosition: [Int]] = [:]
+        for (index, job) in jobs.enumerated() {
+            for tile in job.frontage {
+                jobIndicesByFrontage[tile, default: []].append(index)
+            }
+        }
 
         var load = TrafficLoad()
         for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .residential && tile.density > 0 {
             let homeFrontage = frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable)
             guard !homeFrontage.isEmpty else { continue } // transit-only access: no road trips generated
-            guard let path = shortestPath(from: homeFrontage, to: jobFrontage, over: drivable) else { continue } // no reachable job
+
+            var claimedJobIndex: Int?
+            let path = shortestPath(from: homeFrontage, over: drivable) { candidate in
+                guard let indices = jobIndicesByFrontage[candidate] else { return false }
+                guard let openIndex = indices.first(where: { jobs[$0].remainingCapacity > 0 }) else { return false }
+                claimedJobIndex = openIndex
+                return true
+            }
+            guard let path, let claimedJobIndex else { continue } // every reachable job is full
 
             for step in path {
                 load.add(tile.density, at: step)
             }
+            // Claimed *after* routing, by the home's own density — a
+            // level-5 home uses five times the room a level-1 home does,
+            // the same weight it contributes to road load.
+            jobs[claimedJobIndex].remainingCapacity -= tile.density
         }
         return load
+    }
+
+    /// Every commercial/industrial building with road frontage, as a job
+    /// site with its starting capacity (`density * jobCapacityPerDensityLevel`)
+    /// — the pool `computeLoad(for:)` draws down as homes claim a share of
+    /// it.
+    private static func jobSites(in map: CityMap, drivable: Set<GridPosition>) -> [JobSite] {
+        var sites: [JobSite] = []
+        for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .commercial || tile.zone == .industrial) && tile.density > 0 {
+            let siteFrontage = frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable)
+            guard !siteFrontage.isEmpty else { continue } // no road access: not a reachable job at all
+            sites.append(JobSite(frontage: siteFrontage, remainingCapacity: tile.density * jobCapacityPerDensityLevel))
+        }
+        return sites
     }
 
     /// Every drivable tile orthogonally touching any building anchored at
@@ -119,25 +191,22 @@ enum Traffic {
             .filter { drivable.contains($0) })
     }
 
-    /// The combined frontage of every building matching `predicate` — used
-    /// to gather every job site's driveways into one set of BFS targets at
-    /// once, rather than one destination search per job.
-    private static func frontage(ofBuildingsWhere predicate: (Tile) -> Bool, in map: CityMap, drivable: Set<GridPosition>) -> Set<GridPosition> {
-        var result: Set<GridPosition> = []
-        for tile in map.tiles where tile.isBuildingAnchor && predicate(tile) && tile.density > 0 {
-            result.formUnion(frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable))
-        }
-        return result
-    }
-
     /// Plain multi-source breadth-first search over `drivable`, starting
     /// from every tile in `sources` at once (so a building fronting a road
     /// on more than one side doesn't bias toward whichever side happens to
-    /// be checked first) and stopping at the first tile in `destinations`
-    /// reached — that's the nearest one, since every hop costs the same.
-    /// Returns the full path (sources' entry point through the destination
-    /// reached), or `nil` if nothing in `destinations` is reachable at all.
-    private static func shortestPath(from sources: Set<GridPosition>, to destinations: Set<GridPosition>, over drivable: Set<GridPosition>) -> [GridPosition]? {
+    /// be checked first) and stopping at the first tile satisfying
+    /// `isDestination` — that's the nearest one, since every hop costs the
+    /// same. Returns the full path (sources' entry point through the
+    /// destination reached), or `nil` if nothing satisfying `isDestination`
+    /// is reachable at all.
+    ///
+    /// `isDestination` is a predicate rather than a static
+    /// `Set<GridPosition>` specifically so `computeLoad(for:)` can route
+    /// around a job that's already at capacity without a second, separate
+    /// search — the closure re-checks each job's *current* remaining
+    /// capacity as the search reaches it, which a plain set membership
+    /// test can't express.
+    private static func shortestPath(from sources: Set<GridPosition>, over drivable: Set<GridPosition>, to isDestination: (GridPosition) -> Bool) -> [GridPosition]? {
         var visited = sources
         var parent: [GridPosition: GridPosition] = [:]
         var queue = Array(sources)
@@ -146,7 +215,7 @@ enum Traffic {
         while head < queue.count {
             let current = queue[head]
             head += 1
-            if destinations.contains(current) {
+            if isDestination(current) {
                 var path = [current]
                 var node = current
                 while let previous = parent[node] {
