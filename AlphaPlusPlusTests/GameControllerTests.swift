@@ -804,6 +804,107 @@ final class GameControllerTests: XCTestCase {
         XCTAssertFalse(controller.map.powerSupply.isSupplied(at: linePosition))
     }
 
+    // MARK: - Bonds
+
+    func testIssuingABondAddsToTreasuryAndBalance() {
+        let controller = GameController()
+        let startingTreasury = controller.treasury
+
+        let outcome = controller.issueBond()
+
+        XCTAssertTrue(outcome)
+        XCTAssertEqual(controller.bondBalance, GameController.bondIssueAmount)
+        XCTAssertEqual(controller.treasury, startingTreasury + GameController.bondIssueAmount)
+    }
+
+    /// `maxBondBalance` is the cap the roadmap's own "there's no debt in
+    /// this model" gap called out as missing — borrowing has to actually
+    /// run out somewhere, or it's not a real constraint.
+    func testIssuingBondsBeyondTheCapIsANoOp() {
+        let controller = GameController()
+        while controller.issueBond() {} // borrow until the cap refuses
+        let balanceAtCap = controller.bondBalance
+        let treasuryAtCap = controller.treasury
+        XCTAssertEqual(balanceAtCap, GameController.maxBondBalance)
+
+        let outcome = controller.issueBond()
+
+        XCTAssertFalse(outcome)
+        XCTAssertEqual(controller.bondBalance, balanceAtCap)
+        XCTAssertEqual(controller.treasury, treasuryAtCap)
+    }
+
+    func testRepayingABondReducesBalanceAndTreasury() {
+        let controller = GameController()
+        controller.issueBond()
+        let treasuryAfterIssuing = controller.treasury
+
+        controller.repayBond(GameController.bondIssueAmount)
+
+        XCTAssertEqual(controller.bondBalance, 0)
+        XCTAssertEqual(controller.treasury, treasuryAfterIssuing - GameController.bondIssueAmount)
+    }
+
+    /// Repaying more than is actually owed clamps to the outstanding
+    /// balance rather than taking `bondBalance` negative.
+    func testRepayingMoreThanOwedClampsToTheOutstandingBalance() {
+        let controller = GameController()
+        controller.issueBond() // owes exactly one bond's worth
+        let treasuryAfterIssuing = controller.treasury
+
+        controller.repayBond(GameController.bondIssueAmount * 10)
+
+        XCTAssertEqual(controller.bondBalance, 0)
+        XCTAssertEqual(controller.treasury, treasuryAfterIssuing - GameController.bondIssueAmount)
+    }
+
+    /// Repaying more than the treasury can actually cover clamps to what's
+    /// there instead of driving treasury deeper negative than the payment
+    /// itself would already explain.
+    func testRepayingMoreThanTreasuryCanAffordClampsToTreasury() {
+        let controller = GameController()
+        controller.issueBond()
+        controller.issueBond()
+        controller.issueBond() // owes 3 bonds' worth ($15,000), at the cap
+
+        // Spend the treasury down below the outstanding bond balance —
+        // roads at $50 apiece, one per distinct tile so the "same zone
+        // twice is free" guard never masks a real charge.
+        controller.selectedTool = .road
+        var remainingTiles = controller.map.tiles.map(\.position).makeIterator()
+        while controller.treasury >= controller.bondBalance, let position = remainingTiles.next() {
+            controller.place(at: position)
+        }
+        let treasuryBeforeRepay = controller.treasury
+        XCTAssertLessThan(treasuryBeforeRepay, controller.bondBalance)
+
+        controller.repayBond(controller.bondBalance)
+
+        XCTAssertEqual(controller.treasury, 0)
+        XCTAssertEqual(controller.bondBalance, GameController.bondIssueAmount * 3 - treasuryBeforeRepay)
+    }
+
+    /// `netRevenue` folds bond interest in alongside tax and upkeep — a
+    /// bond isn't a one-time fee, it's an ongoing drain every tick after.
+    func testBondInterestReducesNetRevenue() {
+        let controller = GameController()
+        let netRevenueBeforeBond = controller.netRevenue
+
+        controller.issueBond()
+
+        XCTAssertEqual(controller.bondInterest, Int(Double(GameController.bondIssueAmount) * GameController.bondInterestRate))
+        XCTAssertEqual(controller.netRevenue, netRevenueBeforeBond - controller.bondInterest)
+    }
+
+    func testResetMapClearsBondBalance() {
+        let controller = GameController()
+        controller.issueBond()
+
+        controller.resetMap()
+
+        XCTAssertEqual(controller.bondBalance, 0)
+    }
+
     // MARK: - RCI demand meter
 
     /// `cityDemand` is a passthrough to `map.cityDemand` — this pins that

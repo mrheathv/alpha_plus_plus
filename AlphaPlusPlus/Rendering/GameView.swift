@@ -234,9 +234,39 @@ struct GameView: View {
                 fundingControl(for: zone)
             }
 
+            Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 16)
+
+            bondsControl
+
             Spacer()
         }
         .font(.callout)
+    }
+
+    /// Borrowing against future tax revenue — see `GameController.issueBond()`'s
+    /// own doc comment for the mechanic. Shows the running balance and its
+    /// per-tick interest (the same "preview before it's charged" role
+    /// `taxRevenue`/`netRevenueLabel` play elsewhere), plus the two actions:
+    /// `+$5,000` deposits one bond's worth immediately (a no-op past
+    /// `maxBondBalance`); `-$5,000` pays that much back early, clamped to
+    /// whatever's actually outstanding and affordable. Both buttons stay
+    /// tappable rather than disabling at the limits — clicking either one
+    /// past its own guard is already a harmless no-op, the same shape
+    /// `layPipe`'s "already piped" guard has.
+    private var bondsControl: some View {
+        HStack(spacing: 4) {
+            Text("Bonds:").foregroundStyle(RetroUITheme.textSecondary)
+            Text("$\(controller.bondBalance) owed (-$\(controller.bondInterest)/tick)")
+                .foregroundStyle(RetroUITheme.textPrimary)
+            Button("+$\(GameController.bondIssueAmount)") {
+                controller.issueBond()
+            }
+            .buttonStyle(RetroButtonStyle(accent: .yellow, isSelected: false))
+            Button("-$\(GameController.bondIssueAmount)") {
+                controller.repayBond(GameController.bondIssueAmount)
+            }
+            .buttonStyle(RetroButtonStyle(accent: .yellow, isSelected: false))
+        }
     }
 
     /// One `RetroStepper` per fundable service, each tinted with that

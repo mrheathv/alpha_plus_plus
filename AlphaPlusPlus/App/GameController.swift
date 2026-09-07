@@ -56,6 +56,67 @@ final class GameController: ObservableObject {
     /// exist at all.
     @Published var taxRate: Double = 1.0
 
+    // MARK: - Bonds (borrowing against future tax revenue)
+
+    /// Outstanding bond principal — the "there's no debt in this model" gap
+    /// `treasury`'s own doc comment used to flag as missing. `treasury` could
+    /// already go negative from upkeep outrunning tax revenue (`netRevenue`
+    /// can be negative; nothing floors it), but that was overspending with
+    /// zero consequence beyond "placement stops working," not a deliberate
+    /// borrowing tool. `issueBond()`/`repayBond(_:)` are the only ways this
+    /// changes.
+    @Published private(set) var bondBalance = 0
+
+    /// How much one bond adds to `treasury` immediately.
+    static let bondIssueAmount = 5_000
+
+    /// Interest charged on the *entire* outstanding `bondBalance` every
+    /// `advanceSimulation()` step, folded into `netRevenue` alongside
+    /// upkeep — an ongoing cost paid automatically out of treasury, not a
+    /// one-time fee. A first guess, like every other rate in this file:
+    /// high enough relative to a small city's early tax base that stacking
+    /// bonds is a real tradeoff, not free money; needs real playtesting to
+    /// actually tune.
+    static let bondInterestRate = 0.02
+
+    /// The most bond principal the city can carry at once — borrowing
+    /// against a temporary shortfall, not a substitute for a tax base that
+    /// can never catch up. Three bonds' worth: enough room to matter, not
+    /// so much that debt stops being a real constraint.
+    static let maxBondBalance = 15_000
+
+    /// Interest owed *this tick* on `bondBalance` — a preview, the same
+    /// role `taxRevenue` plays for tax income: visible before it's
+    /// charged, not just noticed afterward when the treasury number moves
+    /// less than expected.
+    var bondInterest: Int {
+        Int(Double(bondBalance) * Self.bondInterestRate)
+    }
+
+    /// Borrow `bondIssueAmount` against future tax revenue, depositing it
+    /// into `treasury` immediately. Refuses (a no-op, the same shape
+    /// `layPipe`'s "already piped" guard has) once taking one more bond
+    /// would cross `maxBondBalance`.
+    @discardableResult
+    func issueBond() -> Bool {
+        guard bondBalance + Self.bondIssueAmount <= Self.maxBondBalance else { return false }
+        bondBalance += Self.bondIssueAmount
+        treasury += Self.bondIssueAmount
+        return true
+    }
+
+    /// Pay down bond principal early, straight out of `treasury` — clamped
+    /// to whichever is smaller, the outstanding balance or what treasury
+    /// can actually cover, so this can never take `bondBalance` negative
+    /// or drain more cash than the city actually has. Paying down sooner
+    /// means less `bondInterest` on every tick after.
+    func repayBond(_ amount: Int) {
+        let payment = min(amount, bondBalance, treasury)
+        guard payment > 0 else { return }
+        bondBalance -= payment
+        treasury -= payment
+    }
+
     /// Whether the simulation clock is running. `GameScene`'s per-frame
     /// `update(_:)` reads this to decide whether it's time to call
     /// `advanceSimulation()` again; it lives here rather than as private
@@ -307,6 +368,7 @@ final class GameController: ObservableObject {
         map = CityMap(width: size, height: size) // a fresh CityMap's serviceFunding already defaults to 1.0 for everything
         treasury = Self.startingTreasury
         taxRate = 1.0
+        bondBalance = 0
         isRunning = false
         history.removeAll()
         lastHazardStrikes = []
@@ -453,11 +515,12 @@ final class GameController: ObservableObject {
     }
 
     /// What `advanceSimulation()` actually deposits (or withdraws) this
-    /// step: tax revenue minus upkeep. Can go negative — a city with more
-    /// services than the tax base supports yet should feel that as a real
-    /// drain, not have it silently floored at zero.
+    /// step: tax revenue minus upkeep minus bond interest. Can go negative
+    /// — a city with more services (or more debt) than its tax base
+    /// supports yet should feel that as a real drain, not have it silently
+    /// floored at zero.
     var netRevenue: Int {
-        taxRevenue - upkeepCost
+        taxRevenue - upkeepCost - bondInterest
     }
 
     /// How much the city currently wants more of each RCI type — reads
