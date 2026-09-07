@@ -417,6 +417,7 @@ enum ZoneIcon {
 
         let container = SKNode()
         container.addChild(withGlow([body, roofCap], color: accent))
+        container.addChild(satelliteDish(at: CGPoint(x: 14, y: 32)))
         for row in 0 ..< 2 {
             for column in 0 ..< 3 {
                 let point = CGPoint(x: -18 + CGFloat(column) * 18, y: -18 + CGFloat(row) * 20)
@@ -439,6 +440,7 @@ enum ZoneIcon {
 
         let container = SKNode()
         container.addChild(withGlow([lower, upper, sign], color: accent))
+        container.addChild(satelliteDish(at: CGPoint(x: -10, y: 34)))
         container.addChild(detail(rect: CGRect(x: -24, y: -24, width: 48, height: 14), fill: litAccent))
         container.addChild(detail(rect: CGRect(x: -12, y: 6, width: 10, height: 10), fill: litAccent))
         container.addChild(detail(rect: CGRect(x: 2, y: 6, width: 10, height: 10), fill: litAccent))
@@ -481,6 +483,52 @@ enum ZoneIcon {
         container.addChild(detail(rect: CGRect(x: 2, y: -26, width: 10, height: 10), fill: litAccent))
         container.addChild(detail(rect: CGRect(x: -9, y: 0, width: 9, height: 9), fill: litAccent))
         container.addChild(detail(rect: CGRect(x: 4, y: 0, width: 9, height: 9), fill: litAccent))
+        return container
+    }
+
+    /// A small rooftop satellite dish — pulled from a reference image of
+    /// mid-rise office towers, each with one or more of these on the
+    /// roof. A dish on a short mast, in `recessedAccent` with a thin
+    /// `litAccent` rim, so it reads as hardware sitting on the roof
+    /// rather than another glowing structural element competing with
+    /// the building's own accent.
+    private static func satelliteDish(at center: CGPoint) -> SKNode {
+        let mast = detail(rect: CGRect(x: center.x - 1, y: center.y - 6, width: 2, height: 6), fill: recessedAccent)
+        let dish = SKShapeNode(ellipseOf: CGSize(width: 12, height: 7))
+        dish.position = center
+        dish.fillColor = recessedAccent
+        dish.strokeColor = litAccent
+        dish.lineWidth = 1.2
+
+        let container = SKNode()
+        container.addChild(mast)
+        container.addChild(dish)
+        return container
+    }
+
+    /// A small hazard-warning triangle — pulled from a reference image
+    /// that painted biohazard/radiation pictograms directly onto heavy
+    /// industry at its most developed tier. Kept generic (a triangle
+    /// with an exclamation mark) rather than a specific symbol, matching
+    /// this file's "simple primitives only" rule — and it doubles as a
+    /// literal callback to that tier's own name, `RenderPalette.tierColor`'s
+    /// "Pollution Warning."
+    private static func warningTriangle(at center: CGPoint, size: CGFloat = 16) -> SKNode {
+        let half = size / 2
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: center.x, y: center.y + half))
+        path.addLine(to: CGPoint(x: center.x - half, y: center.y - half))
+        path.addLine(to: CGPoint(x: center.x + half, y: center.y - half))
+        path.closeSubpath()
+        let triangle = SKShapeNode(path: path)
+        triangle.fillColor = silhouetteFill
+        triangle.strokeColor = emberColor
+        triangle.lineWidth = 2
+
+        let container = SKNode()
+        container.addChild(withGlow([triangle], color: emberColor, blurRadius: 3))
+        container.addChild(detail(rect: CGRect(x: center.x - 1.3, y: center.y - half * 0.05, width: 2.6, height: half * 0.55), fill: emberColor))
+        container.addChild(dot(radius: 1.6, at: CGPoint(x: center.x, y: center.y - half * 0.6), fill: emberColor, stroke: .clear))
         return container
     }
 
@@ -563,6 +611,7 @@ enum ZoneIcon {
         container.addChild(withGlow([body, shortStack, tallStack], color: accent, blurRadius: 6))
         container.addChild(dot(radius: 7, at: CGPoint(x: -16, y: 24), fill: litAccent, stroke: accent))
         container.addChild(dot(radius: 9, at: CGPoint(x: 12, y: 38), fill: litAccent, stroke: accent))
+        container.addChild(warningTriangle(at: CGPoint(x: 28, y: -14)))
         return container
     }
 
@@ -583,6 +632,7 @@ enum ZoneIcon {
         container.addChild(withGlow([body, stack, tank], color: accent, blurRadius: 6))
         container.addChild(dot(radius: 6, at: CGPoint(x: 21, y: 34), fill: litAccent, stroke: accent))
         container.addChild(detail(rect: CGRect(x: -22, y: -6, width: 8, height: 8), fill: recessedAccent))
+        container.addChild(warningTriangle(at: CGPoint(x: 0, y: -14)))
         return container
     }
 
