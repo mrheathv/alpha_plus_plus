@@ -572,6 +572,7 @@ final class GameScene: SKScene {
             tileRenderer.update(node, for: map[position])
             tileRenderer.clearPipeMarker(on: node)
             tileRenderer.clearPowerLineMarker(on: node)
+            tileRenderer.clearBuildingShadow(on: node)
             syncLaneLine(at: position)
         case .landValue:
             node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
@@ -580,6 +581,7 @@ final class GameScene: SKScene {
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
             tileRenderer.clearPowerLineMarker(on: node)
+            tileRenderer.clearBuildingShadow(on: node)
             tileRenderer.clearLaneLine(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
@@ -588,6 +590,7 @@ final class GameScene: SKScene {
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
             tileRenderer.clearPowerLineMarker(on: node)
+            tileRenderer.clearBuildingShadow(on: node)
             tileRenderer.clearLaneLine(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
@@ -602,6 +605,11 @@ final class GameScene: SKScene {
             // the next simulation tick recomputes it, same as it already
             // does for a newly-placed Water Tower.
             tileRenderer.syncPipeMarker(on: node, hasPipe: map[position].hasPipe)
+            // The building-visibility fix: a dimmed copy of whatever's
+            // normally here, so you can still see which tiles you're
+            // routing pipe to/around instead of a featureless supply-color
+            // block. See `syncBuildingShadow`'s own doc comment.
+            tileRenderer.syncBuildingShadow(on: node, zone: map[position].zone, density: map[position].density, footprintSize: map[position].zone.footprintSize, seed: position)
         case .power:
             node.color = RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
             tileRenderer.clearPips(on: node)
@@ -612,6 +620,8 @@ final class GameScene: SKScene {
             // Same "read the layer directly, not the cached supply" reasoning
             // `syncPipeMarker` documents just above, for the parallel layer.
             tileRenderer.syncPowerLineMarker(on: node, hasPowerLine: map[position].hasPowerLine)
+            // Same building-visibility fix as Water, just above.
+            tileRenderer.syncBuildingShadow(on: node, zone: map[position].zone, density: map[position].density, footprintSize: map[position].zone.footprintSize, seed: position)
         }
         syncTrafficAnimation(at: position)
     }

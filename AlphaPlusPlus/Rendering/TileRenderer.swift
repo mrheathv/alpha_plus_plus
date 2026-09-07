@@ -311,4 +311,40 @@ struct TileRenderer {
     func clearPowerLineMarker(on node: SKSpriteNode) {
         node.childNode(withName: Self.powerLineMarkerNodeName)?.removeFromParent()
     }
+
+    // MARK: - Building shadow (Water/Power overlays only)
+
+    private static let buildingShadowNodeName = "buildingShadow"
+
+    /// A dimmed copy of a building's own icon, drawn in the Water/Power
+    /// overlays in place of `syncIcon`'s full-brightness one — the fix for
+    /// a real gap a live play session found: those two overlays recolor
+    /// every tile by supply state and `clearIcon` away whatever building
+    /// sat there, which is exactly correct for *reading the supply data*
+    /// but leaves you unable to see which tiles have a building on them at
+    /// all while you're the one laying pipe or power line to them. This
+    /// reuses `ZoneIcon.makeNode` — same silhouette Normal view draws, not
+    /// a second art asset to keep in sync — just faded low enough
+    /// (`shadowAlpha`) to read as "a building sits here" without fighting
+    /// the supply-color coding underneath it, which stays the overlay's
+    /// main signal. `.empty`/`.road`/`.highway` all return `nil` from
+    /// `ZoneIcon.makeNode` already (nothing to shadow), so this needs no
+    /// zone filtering of its own beyond that.
+    private static let shadowAlpha: CGFloat = 0.35
+
+    func syncBuildingShadow(on node: SKSpriteNode, zone: ZoneType, density: Int, footprintSize: Int, seed: GridPosition) {
+        node.children.filter { $0.name == Self.buildingShadowNodeName }.forEach { $0.removeFromParent() }
+        guard let icon = ZoneIcon.makeNode(for: zone, density: density, seed: seed) else { return }
+        icon.name = Self.buildingShadowNodeName
+        icon.alpha = Self.shadowAlpha
+        let spriteWidth = layout.spriteSize(forFootprint: footprintSize).width
+        icon.setScale(spriteWidth / ZoneIcon.designSize * 0.85)
+        node.addChild(icon)
+    }
+
+    /// Removes a tile's building shadow — used alongside `clearIcon` for
+    /// every overlay except Water/Power.
+    func clearBuildingShadow(on node: SKSpriteNode) {
+        node.children.filter { $0.name == Self.buildingShadowNodeName }.forEach { $0.removeFromParent() }
+    }
 }
