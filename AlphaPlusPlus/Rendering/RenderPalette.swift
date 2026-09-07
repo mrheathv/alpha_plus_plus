@@ -95,8 +95,6 @@ enum RenderPalette {
             // than a pure cyan keeps the two from reading as the same
             // color at a glance.
             return SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)
-        case .pipe:
-            return SKColor(srgbRed: 0.15, green: 0.40, blue: 0.55, alpha: 1.0)  // a muted, desaturated version of waterTower's ocean-blue — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
         }
     }
 
@@ -160,14 +158,24 @@ enum RenderPalette {
     /// doesn't), so there's no in-between value to blend toward. Reuses
     /// `waterTower`'s own aqua for "supplied" — the overlay and the
     /// building that provides it should read as the same thing — against
-    /// a dim, desaturated version for "not supplied," the same "muted
-    /// version of the real color" relationship `.pipe` has to `.waterTower`.
+    /// a dim, desaturated version for "not supplied."
     private static let waterSupplied = SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)
     private static let waterUnsupplied = SKColor(srgbRed: 0.12, green: 0.10, blue: 0.18, alpha: 1.0)
 
     static func waterColor(for hasSupply: Bool) -> SKColor {
         hasSupply ? waterSupplied : waterUnsupplied
     }
+
+    /// Marker drawn on top of the Water overlay wherever `Tile.hasPipe` is
+    /// true (see `TileRenderer`'s pipe-marker sync) — pipes have no
+    /// surface color of their own now that they're an underground layer
+    /// rather than a `ZoneType`, so this is the one place a pipe is
+    /// actually visible at all. A muted, desaturated version of
+    /// `waterTower`'s ocean-blue, same "plainer infrastructure, richer
+    /// service building" family relationship highway/road and
+    /// subway/publicTransit already have — the exact value `.pipe`'s own
+    /// tile color used to be, before pipes moved off the surface grid.
+    static let pipeMarkerColor = SKColor(srgbRed: 0.15, green: 0.40, blue: 0.55, alpha: 1.0)
 
     /// Body and outline for the small ambient "cars" `GameScene` animates
     /// driving along road tiles (see `Traffic.carCount(forCongestion:)`).
@@ -208,7 +216,6 @@ enum RenderPalette {
         case .highway: return "Highway"
         case .subway: return "Subway"
         case .waterTower: return "Water Tower"
-        case .pipe: return "Pipe"
         }
     }
 }

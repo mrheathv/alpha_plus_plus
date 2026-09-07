@@ -126,13 +126,32 @@ struct GameView: View {
 
     private var viewAndStatsRow: some View {
         HStack(spacing: 16) {
-            Picker("Overlay", selection: $controller.overlayMode) {
-                ForEach(OverlayMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
+            // The hint below is scoped to the same 320pt column the picker
+            // itself occupies (a `VStack`, not another item alongside it in
+            // this already-crowded `HStack`) specifically so it never
+            // widens this row — an earlier version put it inline here and
+            // squeezed `statsReadout` at the far end into an unreadable,
+            // character-wrapped column once the row ran out of width.
+            VStack(alignment: .leading, spacing: 2) {
+                Picker("Overlay", selection: $controller.overlayMode) {
+                    ForEach(OverlayMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 320) // 4 segments now that Water joined Normal/Land Value/Traffic
+
+                // Pipes are edited here, not on the zoning toolbar — see
+                // `Tile.hasPipe`'s doc comment for why. This is the only
+                // hint a player gets that clicking now lays pipe instead
+                // of whatever zone tool happens to be selected.
+                if controller.overlayMode == .water {
+                    Text("Click to lay pipe \u{00B7} Right-click to remove")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 320, alignment: .leading)
                 }
             }
-            .pickerStyle(.segmented)
-            .frame(width: 320) // 4 segments now that Water joined Normal/Land Value/Traffic
 
             HStack(spacing: 6) {
                 Text("New city size:").foregroundStyle(.secondary)

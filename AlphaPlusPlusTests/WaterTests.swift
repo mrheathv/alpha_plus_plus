@@ -16,7 +16,7 @@ final class WaterTests: XCTestCase {
 
     func testNoSupplyAnywhereWithNoTowerAtAll() {
         var map = CityMap(width: 5, height: 5)
-        for x in 0 ..< 5 { map[GridPosition(x: x, y: 0)].zone = .pipe }
+        for x in 0 ..< 5 { map[GridPosition(x: x, y: 0)].hasPipe = true }
         // Pipes exist, but nothing is actually a source.
 
         let supply = Water.computeSupply(for: map)
@@ -34,7 +34,7 @@ final class WaterTests: XCTestCase {
     func testAConnectedPipeRunReportsSuppliedAlongItsWholeLength() {
         var map = CityMap(width: 10, height: 3)
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 0, y: 1)) // covers (0,1)-(1,2)
-        for x in 1 ..< 8 { map[GridPosition(x: x, y: 0)].zone = .pipe }
+        for x in 1 ..< 8 { map[GridPosition(x: x, y: 0)].hasPipe = true }
 
         let supply = Water.computeSupply(for: map)
 
@@ -48,11 +48,11 @@ final class WaterTests: XCTestCase {
     func testADisconnectedPipeSegmentIsNotSupplied() {
         var map = CityMap(width: 10, height: 3)
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 0, y: 1)) // covers (0,1)-(1,2)
-        map[GridPosition(x: 1, y: 0)].zone = .pipe // touches the tower's own footprint cell (1,1)
-        map[GridPosition(x: 2, y: 0)].zone = .pipe
+        map[GridPosition(x: 1, y: 0)].hasPipe = true // touches the tower's own footprint cell (1,1)
+        map[GridPosition(x: 2, y: 0)].hasPipe = true
         // Gap at x=3 (left `.empty`) breaks the network.
-        map[GridPosition(x: 4, y: 0)].zone = .pipe
-        map[GridPosition(x: 5, y: 0)].zone = .pipe
+        map[GridPosition(x: 4, y: 0)].hasPipe = true
+        map[GridPosition(x: 5, y: 0)].hasPipe = true
 
         let supply = Water.computeSupply(for: map)
 
@@ -67,7 +67,7 @@ final class WaterTests: XCTestCase {
     func testAZeroFundedTowerSuppliesNothing() {
         var map = CityMap(width: 5, height: 3)
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 0, y: 1)) // covers (0,1)-(1,2)
-        for x in 1 ..< 5 { map[GridPosition(x: x, y: 0)].zone = .pipe }
+        for x in 1 ..< 5 { map[GridPosition(x: x, y: 0)].hasPipe = true }
         map.serviceFunding.setLevel(0, for: .waterTower)
 
         let supply = Water.computeSupply(for: map)
@@ -82,9 +82,9 @@ final class WaterTests: XCTestCase {
     func testHasSupplyIsTrueForABuildingTouchingAConnectedPipe() {
         var map = CityMap(width: 6, height: 3)
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 0, y: 1)) // covers (0,1)-(1,2)
-        map[GridPosition(x: 1, y: 0)].zone = .pipe // touches the tower's own footprint cell (1,1)
-        map[GridPosition(x: 2, y: 0)].zone = .pipe
-        map[GridPosition(x: 3, y: 0)].zone = .pipe
+        map[GridPosition(x: 1, y: 0)].hasPipe = true // touches the tower's own footprint cell (1,1)
+        map[GridPosition(x: 2, y: 0)].hasPipe = true
+        map[GridPosition(x: 3, y: 0)].hasPipe = true
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 3, y: 1)) // touches (3,0)
         map.waterSupply = Water.computeSupply(for: map)
 

@@ -33,7 +33,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
     // only ever checks `level(for: .waterTower) > 0` — the network is
     // either live or offline, no continuous strength dial the way a
     // falloff-distance service gets (see that function's own doc comment
-    // for why). `.pipe` doesn't get one, same reasoning as `.highway`.
+    // for why). A pipe isn't a `ZoneType` at all (see `Tile.hasPipe`), so
+    // there's no separate "is a pipe fundable" question to answer.
     var waterTower: Double = 1.0
 
     /// How well-funded `zone` currently is. Never optional — every
@@ -47,7 +48,7 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .stadium: return stadium
         case .subway: return subway
         case .waterTower: return waterTower
-        case .empty, .residential, .commercial, .industrial, .road, .highway, .pipe: return 1.0
+        case .empty, .residential, .commercial, .industrial, .road, .highway: return 1.0
         }
     }
 
@@ -65,7 +66,7 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .stadium: stadium = level
         case .subway: subway = level
         case .waterTower: waterTower = level
-        case .empty, .residential, .commercial, .industrial, .road, .highway, .pipe: break
+        case .empty, .residential, .commercial, .industrial, .road, .highway: break
         }
     }
 }

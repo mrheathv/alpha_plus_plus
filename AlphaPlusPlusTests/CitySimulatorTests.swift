@@ -115,7 +115,7 @@ final class CitySimulatorTests: XCTestCase {
         // Density 2 -> 3 crosses CitySimulator's water-required threshold,
         // so this fixture needs a real, connected supply -- a pipe
         // touching the building, connected to a funded tower.
-        map[GridPosition(x: 2, y: 1)].zone = .pipe
+        map[GridPosition(x: 2, y: 1)].hasPipe = true
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
         map.waterSupply = Water.computeSupply(for: map)
 
@@ -150,7 +150,7 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 2, y: 0)].zone = .road // touches (1,0)
         map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 0, y: 2)) // covers (0,2)-(1,3), distance 1 from (0,1)
         // Density 4 -> 5 crosses the water-required threshold too.
-        map[GridPosition(x: 2, y: 1)].zone = .pipe
+        map[GridPosition(x: 2, y: 1)].hasPipe = true
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
         map.waterSupply = Water.computeSupply(for: map)
 
@@ -199,7 +199,7 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 0, y: 0)].density = 2
         map[GridPosition(x: 2, y: 0)].zone = .road
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1)) // covers (3,1)-(4,2)
-        map[GridPosition(x: 2, y: 1)].zone = .pipe // one tile, touching both the residential's (1,1) and the tower's (3,1)
+        map[GridPosition(x: 2, y: 1)].hasPipe = true // one tile, touching both the residential's (1,1) and the tower's (3,1)
         map.waterSupply = Water.computeSupply(for: map)
 
         let next = CitySimulator.advance(map)

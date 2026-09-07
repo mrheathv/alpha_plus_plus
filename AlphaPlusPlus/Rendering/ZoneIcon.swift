@@ -36,12 +36,13 @@ enum ZoneIcon {
     static let designSize: CGFloat = 100
 
     /// `nil` for zones that don't get an icon: `.empty` (nothing to draw)
-    /// and `.road`/`.highway`/`.pipe` (a flat, glowing fill already reads
-    /// as an uninterrupted stretch of network — see
-    /// `RenderPalette.fullColor(for:)` and `GameScene`'s network glow) —
-    /// and for a growable zone at density 0 (just zoned, nothing built
-    /// yet; the icon appearing at all is itself part of the signal that
-    /// something now stands here).
+    /// and `.road`/`.highway` (a flat, glowing fill already reads as an
+    /// uninterrupted stretch of network — see `RenderPalette.fullColor(for:)`
+    /// and `GameScene`'s network glow) — and for a growable zone at
+    /// density 0 (just zoned, nothing built yet; the icon appearing at
+    /// all is itself part of the signal that something now stands here).
+    /// A pipe isn't a `ZoneType` at all any more (see `Tile.hasPipe`), so
+    /// this function never even sees one.
     ///
     /// `seed` — a building's anchor position — picks which *variant* a tier
     /// with more than one draws (currently tier 1 of the three growable
@@ -50,7 +51,7 @@ enum ZoneIcon {
     /// pattern, just another `variant(for:)` call and another function.
     static func makeNode(for zone: ZoneType, density: Int, seed: GridPosition) -> SKNode? {
         switch zone {
-        case .empty, .road, .highway, .pipe:
+        case .empty, .road, .highway:
             return nil
         case .residential:
             let accent = RenderPalette.fullColor(for: zone)

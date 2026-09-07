@@ -161,10 +161,10 @@ struct TileRenderer {
         return SKTexture(cgImage: image)
     }()
 
-    /// Adds (or removes) the soft glow behind a road/highway/pipe tile,
-    /// tinted that zone's own neon color (`RenderPalette.fullColor(for:)`
-    /// — the same accent value `ZoneIcon` reads for building glows, so a
-    /// road and the buildings along it always agree on what color "this
+    /// Adds (or removes) the soft glow behind a road/highway tile, tinted
+    /// that zone's own neon color (`RenderPalette.fullColor(for:)` — the
+    /// same accent value `ZoneIcon` reads for building glows, so a road
+    /// and the buildings along it always agree on what color "this
     /// network" is). `.add` blend mode means overlapping glow from
     /// adjacent network tiles brightens rather than just stacking flat
     /// color on top of itself — a straight run of road reads as one
@@ -175,9 +175,14 @@ struct TileRenderer {
     /// boundary; drawn at a `zPosition` above the flat tile fills (but
     /// below density pips) so the bleed is actually visible over a
     /// neighboring tile's own color instead of being hidden behind it.
+    ///
+    /// Pipes don't get this — they're not a `ZoneType` any more (see
+    /// `Tile.hasPipe`), so they have no surface color of their own to
+    /// glow. `syncPipeMarker` is their equivalent, drawn only in the
+    /// Water overlay instead of always-on.
     func syncNetworkGlow(on node: SKSpriteNode, zone: ZoneType) {
         node.childNode(withName: Self.glowNodeName)?.removeFromParent()
-        guard zone == .road || zone == .highway || zone == .pipe else { return }
+        guard zone == .road || zone == .highway else { return }
 
         let glow = SKSpriteNode(texture: Self.glowTexture)
         glow.name = Self.glowNodeName
@@ -195,5 +200,36 @@ struct TileRenderer {
     /// when `GameScene` draws an overlay instead of normal zone colors.
     func clearNetworkGlow(on node: SKSpriteNode) {
         node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+    }
+
+    // MARK: - Pipe marker (Water overlay only)
+
+    private static let pipeMarkerNodeName = "pipeMarker"
+
+    /// A small square drawn on top of the Water overlay's own coloring
+    /// wherever `Tile.hasPipe` is true — the one place a pipe is actually
+    /// visible at all, now that it's an underground layer rather than a
+    /// `ZoneType` with a tile color of its own. `GameScene` only calls
+    /// this while `overlayMode == .water`; every other overlay (including
+    /// Normal) calls `clearPipeMarker` instead, so pipes read as genuinely
+    /// invisible infrastructure the rest of the time — the intuitively
+    /// correct result for something buried underground, not just a
+    /// rendering shortcut.
+    func syncPipeMarker(on node: SKSpriteNode, hasPipe: Bool) {
+        node.childNode(withName: Self.pipeMarkerNodeName)?.removeFromParent()
+        guard hasPipe else { return }
+
+        let marker = SKShapeNode(rectOf: CGSize(width: layout.spriteSize.width * 0.3, height: layout.spriteSize.height * 0.3))
+        marker.name = Self.pipeMarkerNodeName
+        marker.fillColor = RenderPalette.pipeMarkerColor
+        marker.strokeColor = .clear
+        marker.zPosition = 3
+        node.addChild(marker)
+    }
+
+    /// Removes a tile's pipe marker — used alongside `clearPips`/`clearIcon`/
+    /// `clearNetworkGlow` for every overlay except Water.
+    func clearPipeMarker(on node: SKSpriteNode) {
+        node.childNode(withName: Self.pipeMarkerNodeName)?.removeFromParent()
     }
 }

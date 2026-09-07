@@ -42,12 +42,14 @@ final class ServiceFundingTests: XCTestCase {
         XCTAssertEqual(funding.level(for: .waterTower), 0.8)
     }
 
-    /// Zoned land, roads, `.highway`, `.pipe`, and `.empty` aren't
-    /// fundable — `setLevel` is a harmless no-op for them rather than
-    /// trapping, so a caller iterating every `ZoneType` doesn't need to
-    /// filter down to the fundable ones first. `.highway`/`.pipe`
-    /// specifically: both are pricier infrastructure, not a service — no
-    /// staff to fund, same as plain `.road`.
+    /// Zoned land, roads, `.highway`, and `.empty` aren't fundable —
+    /// `setLevel` is a harmless no-op for them rather than trapping, so a
+    /// caller iterating every `ZoneType` doesn't need to filter down to
+    /// the fundable ones first. `.highway` specifically: pricier
+    /// infrastructure, not a service — no staff to fund, same as plain
+    /// `.road`. (A pipe isn't a `ZoneType` at all any more — see
+    /// `Tile.hasPipe` — so there's no "is a pipe fundable" case to even
+    /// ask about here.)
     func testSetLevelIsANoOpForNonFundableZones() {
         var funding = ServiceFunding()
         funding.setLevel(0.1, for: .residential)
@@ -55,7 +57,6 @@ final class ServiceFundingTests: XCTestCase {
         funding.setLevel(0.1, for: .industrial)
         funding.setLevel(0.1, for: .road)
         funding.setLevel(0.1, for: .highway)
-        funding.setLevel(0.1, for: .pipe)
         funding.setLevel(0.1, for: .empty)
 
         for zone in ZoneType.allCases {

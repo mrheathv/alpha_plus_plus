@@ -2,8 +2,8 @@ import Foundation
 
 /// Whether a tile is actually served by the water network — a real pipe
 /// network, not a coverage radius: a building needs an unbroken chain of
-/// `.pipe` tiles connecting it back to a `.waterTower`, the same way a
-/// zone needs an actual road (not just "somewhere nearby") for
+/// piped tiles (`Tile.hasPipe`) connecting it back to a `.waterTower`, the
+/// same way a zone needs an actual road (not just "somewhere nearby") for
 /// `CitySimulator.hasAccess`. Modeled after `Traffic.swift`'s shape almost
 /// exactly, since it's the same underlying problem: a real network search
 /// that's too expensive to redo per single-tile query, so it's computed
@@ -11,8 +11,8 @@ import Foundation
 /// than threaded as an extra parameter through every caller.
 enum Water {
 
-    /// Every `.pipe` tile reachable from *some* funded water tower, and
-    /// whether `.pipe` neighbors of a given position are among them —
+    /// Every piped tile reachable from *some* funded water tower, and
+    /// whether the piped neighbors of a given position are among them —
     /// `hasSupply(at:in:)` is the only thing most callers need.
     ///
     /// Builds the reachable set with a plain flood-fill (unweighted BFS,
@@ -25,7 +25,7 @@ enum Water {
         // tower offline at once, not just some of them.
         guard map.serviceFunding.level(for: .waterTower) > 0 else { return WaterSupply() }
 
-        let pipes = Set(map.tiles.filter { $0.zone == .pipe }.map(\.position))
+        let pipes = Set(map.tiles.filter { $0.hasPipe }.map(\.position))
         guard !pipes.isEmpty else { return WaterSupply() }
 
         var frontier: [GridPosition] = []

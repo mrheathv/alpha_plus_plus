@@ -293,6 +293,23 @@ final class GameScene: SKScene {
     private func place(with event: NSEvent) {
         guard let position = gridPosition(of: event) else { return }
 
+        // The Water overlay doubles as the pipe-editing layer — whatever
+        // zone tool happens to be selected on the toolbar is irrelevant
+        // while looking at it. See `Tile.hasPipe`'s doc comment for why
+        // pipes live here instead of as another toolbar button.
+        if controller.overlayMode == .water {
+            for step in stroke(from: lastPaintPosition, to: position) {
+                let outcome = controller.layPipe(at: step)
+                refresh(step)
+                if outcome == .insufficientFunds {
+                    flashInsufficientFunds(at: step)
+                    break // same tile-price-doesn't-change-mid-stroke reasoning as below
+                }
+            }
+            lastPaintPosition = position
+            return
+        }
+
         // A multi-tile building is placed one at a time, not painted in a
         // stroke — and it can overlap-clear a *different* multi-tile
         // building whose sprite lives at another anchor entirely, which a
@@ -324,6 +341,15 @@ final class GameScene: SKScene {
 
     private func bulldoze(with event: NSEvent) {
         guard let position = gridPosition(of: event) else { return }
+
+        if controller.overlayMode == .water {
+            for step in stroke(from: lastBulldozePosition, to: position) {
+                controller.removePipe(at: step)
+                refresh(step)
+            }
+            lastBulldozePosition = position
+            return
+        }
 
         if map[position].zone.footprintSize > 1 {
             // Same reasoning as `place(with:)`: clearing a multi-tile
@@ -395,6 +421,20 @@ final class GameScene: SKScene {
             placementPreviewNode.isHidden = true
             return
         }
+
+        // Laying a pipe never conflicts with anything already on the
+        // surface — there's no "blocked" state to warn about the way a
+        // surface building has, so this is always a plain 1×1 "clear" tile.
+        if controller.overlayMode == .water {
+            placementPreviewNode.fillColor = RenderPalette.placementPreviewClearFill
+            placementPreviewNode.strokeColor = RenderPalette.placementPreviewClearStroke
+            let size = layout.spriteSize(forFootprint: 1)
+            placementPreviewNode.path = CGPath(rect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height), transform: nil)
+            placementPreviewNode.position = layout.centerPoint(ofFootprintOrigin: position, size: 1)
+            placementPreviewNode.isHidden = false
+            return
+        }
+
         let footprintSize = controller.selectedTool.footprintSize
         let footprint = map.footprintCells(origin: position, size: footprintSize)
         guard !footprint.isEmpty else {
@@ -507,21 +547,30 @@ final class GameScene: SKScene {
         switch controller.overlayMode {
         case .none:
             tileRenderer.update(node, for: map[position])
+            tileRenderer.clearPipeMarker(on: node)
         case .landValue:
             node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
+            tileRenderer.clearPipeMarker(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
+            tileRenderer.clearPipeMarker(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
+            // Reads `hasPipe` directly rather than the cached
+            // `map.waterSupply`, so a pipe you just laid shows up right
+            // away — the *supply* coloring above still only updates once
+            // the next simulation tick recomputes it, same as it already
+            // does for a newly-placed Water Tower.
+            tileRenderer.syncPipeMarker(on: node, hasPipe: map[position].hasPipe)
         }
         syncTrafficAnimation(at: position)
     }

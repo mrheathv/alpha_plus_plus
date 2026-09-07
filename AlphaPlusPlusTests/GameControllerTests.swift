@@ -560,28 +560,75 @@ final class GameControllerTests: XCTestCase {
         XCTAssertEqual(controller.upkeepCost, ZoneType.subway.upkeepCost)
     }
 
-    // MARK: - Pipe and Water Tower placement
+    // MARK: - Pipe (an underground layer, not a ZoneType — see `Tile.hasPipe`)
 
-    func testPlacingAPipeChargesItsOwnCostAndSetsTheZone() {
+    func testLayingAPipeChargesItsOwnCostOnce() {
         let controller = GameController()
         let position = GridPosition(x: 0, y: 0)
         let startingTreasury = controller.treasury
-        controller.selectedTool = .pipe
+
+        let outcome = controller.layPipe(at: position)
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertTrue(controller.map[position].hasPipe)
+        XCTAssertEqual(controller.treasury, startingTreasury - GameController.pipePlacementCost)
+    }
+
+    /// `GameScene` calls `layPipe` on every tile a drag stroke crosses —
+    /// re-crossing already-piped ground shouldn't charge a second time.
+    func testLayingAPipeOnATileThatAlreadyHasOneIsFreeAndUnchanged() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.layPipe(at: position)
+        let treasuryAfterFirstPipe = controller.treasury
+
+        let outcome = controller.layPipe(at: position)
+
+        XCTAssertEqual(outcome, .unchanged)
+        XCTAssertEqual(controller.treasury, treasuryAfterFirstPipe)
+    }
+
+    func testRemovingAPipeIsFreeAndClearsIt() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.layPipe(at: position)
+        let treasuryAfterPlacing = controller.treasury
+
+        controller.removePipe(at: position)
+
+        XCTAssertFalse(controller.map[position].hasPipe)
+        XCTAssertEqual(controller.treasury, treasuryAfterPlacing)
+    }
+
+    /// The regression test for the exact bug pipes-as-a-layer exists to
+    /// avoid: placing a normal zone on top of a piped tile must never
+    /// silently erase the pipe underneath it (`CityMap.placeBuilding`
+    /// carries `hasPipe` forward instead of defaulting it away).
+    func testPlacingAZoneOverAPipedTilePreservesThePipe() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.layPipe(at: position)
+        controller.selectedTool = .road
 
         controller.place(at: position)
 
-        XCTAssertEqual(controller.map[position].zone, .pipe)
-        XCTAssertEqual(controller.treasury, startingTreasury - ZoneType.pipe.placementCost)
+        XCTAssertEqual(controller.map[position].zone, .road)
+        XCTAssertTrue(controller.map[position].hasPipe)
     }
 
-    /// `.pipe` costs money to place but nothing to keep running — same
-    /// reasoning as `.highway`, it's still just infrastructure.
-    func testPipeContributesNothingToUpkeepCost() {
+    /// Same regression, the bulldoze path (`GameController.clearBuilding`
+    /// carries `hasPipe` forward the same way).
+    func testBulldozingAPipedTilePreservesThePipe() {
         let controller = GameController()
-        controller.selectedTool = .pipe
-        controller.place(at: GridPosition(x: 0, y: 0))
+        let position = GridPosition(x: 0, y: 0)
+        controller.selectedTool = .road
+        controller.place(at: position)
+        controller.layPipe(at: position)
 
-        XCTAssertEqual(controller.upkeepCost, 0)
+        controller.bulldoze(at: position)
+
+        XCTAssertEqual(controller.map[position].zone, .empty)
+        XCTAssertTrue(controller.map[position].hasPipe)
     }
 
     /// `.waterTower` *is* a service (like Police/Fire) — placing one

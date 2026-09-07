@@ -198,11 +198,48 @@ final class GameController: ObservableObject {
     /// every cell it covers — for a plain 1×1 tile that's just `[origin]`
     /// itself, so callers (`bulldoze(at:)`, and `place(at:)`'s auto-replace)
     /// never have to special-case "one tile" versus "one building."
+    ///
+    /// Carries each cell's existing `hasPipe` forward — bulldozing a road
+    /// or a building must never silently erase a pipe laid underneath it,
+    /// since a pipe is an independent underground layer (see `Tile.hasPipe`).
     private func clearBuilding(at origin: GridPosition) {
         let size = map[origin].zone.footprintSize
         for cell in map.footprintCells(origin: origin, size: size) {
-            map[cell] = Tile(position: cell)
+            map[cell] = Tile(position: cell, hasPipe: map[cell].hasPipe)
         }
+    }
+
+    // MARK: - Pipes (an underground layer, edited via the Water overlay)
+
+    /// What it costs to lay one tile of pipe — pipes aren't a `ZoneType`
+    /// (see `Tile.hasPipe`'s doc comment for why), so this doesn't live on
+    /// `ZoneType.placementCost` the way every other placeable thing's cost
+    /// does. Matches `.pipe`'s old placement cost from before pipes moved
+    /// off the surface grid.
+    static let pipePlacementCost = 40
+
+    /// Lay a pipe at `position`, charging `pipePlacementCost` — unless
+    /// there's already one there, in which case this is a free no-op
+    /// (`GameScene` calls this on every tile a drag stroke crosses, the
+    /// same way painting a road works, and a stroke that re-crosses
+    /// already-piped ground shouldn't charge twice). Reuses
+    /// `PlacementOutcome` as-is: a pipe has no footprint to not fit and no
+    /// existing building to auto-replace, so no new case is needed.
+    @discardableResult
+    func layPipe(at position: GridPosition) -> PlacementOutcome {
+        guard map.contains(position) else { return .unchanged }
+        guard !map[position].hasPipe else { return .unchanged }
+        guard treasury >= Self.pipePlacementCost else { return .insufficientFunds }
+        treasury -= Self.pipePlacementCost
+        map[position].hasPipe = true
+        return .placed
+    }
+
+    /// Remove a pipe at `position`, for free — matching every other
+    /// bulldoze-style removal in the game.
+    func removePipe(at position: GridPosition) {
+        guard map.contains(position) else { return }
+        map[position].hasPipe = false
     }
 
     /// Wipe the city and restore the starting budget, at `selectedMapSize`

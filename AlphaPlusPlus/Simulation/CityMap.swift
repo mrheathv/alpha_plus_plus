@@ -118,9 +118,14 @@ struct CityMap: Equatable, Codable, Sendable {
     /// doesn't fit yields `[]` from `footprintCells` and this becomes a
     /// silent no-op, same "let the caller check first" contract the
     /// subscript above documents).
+    ///
+    /// Carries each cell's existing `hasPipe` forward rather than
+    /// defaulting it away — a pipe is an underground layer independent of
+    /// the surface zone (see `Tile.hasPipe`'s own doc comment), so
+    /// re-zoning a tile must never silently erase a pipe laid underneath it.
     mutating func placeBuilding(zone: ZoneType, origin: GridPosition) {
         for cell in footprintCells(origin: origin, size: zone.footprintSize) {
-            self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin)
+            self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin, hasPipe: self[cell].hasPipe)
         }
     }
 }

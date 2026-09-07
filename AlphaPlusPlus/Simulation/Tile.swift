@@ -47,10 +47,26 @@ struct Tile: Equatable, Codable, Sendable {
     /// get a visible sprite: one per building, not one per cell.
     var isBuildingAnchor: Bool { buildingOrigin == position }
 
-    init(position: GridPosition, zone: ZoneType = .empty, density: Int = 0, buildingOrigin: GridPosition? = nil) {
+    /// Does this tile carry a pipe? Independent of `zone` — a tile can be
+    /// a road, or zoned residential, or empty, and *also* have a pipe
+    /// running underneath it. This is the one field on `Tile` that isn't
+    /// part of "what the surface is doing": it's an underground layer a
+    /// player edits while looking at the Water overlay
+    /// (`GameController.layPipe(at:)`/`removePipe(at:)`), not through the
+    /// normal zoning toolbar. Callers that reconstruct a whole `Tile` value
+    /// instead of mutating this one field directly —
+    /// `CityMap.placeBuilding(zone:origin:)` and
+    /// `GameController.clearBuilding(at:)` — must carry the existing value
+    /// forward rather than defaulting it away, or laying a pipe would get
+    /// silently erased the next time anything got built or bulldozed on
+    /// the surface above it.
+    var hasPipe: Bool
+
+    init(position: GridPosition, zone: ZoneType = .empty, density: Int = 0, buildingOrigin: GridPosition? = nil, hasPipe: Bool = false) {
         self.position = position
         self.zone = zone
         self.density = density
         self.buildingOrigin = buildingOrigin ?? position
+        self.hasPipe = hasPipe
     }
 }
