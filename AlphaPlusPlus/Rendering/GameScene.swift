@@ -334,6 +334,7 @@ final class GameScene: SKScene {
             let outcome = controller.place(at: position)
             rebuildEntireGrid()
             if outcome == .insufficientFunds { flashInsufficientFunds(at: position) }
+            if outcome == .blocked { flashBlockedPlacement(at: position) }
             lastPaintPosition = position
             return
         }
@@ -347,6 +348,13 @@ final class GameScene: SKScene {
                 // was unaffordable, every remaining tile in the line would
                 // be too — stop here instead of flashing each one in turn.
                 break
+            }
+            if outcome == .blocked {
+                flashBlockedPlacement(at: step)
+                // Unlike funds, "occupied" is a per-tile fact — the rest of
+                // a drag stroke can easily cross back onto bare land (e.g.
+                // painting road around an existing building), so this
+                // continues the loop instead of breaking out of it.
             }
         }
         lastPaintPosition = position
@@ -423,14 +431,12 @@ final class GameScene: SKScene {
     /// with the exact same `GridLayout` math a real placement uses
     /// (`spriteSize(forFootprint:)`/`centerPoint(ofFootprintOrigin:size:)`),
     /// so the outline always shows precisely what a click right now would
-    /// cover. Green while every cell it would cover is `.empty`; red if
-    /// any of them already have a road or building on them — placing there
-    /// would silently replace it via `place(at:)`'s existing auto-replace
-    /// path (see `involvesAFootprint` in `mouseDown`/`place(with:)`), and
-    /// this is what makes that visible *before* the click instead of only
-    /// discoverable after it already happened. A player who intends to
-    /// replace something can still just click through a red outline —
-    /// this warns, it doesn't block.
+    /// cover. Green while every cell it would cover is `.empty`; red if any
+    /// of them already have a road or building on them — since `place(at:)`
+    /// now genuinely refuses to place over anything but bare land, red here
+    /// means the click really will do nothing (past a `blockedPlacementFlash`)
+    /// until whatever's there gets bulldozed first, not just a heads-up
+    /// about a silent auto-replace the way it used to.
     ///
     /// A click's grid tile is the footprint's minimum-x/minimum-y corner
     /// (`GridLayout.centerPoint(ofFootprintOrigin:size:)`'s own doc
@@ -496,6 +502,23 @@ final class GameScene: SKScene {
             .colorize(with: RenderPalette.insufficientFundsFlash, colorBlendFactor: 1, duration: 0.05),
             .colorize(with: restoreColor, colorBlendFactor: 1, duration: 0.2),
         ]), withKey: "insufficientFundsFlash")
+    }
+
+    /// Briefly flash a tile to explain why a click did nothing: it's not
+    /// empty. `place(at:)` no longer auto-replaces whatever's already
+    /// there (see its own doc comment for why) — without this flash, that
+    /// change would read as "clicking on an occupied tile silently does
+    /// nothing," indistinguishable from a bug. Same `colorize`-out-and-back
+    /// mechanism as `flashInsufficientFunds`, just `blockedPlacementFlash`
+    /// instead — the same red the pre-click placement-preview outline
+    /// already warns with.
+    private func flashBlockedPlacement(at position: GridPosition) {
+        guard let node = tileNodes[position] else { return }
+        let restoreColor = currentColor(at: position)
+        node.run(.sequence([
+            .colorize(with: RenderPalette.blockedPlacementFlash, colorBlendFactor: 1, duration: 0.05),
+            .colorize(with: restoreColor, colorBlendFactor: 1, duration: 0.2),
+        ]), withKey: "blockedPlacementFlash")
     }
 
     /// Briefly flash a tile to make a `CityHazards.Strike` visible — without

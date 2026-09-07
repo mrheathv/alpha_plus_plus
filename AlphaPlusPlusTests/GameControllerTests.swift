@@ -156,12 +156,13 @@ final class GameControllerTests: XCTestCase {
         }
     }
 
-    /// Placing a new zone directly over an existing multi-tile building
-    /// auto-replaces it — clears the old building in full, then stamps the
-    /// new one — rather than requiring a separate bulldoze first. Costs
-    /// only the new zone's price: the old building's removal was already
-    /// free (bulldozing always is), so this only saves a click, not money.
-    func testPlacingOverAnExistingMultiTileBuildingAutoReplacesIt() {
+    /// Placing a new zone directly over an existing multi-tile building is
+    /// blocked, not auto-replaced — a deliberate reversal of an earlier
+    /// design (see `place(at:)`'s own doc comment for why: convenient in
+    /// isolation, risky once drag-painting could silently demolish an
+    /// established building mid-stroke). Nothing about the old building or
+    /// the treasury changes.
+    func testPlacingOverAnExistingMultiTileBuildingIsBlocked() {
         let controller = GameController()
         let origin = GridPosition(x: 0, y: 0)
         controller.selectedTool = .residential
@@ -171,16 +172,36 @@ final class GameControllerTests: XCTestCase {
         controller.selectedTool = .commercial
         let outcome = controller.place(at: origin)
 
+        XCTAssertEqual(outcome, .blocked)
+        XCTAssertEqual(controller.map[origin].zone, .residential)
+        XCTAssertEqual(controller.treasury, treasuryAfterFirstPlacement)
+    }
+
+    /// The intended replacement workflow still works: bulldoze first (free),
+    /// then place — exactly what auto-replace used to do in one click, now
+    /// two, with the bulldoze being an explicit, deliberate step instead of
+    /// an implicit side effect of the next zone tool you happen to pick.
+    func testBulldozingThenPlacingReplacesABuilding() {
+        let controller = GameController()
+        let origin = GridPosition(x: 0, y: 0)
+        controller.selectedTool = .residential
+        controller.place(at: origin) // covers (0,0)-(1,1)
+        let treasuryAfterFirstPlacement = controller.treasury
+
+        controller.bulldoze(at: origin)
+        controller.selectedTool = .commercial
+        let outcome = controller.place(at: origin)
+
         XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(controller.map[origin].zone, .commercial)
-        XCTAssertEqual(controller.map[origin].density, 0)
         XCTAssertEqual(controller.treasury, treasuryAfterFirstPlacement - ZoneType.commercial.placementCost)
     }
 
-    /// A new footprint can overlap two *different* existing buildings at
-    /// once — both should be cleared in full, not left as two half-erased
-    /// buildings sharing space with the new one.
-    func testPlacingOverlappingTwoDifferentBuildingsClearsBothInFull() {
+    /// A new footprint that overlaps two *different* existing buildings at
+    /// once is blocked by either one alone — both buildings stay exactly as
+    /// they were, not half-cleared by a footprint that only clips a corner
+    /// of each.
+    func testPlacingOverlappingTwoDifferentBuildingsIsBlocked() {
         let controller = GameController()
         controller.selectedTool = .residential
         controller.place(at: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
@@ -192,20 +213,23 @@ final class GameControllerTests: XCTestCase {
         controller.selectedTool = .stadium
         let outcome = controller.place(at: GridPosition(x: 1, y: 0))
 
-        XCTAssertEqual(outcome, .placed)
-        // The parts of each old building that fall *outside* the stadium's
-        // new footprint should be cleared too, not left behind as a stray
-        // corner still claiming the old zone.
-        XCTAssertEqual(controller.map[GridPosition(x: 0, y: 0)].zone, .empty)
-        XCTAssertEqual(controller.map[GridPosition(x: 0, y: 1)].zone, .empty)
-        XCTAssertEqual(controller.map[GridPosition(x: 4, y: 0)].zone, .empty)
-        XCTAssertEqual(controller.map[GridPosition(x: 4, y: 1)].zone, .empty)
+        XCTAssertEqual(outcome, .blocked)
+        XCTAssertEqual(controller.map[GridPosition(x: 0, y: 0)].zone, .residential)
+        XCTAssertEqual(controller.map[GridPosition(x: 0, y: 1)].zone, .residential)
+        XCTAssertEqual(controller.map[GridPosition(x: 3, y: 0)].zone, .commercial)
+        XCTAssertEqual(controller.map[GridPosition(x: 4, y: 1)].zone, .commercial)
+        // And no part of the stadium got placed either — this is an
+        // all-or-nothing refusal, not a partial one.
+        for cell in [GridPosition(x: 2, y: 0), GridPosition(x: 2, y: 1), GridPosition(x: 2, y: 2)] {
+            XCTAssertEqual(controller.map[cell].zone, .empty)
+        }
     }
 
-    /// Auto-replace applies just as well when the *incoming* zone is 1×1
-    /// (like a road) overwriting part of an existing multi-tile building —
-    /// the whole old building goes, not just the one cell that got clicked.
-    func testPlacingA1x1ZoneOverPartOfABuildingClearsTheWholeBuilding() {
+    /// The same block applies when the *incoming* zone is 1×1 (like a road)
+    /// touching just one corner of an existing multi-tile building — a
+    /// single occupied cell anywhere in the new footprint is enough to
+    /// refuse the whole placement, not just clear that one corner.
+    func testPlacingA1x1ZoneOverPartOfABuildingIsBlocked() {
         let controller = GameController()
         let origin = GridPosition(x: 0, y: 0)
         controller.selectedTool = .residential
@@ -214,9 +238,25 @@ final class GameControllerTests: XCTestCase {
         controller.selectedTool = .road
         let outcome = controller.place(at: GridPosition(x: 1, y: 1)) // a non-anchor corner
 
-        XCTAssertEqual(outcome, .placed)
-        XCTAssertEqual(controller.map[GridPosition(x: 1, y: 1)].zone, .road)
-        XCTAssertEqual(controller.map[origin].zone, .empty) // the rest of the old building is gone too
+        XCTAssertEqual(outcome, .blocked)
+        XCTAssertEqual(controller.map[GridPosition(x: 1, y: 1)].zone, .residential)
+        XCTAssertEqual(controller.map[origin].zone, .residential)
+    }
+
+    /// Repainting a tile with the *same* tool it already has is still a
+    /// free no-op, not newly blocked — `place(at:)`'s existing
+    /// same-zone-and-anchor guard runs before the occupied check, so
+    /// drag-painting a long road across tiles that are already road never
+    /// regresses into flashing "blocked" on every tile it re-crosses.
+    func testRepaintingATileWithItsOwnZoneStaysUnchangedNotBlocked() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.selectedTool = .road
+        controller.place(at: position)
+
+        let outcome = controller.place(at: position)
+
+        XCTAssertEqual(outcome, .unchanged)
     }
 
     func testResetMapClearsTilesAndRestoresStartingTreasury() {

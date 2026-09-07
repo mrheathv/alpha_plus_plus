@@ -33,6 +33,14 @@ enum RenderPalette {
     /// says which hazard it was.
     static let crimeHazardFlash = SKColor(srgbRed: 0.55, green: 0.25, blue: 0.85, alpha: 1.0)
 
+    /// Flash color for "bulldoze it first" feedback, when `place(at:)`
+    /// reports `.blocked` — placing over a tile that already has something
+    /// on it. The exact hue `placementPreviewBlockedFill`/`Stroke` already
+    /// warn with before the click, just opaque, so the pre-click warning
+    /// and the post-click flash read as the same signal rather than two
+    /// different reds with two different meanings.
+    static let blockedPlacementFlash = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 1.0)
+
     /// The color a zone is drawn at its most developed. For every service
     /// building, `.empty`, and `.road`/`.highway` (their *base* fill — see
     /// `networkAccentColor(for:)` for the separate glow/lane color those

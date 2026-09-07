@@ -143,14 +143,15 @@ final class GameController: ObservableObject {
     ///
     /// `place(at:)` used to just silently do nothing on failure, which is
     /// indistinguishable from "nothing needed to happen" at the call site.
-    /// Returning *why* lets `GameScene` react only to the case a player
-    /// should actually notice: `insufficientFunds` gets a flash; `unchanged`
-    /// (already this zone, or off-map) doesn't, because nothing about the
-    /// tile's own state was wrong.
+    /// Returning *why* lets `GameScene` react only to the cases a player
+    /// should actually notice: `insufficientFunds` and `blocked` both get a
+    /// flash; `unchanged` (already this zone, or off-map) doesn't, because
+    /// nothing about the tile's own state was wrong.
     enum PlacementOutcome: Equatable {
         case placed
         case unchanged
         case insufficientFunds
+        case blocked
     }
 
     /// Apply `selectedTool` to the tile at `position`, which becomes that
@@ -160,23 +161,22 @@ final class GameController: ObservableObject {
     /// building (a no-op shouldn't cost anything or touch `map` — this
     /// matters now that `mouseDragged` can call this many times a second
     /// while the cursor sits over the same tile); skip if the footprint
-    /// doesn't fit on the map at all; skip if the treasury can't cover
-    /// `selectedTool.placementCost`, charged once for the whole building,
-    /// not per cell. Otherwise, clear whatever building(s) the new
-    /// footprint would overlap — in full, via `clearBuilding(at:)`, not
-    /// just the overlapping cells — then stamp the new one.
+    /// doesn't fit on the map at all; refuse if any cell the new footprint
+    /// would cover already has something on it (a building, a road, another
+    /// footprint's non-anchor corner — anything but bare `.empty` land);
+    /// skip if the treasury can't cover `selectedTool.placementCost`,
+    /// charged once for the whole building, not per cell. Otherwise stamp
+    /// the new building.
     ///
-    /// That clear-then-place order used to be a hard block instead ("must
-    /// bulldoze first"), out of concern that auto-clearing could leave a
-    /// stale sprite for an old building whose anchor wasn't the clicked
-    /// cell. It didn't need to be that conservative: `GameScene` already
-    /// routes every placement that touches a multi-tile building through a
-    /// full `rebuildEntireGrid()` rather than a targeted refresh (see its
-    /// `involvesAFootprint` check), which redraws correctly regardless of
-    /// how many old buildings got cleared or where their anchors were.
-    /// Economically this is exactly what manually bulldozing first and then
-    /// placing would do — the old building was already free to remove, so
-    /// this only removes the extra click, not a price break.
+    /// That "refuse if occupied" rule used to be a "clear it and place
+    /// anyway" auto-replace instead — convenient in isolation, but risky
+    /// once drag-painting is in the mix: a stroke that sweeps across an
+    /// established building could silently demolish it with no confirmation,
+    /// which reads very differently once you're the one holding the mouse
+    /// instead of watching it happen deliberately, one click at a time.
+    /// Flagged from exactly that: watching an actual play session. Removing
+    /// something you don't want is still one right-click-bulldoze away —
+    /// this only removes the *silent* shortcut, not the ability.
     @discardableResult
     func place(at position: GridPosition) -> PlacementOutcome {
         guard map.contains(position) else { return .unchanged }
@@ -185,20 +185,12 @@ final class GameController: ObservableObject {
         let footprint = map.footprintCells(origin: position, size: selectedTool.footprintSize)
         guard !footprint.isEmpty else { return .unchanged } // doesn't fit on the map
 
+        guard footprint.allSatisfy({ map[$0].zone == .empty }) else { return .blocked }
+
         let cost = selectedTool.placementCost
         guard treasury >= cost else { return .insufficientFunds }
 
-        var clearedOrigins: Set<GridPosition> = []
-        for cell in footprint where map[cell].zone != .empty {
-            let origin = map[cell].buildingOrigin
-            if clearedOrigins.insert(origin).inserted {
-                clearBuilding(at: origin)
-            }
-        }
-
         treasury -= cost
-        // Changing to a genuinely different zone resets density to 0, not
-        // just the zone label — re-zoning is starting over, not upgrading.
         map.placeBuilding(zone: selectedTool, origin: position)
         return .placed
     }
@@ -219,8 +211,11 @@ final class GameController: ObservableObject {
     /// Clears every cell of the building anchored at `origin` back to
     /// unzoned land. Looks up the anchor's own `zone.footprintSize` to find
     /// every cell it covers — for a plain 1×1 tile that's just `[origin]`
-    /// itself, so callers (`bulldoze(at:)`, and `place(at:)`'s auto-replace)
-    /// never have to special-case "one tile" versus "one building."
+    /// itself, so `bulldoze(at:)` never has to special-case "one tile"
+    /// versus "one building." `place(at:)` used to call this too, to
+    /// auto-replace whatever a new footprint overlapped; it now refuses to
+    /// place over anything non-`.empty` instead, so bulldozing is the only
+    /// caller left.
     ///
     /// Carries each cell's existing `hasPipe`/`hasPowerLine` forward —
     /// bulldozing a road or a building must never silently erase either
