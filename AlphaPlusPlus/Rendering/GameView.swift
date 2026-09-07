@@ -249,6 +249,23 @@ struct GameView: View {
             statTile(label: "Population", value: "\(controller.population)", history: controller.history.map(\.population), color: .green)
             statTile(label: "Jobs", value: "\(controller.jobs)", history: controller.history.map(\.jobs), color: .blue)
             statTile(label: "Treasury", value: "$\(controller.treasury) (\(netRevenueLabel)/tick)", history: controller.history.map(\.treasury), color: .yellow)
+            demandTile
+        }
+    }
+
+    /// The one place `CitySimulator`'s demand-gated growth (see
+    /// `GameController.cityDemand`'s own doc comment) is actually visible
+    /// to the player — three `DemandBar`s, not sparklines, since demand
+    /// is a current-state signal ("what does the city want right now"),
+    /// not a history worth trending.
+    private var demandTile: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Demand").font(.callout)
+            HStack(spacing: 8) {
+                DemandBar(label: "R", value: controller.cityDemand.residential)
+                DemandBar(label: "C", value: controller.cityDemand.commercial)
+                DemandBar(label: "I", value: controller.cityDemand.industrial)
+            }
         }
     }
 

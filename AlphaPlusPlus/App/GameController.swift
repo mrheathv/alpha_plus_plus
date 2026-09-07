@@ -399,6 +399,20 @@ final class GameController: ObservableObject {
         taxRevenue - upkeepCost
     }
 
+    /// How much the city currently wants more of each RCI type — reads
+    /// straight through to `map.cityDemand`, which is where the simulation
+    /// itself (`CitySimulator.advance`) reads it too. Exists so `GameView`
+    /// doesn't need to know `CityMap` is where demand state actually
+    /// lives, the same reasoning `fundingLevel(for:)` already documents
+    /// for itself. Was invisible to the player entirely until now — the
+    /// gate existed (`CitySimulator`'s growth roll) with no meter reading
+    /// it out, exactly the "shallow half without the real half" shape the
+    /// original design doc warned against building *instead of* the gate;
+    /// this is that meter, added only once the gate underneath it was real.
+    var cityDemand: CityDemand {
+        map.cityDemand
+    }
+
     /// Reads through `map.totalDensity(of:)` and `ZoneType.populationPerDensityLevel`
     /// rather than keeping its own rate — `Demand.compute(for:)` (Simulation/)
     /// needs the exact same number, so it lives on `ZoneType` now as one

@@ -656,4 +656,16 @@ final class GameControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.upkeepCost, ZoneType.waterTower.upkeepCost)
     }
+
+    // MARK: - RCI demand meter
+
+    /// `cityDemand` is a passthrough to `map.cityDemand` — this pins that
+    /// down so `GameView`'s demand meter and `CitySimulator`'s own growth
+    /// gate are guaranteed to be reading the exact same number, not two
+    /// copies that could drift.
+    func testCityDemandReadsThroughToTheMapsCachedValue() {
+        let controller = GameController()
+
+        XCTAssertEqual(controller.cityDemand, controller.map.cityDemand)
+    }
 }
