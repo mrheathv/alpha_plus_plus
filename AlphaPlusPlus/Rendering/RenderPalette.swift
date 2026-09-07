@@ -11,8 +11,9 @@ import SpriteKit
 enum RenderPalette {
 
     /// Behind the grid. Deliberately darker than every tile color so the map
-    /// reads as an object sitting on a surface.
-    static let background = SKColor(srgbRed: 0.04, green: 0.02, blue: 0.10, alpha: 1.0)
+    /// reads as an object sitting on a surface. "Night sky," from the
+    /// Retrowave SimCity reference palette.
+    static let background = SKColor(srgbRed: 0.051, green: 0.008, blue: 0.129, alpha: 1.0)
 
     /// Flash color for "you can't afford this" feedback, when `place(at:)`
     /// reports `.insufficientFunds`. Saturated red reads as an error against
@@ -32,42 +33,40 @@ enum RenderPalette {
     /// says which hazard it was.
     static let crimeHazardFlash = SKColor(srgbRed: 0.55, green: 0.25, blue: 0.85, alpha: 1.0)
 
-    /// The tile's color at full development — what `color(for:density:)`
-    /// blends *toward* as density rises. For `.empty`/`.road`, which never
-    /// develop, this is just the only color they ever have.
+    /// The color a zone is drawn at its most developed. For every service
+    /// building, `.empty`, and `.road`/`.highway` (their *base* fill — see
+    /// `networkAccentColor(for:)` for the separate glow/lane color those
+    /// two use now), this is the only color they ever have. For the three
+    /// growable zones, this returns their highest tier's color
+    /// (`tierColor(for:tier:)`) as a sensible single answer for any caller
+    /// that just wants "the" color for a zone — `color(for:density:)` is
+    /// what those three actually render through day to day, and it reads
+    /// tier by tier, not through this function.
     ///
     /// Retrowave palette: every hue below is a saturated neon rather than a
     /// realistic material color (asphalt gray, brick red, grass green).
-    /// `ZoneIcon` reads this same function as each building's own "accent" —
-    /// the glow color for its silhouette's outline — so a zone's tile color
-    /// and the glow on the building standing on it are always the same
-    /// color by construction, not two palettes that have to be kept in
-    /// sync by hand. Internal rather than private for exactly that reason.
+    /// `ZoneIcon` reads this same function for every *civic* building's own
+    /// "accent" — the glow color for its silhouette's outline — so a
+    /// service zone's tile color and the glow on the building standing on
+    /// it are always the same color by construction, not two palettes that
+    /// have to be kept in sync by hand. Internal rather than private for
+    /// exactly that reason.
     static func fullColor(for zone: ZoneType) -> SKColor {
         switch zone {
         case .empty:
-            // Unzoned land: dark purple, matching the near-black background
-            // — the "night" every neon shape sits on.
-            return SKColor(srgbRed: 0.11, green: 0.06, blue: 0.20, alpha: 1.0)
-        case .residential:
-            // Sunset coral-orange, not green — green is the one hue every
-            // *other* city builder already uses for residential (grass,
-            // growth), which reads as a generic default rather than a
-            // deliberate choice. A synthwave skyline's sun is warm
-            // orange/pink bands, not green, so this is also the hue
-            // that's actually native to the theme, not just "a different
-            // color than before."
-            return SKColor(srgbRed: 1.0, green: 0.45, blue: 0.20, alpha: 1.0)
-        case .commercial:
-            return SKColor(srgbRed: 0.10, green: 0.90, blue: 1.0, alpha: 1.0)  // electric cyan
-        case .industrial:
-            return SKColor(srgbRed: 1.0, green: 0.75, blue: 0.10, alpha: 1.0)  // golden amber, furnace-glow warm rather than green-tinged
-        case .road:
-            // Neon magenta — roads as "the glowing grid," the top-down
-            // translation of a synthwave horizon's glowing ground grid.
-            return SKColor(srgbRed: 0.92, green: 0.16, blue: 0.62, alpha: 1.0)
+            // Unzoned land — between the near-black background and the
+            // road's own dark asphalt-purple, the "night" every neon shape
+            // and every glowing street sits on.
+            return SKColor(srgbRed: 0.11, green: 0.035, blue: 0.23, alpha: 1.0)
+        case .residential, .commercial, .industrial:
+            return tierColor(for: zone, tier: 3)
+        case .road, .highway:
+            // Dark asphalt-purple base — both read as the same paved
+            // surface now; what makes a highway a highway is its brighter
+            // `networkAccentColor(for:)` glow, not a different base fill.
+            return SKColor(srgbRed: 0.169, green: 0.063, blue: 0.333, alpha: 1.0)
         case .policeStation:
-            return SKColor(srgbRed: 0.35, green: 0.35, blue: 1.0, alpha: 1.0)  // neon indigo-blue, distinct from commercial's cyan
+            return SKColor(srgbRed: 0.35, green: 0.35, blue: 1.0, alpha: 1.0)  // neon indigo-blue, distinct from commercial's cyan family
         case .fireStation:
             return SKColor(srgbRed: 1.0, green: 0.20, blue: 0.20, alpha: 1.0)  // neon red
         case .publicTransit:
@@ -75,46 +74,116 @@ enum RenderPalette {
         case .powerPlant:
             // Icy electric blue-white — a "lightning bolt," not a warm
             // color at all, which is also what keeps it from reading as
-            // just another shade of Industrial's gold. Deliberately the
+            // just another shade of Industrial's oranges. Deliberately the
             // palest, most desaturated zone on the map: every other zone
             // reads as "a colored light," this one reads as "the light
             // itself."
             return SKColor(srgbRed: 0.70, green: 0.88, blue: 1.0, alpha: 1.0)
         case .stadium:
             return SKColor(srgbRed: 1.0, green: 0.25, blue: 0.75, alpha: 1.0)  // hot pink, "entertainment lights"
-        case .highway:
-            // A hotter, brighter neon than plain road's magenta — "more
-            // voltage" reads as "bigger road" the same way a darker gray
-            // used to.
-            return SKColor(srgbRed: 0.85, green: 0.10, blue: 0.95, alpha: 1.0)
         case .subway:
-            return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's teal, richer
+            return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's sky blue, richer
         case .waterTower:
-            // Deep ocean-blue, not the brighter cyan Commercial already
-            // owns — lower brightness and more blue-dominant (less green)
-            // than a pure cyan keeps the two from reading as the same
-            // color at a glance.
-            return SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)
+            return SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)  // deep ocean-blue, distinct from Commercial's cyan family
+        }
+    }
+
+    /// Which of 3 visual/color tiers a growable zone's density falls into —
+    /// 0 (nothing built yet), 1 (small), 2 (medium), 3 (large/fully
+    /// developed). The same table `ZoneIcon` already picks a building's
+    /// *shape* from, and now also which of `tierColor(for:tier:)`'s three
+    /// named colors it's drawn in — a lot doesn't just get brighter as it
+    /// grows any more, it changes hue at each tier the same way its
+    /// silhouette already changes shape. Deliberately a direct table, not
+    /// a `density / maxDensity` proportion — a proportional split would
+    /// put density 2 and 3 in the *same* third for a max of 5, which is
+    /// exactly the "adjacent levels should look different" case this
+    /// exists to show. Assumes today's `maxDensity` of 5 for every
+    /// growable zone; revisit this table specifically if that ever changes.
+    static func growthTier(for density: Int) -> Int {
+        switch density {
+        case 0: return 0
+        case 1, 2: return 1
+        case 3, 4: return 2
+        default: return 3
+        }
+    }
+
+    /// The three named colors a growable zone's tiers cycle through, from
+    /// the Retrowave SimCity reference palette — a small lot, a mid-size
+    /// development, and a fully-built one are different *hues* now, not
+    /// just different brightnesses of one fixed color the way every other
+    /// zone still works. `tier` is clamped to `1...3`: tier 0 (nothing
+    /// built) has no color of its own — `color(for:density:)` uses tier
+    /// 1's for that "dim, not built yet" state, on the theory that a bare
+    /// lot previews what it's zoned to *become*, not its eventual
+    /// fully-built form.
+    static func tierColor(for zone: ZoneType, tier: Int) -> SKColor {
+        let clampedTier = min(max(tier, 1), 3)
+        switch zone {
+        case .residential:
+            switch clampedTier {
+            case 1: return SKColor(srgbRed: 0.482, green: 0.184, blue: 0.969, alpha: 1.0)  // Low density — violet
+            case 2: return SKColor(srgbRed: 0.655, green: 0.259, blue: 0.910, alpha: 1.0)  // Mid density — orchid
+            default: return SKColor(srgbRed: 0.902, green: 0.651, blue: 1.0, alpha: 1.0)  // High density — pale lavender
+            }
+        case .commercial:
+            switch clampedTier {
+            case 1: return SKColor(srgbRed: 1.0, green: 0.431, blue: 0.780, alpha: 1.0)  // Retail — pink
+            case 2: return SKColor(srgbRed: 1.0, green: 0.239, blue: 0.506, alpha: 1.0)  // Offices — hot rose
+            default: return SKColor(srgbRed: 1.0, green: 0.702, blue: 0.278, alpha: 1.0)  // Entertainment — amber
+            }
+        case .industrial:
+            switch clampedTier {
+            case 1: return SKColor(srgbRed: 1.0, green: 0.620, blue: 0.173, alpha: 1.0)  // Manufacturing — orange
+            case 2: return SKColor(srgbRed: 1.0, green: 0.369, blue: 0.227, alpha: 1.0)  // Heavy industry — red-orange
+            default: return SKColor(srgbRed: 0.788, green: 0.294, blue: 0.294, alpha: 1.0)  // Pollution warning — brick red
+            }
+        default:
+            // Every other zone doesn't grow, so it has no tiers of its
+            // own — fall back to its one fixed color rather than trap,
+            // since `fullColor(for:)` itself calls this at tier 3.
+            return fullColor(for: zone)
+        }
+    }
+
+    /// The bright accent a road or highway tile's network glow
+    /// (`TileRenderer.syncNetworkGlow`) and lane-line detail
+    /// (`TileRenderer.syncLaneLine`) are drawn in — separate from
+    /// `fullColor(for:)`'s dark asphalt base now that the two are
+    /// deliberately different values: a synthwave highway reads as a dark
+    /// road with a *glowing line down the middle of it*, not a solid
+    /// block of color the way it used to.
+    static func networkAccentColor(for zone: ZoneType) -> SKColor {
+        switch zone {
+        case .highway: return SKColor(srgbRed: 0.0, green: 0.898, blue: 1.0, alpha: 1.0)  // Highway glow — cyan
+        default: return SKColor(srgbRed: 1.0, green: 0.184, blue: 0.690, alpha: 1.0)  // Lane lines — magenta
         }
     }
 
     /// What color a tile should be drawn, given both its zone *and* how
     /// developed it is.
     ///
-    /// A freshly zoned tile (density 0) is a dim, washed-out version of its
-    /// zone color — "claimed but nothing built yet" — that brightens toward
-    /// `fullColor(for:)` as `density` climbs to `zone.maxDensity`. This is
-    /// the graybox stand-in for "a building appears and grows": no new art,
-    /// just a color ramp, same spirit as everything else in this file.
-    /// `.empty`/`.road` have `maxDensity == 0` and skip the blend entirely,
-    /// since there's no development state for them to show.
+    /// For the three growable zones, this is the graybox stand-in for "a
+    /// building appears and grows": a freshly zoned tile (density 0) is a
+    /// dim, washed-out version of its tier-1 color — "claimed but nothing
+    /// built yet" — that brightens toward that tier's own color as density
+    /// climbs, then jumps to the *next* tier's color the moment density
+    /// actually crosses into it (`growthTier(for:)`), rather than
+    /// continuously blending across all 5 density levels toward one fixed
+    /// color the way this used to work. Every other zone (`.empty`/
+    /// `.road`/every service) has `maxDensity == 0` and skips straight to
+    /// its one fixed color, since there's no development state for them to
+    /// show.
     static func color(for zone: ZoneType, density: Int) -> SKColor {
-        let full = fullColor(for: zone)
-        guard zone.maxDensity > 0 else { return full }
+        guard zone.maxDensity > 0 else { return fullColor(for: zone) }
 
-        let dim = full.blended(withFraction: 0.7, of: background) ?? full
-        let fraction = CGFloat(density) / CGFloat(zone.maxDensity)
-        return dim.blended(withFraction: fraction, of: full) ?? full
+        let tier = growthTier(for: density)
+        guard tier > 0 else {
+            let notYetBuilt = tierColor(for: zone, tier: 1)
+            return notYetBuilt.blended(withFraction: 0.7, of: background) ?? notYetBuilt
+        }
+        return tierColor(for: zone, tier: tier)
     }
 
     /// Low end of the land-value heatmap (worthless land, value 0).

@@ -54,24 +54,27 @@ enum ZoneIcon {
         case .empty, .road, .highway:
             return nil
         case .residential:
-            let accent = RenderPalette.fullColor(for: zone)
-            switch growthTier(for: density) {
+            let tier = RenderPalette.growthTier(for: density)
+            let accent = RenderPalette.tierColor(for: zone, tier: tier)
+            switch tier {
             case 0: return nil
             case 1: return variant(for: seed, optionCount: 2) == 0 ? smallHouseIcon(accent: accent) : smallCottageIcon(accent: accent)
             case 2: return variant(for: seed, optionCount: 2) == 0 ? mediumHouseIcon(accent: accent) : mediumDuplexIcon(accent: accent)
             default: return variant(for: seed, optionCount: 2) == 0 ? largeHousingIcon(accent: accent) : largeApartmentIcon(accent: accent)
             }
         case .commercial:
-            let accent = RenderPalette.fullColor(for: zone)
-            switch growthTier(for: density) {
+            let tier = RenderPalette.growthTier(for: density)
+            let accent = RenderPalette.tierColor(for: zone, tier: tier)
+            switch tier {
             case 0: return nil
             case 1: return variant(for: seed, optionCount: 2) == 0 ? smallShopIcon(accent: accent) : smallDinerIcon(accent: accent)
             case 2: return variant(for: seed, optionCount: 2) == 0 ? midriseOfficeIcon(accent: accent) : midriseRetailIcon(accent: accent)
             default: return variant(for: seed, optionCount: 2) == 0 ? towerIcon(accent: accent) : steppedTowerIcon(accent: accent)
             }
         case .industrial:
-            let accent = RenderPalette.fullColor(for: zone)
-            switch growthTier(for: density) {
+            let tier = RenderPalette.growthTier(for: density)
+            let accent = RenderPalette.tierColor(for: zone, tier: tier)
+            switch tier {
             case 0: return nil
             case 1: return variant(for: seed, optionCount: 2) == 0 ? smallWarehouseIcon(accent: accent) : smallDepotIcon(accent: accent)
             case 2: return variant(for: seed, optionCount: 2) == 0 ? factoryIcon(accent: accent) : sawtoothFactoryIcon(accent: accent)
@@ -113,23 +116,6 @@ enum ZoneIcon {
         abs(seed.x &* 31 &+ seed.y) % optionCount
     }
 
-    /// Which visual tier a growable zone's density falls into: 0 (nothing
-    /// built), 1 (small), 2 (medium), 3 (large/fully developed).
-    /// Deliberately a direct table, not a `density / maxDensity` proportion
-    /// — a proportional split would put density 2 and 3 in the *same*
-    /// third for a max of 5, which is exactly the "adjacent levels should
-    /// look different" case the icons exist to show. Assumes today's
-    /// `maxDensity` of 5 for every growable zone; revisit this table
-    /// specifically if that ever changes.
-    private static func growthTier(for density: Int) -> Int {
-        switch density {
-        case 0: return 0
-        case 1, 2: return 1
-        case 3, 4: return 2
-        default: return 3
-        }
-    }
-
     // MARK: - Shared palette
 
     /// Every building silhouette's fill — near-black, so a building reads
@@ -140,9 +126,12 @@ enum ZoneIcon {
 
     /// Windows, sign faces, stadium floodlights — anything meant to read
     /// as lit up at night. The one element deliberately *not* colored by
-    /// the zone's own accent: a lit window is white-hot regardless of
-    /// what color building it's punched into.
-    private static let litAccent = SKColor(srgbRed: 0.95, green: 0.98, blue: 1.0, alpha: 0.95)
+    /// the zone's own accent: every window glows the same warm "Sun /
+    /// highlight" cream from the Retrowave SimCity reference palette,
+    /// regardless of what color building it's punched into — every lit
+    /// window in the city catching the same synthwave sunset, not a
+    /// cool white-blue that reads as ordinary electric light.
+    private static let litAccent = SKColor(srgbRed: 1.0, green: 0.957, blue: 0.839, alpha: 0.95)
 
     /// Doors, wheels, smokestacks, rail ties — anything that should read
     /// as the darkest, most recessed part of a shape, darker even than

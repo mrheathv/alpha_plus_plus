@@ -162,10 +162,10 @@ struct TileRenderer {
     }()
 
     /// Adds (or removes) the soft glow behind a road/highway tile, tinted
-    /// that zone's own neon color (`RenderPalette.fullColor(for:)` — the
-    /// same accent value `ZoneIcon` reads for building glows, so a road
-    /// and the buildings along it always agree on what color "this
-    /// network" is). `.add` blend mode means overlapping glow from
+    /// that zone's own `RenderPalette.networkAccentColor(for:)` — the
+    /// same lane-line color `syncLaneLine` draws on top of the tile, so
+    /// the glow reads as light spilling from that line, not from the dark
+    /// asphalt base itself. `.add` blend mode means overlapping glow from
     /// adjacent network tiles brightens rather than just stacking flat
     /// color on top of itself — a straight run of road reads as one
     /// continuous brighter seam, exactly the "glowing grid line" look,
@@ -186,7 +186,7 @@ struct TileRenderer {
 
         let glow = SKSpriteNode(texture: Self.glowTexture)
         glow.name = Self.glowNodeName
-        glow.color = RenderPalette.fullColor(for: zone)
+        glow.color = RenderPalette.networkAccentColor(for: zone)
         glow.colorBlendFactor = 1
         glow.blendMode = .add
         glow.alpha = zone == .highway ? 0.8 : 0.55
@@ -200,6 +200,48 @@ struct TileRenderer {
     /// when `GameScene` draws an overlay instead of normal zone colors.
     func clearNetworkGlow(on node: SKSpriteNode) {
         node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+    }
+
+    // MARK: - Lane line (roads/highways, Normal view only)
+
+    private static let laneLineNodeName = "laneLine"
+
+    /// A bright line down the center of a road/highway tile, oriented
+    /// along the street's own direction — the literal "glowing lane
+    /// marking" a synthwave highway is drawn with, on top of the tile's
+    /// own dark asphalt-purple base (`RenderPalette.fullColor(for:)`).
+    /// Colored via `RenderPalette.networkAccentColor(for:)`, the same
+    /// value `syncNetworkGlow` tints its bleed with, so the line and its
+    /// own glow always agree.
+    ///
+    /// `horizontal` is a plain `Bool`, not something this method computes
+    /// itself: answering "which way does this road run" needs
+    /// `Traffic.isHorizontallyOriented(at:in:)`, which needs the whole
+    /// `CityMap` to check neighbors — more than the single `Tile` this
+    /// file otherwise works from. `GameScene` already computes that exact
+    /// answer once per tile for the ambient traffic-car animation
+    /// (`syncTrafficAnimation`), so it just passes it along here instead
+    /// of this file taking on a `Simulation/` dependency of its own.
+    func syncLaneLine(on node: SKSpriteNode, zone: ZoneType, horizontal: Bool) {
+        node.childNode(withName: Self.laneLineNodeName)?.removeFromParent()
+        guard zone == .road || zone == .highway else { return }
+
+        let thickness: CGFloat = zone == .highway ? 5 : 3
+        let length = layout.spriteSize.width * 0.9
+        let size = horizontal ? CGSize(width: length, height: thickness) : CGSize(width: thickness, height: length)
+        let line = SKShapeNode(rectOf: size)
+        line.name = Self.laneLineNodeName
+        line.fillColor = RenderPalette.networkAccentColor(for: zone)
+        line.strokeColor = .clear
+        line.zPosition = 1
+        node.addChild(line)
+    }
+
+    /// Removes a tile's lane line — used alongside `clearNetworkGlow` when
+    /// `GameScene` draws an overlay instead of normal zone colors, or when
+    /// a tile stops being a road/highway at all.
+    func clearLaneLine(on node: SKSpriteNode) {
+        node.childNode(withName: Self.laneLineNodeName)?.removeFromParent()
     }
 
     // MARK: - Pipe marker (Water overlay only)

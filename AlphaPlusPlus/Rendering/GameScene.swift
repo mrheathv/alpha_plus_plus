@@ -512,6 +512,7 @@ final class GameScene: SKScene {
             tileLayer.addChild(node)
             tileNodes[tile.position] = node
             syncTrafficAnimation(at: tile.position)
+            syncLaneLine(at: tile.position)
         }
     }
 
@@ -548,23 +549,27 @@ final class GameScene: SKScene {
         case .none:
             tileRenderer.update(node, for: map[position])
             tileRenderer.clearPipeMarker(on: node)
+            syncLaneLine(at: position)
         case .landValue:
             node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
+            tileRenderer.clearLaneLine(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
+            tileRenderer.clearLaneLine(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
+            tileRenderer.clearLaneLine(on: node)
             // Reads `hasPipe` directly rather than the cached
             // `map.waterSupply`, so a pipe you just laid shows up right
             // away — the *supply* coloring above still only updates once
@@ -573,6 +578,22 @@ final class GameScene: SKScene {
             tileRenderer.syncPipeMarker(on: node, hasPipe: map[position].hasPipe)
         }
         syncTrafficAnimation(at: position)
+    }
+
+    /// Adds (or removes) a road/highway tile's glowing lane-line detail,
+    /// oriented along the street's own direction
+    /// (`Traffic.isHorizontallyOriented(at:in:)`) — see
+    /// `TileRenderer.syncLaneLine`'s own doc comment for why that
+    /// orientation answer has to be computed here, with the full `map`,
+    /// and passed down rather than computed inside `TileRenderer` itself.
+    private func syncLaneLine(at position: GridPosition) {
+        guard let node = tileNodes[position] else { return }
+        let zone = map[position].zone
+        guard zone == .road || zone == .highway else {
+            tileRenderer.clearLaneLine(on: node)
+            return
+        }
+        tileRenderer.syncLaneLine(on: node, zone: zone, horizontal: Traffic.isHorizontallyOriented(at: position, in: map))
     }
 
     func refreshAll() {
