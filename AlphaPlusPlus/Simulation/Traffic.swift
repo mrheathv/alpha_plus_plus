@@ -158,8 +158,15 @@ enum Traffic {
             }
             guard let path, let claimedJobIndex else { continue } // every reachable job is full
 
-            for step in path {
-                load.add(tile.density, at: step)
+            for (index, step) in path.enumerated() {
+                // The step *after* this one is the direction a car sitting
+                // on this tile, mid-commute, is actually headed -- nil for
+                // the path's last step (the job site's own frontage cell),
+                // which has no "next" to head toward.
+                let heading = index + 1 < path.count
+                    ? GridPosition(x: path[index + 1].x - step.x, y: path[index + 1].y - step.y)
+                    : nil
+                load.add(tile.density, at: step, heading: heading)
             }
             // Claimed *after* routing, by the home's own density — a
             // level-5 home uses five times the room a level-1 home does,
@@ -254,8 +261,11 @@ enum Traffic {
     /// across one it doesn't run along. Ties (an isolated road stub with no
     /// neighbors, or a 4-way intersection with both) default to
     /// horizontal — an arbitrary but simple choice, since there's no
-    /// "more correct" direction to prefer at an intersection without real
-    /// traffic routing.
+    /// "more correct" *axis* to prefer at an intersection from geometry
+    /// alone. `TrafficLoad.netHeading(at:)` is the answer to the
+    /// follow-up question this doc comment used to say there was no real
+    /// data for — which *way along* that axis most routed traffic is
+    /// actually headed, now that real routing exists.
     static func isHorizontallyOriented(at position: GridPosition, in map: CityMap) -> Bool {
         func roadNeighborCount(_ positions: [GridPosition]) -> Int {
             positions.filter { map.contains($0) && isRoadLike(map[$0].zone) }.count
@@ -281,6 +291,18 @@ enum Traffic {
 struct TrafficLoad: Equatable, Codable, Sendable {
     private var loadByTile: [GridPosition: Int] = [:]
 
+    /// Net direction routed trips are headed while crossing this tile,
+    /// one signed accumulator per axis: positive `x` means more
+    /// trip-weight headed east than west through here, positive `y` more
+    /// headed north than south. Two independent axes, not one heading,
+    /// because a tile can legitimately carry both a horizontal and a
+    /// vertical flow at once (a junction) — `netHeading(at:)` collapses
+    /// this to the single dominant axis `GameScene` actually needs for
+    /// its (already axis-picked, via `Traffic.isHorizontallyOriented`)
+    /// car animation.
+    private var netHeadingXByTile: [GridPosition: Int] = [:]
+    private var netHeadingYByTile: [GridPosition: Int] = [:]
+
     /// How many routed trip-units pass through `position` — 0 for a tile
     /// nothing routes through, including every tile on a `CityMap` that
     /// never had `computeLoad` called against it (a fresh map, or one
@@ -289,7 +311,25 @@ struct TrafficLoad: Equatable, Codable, Sendable {
         loadByTile[position, default: 0]
     }
 
-    fileprivate mutating func add(_ amount: Int, at position: GridPosition) {
+    /// Which way *most* routed traffic through `position` is actually
+    /// headed, along whichever single axis (`horizontal`) the caller
+    /// already picked for it — `true` for the positive-axis direction
+    /// (east or north), `false` for negative (west or south). Falls back
+    /// to `true` when there's no net bias on that axis (equal split, or
+    /// no routed load at all) — an arbitrary but stable default, the
+    /// same spirit `Traffic.isHorizontallyOriented`'s own tie-break
+    /// already has, so a car still points *somewhere* consistent rather
+    /// than needing a third "undetermined" state nothing renders
+    /// differently for anyway.
+    func netHeadingIsPositive(at position: GridPosition, horizontal: Bool) -> Bool {
+        let net = horizontal ? netHeadingXByTile[position, default: 0] : netHeadingYByTile[position, default: 0]
+        return net >= 0
+    }
+
+    fileprivate mutating func add(_ amount: Int, at position: GridPosition, heading: GridPosition?) {
         loadByTile[position, default: 0] += amount
+        guard let heading else { return }
+        if heading.x != 0 { netHeadingXByTile[position, default: 0] += amount * heading.x }
+        if heading.y != 0 { netHeadingYByTile[position, default: 0] += amount * heading.y }
     }
 }

@@ -339,4 +339,58 @@ final class TrafficTests: XCTestCase {
         }
         XCTAssertTrue(Traffic.isHorizontallyOriented(at: position, in: intersection))
     }
+
+    // MARK: - Ambient cars point the way real commutes actually flow
+
+    /// `straightCommuteMap` puts the home west and the job east, so every
+    /// commute along the shared street heads in the positive-x direction.
+    func testNetHeadingIsPositiveWhenCommutesRouteEastward() {
+        var map = straightCommuteMap(roadLength: 6, residentialDensity: 3)
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 2, y: 0), horizontal: true))
+    }
+
+    /// The mirror image: job west, home east — every commute now heads in
+    /// the negative-x direction along the same shared street.
+    func testNetHeadingIsNegativeWhenCommutesRouteWestward() {
+        var map = CityMap(width: 6, height: 3)
+        for x in 0 ..< 6 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 0, y: 1))
+        map[GridPosition(x: 0, y: 1)].density = 1
+        map[GridPosition(x: 1, y: 1)].density = 1
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 4, y: 1))
+        map[GridPosition(x: 4, y: 1)].density = 3
+        map[GridPosition(x: 5, y: 1)].density = 3
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertFalse(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 2, y: 0), horizontal: true))
+    }
+
+    /// Same idea along the vertical axis: a home south of a job on a
+    /// north-south street routes every commute northward (positive y).
+    func testNetHeadingIsPositiveOnTheVerticalAxisToo() {
+        var map = CityMap(width: 3, height: 6)
+        for y in 0 ..< 6 { map[GridPosition(x: 0, y: y)].zone = .road }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 1, y: 0))
+        map[GridPosition(x: 1, y: 0)].density = 3
+        map[GridPosition(x: 1, y: 1)].density = 3
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 1, y: 4))
+        map[GridPosition(x: 1, y: 4)].density = 1
+        map[GridPosition(x: 1, y: 5)].density = 1
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 0, y: 2), horizontal: false))
+    }
+
+    /// A tile nothing routes through (including every tile on a `CityMap`
+    /// that never had `computeLoad` run at all) has no net bias either
+    /// way — reads as positive, the documented arbitrary-but-stable
+    /// default, not a crash or an optional to unwrap.
+    func testNetHeadingDefaultsPositiveWithNoLoadAtAll() {
+        let map = CityMap(width: 3, height: 3)
+
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 1, y: 1), horizontal: true))
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 1, y: 1), horizontal: false))
+    }
 }

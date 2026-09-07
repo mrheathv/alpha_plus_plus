@@ -612,6 +612,16 @@ final class GameScene: SKScene {
     /// on. Cleared during either overlay, same as pips/icons, and for
     /// anything that isn't a road.
     ///
+    /// Still one tile's worth of loop, not a car actually driving the
+    /// full route `Traffic.computeLoad` routed it over — a real
+    /// per-vehicle journey across tiles is exactly the individual-agent
+    /// rendering complexity this project's aggregate simulation doesn't
+    /// need to earn its keep. What *is* real: which way, along the
+    /// tile's own axis, the car actually travels — `TrafficLoad.netHeadingIsPositive`
+    /// reads the same routed paths `computeLoad` already found, so a car
+    /// here points toward wherever most of that tile's real commute
+    /// traffic is actually headed, not an arbitrary fixed screen direction.
+    ///
     /// Only rebuilds the cars when `Traffic.carCount(forCongestion:)`
     /// actually changes, not on every call — `refresh(_:)` runs after
     /// *every* simulation tick (`refreshAll()`), and restarting each car's
@@ -639,6 +649,10 @@ final class GameScene: SKScene {
         guard carCount > 0 else { return }
 
         let horizontal = Traffic.isHorizontallyOriented(at: position, in: map)
+        // Which way most *actual* routed traffic crosses this tile, not
+        // an arbitrary fixed screen direction — a car here should look
+        // like it's headed toward the job it's actually commuting to.
+        let flowsPositive = map.trafficLoad.netHeadingIsPositive(at: position, horizontal: horizontal)
         // Busier roads get slower-crossing cars too, not just more of them —
         // reads as "jammed," not just "popular."
         let crossingDuration = 1.2 + congestion * 1.8
@@ -656,8 +670,10 @@ final class GameScene: SKScene {
             car.zPosition = 2
 
             let lane = laneOffsets[index % laneOffsets.count]
-            let start = horizontal ? CGPoint(x: -half, y: lane) : CGPoint(x: lane, y: -half)
-            let end = horizontal ? CGPoint(x: half, y: lane) : CGPoint(x: lane, y: half)
+            let lowEnd = horizontal ? CGPoint(x: -half, y: lane) : CGPoint(x: lane, y: -half)
+            let highEnd = horizontal ? CGPoint(x: half, y: lane) : CGPoint(x: lane, y: half)
+            let start = flowsPositive ? lowEnd : highEnd
+            let end = flowsPositive ? highEnd : lowEnd
             car.position = start
 
             let drive = SKAction.move(to: end, duration: crossingDuration)
