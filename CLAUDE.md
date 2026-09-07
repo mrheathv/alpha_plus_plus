@@ -45,10 +45,49 @@ Skylines, built natively for Apple Silicon to avoid Rosetta overhead.
 
 ## Current phase
 
-**Phase 1: Prove the core loop.** Grid-based map, click to place zones
-(residential/commercial/industrial) and roads, simple population/money counters
-that respond to placement. No real simulation depth yet (that's Phase 2), no
-real art (that's Phase 3).
+Phases 1–3 are all complete. The originally-scoped arc — core loop, then
+simulation depth, then real art direction — has played out in full:
+
+- **Phase 1 (core loop):** grid-based map, click to place zones
+  (residential/commercial/industrial) and roads, population/money counters
+  that respond to placement.
+- **Phase 2 (simulation depth):** density-based growth/decay gated by road or
+  transit access and by land value (`CitySimulator`, `LandValue`), with a real
+  underground water/pipe network required for the top density tiers
+  (`Water`); routed point-to-point commute traffic over the road network,
+  with congestion feeding back into land value (`Traffic`); random,
+  service-gated fire/crime hazards (`CityHazards`); multi-tile buildings
+  (2×2 zones and service buildings, 3×3 power plant/stadium); player levers
+  for tax rate, per-service funding, simulation speed, and map size; and a
+  stat-history sparkline. Roads, transit, and utilities each come in a
+  cheap/upgraded pair (road/highway, transit stop/subway).
+- **Phase 3 (art direction):** a full retrowave/synthwave visual treatment —
+  a neon palette with growth-tier-based hues (not just brightness) for the
+  three growable zones (`RenderPalette`), procedurally-drawn vector building
+  silhouettes with two look-variants per zone/tier/service so lots don't
+  repeat (`ZoneIcon`), and a Metal-backed full-scene shader pass (scanlines,
+  vignette, chromatic aberration — `RetroShader`). This satisfies the
+  "Phase 3 = real art" milestone via art *direction* rather than sourced
+  sprites: everything is still procedurally-drawn SpriteKit shape nodes, no
+  raster image assets, so the rendering/simulation split remains exactly as
+  clean as the grayboxing philosophy above intends.
+
+**Genuinely next**, in rough order:
+
+- **Balance tuning.** Nearly every constant introduced in Phase 2 (land-value
+  thresholds, hazard chances/coverage floors, traffic capacities, upkeep and
+  tax rates) is documented in-place as a first guess awaiting real
+  playtesting, not a tuned design.
+- **Save/load.** Called out as deliberately deferred since the Vision section
+  above was written; the data model (`CityMap`, `Tile`, and friends) has been
+  kept `Codable` throughout for exactly this, but no save/load system exists
+  yet.
+- Everything else is genre-parity gap-filling of the kind Phase 2 already did
+  repeatedly (see `Traffic`/`Water`'s own doc comments for the pattern) —
+  there's no fixed list, just whichever missing SimCity-style mechanic is
+  worth chasing next. Real individual-agent traffic simulation is explicitly
+  *not* on this list — `Traffic.swift` documents that as complexity this
+  project's aggregate-simulation approach is deliberately not chasing.
 
 ## Explain-as-you-go
 
