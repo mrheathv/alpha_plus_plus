@@ -124,14 +124,15 @@ enum ZoneIcon {
     /// material fill, is what identifies a house from a shop now.
     private static let silhouetteFill = SKColor(srgbRed: 0.05, green: 0.03, blue: 0.09, alpha: 1.0)
 
-    /// Windows, sign faces, stadium floodlights — anything meant to read
-    /// as lit up at night. The one element deliberately *not* colored by
-    /// the zone's own accent: every window glows the same warm "Sun /
-    /// highlight" cream from the Retrowave SimCity reference palette,
-    /// regardless of what color building it's punched into — every lit
-    /// window in the city catching the same synthwave sunset, not a
-    /// cool white-blue that reads as ordinary electric light.
-    private static let litAccent = SKColor(srgbRed: 1.0, green: 0.957, blue: 0.839, alpha: 0.95)
+    /// Windows, sign faces, stadium floodlights, and (for Residential
+    /// specifically) the glowing walkway a reference isometric sprite
+    /// showed leading up to a building's front door — anything meant to
+    /// read as lit up at night. The one element deliberately *not*
+    /// colored by the zone's own accent: every one of these glows the
+    /// same cool cyan-white regardless of what color building it's
+    /// punched into, so a lit window (or a lit path) reads as its own
+    /// kind of light, not just a paler version of the building's neon.
+    private static let litAccent = SKColor(srgbRed: 0.55, green: 0.98, blue: 1.0, alpha: 0.95)
 
     /// Doors, wheels, smokestacks, rail ties — anything that should read
     /// as the darkest, most recessed part of a shape, darker even than
@@ -250,6 +251,23 @@ enum ZoneIcon {
         return container
     }
 
+    /// A short glowing walkway from the bottom edge of the design square
+    /// up to a building's front door — a detail pulled from a reference
+    /// isometric sprite of a synthwave house, translated into this file's
+    /// flat top-down silhouette style: a thin bright strip in `litAccent`
+    /// (the same cyan every window glows), not the building's own accent,
+    /// so it reads as a lit path spilling out the door rather than a
+    /// second color competing with the structure's own glow. `centerX`
+    /// only needs to move for a composition whose entrance isn't
+    /// centered on the design square.
+    private static func walkway(centerX: CGFloat = 0, upTo topY: CGFloat, width: CGFloat = 10) -> SKNode {
+        let rect = CGRect(x: centerX - width / 2, y: -designSize / 2, width: width, height: topY + designSize / 2)
+        let path = SKShapeNode(rect: rect)
+        path.fillColor = litAccent
+        path.strokeColor = .clear
+        return withGlow([path], color: litAccent, blurRadius: 4)
+    }
+
     // MARK: - Residential (3 tiers)
 
     /// Tier 1 (density 1–2): a single-story cottage — body, peaked roof,
@@ -260,6 +278,7 @@ enum ZoneIcon {
         let roof = neonShape(peakedRoofPath(left: -28, right: 28, base: -2, peak: CGPoint(x: 0, y: 26)), accent: accent)
 
         let container = SKNode()
+        container.addChild(walkway(upTo: -30))
         container.addChild(withGlow([body, roof], color: accent))
         container.addChild(detail(rect: CGRect(x: -6, y: -30, width: 12, height: 16), fill: recessedAccent))
         return container
@@ -276,6 +295,7 @@ enum ZoneIcon {
         let chimney = neonShape(rect: CGRect(x: 12, y: 12, width: 8, height: 18), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
+        container.addChild(walkway(upTo: -30))
         container.addChild(withGlow([body, roof, chimney], color: accent))
         container.addChild(dot(radius: 6, at: CGPoint(x: -6, y: -16), fill: litAccent, stroke: accent))
         return container
@@ -288,6 +308,7 @@ enum ZoneIcon {
         let roof = neonShape(peakedRoofPath(left: -30, right: 30, base: 10, peak: CGPoint(x: 0, y: 32)), accent: accent)
 
         let container = SKNode()
+        container.addChild(walkway(upTo: -32))
         container.addChild(withGlow([body, roof], color: accent))
         container.addChild(detail(rect: CGRect(x: -7, y: -32, width: 14, height: 16), fill: recessedAccent))
         container.addChild(detail(rect: CGRect(x: -21, y: -6, width: 12, height: 12), fill: litAccent))
@@ -305,6 +326,7 @@ enum ZoneIcon {
         let parapet = neonShape(rect: CGRect(x: -28, y: 14, width: 56, height: 6), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
+        container.addChild(walkway(upTo: -32))
         container.addChild(withGlow([body, parapet], color: accent))
         for row in 0 ..< 2 {
             for column in 0 ..< 2 {
@@ -327,6 +349,7 @@ enum ZoneIcon {
         let rightRoof = neonShape(peakedRoofPath(left: 4, right: 44, base: 6, peak: CGPoint(x: 24, y: 28)), accent: accent)
 
         let container = SKNode()
+        container.addChild(walkway(upTo: -30))
         container.addChild(withGlow([leftBody, leftRoof, rightBody, rightRoof], color: accent))
         container.addChild(detail(rect: CGRect(x: -32, y: -18, width: 10, height: 10), fill: litAccent))
         container.addChild(detail(rect: CGRect(x: 14, y: -30, width: 12, height: 16), fill: recessedAccent))
@@ -344,6 +367,7 @@ enum ZoneIcon {
         let roofCap = neonShape(rect: CGRect(x: -42, y: 18, width: 84, height: 6), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
+        container.addChild(walkway(upTo: -30))
         container.addChild(withGlow([body, roofCap], color: accent, blurRadius: 6))
         for row in 0 ..< 2 {
             for column in 0 ..< 3 {
