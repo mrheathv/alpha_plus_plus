@@ -105,9 +105,7 @@ xcodebuild -project AlphaPlusPlus.xcodeproj \
 open ./build/Build/Products/Debug/AlphaPlusPlus.app
 ```
 
-Expected in Phase 1: a resizable window, near-black background, a 20x20 block of
-muted gray-green squares centered in it with thin dark grid lines. No app icon —
-that is intentional while grayboxing.
+The app has no icon; that is intentional while grayboxing.
 
 Naming note: the app's user-visible name is **Alpha++**, but the on-disk target,
 folder, and Swift module are named `AlphaPlusPlus`. Swift module names can't
