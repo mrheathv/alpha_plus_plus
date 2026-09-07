@@ -56,13 +56,58 @@ I'm new to Swift/SpriteKit/game dev. When you make a non-trivial decision
 (project structure, SpriteKit scene setup, data model choices), briefly explain
 why, so I actually learn the stack rather than just accepting output.
 
-## Build and run
+## Setting up on a new machine
+
+Requires **full Xcode 16 or newer** — Command Line Tools alone are not enough,
+because the project uses Xcode 16 file-system-synchronized groups. Verified
+working on Xcode 26.6.
 
 ```sh
-open AlphaPlusPlus.xcodeproj      # then press Cmd-R
-# or from the terminal:
-xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus -configuration Debug build
+xcodebuild -version
 ```
+
+If that prints a version, the toolchain is ready and no further setup is needed.
+If it errors instead, Xcode is installed but not selected; pointing at it needs
+an admin account:
+
+```sh
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
+```
+
+Then clone:
+
+```sh
+git clone https://github.com/mrheathv/alpha_plus_plus.git
+cd alpha_plus_plus
+```
+
+## Build and run
+
+In Xcode:
+
+```sh
+open AlphaPlusPlus.xcodeproj
+```
+
+then press Cmd-R.
+
+From the terminal. The `-derivedDataPath` flag keeps build output in `./build`
+(gitignored) instead of burying it in `~/Library/Developer/Xcode/DerivedData`:
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj \
+           -scheme AlphaPlusPlus \
+           -configuration Debug \
+           -derivedDataPath ./build \
+           build
+
+open ./build/Build/Products/Debug/AlphaPlusPlus.app
+```
+
+Expected in Phase 1: a resizable window, near-black background, a 20x20 block of
+muted gray-green squares centered in it with thin dark grid lines. No app icon —
+that is intentional while grayboxing.
 
 Naming note: the app's user-visible name is **Alpha++**, but the on-disk target,
 folder, and Swift module are named `AlphaPlusPlus`. Swift module names can't
