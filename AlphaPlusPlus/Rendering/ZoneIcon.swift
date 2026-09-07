@@ -834,8 +834,11 @@ enum ZoneIcon {
         track.lineWidth = 2
         container.addChild(track)
 
+        // The field itself glows the stadium's own accent rather than a
+        // fixed "grass green" — an energy floor lit by the same lights
+        // the rest of the building glows with, not a patch of turf.
         let field = SKShapeNode(ellipseOf: CGSize(width: 50, height: 30))
-        field.fillColor = SKColor(srgbRed: 0.15, green: 0.85, blue: 0.55, alpha: 0.85) // neon turf, lit by the same floodlights
+        field.fillColor = accent.withAlphaComponent(0.55)
         field.strokeColor = .clear
         container.addChild(field)
 

@@ -73,11 +73,13 @@ enum RenderPalette {
         case .publicTransit:
             return SKColor(srgbRed: 0.25, green: 0.65, blue: 1.0, alpha: 1.0)  // sky blue — leans blue rather than teal, so it doesn't drift toward green
         case .powerPlant:
-            // Warm gold-yellow, not chartreuse — chartreuse is
-            // green-dominant (G > R), which reads as toxic/nature rather
-            // than "electric energy." Red-dominant warm yellow keeps the
-            // "danger/power" read without the green tint.
-            return SKColor(srgbRed: 1.0, green: 0.85, blue: 0.15, alpha: 1.0)
+            // Icy electric blue-white — a "lightning bolt," not a warm
+            // color at all, which is also what keeps it from reading as
+            // just another shade of Industrial's gold. Deliberately the
+            // palest, most desaturated zone on the map: every other zone
+            // reads as "a colored light," this one reads as "the light
+            // itself."
+            return SKColor(srgbRed: 0.70, green: 0.88, blue: 1.0, alpha: 1.0)
         case .stadium:
             return SKColor(srgbRed: 1.0, green: 0.25, blue: 0.75, alpha: 1.0)  // hot pink, "entertainment lights"
         case .highway:
@@ -88,9 +90,13 @@ enum RenderPalette {
         case .subway:
             return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's teal, richer
         case .waterTower:
-            return SKColor(srgbRed: 0.10, green: 0.90, blue: 0.80, alpha: 1.0)  // neon turquoise — distinct from publicTransit's sky blue and commercial's cyan
+            // Deep ocean-blue, not the brighter cyan Commercial already
+            // owns — lower brightness and more blue-dominant (less green)
+            // than a pure cyan keeps the two from reading as the same
+            // color at a glance.
+            return SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)
         case .pipe:
-            return SKColor(srgbRed: 0.25, green: 0.55, blue: 0.50, alpha: 1.0)  // a muted, desaturated version of waterTower's turquoise — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
+            return SKColor(srgbRed: 0.15, green: 0.40, blue: 0.55, alpha: 1.0)  // a muted, desaturated version of waterTower's ocean-blue — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
         }
     }
 
@@ -156,7 +162,7 @@ enum RenderPalette {
     /// building that provides it should read as the same thing — against
     /// a dim, desaturated version for "not supplied," the same "muted
     /// version of the real color" relationship `.pipe` has to `.waterTower`.
-    private static let waterSupplied = SKColor(srgbRed: 0.10, green: 0.90, blue: 0.80, alpha: 1.0)
+    private static let waterSupplied = SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)
     private static let waterUnsupplied = SKColor(srgbRed: 0.12, green: 0.10, blue: 0.18, alpha: 1.0)
 
     static func waterColor(for hasSupply: Bool) -> SKColor {
