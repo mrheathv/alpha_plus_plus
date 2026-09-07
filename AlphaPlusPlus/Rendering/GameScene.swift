@@ -727,7 +727,21 @@ final class GameScene: SKScene {
         let crossingDuration = 1.2 + congestion * 1.8
         let half = layout.spriteSize.width / 2 * 0.8
         let laneSpacing = layout.spriteSize.width * 0.2
-        let laneOffsets: [CGFloat] = [0, -laneSpacing, laneSpacing]
+        // Real two-way roads never carry traffic down the center line —
+        // every car this tile renders shares the same net flow direction
+        // (`flowsPositive`), so they all belong in the one lane that
+        // direction actually drives in, offset to one side or the other
+        // depending which way that is (an arbitrary but consistent side,
+        // there's no real left/right-hand-traffic convention modeled here).
+        // Multiple simultaneous cars stay visually distinct via the
+        // temporal stagger below — each at a different point along that
+        // same lane — rather than being spread across invented parallel
+        // lanes a single-lane-each-way road doesn't actually have. This
+        // used to include a third, centered offset (0) that every tile
+        // with exactly one car — the common case at low congestion — sat
+        // on by default, reading as straddling the center line rather
+        // than driving in a lane.
+        let lane = flowsPositive ? laneSpacing : -laneSpacing
 
         for index in 0 ..< carCount {
             let carSize = horizontal ? CGSize(width: 8, height: 5) : CGSize(width: 5, height: 8)
@@ -738,7 +752,6 @@ final class GameScene: SKScene {
             car.lineWidth = 1
             car.zPosition = 2
 
-            let lane = laneOffsets[index % laneOffsets.count]
             let lowEnd = horizontal ? CGPoint(x: -half, y: lane) : CGPoint(x: lane, y: -half)
             let highEnd = horizontal ? CGPoint(x: half, y: lane) : CGPoint(x: lane, y: half)
             let start = flowsPositive ? lowEnd : highEnd
