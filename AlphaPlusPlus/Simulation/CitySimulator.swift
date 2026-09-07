@@ -76,11 +76,17 @@ enum CitySimulator {
     /// A tile touching exactly one road and nothing else sits at land value
     /// 0.75 (see `LandValue.roadFalloffDistance`) — comfortably past every
     /// threshold except the last, so bare road access alone carries a zone
-    /// to density 4 but not the full 5; reaching 5 needs something more
-    /// (another nearby road, or a station within reach) to push land value
-    /// past 0.8. These specific numbers are a first guess, not a tuned
+    /// to density 4 but not the full 5; reaching 5 needs something more to
+    /// push land value past 0.8. A second nearby road doesn't do it —
+    /// `LandValue.value(at:in:)` takes the *nearest* road's own falloff,
+    /// not a sum across every road in reach, so more roads alone can't
+    /// climb past the same 0.75 ceiling one road already gives. A real
+    /// station, subway stop, or stadium within about a road's width can:
+    /// see `LandValue.serviceFalloffDistance`'s doc comment for the
+    /// playtesting that pinned down exactly how close "within reach" needs
+    /// to be. Level 2–4's thresholds are still a first guess, not a tuned
     /// balance — easy to revisit once growth-with-a-ceiling has been played
-    /// with.
+    /// with more.
     private static func requiredLandValue(toReach level: Int) -> Double {
         switch level {
         case ...1: return 0.0

@@ -51,9 +51,9 @@ final class LandValueTests: XCTestCase {
         map[GridPosition(x: 10, y: 10)].zone = .fireStation
         map.serviceFunding.setLevel(0.5, for: .fireStation)
 
-        // Fully funded, distance 4 on an 8-tile falloff would be 0.5; at
-        // half funding it should be half of that.
-        XCTAssertEqual(LandValue.value(at: GridPosition(x: 14, y: 10), in: map), 0.25, accuracy: 0.0001)
+        // Fully funded, distance 4 on a 12-tile falloff would be 1 - 4/12
+        // = 0.6667; at half funding it should be half of that.
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 14, y: 10), in: map), 1.0 / 3.0, accuracy: 0.0001)
     }
 
     /// Funding above 1.0 is a real lever too, not clamped — a station
@@ -209,13 +209,13 @@ final class LandValueTests: XCTestCase {
         var map = CityMap(width: 20, height: 20)
         map[GridPosition(x: 10, y: 10)].zone = .subway
 
-        // subwayFalloffDistance is 9: value = 1 - distance/9.
-        XCTAssertEqual(LandValue.value(at: GridPosition(x: 13, y: 10), in: map), 1 - 3.0 / 9.0, accuracy: 0.0001)
+        // subwayFalloffDistance is 14: value = 1 - distance/14.
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 13, y: 10), in: map), 1 - 3.0 / 14.0, accuracy: 0.0001)
 
         // Distance 7 sits *beyond* transitFalloffDistance (6) -- a plain
         // publicTransit stop this far away would already contribute 0 --
-        // but is still within subwayFalloffDistance (9), the whole point
-        // of paying more for a subway.
+        // but is still well within subwayFalloffDistance (14), the whole
+        // point of paying more for a subway.
         XCTAssertGreaterThan(LandValue.value(at: GridPosition(x: 17, y: 10), in: map), 0)
         XCTAssertLessThan(LandValue.transitFalloffDistance, 7)
     }
@@ -234,19 +234,23 @@ final class LandValueTests: XCTestCase {
         var map = CityMap(width: 20, height: 20)
         map[GridPosition(x: 10, y: 10)].zone = .fireStation
 
-        // serviceFalloffDistance is 8: value = 1 - distance/8.
-        XCTAssertEqual(LandValue.value(at: GridPosition(x: 14, y: 10), in: map), 0.5, accuracy: 0.0001)
-        XCTAssertEqual(LandValue.value(at: GridPosition(x: 18, y: 10), in: map), 0.0, accuracy: 0.0001)
+        // serviceFalloffDistance is 12: value = 1 - distance/12.
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 16, y: 10), in: map), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 22, y: 10), in: map), 0.0, accuracy: 0.0001)
     }
 
     /// Locks in the `max`-not-sum combination rule: sitting inside overlapping
     /// road and service coverage shouldn't add up to more than the single
-    /// best-covering amenity already gives.
+    /// best-covering amenity already gives. Both terms need to land on the
+    /// *same* value (0.75) for that to actually test something — with
+    /// `serviceFalloffDistance` at 12, that's distance 3 from the station,
+    /// not distance 2 (which would now out-value the road on its own; see
+    /// `serviceFalloffDistance`'s doc comment for why that's the point).
     func testOverlappingRoadAndServiceCoverageTakesTheBetterOneNotTheSum() {
         var map = CityMap(width: 20, height: 20)
         let position = GridPosition(x: 10, y: 10)
         map[GridPosition(x: 11, y: 10)].zone = .road // distance 1 -> road value 0.75
-        map[GridPosition(x: 10, y: 12)].zone = .policeStation // distance 2 -> service value 0.75
+        map[GridPosition(x: 10, y: 13)].zone = .policeStation // distance 3 -> service value 0.75
 
         XCTAssertEqual(LandValue.value(at: position, in: map), 0.75, accuracy: 0.0001)
     }
@@ -268,10 +272,10 @@ final class LandValueTests: XCTestCase {
         var map = CityMap(width: 20, height: 20)
         map.placeBuilding(zone: .stadium, origin: GridPosition(x: 10, y: 10)) // covers (10,10)-(12,12)
 
-        // stadiumFalloffDistance is 10: value = 1 - distance/10, measured
+        // stadiumFalloffDistance is 16: value = 1 - distance/16, measured
         // from the nearest cell of the 3x3 footprint (12,10 or 10,12).
-        XCTAssertEqual(LandValue.value(at: GridPosition(x: 17, y: 10), in: map), 0.5, accuracy: 0.0001)
-        XCTAssertEqual(LandValue.value(at: GridPosition(x: 22, y: 10), in: map), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 20, y: 10), in: map), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(LandValue.value(at: GridPosition(x: 28, y: 10), in: map), 0.0, accuracy: 0.0001)
     }
 
     // MARK: - Power plant (the first negative influence)

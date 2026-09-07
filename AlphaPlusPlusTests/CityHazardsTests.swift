@@ -11,7 +11,7 @@ final class CityHazardsTests: XCTestCase {
         let position = GridPosition(x: 0, y: 0)
         map[position].zone = .industrial
         map[position].density = 3
-        map[GridPosition(x: 0, y: 1)].zone = .fireStation // distance 1 -> coverage 0.875, well above the 0.3 threshold
+        map[GridPosition(x: 0, y: 1)].zone = .fireStation // distance 1 -> coverage ~0.917, well above the 0.3 threshold
 
         var rng = SystemRandomNumberGenerator()
         let result = CityHazards.apply([CityHazards.fire], to: map, using: &rng)

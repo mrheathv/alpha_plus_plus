@@ -29,24 +29,59 @@ enum LandValue {
 
     /// A transit stop's reach sits between road frontage and a full service
     /// building: it serves more than its own doorstep, but a rider still
-    /// has to be able to walk to it.
+    /// has to be able to walk to it. Deliberately left short enough that a
+    /// stop can never out-value a zone's own road frontage (see
+    /// `serviceFalloffDistance`'s doc comment for the arithmetic reason
+    /// that matters) — `.publicTransit` is meant to work purely as a
+    /// second *access* method alongside `.road` (`CitySimulator.hasAccess`),
+    /// not as a competing land-value booster.
     static let transitFalloffDistance = 6
 
     /// A subway stop's reach, wider than a bus-stop-equivalent
     /// `.publicTransit`'s — the whole reason to pay `.subway`'s higher
     /// price and ongoing upkeep is that it serves a bigger area, the same
     /// "pricier, higher-capacity version" relationship `.highway` has with
-    /// `.road`.
-    static let subwayFalloffDistance = 9
+    /// `.road`. Tuned to clear the same "must beat bare road frontage"
+    /// bar `serviceFalloffDistance` documents, with room to stay the wider
+    /// of the two.
+    static let subwayFalloffDistance = 14
 
     /// Coverage from a service building (police/fire) falls off over a
     /// wider radius than road frontage — a station serves a neighborhood,
     /// not just its own tile's edges.
-    static let serviceFalloffDistance = 8
+    ///
+    /// Playtesting (a synthetic but realistic fully-built, fully-serviced
+    /// city, run through `CitySimulator`/`CityHazards`/`Traffic`/`Water`
+    /// for 200 ticks) turned up a real problem with the original value of
+    /// 8: a station across a *single road* from a zone — the ordinary way
+    /// two buildings relate in a road-grid city — sat at exactly distance
+    /// 2 from that zone's nearest cell, and `1 - 2/8 == 1 - 1/4`, the exact
+    /// same fraction `roadFalloffDistance` (4) gives a zone touching that
+    /// same road directly. A station one road-width away therefore never
+    /// out-valued the road itself — `value(at:in:)`'s `max()` just kept
+    /// the road's own number — so a zone with bare road access, one
+    /// nearby service, `and` nothing else could climb to density 4
+    /// (`CitySimulator.requiredLandValue`'s 0.65) but never to 5 (0.8): the
+    /// "something more" the level-4 doc comment promises turned out to
+    /// need a station touching the zone directly, on a side with *no* road
+    /// between them, which isn't a placement any normal, road-fronting
+    /// city plan produces. Raised to 12 so a station one ordinary road
+    /// -width away (distance 2) clears 0.8 outright (`1 - 2/12 ≈ 0.83`),
+    /// making the level-5 ceiling reachable by placing a station near the
+    /// neighborhood you want maxed out, not by a placement trick. This
+    /// also widens `CityHazards`' fire/crime coverage radius by the same
+    /// amount, since `CityHazards.apply` reads coverage through this same
+    /// falloff — an intentional side effect, not a separate tuning pass:
+    /// a station that projects real land value further out should
+    /// plausibly protect further out too.
+    static let serviceFalloffDistance = 12
 
     /// A stadium's draw reaches further still — it's a destination people
-    /// travel to, not a neighborhood amenity like a station.
-    static let stadiumFalloffDistance = 10
+    /// travel to, not a neighborhood amenity like a station. Kept the
+    /// widest of the three service-tier falloffs after the
+    /// `serviceFalloffDistance` retuning, for the same "clears 0.8 one
+    /// road-width away" reason.
+    static let stadiumFalloffDistance = 16
 
     /// How far a power plant's *negative* pull on land value reaches.
     /// Every other service in this file only ever raises value; a power

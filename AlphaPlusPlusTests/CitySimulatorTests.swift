@@ -142,7 +142,7 @@ final class CitySimulatorTests: XCTestCase {
     }
 
     /// The same building, but also within reach of a Police Station: land
-    /// value climbs to 0.875, clearing the 0.8 threshold for the final level.
+    /// value climbs to ~0.917, clearing the 0.8 threshold for the final level.
     func testTileReachesMaxDensityWhenAlsoNearAService() {
         var map = CityMap(width: 6, height: 6)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
@@ -152,6 +152,40 @@ final class CitySimulatorTests: XCTestCase {
         // Density 4 -> 5 crosses the water-required threshold too.
         map[GridPosition(x: 2, y: 1)].hasPipe = true
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
+        map.waterSupply = Water.computeSupply(for: map)
+
+        let next = CitySimulator.advance(map)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 5)
+    }
+
+    /// Caught by hands-on playtesting, not a unit test: the test right
+    /// above places its Police Station touching the residential footprint
+    /// directly, with no road between them — but that's not how two
+    /// buildings actually relate in an ordinary road-grid city, where a
+    /// station sits *across the street* from the block it serves. With the
+    /// original `LandValue.serviceFalloffDistance` (8), that ordinary
+    /// placement put the station at exactly distance 2 from the nearest
+    /// residential cell, which computed to the exact same land value
+    /// (0.75) bare road frontage already gives — so a station across the
+    /// street never actually helped a zone clear density 5; only touching
+    /// it directly (no road gap) did, a placement no normal city plan
+    /// produces. This pins the fix: a station one ordinary road-width away
+    /// must clear the level-5 threshold on its own.
+    func testTileReachesMaxDensityWithAServiceAcrossAnOrdinaryRoad() {
+        var map = CityMap(width: 6, height: 6)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
+        map[GridPosition(x: 0, y: 0)].density = 4
+        map[GridPosition(x: 2, y: 0)].zone = .road // the residential's own road frontage, touches (1,0)
+        // The station sits across that same road, not touching the
+        // residential footprint directly -- distance 2 from (1,0).
+        map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 3, y: 0))
+        // A pipe run up the residential's other side (x=2, rows 1-3) to a
+        // tower placed clear of the police station's own footprint.
+        map[GridPosition(x: 2, y: 1)].hasPipe = true
+        map[GridPosition(x: 2, y: 2)].hasPipe = true
+        map[GridPosition(x: 2, y: 3)].hasPipe = true
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 3)) // covers (3,3)-(4,4), touches (2,3)
         map.waterSupply = Water.computeSupply(for: map)
 
         let next = CitySimulator.advance(map)
