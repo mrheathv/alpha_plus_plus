@@ -86,7 +86,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testBulldozeResetsDensity() {
-        let controller = GameController()
+        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees the growth tick below actually grows
         let position = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0) // outside residential's (0,0)-(1,1) footprint
         controller.selectedTool = .road
@@ -299,7 +299,10 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testPopulationRespondsToSimulatedGrowth() {
-        let controller = GameController()
+        // AlwaysZeroRNG guarantees the demand-gated growth roll clears --
+        // safe here (unlike a multi-tick test) since hazards can't touch a
+        // tile still at density 0 going into this one tick.
+        let controller = GameController(rng: AlwaysZeroRNG())
         let residentialOrigin = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0) // outside the (0,0)-(1,1) footprint, touching (1,0)
         controller.selectedTool = .road
@@ -315,7 +318,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testJobsCountBothCommercialAndIndustrialDensity() {
-        let controller = GameController()
+        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         let commercialOrigin = GridPosition(x: 0, y: 0) // covers (0,0)-(1,1)
         let roadPosition = GridPosition(x: 2, y: 0) // touches (1,0)
         let industrialOrigin = GridPosition(x: 3, y: 0) // covers (3,0)-(4,1), touches the road's other side
@@ -334,7 +337,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Tax revenue
 
     func testAdvanceSimulationCollectsTaxFromPopulation() {
-        let controller = GameController()
+        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         let residentialOrigin = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0)
         controller.selectedTool = .road
@@ -351,7 +354,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testAdvanceSimulationTaxesJobsAtAHigherRateThanPopulation() {
-        let controller = GameController()
+        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         let commercialOrigin = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0)
         controller.selectedTool = .road
@@ -371,6 +374,18 @@ final class GameControllerTests: XCTestCase {
     /// so there was no way to afford anything else without a full Reset.
     /// Confirm a growing, taxed city instead accumulates *more* than it
     /// started with, purely from letting one building develop over time.
+    ///
+    /// Deliberately left on the real system RNG rather than `AlwaysZeroRNG`:
+    /// this runs 20 ticks with density climbing above 0, and `AlwaysZeroRNG`
+    /// doesn't just guarantee the demand-gated growth roll clears — it
+    /// guarantees `CityHazards`' crime roll clears too, every single tick,
+    /// on a fixture with no police coverage at all. That would turn "watch
+    /// a city grow" into "watch a city get hit by crime every tick it's
+    /// developed," a real behavior change, not a determinism fix. This test
+    /// already tolerated real hazard randomness before demand-gating
+    /// existed; it now also tolerates real demand-roll randomness the same
+    /// way — vanishingly unlikely to flip a 20-tick test from growing to
+    /// not, the same bet the original hazard exposure already made.
     func testTreasuryGrowsOverTimeFromAGrowingCityRatherThanOnlyEverDraining() {
         let controller = GameController()
         controller.selectedTool = .road
@@ -439,7 +454,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Player-adjustable tax rate
 
     func testDefaultTaxRateReproducesTheOriginalTaxFormulaExactly() {
-        let controller = GameController()
+        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
@@ -452,7 +467,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testHalvingTheTaxRateHalvesTaxRevenue() {
-        let controller = GameController()
+        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
@@ -465,7 +480,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testRaisingTheTaxRateAboveOneIncreasesRevenue() {
-        let controller = GameController()
+        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial

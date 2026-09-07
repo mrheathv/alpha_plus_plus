@@ -107,6 +107,37 @@ extension ZoneType {
         }
     }
 
+    /// How many people one density level of this zone houses. Only
+    /// `.residential` contributes population — every other zone is 0,
+    /// the same "not a concept that applies here" default `upkeepCost`
+    /// already uses for non-service zones. Lives here rather than as a
+    /// private constant on `GameController` now that `Demand.compute(for:)`
+    /// (Simulation/) needs the exact same number `GameController.population`
+    /// (App/) reads — one source of truth instead of two copies that
+    /// could drift apart. A freshly placed tile (density 0) houses no
+    /// one yet; population scales with how developed a tile actually is.
+    var populationPerDensityLevel: Int {
+        switch self {
+        case .residential: return 4
+        default: return 0
+        }
+    }
+
+    /// How many jobs one density level of this zone provides — Commercial
+    /// and Industrial both count, at the same rate, rather than each
+    /// having its own: one number is enough to make jobs visibly respond
+    /// to growth without inventing a balance distinction this early that
+    /// nothing yet depends on (see `Demand.compute(for:)`'s own doc
+    /// comment for the same reasoning applied to demand). Every other
+    /// zone is 0 — same shared-source-of-truth reasoning as
+    /// `populationPerDensityLevel`.
+    var jobsPerDensityLevel: Int {
+        switch self {
+        case .commercial, .industrial: return 3
+        default: return 0
+        }
+    }
+
     /// What it costs the treasury to keep this building running, once
     /// placed, every simulation step — separate from `placementCost`, which
     /// is a one-time charge. Only public services/infrastructure carry an

@@ -100,20 +100,43 @@ final class GameController: ObservableObject {
     @Published private(set) var history: [HistorySnapshot] = []
     private static let maxHistoryLength = 120
 
-    /// Source of randomness for `CityHazards`. A stored property (not a
-    /// fresh `SystemRandomNumberGenerator()` at each call site) purely so
-    /// it's the *same* generator across every tick — `RandomNumberGenerator`
+    /// Source of randomness for `CityHazards` and, now, `CitySimulator`'s
+    /// demand-gated growth roll — the city's one shared generator for
+    /// both, not two independent sources that could disagree about how
+    /// "random" a given tick was. A stored property (not a fresh
+    /// `SystemRandomNumberGenerator()` at each call site) purely so it's
+    /// the *same* generator across every tick — `RandomNumberGenerator`
     /// is a mutating protocol (drawing a value changes its internal state),
     /// so a fresh instance per call would technically still work but reads
     /// oddly next to "this is the city's one source of randomness."
-    private var rng = SystemRandomNumberGenerator()
+    ///
+    /// Stored as `AnyRandomNumberGenerator` — see that type's own doc
+    /// comment for why this needs to be manual type erasure and not the
+    /// simpler-looking `any RandomNumberGenerator` existential. Letting
+    /// this be some concrete-but-erased type, rather than a generic
+    /// parameter on `GameController` itself, means tests can inject a
+    /// deterministic stand-in (see `AlwaysZeroRNG`) through the
+    /// initializer below without making every other `GameController`
+    /// call site generic over a type nothing but this one property cares
+    /// about.
+    private var rng: AnyRandomNumberGenerator
 
     /// Defaults to `MapSize.small`, not an independent hardcoded number —
     /// the city you start with and the smallest one `resetMap()` can pick
-    /// should always agree on what "small" means.
-    init(map: CityMap = CityMap(width: MapSize.small.dimension, height: MapSize.small.dimension)) {
+    /// should always agree on what "small" means. `rng` defaults to a real
+    /// system generator — only tests that need a deterministic growth roll
+    /// (see `CitySimulator.advance`'s demand gate) pass their own. Generic
+    /// over the caller's concrete `RNG` type (inferred from whatever's
+    /// passed, including the default) rather than typed `any
+    /// RandomNumberGenerator` here — this is where the type erasure into
+    /// `AnyRandomNumberGenerator` actually happens, once, at construction.
+    init<RNG: RandomNumberGenerator>(
+        map: CityMap = CityMap(width: MapSize.small.dimension, height: MapSize.small.dimension),
+        rng: RNG = SystemRandomNumberGenerator()
+    ) {
         self.map = map
         self.treasury = Self.startingTreasury
+        self.rng = AnyRandomNumberGenerator(rng)
     }
 
     /// What happened when `place(at:)` was asked to apply a tool to a tile.
@@ -296,9 +319,10 @@ final class GameController: ObservableObject {
         // another field on the struct they copy.
         map.trafficLoad = Traffic.computeLoad(for: map)
         map.waterSupply = Water.computeSupply(for: map)
+        map.cityDemand = Demand.compute(for: map)
         let (hazarded, strikes) = CityHazards.apply(to: map, using: &rng)
         lastHazardStrikes = strikes
-        map = CitySimulator.advance(hazarded)
+        map = CitySimulator.advance(hazarded, using: &rng)
         treasury += netRevenue
         recordHistorySnapshot()
     }
@@ -311,17 +335,6 @@ final class GameController: ObservableObject {
     }
 
     // MARK: - Derived stats
-
-    /// People-per-density-level. A residential tile contributes population
-    /// in proportion to how developed it is, not just whether it's zoned —
-    /// a freshly placed tile (density 0) houses no one yet.
-    private static let populationPerDensityLevel = 4
-
-    /// Jobs-per-density-level, shared by commercial and industrial rather
-    /// than each having its own rate — one constant is enough to make jobs
-    /// visibly respond to growth without inventing a balance distinction
-    /// this early that nothing yet depends on.
-    private static let jobsPerDensityLevel = 3
 
     /// Tax dollars per point of `population`/`jobs`, collected each
     /// simulation step. Jobs are taxed at twice the rate of population —
@@ -386,20 +399,18 @@ final class GameController: ObservableObject {
         taxRevenue - upkeepCost
     }
 
+    /// Reads through `map.totalDensity(of:)` and `ZoneType.populationPerDensityLevel`
+    /// rather than keeping its own rate — `Demand.compute(for:)` (Simulation/)
+    /// needs the exact same number, so it lives on `ZoneType` now as one
+    /// shared source instead of two copies that could drift.
     var population: Int {
-        totalDensity(of: .residential) * Self.populationPerDensityLevel
+        map.totalDensity(of: .residential) * ZoneType.residential.populationPerDensityLevel
     }
 
+    /// Same reasoning as `population`: reads `ZoneType.jobsPerDensityLevel`
+    /// rather than a private rate of its own.
     var jobs: Int {
-        (totalDensity(of: .commercial) + totalDensity(of: .industrial)) * Self.jobsPerDensityLevel
-    }
-
-    /// Sums density once per *building*, not once per cell — a 2×2
-    /// building's four cells all carry the same density (`CitySimulator`
-    /// keeps them in sync), so summing every cell would count its
-    /// population/jobs four times over. `isBuildingAnchor` is exactly
-    /// "the one cell of this building that should count."
-    private func totalDensity(of zone: ZoneType) -> Int {
-        map.tiles.filter { $0.zone == zone && $0.isBuildingAnchor }.reduce(0) { $0 + $1.density }
+        map.totalDensity(of: .commercial) * ZoneType.commercial.jobsPerDensityLevel
+            + map.totalDensity(of: .industrial) * ZoneType.industrial.jobsPerDensityLevel
     }
 }

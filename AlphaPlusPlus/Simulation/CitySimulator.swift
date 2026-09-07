@@ -7,22 +7,35 @@ import Foundation
 /// rather than either kind of rule ending up bolted onto the data model
 /// itself.
 ///
-/// A stateless `enum` (never instantiated) because growth is a pure
-/// function of the current map: same input map in, same output map out,
-/// every time — no randomness here. Random, service-gated risk to already
-/// -developed tiles lives separately, in `CityHazards`, precisely so this
-/// type can stay simple and deterministic to test.
+/// A stateless `enum` (never instantiated). Growth used to be a pure
+/// function of the current map alone — same input map in, same output
+/// map out, no randomness — until demand-gated growth (see
+/// `growthChance(for:)`) added a probability roll matching how the
+/// reference city-builders actually feel: demand raises or lowers the
+/// *odds* a qualifying zone grows this tick, rather than a hard on/off a
+/// player would watch every zone hit on the same tick with no visible
+/// cause. That's the one place this file now needs a random source,
+/// threaded through as a generic parameter exactly the way
+/// `CityHazards.apply` already takes one — everything upstream of that
+/// roll (access, land value, water) stays exactly as deterministic as
+/// before, and a caller that wants fully deterministic tests can still
+/// get them by supplying an `RNG` that always lands on one side of the
+/// roll (see the test suite's `AlwaysZeroRNG`).
 enum CitySimulator {
 
     /// One simulation step: every zoned *building* (processed once at its
     /// anchor — see `Tile.isBuildingAnchor` — regardless of whether it's a
     /// 1×1 road-side lot or a 2×2 block) with access (a road or transit stop
-    /// at any of its cells' edges) grows by one density level, *if* the best
-    /// land value across its cells clears the bar `requiredLandValue(toReach:)`
-    /// sets for that level — a building with only bare-minimum access can
-    /// stall a level or two short of full density until something (another
-    /// road, a nearby station) raises its land value further. A building
-    /// that's *lost* access decays by one level instead, down to 0. It never
+    /// at any of its cells' edges) grows by one density level, *if* every
+    /// gate clears: the best land value across its cells meets
+    /// `requiredLandValue(toReach:)`'s bar for that level, a real water
+    /// supply if the level needs one, and finally a demand roll weighted
+    /// by `map.cityDemand` (see `growthChance(for:)`) — a building with
+    /// only bare-minimum access can stall a level or two short of full
+    /// density until land value improves, and even a building that
+    /// clears every other gate can still wait a tick or several if the
+    /// city doesn't currently want more of its type. A building that's
+    /// *lost* access decays by one level instead, down to 0. It never
     /// does both in the same step — access means grow-or-hold, no access
     /// means decay-or-hold — so `.empty`/`.road`/service tiles (incapable of
     /// density in the first place) are the only ones skipped outright.
@@ -35,7 +48,7 @@ enum CitySimulator {
     /// `GameController`: compute the next state, hand it back, let the
     /// caller decide what to do with it (here, `GameController.advanceSimulation()`
     /// just assigns it to `map`).
-    static func advance(_ map: CityMap) -> CityMap {
+    static func advance<RNG: RandomNumberGenerator>(_ map: CityMap, using rng: inout RNG) -> CityMap {
         var next = map
         for tile in map.tiles where tile.isBuildingAnchor {
             guard tile.zone.maxDensity > 0 else { continue }
@@ -50,6 +63,8 @@ enum CitySimulator {
                 if nextLevel >= Self.waterRequiredFromLevel {
                     guard footprint.contains(where: { Water.hasSupply(at: $0, in: map) }) else { continue }
                 }
+                let chance = growthChance(for: map.cityDemand.value(for: tile.zone))
+                guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
                 for cell in footprint { next[cell].density = nextLevel }
             } else if tile.density > 0 {
                 let previousLevel = tile.density - 1
@@ -108,4 +123,25 @@ enum CitySimulator {
     /// is until the supply comes back. A first guess like every other
     /// number in this file.
     private static let waterRequiredFromLevel = 3
+
+    /// `growthChance(for:)`'s floor, at demand -1 (the city is drowning
+    /// in this type already). Deliberately not 0: a hard freeze reads as
+    /// a wall the player never saw coming — every qualifying zone in an
+    /// oversupplied city stopping on the exact same tick with no visible
+    /// cause. A small floor keeps it a slowdown instead, a real but rare
+    /// trickle of growth rather than a cliff. A first guess, same
+    /// "needs playtesting" status as every other number here.
+    private static let minimumGrowthChance = 0.05
+
+    /// How likely a zone that's already cleared every other gate (access,
+    /// land value, water) is to actually grow *this* tick, given how
+    /// badly the city currently wants more of its type
+    /// (`map.cityDemand.value(for:)`, -1...1 — see `Demand.compute(for:)`).
+    /// Linear between `minimumGrowthChance` at demand -1 and a guaranteed
+    /// 1.0 at demand +1, so a perfectly balanced city (demand 0) lands
+    /// almost exactly in the middle — a coin flip either way, not a
+    /// thumb on the scale in either direction.
+    private static func growthChance(for demand: Double) -> Double {
+        minimumGrowthChance + (1 - minimumGrowthChance) * (demand + 1) / 2
+    }
 }

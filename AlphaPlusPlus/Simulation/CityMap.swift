@@ -47,6 +47,20 @@ struct CityMap: Equatable, Codable, Sendable {
     /// map has no traffic load anywhere.
     var waterSupply = WaterSupply()
 
+    /// City-wide pressure to grow each RCI type, as of the last time
+    /// `Demand.compute(for:)` ran and someone assigned the result here
+    /// (`GameController.advanceSimulation()` does this once per
+    /// simulation tick, alongside `trafficLoad` and `waterSupply`). Same
+    /// "cache a whole-map computation rather than redo it per tile"
+    /// shape as those two — `CitySimulator.advance` checks it once per
+    /// growable building, not by rescanning the whole city each time.
+    /// Defaults to `CityDemand()` (every type reads as perfectly
+    /// balanced, demand 0), so a fresh `CityMap` — or one built directly
+    /// in a test, never advanced — reads as a city with no particular
+    /// opinion about what gets built next, same neutral-default spirit
+    /// `ServiceFunding`'s 1.0 defaults have.
+    var cityDemand = CityDemand()
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width
@@ -127,5 +141,17 @@ struct CityMap: Equatable, Codable, Sendable {
         for cell in footprintCells(origin: origin, size: zone.footprintSize) {
             self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin, hasPipe: self[cell].hasPipe)
         }
+    }
+
+    /// Sums density once per *building*, not once per cell — a 2×2
+    /// building's four cells all carry the same density (`CitySimulator`
+    /// keeps them in sync), so summing every cell would count its
+    /// contribution four times over. `isBuildingAnchor` is exactly "the
+    /// one cell of this building that should count." Shared by
+    /// `GameController.population`/`jobs` and `Demand.compute(for:)` —
+    /// one place this counting rule lives, not two copies that could
+    /// drift apart.
+    func totalDensity(of zone: ZoneType) -> Int {
+        tiles.filter { $0.zone == zone && $0.isBuildingAnchor }.reduce(0) { $0 + $1.density }
     }
 }
