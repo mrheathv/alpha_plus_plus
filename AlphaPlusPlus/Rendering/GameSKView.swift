@@ -19,4 +19,43 @@ final class GameSKView: SKView {
     override func magnify(with event: NSEvent) {
         (scene as? GameScene)?.zoom(byMagnification: event.magnification)
     }
+
+    // MARK: - Placement preview tracking
+
+    /// Same story as `scrollWheel`/`magnify` above: `mouseMoved` (with no
+    /// button held) isn't in `SKScene`'s forwarded subset either, and even
+    /// at this real-`NSView` level, AppKit only delivers it if something
+    /// asked for it — hence the `NSTrackingArea` below, not just an
+    /// override. Drives `GameScene`'s placement-preview outline, which
+    /// needs to know where the cursor is *without* a click.
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        // `.inVisibleRect` keeps this in sync with the view's actual
+        // visible bounds automatically (resizing, scrolling a container)
+        // rather than needing this method to recompute `rect` by hand.
+        let newTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(newTrackingArea)
+        trackingArea = newTrackingArea
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        (scene as? GameScene)?.updatePlacementPreview(at: event)
+    }
+
+    /// Cursor left the grid entirely (moved up onto the SwiftUI toolbar,
+    /// or off the window) — hide the preview rather than leaving it
+    /// stuck showing wherever the cursor last was inside the grid.
+    override func mouseExited(with event: NSEvent) {
+        (scene as? GameScene)?.clearPlacementPreview()
+    }
 }

@@ -50,11 +50,18 @@ enum RenderPalette {
             // — the "night" every neon shape sits on.
             return SKColor(srgbRed: 0.11, green: 0.06, blue: 0.20, alpha: 1.0)
         case .residential:
-            return SKColor(srgbRed: 0.15, green: 0.95, blue: 0.55, alpha: 1.0)  // neon green (synthwave "grid green")
+            // Sunset coral-orange, not green — green is the one hue every
+            // *other* city builder already uses for residential (grass,
+            // growth), which reads as a generic default rather than a
+            // deliberate choice. A synthwave skyline's sun is warm
+            // orange/pink bands, not green, so this is also the hue
+            // that's actually native to the theme, not just "a different
+            // color than before."
+            return SKColor(srgbRed: 1.0, green: 0.45, blue: 0.20, alpha: 1.0)
         case .commercial:
-            return SKColor(srgbRed: 0.20, green: 0.70, blue: 1.0, alpha: 1.0)  // electric cyan-blue
+            return SKColor(srgbRed: 0.10, green: 0.90, blue: 1.0, alpha: 1.0)  // electric cyan
         case .industrial:
-            return SKColor(srgbRed: 1.0, green: 0.78, blue: 0.10, alpha: 1.0)  // neon amber/gold
+            return SKColor(srgbRed: 1.0, green: 0.75, blue: 0.10, alpha: 1.0)  // golden amber, furnace-glow warm rather than green-tinged
         case .road:
             // Neon magenta — roads as "the glowing grid," the top-down
             // translation of a synthwave horizon's glowing ground grid.
@@ -64,9 +71,13 @@ enum RenderPalette {
         case .fireStation:
             return SKColor(srgbRed: 1.0, green: 0.20, blue: 0.20, alpha: 1.0)  // neon red
         case .publicTransit:
-            return SKColor(srgbRed: 0.15, green: 1.0, blue: 0.90, alpha: 1.0)  // neon teal/aqua
+            return SKColor(srgbRed: 0.25, green: 0.65, blue: 1.0, alpha: 1.0)  // sky blue — leans blue rather than teal, so it doesn't drift toward green
         case .powerPlant:
-            return SKColor(srgbRed: 0.85, green: 1.0, blue: 0.15, alpha: 1.0)  // electric chartreuse — already neon, kept
+            // Warm gold-yellow, not chartreuse — chartreuse is
+            // green-dominant (G > R), which reads as toxic/nature rather
+            // than "electric energy." Red-dominant warm yellow keeps the
+            // "danger/power" read without the green tint.
+            return SKColor(srgbRed: 1.0, green: 0.85, blue: 0.15, alpha: 1.0)
         case .stadium:
             return SKColor(srgbRed: 1.0, green: 0.25, blue: 0.75, alpha: 1.0)  // hot pink, "entertainment lights"
         case .highway:
@@ -77,9 +88,9 @@ enum RenderPalette {
         case .subway:
             return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's teal, richer
         case .waterTower:
-            return SKColor(srgbRed: 0.25, green: 0.85, blue: 1.0, alpha: 1.0)  // neon sky-blue, distinct from every other blue/teal
+            return SKColor(srgbRed: 0.10, green: 0.90, blue: 0.80, alpha: 1.0)  // neon turquoise — distinct from publicTransit's sky blue and commercial's cyan
         case .pipe:
-            return SKColor(srgbRed: 0.30, green: 0.55, blue: 0.65, alpha: 1.0)  // a muted, desaturated version of waterTower's neon blue — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
+            return SKColor(srgbRed: 0.25, green: 0.55, blue: 0.50, alpha: 1.0)  // a muted, desaturated version of waterTower's turquoise — same "plainer infrastructure, richer service building" family relationship highway/road and subway/publicTransit already have
         }
     }
 
@@ -145,7 +156,7 @@ enum RenderPalette {
     /// building that provides it should read as the same thing — against
     /// a dim, desaturated version for "not supplied," the same "muted
     /// version of the real color" relationship `.pipe` has to `.waterTower`.
-    private static let waterSupplied = SKColor(srgbRed: 0.25, green: 0.85, blue: 1.0, alpha: 1.0)
+    private static let waterSupplied = SKColor(srgbRed: 0.10, green: 0.90, blue: 0.80, alpha: 1.0)
     private static let waterUnsupplied = SKColor(srgbRed: 0.12, green: 0.10, blue: 0.18, alpha: 1.0)
 
     static func waterColor(for hasSupply: Bool) -> SKColor {
@@ -157,6 +168,18 @@ enum RenderPalette {
     /// Pale, headlight-like body so they stand out against road's own gray.
     static let trafficCarBody = SKColor(white: 0.95, alpha: 0.95)
     static let trafficCarOutline = SKColor.black.withAlphaComponent(0.4)
+
+    /// Fill/stroke for the placement-preview outline that follows the
+    /// cursor before a click commits (`GameScene.updatePlacementPreview`) —
+    /// green while every cell the selected tool would cover is still
+    /// `.empty`, red once hovering somewhere that already has a road or
+    /// building on it (placing there would replace it, via the same
+    /// auto-replace path a real click already uses) — visible *before*
+    /// the click, not just discoverable after.
+    static let placementPreviewClearFill = SKColor(srgbRed: 0.3, green: 1.0, blue: 0.5, alpha: 0.28)
+    static let placementPreviewClearStroke = SKColor(srgbRed: 0.3, green: 1.0, blue: 0.5, alpha: 0.95)
+    static let placementPreviewBlockedFill = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 0.28)
+    static let placementPreviewBlockedStroke = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 0.95)
 
     /// Label for the zone-picker toolbar. Lives here rather than on
     /// `ZoneType` itself for the same reason `color(for:)` does: `ZoneType`

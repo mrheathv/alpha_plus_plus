@@ -45,6 +45,14 @@ final class GameScene: SKScene {
     /// work, so it scales with screen resolution rather than city size.
     private let retroEffectLayer = SKEffectNode()
 
+    /// The footprint-sized outline that follows the cursor before a click
+    /// commits — see `updatePlacementPreview(at:)`. A sibling of `tileLayer`
+    /// (not a child of it) specifically so `rebuildEntireGrid()`'s
+    /// `tileLayer.removeAllChildren()` never takes it out along with the
+    /// tiles; still a child of `retroEffectLayer` so it picks up the same
+    /// retro shader treatment everything else on the map gets.
+    private let placementPreviewNode = SKShapeNode()
+
     /// Grid coordinate -> sprite, so updating one tile is O(1) instead of a
     /// scene-graph search.
     private var tileNodes: [GridPosition: SKSpriteNode] = [:]
@@ -109,6 +117,12 @@ final class GameScene: SKScene {
         retroEffectLayer.addChild(tileLayer)
         addChild(retroEffectLayer)
         RetroShader.updateAspect(retroEffectLayer.shader!, size: size)
+
+        placementPreviewNode.name = "placementPreview"
+        placementPreviewNode.isHidden = true
+        placementPreviewNode.lineWidth = 2.5
+        placementPreviewNode.zPosition = 5
+        retroEffectLayer.addChild(placementPreviewNode)
 
         buildTileNodes()
         centerCameraOnMap()
@@ -258,6 +272,7 @@ final class GameScene: SKScene {
     /// whatever zone you're placing.
     override func mouseDown(with event: NSEvent) {
         lastPaintPosition = nil
+        placementPreviewNode.isHidden = true
         place(with: event)
     }
 
@@ -267,6 +282,7 @@ final class GameScene: SKScene {
 
     override func rightMouseDown(with event: NSEvent) {
         lastBulldozePosition = nil
+        placementPreviewNode.isHidden = true
         bulldoze(with: event)
     }
 
@@ -351,6 +367,59 @@ final class GameScene: SKScene {
 
     private func gridPosition(of event: NSEvent) -> GridPosition? {
         layout.position(for: event.location(in: self), in: map)
+    }
+
+    // MARK: - Placement preview
+
+    /// Called by `GameSKView.mouseMoved`. Shows a footprint-sized outline
+    /// at whatever grid cell the cursor is over — sized and positioned
+    /// with the exact same `GridLayout` math a real placement uses
+    /// (`spriteSize(forFootprint:)`/`centerPoint(ofFootprintOrigin:size:)`),
+    /// so the outline always shows precisely what a click right now would
+    /// cover. Green while every cell it would cover is `.empty`; red if
+    /// any of them already have a road or building on them — placing there
+    /// would silently replace it via `place(at:)`'s existing auto-replace
+    /// path (see `involvesAFootprint` in `mouseDown`/`place(with:)`), and
+    /// this is what makes that visible *before* the click instead of only
+    /// discoverable after it already happened. A player who intends to
+    /// replace something can still just click through a red outline —
+    /// this warns, it doesn't block.
+    ///
+    /// A click's grid tile is the footprint's minimum-x/minimum-y corner
+    /// (`GridLayout.centerPoint(ofFootprintOrigin:size:)`'s own doc
+    /// comment), so a multi-tile building extends up and to the right
+    /// from wherever you click, not centered on it and not extending some
+    /// other direction — exactly what this outline now shows up front.
+    func updatePlacementPreview(at event: NSEvent) {
+        guard let position = gridPosition(of: event) else {
+            placementPreviewNode.isHidden = true
+            return
+        }
+        let footprintSize = controller.selectedTool.footprintSize
+        let footprint = map.footprintCells(origin: position, size: footprintSize)
+        guard !footprint.isEmpty else {
+            // Footprint doesn't fit the map from this corner (e.g. hovering
+            // the last column with a 2×2 tool selected) — same "can't
+            // place here" case `place(at:)` itself already no-ops on.
+            placementPreviewNode.isHidden = true
+            return
+        }
+
+        let wouldReplaceSomething = footprint.contains { map[$0].zone != .empty }
+        placementPreviewNode.fillColor = wouldReplaceSomething ? RenderPalette.placementPreviewBlockedFill : RenderPalette.placementPreviewClearFill
+        placementPreviewNode.strokeColor = wouldReplaceSomething ? RenderPalette.placementPreviewBlockedStroke : RenderPalette.placementPreviewClearStroke
+
+        let size = layout.spriteSize(forFootprint: footprintSize)
+        placementPreviewNode.path = CGPath(rect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height), transform: nil)
+        placementPreviewNode.position = layout.centerPoint(ofFootprintOrigin: position, size: footprintSize)
+        placementPreviewNode.isHidden = false
+    }
+
+    /// Cursor left the grid, or a click just started an active paint
+    /// stroke (where tiles are already being placed live, so a "here's
+    /// what *would* happen" preview would be redundant/confusing).
+    func clearPlacementPreview() {
+        placementPreviewNode.isHidden = true
     }
 
     /// Briefly flash a tile red to explain why a click did nothing: the
