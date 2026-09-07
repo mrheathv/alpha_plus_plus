@@ -13,6 +13,12 @@ import SpriteKit
 /// happened exactly as predicted: this file changed one line, `GameScene`
 /// didn't change at all (see `GameSKView`'s doc comment for why `SpriteView`
 /// couldn't support it no matter how `GameScene` was written).
+///
+/// The toolbar itself is styled entirely through `RetroUITheme`/
+/// `RetroButtonStyle`/`RetroSegmentedPicker`/`RetroStepper` rather than
+/// default SwiftUI chrome — the one piece of the Phase 3 retrowave pass
+/// that hadn't reached yet, a light OS panel sitting on top of a fully
+/// neon game world until now.
 struct GameView: View {
 
     /// `@StateObject` (not a plain `let`/`@State`) because `GameController`
@@ -61,26 +67,45 @@ struct GameView: View {
         .onChange(of: controller.overlayMode) {
             scene?.refreshAll()
         }
+        // The whole toolbar is hand-colored against a dark background
+        // regardless of the system appearance — forcing dark here keeps
+        // native chrome that leaks through anywhere (menus, tooltips)
+        // from clashing with it, and means the retrowave look doesn't
+        // depend on the player's own Light/Dark Mode setting.
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - Toolbar
 
-    /// Three rows: zoning/simulation controls (what you're actively doing)
-    /// on top, view options and the stats readout (what you're watching) in
-    /// the middle, budget levers (what you're paying for) on the bottom.
-    /// One long row of ~14 controls plus three stats stopped being scannable
-    /// once transit, overlays, and map size all landed in the same pass —
-    /// same reasoning applies now that the tax rate and five funding levels
-    /// need somewhere to live, rather than cramming them into a row that's
-    /// already dense.
+    /// Four rows: zoning tools, then simulation controls, then view
+    /// options and the stats readout (what you're watching), then budget
+    /// levers (what you're paying for) on the bottom. This used to be
+    /// three, zoning and simulation sharing one row — fine with compact
+    /// native button chrome, not once `RetroButtonStyle`'s bigger, bolder
+    /// buttons made 13 zone tools plus Play/Speed/Advance wider than a
+    /// lot of window widths could hold, silently pushing Play off the
+    /// visible edge. Same "split it when it stops fitting" reasoning
+    /// this file already applied once before, for the same underlying
+    /// reason: controls got visually heavier than the row they lived in.
     private var toolbar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             zoningRow
+            simulationRow
             viewAndStatsRow
             budgetRow
         }
-        .padding(8)
-        .background(.bar)
+        .padding(10)
+        .background(RetroUITheme.background)
+        .overlay(alignment: .bottom) {
+            // A thin glowing seam where the chrome ends and the map
+            // begins, echoing the neon outline every building on the map
+            // already has instead of a plain hairline divider.
+            LinearGradient(
+                colors: [RetroUITheme.primaryAccent.opacity(0.7), RetroUITheme.secondaryAccent.opacity(0.7)],
+                startPoint: .leading, endPoint: .trailing
+            )
+            .frame(height: 1.5)
+        }
     }
 
     private var zoningRow: some View {
@@ -89,27 +114,22 @@ struct GameView: View {
                 Button(toolLabel(for: zone)) {
                     controller.selectedTool = zone
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(controller.selectedTool == zone ? .accentColor : Color.gray.opacity(0.4))
+                .buttonStyle(RetroButtonStyle(accent: RetroUITheme.accent(for: zone), isSelected: controller.selectedTool == zone))
             }
+            Spacer()
+        }
+    }
 
-            Spacer(minLength: 12)
-
+    private var simulationRow: some View {
+        HStack {
             Button(controller.isRunning ? "Pause" : "Play") {
                 controller.isRunning.toggle()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(controller.isRunning ? .orange : .green)
+            .buttonStyle(RetroButtonStyle(accent: controller.isRunning ? .orange : .green, isSelected: true))
 
             // Takes effect on the very next tick check, whether paused or
             // running — no need to gate this behind `isRunning`.
-            Picker("Speed", selection: $controller.simulationSpeed) {
-                ForEach(SimulationSpeed.allCases) { speed in
-                    Text(speed.displayName).tag(speed)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 180)
+            RetroSegmentedPicker(options: SimulationSpeed.allCases, label: \.displayName, selection: $controller.simulationSpeed)
 
             // Manual single-step, independent of Play/Pause — useful for
             // watching one step at a time even while otherwise paused.
@@ -121,6 +141,9 @@ struct GameView: View {
             Button("Advance") {
                 scene?.runSimulationTick()
             }
+            .buttonStyle(RetroButtonStyle(accent: RetroUITheme.secondaryAccent))
+
+            Spacer()
         }
     }
 
@@ -133,13 +156,8 @@ struct GameView: View {
             // squeezed `statsReadout` at the far end into an unreadable,
             // character-wrapped column once the row ran out of width.
             VStack(alignment: .leading, spacing: 2) {
-                Picker("Overlay", selection: $controller.overlayMode) {
-                    ForEach(OverlayMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 320) // 4 segments now that Water joined Normal/Land Value/Traffic
+                RetroSegmentedPicker(options: OverlayMode.allCases, label: \.displayName, selection: $controller.overlayMode)
+                    .frame(width: 340, alignment: .leading) // 4 segments now that Water joined Normal/Land Value/Traffic
 
                 // Pipes are edited here, not on the zoning toolbar — see
                 // `Tile.hasPipe`'s doc comment for why. This is the only
@@ -148,20 +166,14 @@ struct GameView: View {
                 if controller.overlayMode == .water {
                     Text("Click to lay pipe \u{00B7} Right-click to remove")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(RetroUITheme.textSecondary)
                         .frame(width: 320, alignment: .leading)
                 }
             }
 
             HStack(spacing: 6) {
-                Text("New city size:").foregroundStyle(.secondary)
-                Picker("Map size", selection: $controller.selectedMapSize) {
-                    ForEach(MapSize.allCases) { size in
-                        Text(size.displayName).tag(size)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 150)
+                Text("New city size:").foregroundStyle(RetroUITheme.textSecondary)
+                RetroSegmentedPicker(options: MapSize.allCases, label: \.displayName, selection: $controller.selectedMapSize)
             }
             .font(.callout)
 
@@ -170,10 +182,11 @@ struct GameView: View {
             // Rebuilds the whole scene grid rather than `performFullMapChange`'s
             // `refreshAll()`, since a size change means the tile *count*
             // changed, not just tile contents (see `GameScene.rebuildEntireGrid()`).
-            Button("Reset", role: .destructive) {
+            Button("Reset") {
                 controller.resetMap()
                 scene?.rebuildEntireGrid()
             }
+            .buttonStyle(RetroButtonStyle(accent: .red))
 
             Spacer()
 
@@ -195,17 +208,15 @@ struct GameView: View {
     private var budgetRow: some View {
         HStack(spacing: 16) {
             HStack(spacing: 4) {
-                Text("Tax Rate").foregroundStyle(.secondary)
+                Text("Tax Rate").foregroundStyle(RetroUITheme.textSecondary)
                 // 0% is a real setting (a tax holiday), same reasoning as
                 // funding's floor below.
-                Stepper(value: $controller.taxRate, in: 0 ... 2.0, step: 0.25) {
-                    Text(percentLabel(controller.taxRate)).monospacedDigit()
-                }
+                RetroStepper(value: $controller.taxRate, range: 0 ... 2.0, step: 0.25)
             }
 
-            Divider().frame(height: 16)
+            Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 16)
 
-            Text("Funding:").foregroundStyle(.secondary)
+            Text("Funding:").foregroundStyle(RetroUITheme.textSecondary)
             ForEach(Self.fundableZones, id: \.self) { zone in
                 fundingControl(for: zone)
             }
@@ -215,39 +226,37 @@ struct GameView: View {
         .font(.callout)
     }
 
-    /// One `Stepper` per fundable service. Reads/writes through
-    /// `GameController.fundingLevel(for:)`/`setFundingLevel(_:for:)` rather
-    /// than binding to a `@Published` property directly — funding isn't
-    /// one flat property on the controller, it's per-zone state living on
-    /// `CityMap.serviceFunding` (see that type's own doc comment for why),
-    /// so this small hand-built `Binding` is the adapter between "SwiftUI
-    /// wants a single value to bind a control to" and "the real value is
-    /// keyed by which service this particular control is for."
+    /// One `RetroStepper` per fundable service, each tinted with that
+    /// service's own `RetroUITheme.accent(for:)` — a Police funding
+    /// stepper glows the same blue the Police Station and its tool
+    /// button do, rather than every stepper sharing one neutral color.
+    /// Reads/writes through `GameController.fundingLevel(for:)`/
+    /// `setFundingLevel(_:for:)` rather than binding to a `@Published`
+    /// property directly — funding isn't one flat property on the
+    /// controller, it's per-zone state living on `CityMap.serviceFunding`
+    /// (see that type's own doc comment for why), so this small
+    /// hand-built `Binding` is the adapter between "SwiftUI wants a
+    /// single value to bind a control to" and "the real value is keyed
+    /// by which service this particular control is for."
     private func fundingControl(for zone: ZoneType) -> some View {
         let binding = Binding<Double>(
             get: { controller.fundingLevel(for: zone) },
             set: { controller.setFundingLevel($0, for: zone) }
         )
         return HStack(spacing: 4) {
-            Text(RenderPalette.displayName(for: zone))
+            Text(RenderPalette.displayName(for: zone)).foregroundStyle(RetroUITheme.textPrimary)
             // 0% is a real, expected lever (genre convention: fully
             // defund a service you can't afford right now, rather than
             // bulldoze it and lose the building entirely) -- not just a
             // "reduced" floor at 50%.
-            Stepper(value: binding, in: 0 ... 2.0, step: 0.25) {
-                Text(percentLabel(binding.wrappedValue)).monospacedDigit()
-            }
+            RetroStepper(value: binding, range: 0 ... 2.0, step: 0.25, accent: RetroUITheme.accent(for: zone))
         }
-    }
-
-    private func percentLabel(_ level: Double) -> String {
-        "\(Int((level * 100).rounded()))%"
     }
 
     private var statsReadout: some View {
         HStack(spacing: 14) {
             statTile(label: "Population", value: "\(controller.population)", history: controller.history.map(\.population), color: .green)
-            statTile(label: "Jobs", value: "\(controller.jobs)", history: controller.history.map(\.jobs), color: .blue)
+            statTile(label: "Jobs", value: "\(controller.jobs)", history: controller.history.map(\.jobs), color: .cyan)
             statTile(label: "Treasury", value: "$\(controller.treasury) (\(netRevenueLabel)/tick)", history: controller.history.map(\.treasury), color: .yellow)
             demandTile
         }
@@ -260,7 +269,7 @@ struct GameView: View {
     /// not a history worth trending.
     private var demandTile: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Demand").font(.callout)
+            Text("Demand").font(.callout).foregroundStyle(RetroUITheme.textPrimary)
             HStack(spacing: 8) {
                 DemandBar(label: "R", value: controller.cityDemand.residential)
                 DemandBar(label: "C", value: controller.cityDemand.commercial)
@@ -280,7 +289,7 @@ struct GameView: View {
 
     private func statTile(label: String, value: String, history: [Int], color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(label): \(value)").font(.callout)
+            Text("\(label): \(value)").font(.callout).foregroundStyle(RetroUITheme.textPrimary)
             Sparkline(values: history, color: color)
                 .frame(width: 70, height: 16)
         }

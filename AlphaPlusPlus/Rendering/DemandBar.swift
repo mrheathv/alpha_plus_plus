@@ -28,7 +28,7 @@ struct DemandBar: View {
         HStack(spacing: 3) {
             Text(label)
                 .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(RetroUITheme.textSecondary)
             HStack(spacing: 1.5) {
                 ForEach(0 ..< Self.segmentCount, id: \.self) { index in
                     RoundedRectangle(cornerRadius: 1)
