@@ -274,4 +274,41 @@ struct TileRenderer {
     func clearPipeMarker(on node: SKSpriteNode) {
         node.childNode(withName: Self.pipeMarkerNodeName)?.removeFromParent()
     }
+
+    // MARK: - Power line marker (Power overlay only)
+
+    private static let powerLineMarkerNodeName = "powerLineMarker"
+
+    /// The exact same role `syncPipeMarker` plays for the Water overlay,
+    /// one section up, for the parallel Power overlay and
+    /// `Tile.hasPowerLine` — a small diamond rather than a square
+    /// specifically so the two utility markers stay visually distinct
+    /// from one another if either overlay ever needed to show both at
+    /// once, not just via color.
+    func syncPowerLineMarker(on node: SKSpriteNode, hasPowerLine: Bool) {
+        node.childNode(withName: Self.powerLineMarkerNodeName)?.removeFromParent()
+        guard hasPowerLine else { return }
+
+        let side = layout.spriteSize.width * 0.22
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: side))
+        path.addLine(to: CGPoint(x: side, y: 0))
+        path.addLine(to: CGPoint(x: 0, y: -side))
+        path.addLine(to: CGPoint(x: -side, y: 0))
+        path.closeSubpath()
+
+        let marker = SKShapeNode(path: path)
+        marker.name = Self.powerLineMarkerNodeName
+        marker.fillColor = RenderPalette.powerLineMarkerColor
+        marker.strokeColor = .clear
+        marker.zPosition = 3
+        node.addChild(marker)
+    }
+
+    /// Removes a tile's power line marker — used alongside `clearPips`/
+    /// `clearIcon`/`clearNetworkGlow`/`clearPipeMarker` for every overlay
+    /// except Power.
+    func clearPowerLineMarker(on node: SKSpriteNode) {
+        node.childNode(withName: Self.powerLineMarkerNodeName)?.removeFromParent()
+    }
 }

@@ -657,6 +657,113 @@ final class GameControllerTests: XCTestCase {
         XCTAssertEqual(controller.upkeepCost, ZoneType.waterTower.upkeepCost)
     }
 
+    // MARK: - Power line (an underground-style layer, not a ZoneType — see `Tile.hasPowerLine`)
+
+    func testLayingAPowerLineChargesItsOwnCostOnce() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        let startingTreasury = controller.treasury
+
+        let outcome = controller.layPowerLine(at: position)
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertTrue(controller.map[position].hasPowerLine)
+        XCTAssertEqual(controller.treasury, startingTreasury - GameController.powerLinePlacementCost)
+    }
+
+    /// `GameScene` calls `layPowerLine` on every tile a drag stroke crosses —
+    /// re-crossing already-lined ground shouldn't charge a second time.
+    func testLayingAPowerLineOnATileThatAlreadyHasOneIsFreeAndUnchanged() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.layPowerLine(at: position)
+        let treasuryAfterFirstLine = controller.treasury
+
+        let outcome = controller.layPowerLine(at: position)
+
+        XCTAssertEqual(outcome, .unchanged)
+        XCTAssertEqual(controller.treasury, treasuryAfterFirstLine)
+    }
+
+    func testRemovingAPowerLineIsFreeAndClearsIt() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.layPowerLine(at: position)
+        let treasuryAfterPlacing = controller.treasury
+
+        controller.removePowerLine(at: position)
+
+        XCTAssertFalse(controller.map[position].hasPowerLine)
+        XCTAssertEqual(controller.treasury, treasuryAfterPlacing)
+    }
+
+    /// The regression test pipes already have, mirrored for power lines:
+    /// placing a normal zone on top of a lined tile must never silently
+    /// erase the line underneath it (`CityMap.placeBuilding` carries
+    /// `hasPowerLine` forward instead of defaulting it away).
+    func testPlacingAZoneOverAPowerLinedTilePreservesTheLine() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.layPowerLine(at: position)
+        controller.selectedTool = .road
+
+        controller.place(at: position)
+
+        XCTAssertEqual(controller.map[position].zone, .road)
+        XCTAssertTrue(controller.map[position].hasPowerLine)
+    }
+
+    /// Same regression, the bulldoze path (`GameController.clearBuilding`
+    /// carries `hasPowerLine` forward the same way).
+    func testBulldozingAPowerLinedTilePreservesTheLine() {
+        let controller = GameController()
+        let position = GridPosition(x: 0, y: 0)
+        controller.selectedTool = .road
+        controller.place(at: position)
+        controller.layPowerLine(at: position)
+
+        controller.bulldoze(at: position)
+
+        XCTAssertEqual(controller.map[position].zone, .empty)
+        XCTAssertTrue(controller.map[position].hasPowerLine)
+    }
+
+    /// `.powerPlant` *is* a service (like Police/Fire) — placing one should
+    /// show up in upkeep, funded at the default 100% until told otherwise.
+    func testPowerPlantContributesItsUpkeepCostAtDefaultFunding() {
+        let controller = GameController()
+        controller.selectedTool = .powerPlant
+        controller.place(at: GridPosition(x: 0, y: 0))
+
+        XCTAssertEqual(controller.upkeepCost, ZoneType.powerPlant.upkeepCost)
+    }
+
+    /// A freshly created controller hasn't run a tick yet, so there's no
+    /// outage roll to have happened — this pins the quiet default rather
+    /// than leaving it unspecified.
+    func testNoPowerOutageBeforeAnyTickHasRun() {
+        let controller = GameController()
+        XCTAssertFalse(controller.isPowerOutageActive)
+    }
+
+    /// Zero-funding a power plant should read the same way zero-funding a
+    /// water tower does: guaranteed no supply, `PowerGrid`'s own zero-funding
+    /// behavior. This exercises it through the full `advanceSimulation` path
+    /// rather than calling `PowerGrid` directly, since that's the path that
+    /// actually updates `controller.map.powerSupply` in play.
+    func testZeroFundedPowerPlantSuppliesNothingAfterATick() {
+        let controller = GameController()
+        controller.selectedTool = .powerPlant
+        controller.place(at: GridPosition(x: 0, y: 0)) // covers (0,0)-(2,2)
+        controller.setFundingLevel(0, for: .powerPlant)
+        let linePosition = GridPosition(x: 3, y: 0) // touches the plant's own footprint cell (2,0)
+        controller.layPowerLine(at: linePosition)
+
+        controller.advanceSimulation()
+
+        XCTAssertFalse(controller.map.powerSupply.isSupplied(at: linePosition))
+    }
+
     // MARK: - RCI demand meter
 
     /// `cityDemand` is a passthrough to `map.cityDemand` — this pins that

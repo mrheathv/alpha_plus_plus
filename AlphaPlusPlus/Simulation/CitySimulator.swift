@@ -29,12 +29,13 @@ enum CitySimulator {
     /// at any of its cells' edges) grows by one density level, *if* every
     /// gate clears: the best land value across its cells meets
     /// `requiredLandValue(toReach:)`'s bar for that level, a real water
-    /// supply if the level needs one, and finally a demand roll weighted
-    /// by `map.cityDemand` (see `growthChance(for:)`) — a building with
-    /// only bare-minimum access can stall a level or two short of full
-    /// density until land value improves, and even a building that
-    /// clears every other gate can still wait a tick or several if the
-    /// city doesn't currently want more of its type. A building that's
+    /// supply and a real power supply if the level needs either, and
+    /// finally a demand roll weighted by `map.cityDemand` (see
+    /// `growthChance(for:)`) — a building with only bare-minimum access
+    /// can stall a level or two short of full density until land value
+    /// improves, and even a building that clears every other gate can
+    /// still wait a tick or several if the city doesn't currently want
+    /// more of its type. A building that's
     /// *lost* access decays by one level instead, down to 0. It never
     /// does both in the same step — access means grow-or-hold, no access
     /// means decay-or-hold — so `.empty`/`.road`/service tiles (incapable of
@@ -62,6 +63,9 @@ enum CitySimulator {
                 guard bestLandValue >= requiredLandValue(toReach: nextLevel) else { continue }
                 if nextLevel >= Self.waterRequiredFromLevel {
                     guard footprint.contains(where: { Water.hasSupply(at: $0, in: map) }) else { continue }
+                }
+                if nextLevel >= Self.powerRequiredFromLevel {
+                    guard footprint.contains(where: { PowerGrid.hasSupply(at: $0, in: map) }) else { continue }
                 }
                 let chance = growthChance(for: map.cityDemand.value(for: tile.zone))
                 guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
@@ -123,6 +127,23 @@ enum CitySimulator {
     /// is until the supply comes back. A first guess like every other
     /// number in this file.
     private static let waterRequiredFromLevel = 3
+
+    /// The power-grid counterpart to `waterRequiredFromLevel` — from this
+    /// level on, a zone *additionally* needs a real, connected power
+    /// supply (`PowerGrid.hasSupply(at:in:)`). Deliberately set higher
+    /// than water's own threshold (3) rather than the same one:
+    /// thematically power arguably belongs earlier than water (real
+    /// infrastructure needs electricity before it needs plumbing), but
+    /// matching water's exact threshold would mean *every* existing test
+    /// (and every existing save-worthy city) that already builds a water
+    /// network for its top density tiers would *also* need a power plant
+    /// wired in for the same transition, doubling the setup burden for a
+    /// mechanic that's brand new today. A first guess, explicitly chosen
+    /// for "add the mechanic without churning everything that already
+    /// depends on water's own threshold" over strict realism — exactly
+    /// the kind of tradeoff this whole file's numbers already document
+    /// making elsewhere.
+    private static let powerRequiredFromLevel = 4
 
     /// `growthChance(for:)`'s floor, at demand -1 (the city is drowning
     /// in this type already). Deliberately not 0: a hard freeze reads as

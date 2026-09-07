@@ -62,11 +62,26 @@ struct Tile: Equatable, Codable, Sendable {
     /// the surface above it.
     var hasPipe: Bool
 
-    init(position: GridPosition, zone: ZoneType = .empty, density: Int = 0, buildingOrigin: GridPosition? = nil, hasPipe: Bool = false) {
+    /// Does this tile carry a power line? The exact same shape as
+    /// `hasPipe`, one paragraph up — an independent underground/overhead
+    /// layer a player edits while looking at the Power overlay
+    /// (`GameController.layPowerLine(at:)`/`removePowerLine(at:)`), not
+    /// through the zoning toolbar. Kept as its own field rather than
+    /// folded into `hasPipe` (one shared "has infrastructure" bit) since
+    /// a real city plans water and power separately — a tile can have
+    /// either, both, or neither — and `PowerGrid`/`Water` each need to
+    /// flood-fill their *own* network, not a combined one where a pipe
+    /// run would wrongly imply a power connection alongside it. Same
+    /// "must be carried forward, never defaulted away" contract on
+    /// re-zoning or bulldozing.
+    var hasPowerLine: Bool
+
+    init(position: GridPosition, zone: ZoneType = .empty, density: Int = 0, buildingOrigin: GridPosition? = nil, hasPipe: Bool = false, hasPowerLine: Bool = false) {
         self.position = position
         self.zone = zone
         self.density = density
         self.buildingOrigin = buildingOrigin ?? position
         self.hasPipe = hasPipe
+        self.hasPowerLine = hasPowerLine
     }
 }

@@ -222,13 +222,14 @@ final class GameController: ObservableObject {
     /// itself, so callers (`bulldoze(at:)`, and `place(at:)`'s auto-replace)
     /// never have to special-case "one tile" versus "one building."
     ///
-    /// Carries each cell's existing `hasPipe` forward — bulldozing a road
-    /// or a building must never silently erase a pipe laid underneath it,
-    /// since a pipe is an independent underground layer (see `Tile.hasPipe`).
+    /// Carries each cell's existing `hasPipe`/`hasPowerLine` forward —
+    /// bulldozing a road or a building must never silently erase either
+    /// one laid underneath it, since both are independent underground/
+    /// overhead layers (see `Tile.hasPipe`'s own doc comment).
     private func clearBuilding(at origin: GridPosition) {
         let size = map[origin].zone.footprintSize
         for cell in map.footprintCells(origin: origin, size: size) {
-            map[cell] = Tile(position: cell, hasPipe: map[cell].hasPipe)
+            map[cell] = Tile(position: cell, hasPipe: map[cell].hasPipe, hasPowerLine: map[cell].hasPowerLine)
         }
     }
 
@@ -265,6 +266,33 @@ final class GameController: ObservableObject {
         map[position].hasPipe = false
     }
 
+    // MARK: - Power lines (an overhead layer, edited via the Power overlay)
+
+    /// Same shape as `pipePlacementCost` — power lines aren't a `ZoneType`
+    /// either (see `Tile.hasPowerLine`'s doc comment), so this doesn't
+    /// live on `ZoneType.placementCost`. Priced the same as a pipe: both
+    /// are a single tile's worth of buried/strung utility line, not a
+    /// building.
+    static let powerLinePlacementCost = 40
+
+    /// Lay a power line at `position` — the exact same contract
+    /// `layPipe(at:)` has, one paragraph up, for the parallel layer.
+    @discardableResult
+    func layPowerLine(at position: GridPosition) -> PlacementOutcome {
+        guard map.contains(position) else { return .unchanged }
+        guard !map[position].hasPowerLine else { return .unchanged }
+        guard treasury >= Self.powerLinePlacementCost else { return .insufficientFunds }
+        treasury -= Self.powerLinePlacementCost
+        map[position].hasPowerLine = true
+        return .placed
+    }
+
+    /// Remove a power line at `position`, for free — matching `removePipe(at:)`.
+    func removePowerLine(at position: GridPosition) {
+        guard map.contains(position) else { return }
+        map[position].hasPowerLine = false
+    }
+
     /// Wipe the city and restore the starting budget, at `selectedMapSize`
     /// rather than whatever size the previous city happened to be —
     /// changing the size picker only takes effect on the *next* reset.
@@ -287,6 +315,7 @@ final class GameController: ObservableObject {
         isRunning = false
         history.removeAll()
         lastHazardStrikes = []
+        isPowerOutageActive = false
     }
 
     /// Every tile a hazard struck on the most recent `advanceSimulation()`
@@ -295,6 +324,42 @@ final class GameController: ObservableObject {
     /// "controller reports what happened, scene decides how to show it"
     /// split `PlacementOutcome` uses for the insufficient-funds flash.
     @Published private(set) var lastHazardStrikes: [CityHazards.Strike] = []
+
+    /// Whether the power grid is blacked out *this* tick, as of the most
+    /// recent `advanceSimulation()` call — see `computePowerSupply()`'s
+    /// own doc comment for how it's rolled. `GameView` reads this to show
+    /// a plain warning rather than making the player infer an outage
+    /// from growth quietly stalling with no visible cause.
+    @Published private(set) var isPowerOutageActive = false
+
+    /// The chance of a city-wide power outage this tick when the Power
+    /// Plant is completely unfunded, scaling down to 0 at full (100%)
+    /// funding or above — "fundable outages," per this feature's own
+    /// roadmap note, the same "funding buys real reliability" shape
+    /// `LandValue.falloffValue` already gives every other service's
+    /// funding lever (weaker coverage/land value when underfunded). A
+    /// first guess, same "needs playtesting" status as every other
+    /// constant in this project starts at. Deliberately a single
+    /// city-wide roll, not one per Power Plant — the simplest version of
+    /// this that's still a real, felt consequence; per-plant redundancy
+    /// (a second plant halving your exposure) is a genuine refinement to
+    /// make later, not a correctness fix now.
+    private static let basePowerOutageChance = 0.15
+
+    /// Rolls whether the grid blacks out this tick, then computes the
+    /// result the same way `Water.computeSupply(for:)` already does for
+    /// the parallel network — `PowerGrid` itself stays exactly as
+    /// deterministic as `Water` is; the one random decision lives here,
+    /// drawing from the same shared `rng` `CityHazards` and
+    /// `CitySimulator`'s demand roll already use, not a second
+    /// independent source of randomness.
+    private func computePowerSupply() -> PowerSupply {
+        let fundingLevel = map.serviceFunding.level(for: .powerPlant)
+        let outageChance = Self.basePowerOutageChance * max(0, 1 - fundingLevel)
+        let outageActive = Double.random(in: 0 ..< 1, using: &rng) < outageChance
+        isPowerOutageActive = outageActive
+        return PowerGrid.computeSupply(for: map, outageActive: outageActive)
+    }
 
     /// Advance the city by one simulation step: hazards first (see
     /// `CityHazards`), then growth (see `CitySimulator`), then tax revenue
@@ -319,6 +384,7 @@ final class GameController: ObservableObject {
         // another field on the struct they copy.
         map.trafficLoad = Traffic.computeLoad(for: map)
         map.waterSupply = Water.computeSupply(for: map)
+        map.powerSupply = computePowerSupply()
         map.cityDemand = Demand.compute(for: map)
         let (hazarded, strikes) = CityHazards.apply(to: map, using: &rng)
         lastHazardStrikes = strikes

@@ -154,15 +154,41 @@ final class CitySimulatorTests: XCTestCase {
     /// The same building, but also within reach of a Police Station: land
     /// value climbs to ~0.917, clearing the 0.8 threshold for the final level.
     func testTileReachesMaxDensityWhenAlsoNearAService() {
-        var map = CityMap(width: 6, height: 6)
+        // Widened from the original 6x6: `LandValue` also penalizes land
+        // near a power plant (`powerPlantPenaltyDistance`), so the plant
+        // this test now needs to clear the power gate has to sit farther
+        // than that penalty's own falloff distance from the residential
+        // footprint — an ordinary 2×2-tower-sized gap isn't enough room.
+        var map = CityMap(width: 14, height: 11)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 0, y: 0)].density = 4
         map[GridPosition(x: 2, y: 0)].zone = .road // touches (1,0)
         map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 0, y: 2)) // covers (0,2)-(1,3), distance 1 from (0,1)
-        // Density 4 -> 5 crosses the water-required threshold too.
+        // Density 4 -> 5 crosses both the water- and power-required thresholds.
         map[GridPosition(x: 2, y: 1)].hasPipe = true
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
         map.waterSupply = Water.computeSupply(for: map)
+        // A power-line run well clear of the water tower's footprint,
+        // out to a plant placed far enough away (Manhattan distance 15
+        // from (1,1), past the penalty's falloff distance of 8) that it
+        // doesn't drag this same tile's land value back down.
+        map[GridPosition(x: 2, y: 1)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 2)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 3)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 4)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 3, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 4, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 5, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 6, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 7, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 8, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 7)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 8)].hasPowerLine = true
+        map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 10, y: 7)) // covers (10,7)-(12,9), touches (9,8)
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
 
         var rng = AlwaysZeroRNG()
         let next = CitySimulator.advance(map, using: &rng)
@@ -184,7 +210,12 @@ final class CitySimulatorTests: XCTestCase {
     /// produces. This pins the fix: a station one ordinary road-width away
     /// must clear the level-5 threshold on its own.
     func testTileReachesMaxDensityWithAServiceAcrossAnOrdinaryRoad() {
-        var map = CityMap(width: 6, height: 6)
+        // Widened from the original 6x6: as with the test above, the power
+        // plant needed to clear the new power gate has to sit past
+        // `LandValue.powerPlantPenaltyDistance` (8) from the residential
+        // footprint, or its own proximity penalty cancels out the land-value
+        // boost this test is specifically checking for.
+        var map = CityMap(width: 14, height: 11)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 0, y: 0)].density = 4
         map[GridPosition(x: 2, y: 0)].zone = .road // the residential's own road frontage, touches (1,0)
@@ -198,6 +229,27 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 2, y: 3)].hasPipe = true
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 3)) // covers (3,3)-(4,4), touches (2,3)
         map.waterSupply = Water.computeSupply(for: map)
+        // A power-line run that dog-legs around the water tower's footprint
+        // (down past it at x=2, then across at row 6) out to a plant placed
+        // far enough away (Manhattan distance 15 from (1,1)) to clear the
+        // penalty distance above.
+        map[GridPosition(x: 2, y: 1)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 2)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 3)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 4)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 3, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 4, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 5, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 6, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 7, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 8, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 7)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 8)].hasPowerLine = true
+        map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 10, y: 7)) // covers (10,7)-(12,9), touches (9,8)
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
 
         var rng = AlwaysZeroRNG()
         let next = CitySimulator.advance(map, using: &rng)

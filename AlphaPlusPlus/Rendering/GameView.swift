@@ -157,17 +157,30 @@ struct GameView: View {
             // character-wrapped column once the row ran out of width.
             VStack(alignment: .leading, spacing: 2) {
                 RetroSegmentedPicker(options: OverlayMode.allCases, label: \.displayName, selection: $controller.overlayMode)
-                    .frame(width: 340, alignment: .leading) // 4 segments now that Water joined Normal/Land Value/Traffic
+                    .frame(width: 410, alignment: .leading) // 5 segments now that Power joined Normal/Land Value/Traffic/Water
 
-                // Pipes are edited here, not on the zoning toolbar — see
-                // `Tile.hasPipe`'s doc comment for why. This is the only
-                // hint a player gets that clicking now lays pipe instead
-                // of whatever zone tool happens to be selected.
+                // Pipes and power lines are edited here, not on the zoning
+                // toolbar — see `Tile.hasPipe`'s doc comment for why. This
+                // is the only hint a player gets that clicking now lays
+                // pipe/power line instead of whatever zone tool happens to
+                // be selected.
                 if controller.overlayMode == .water {
                     Text("Click to lay pipe \u{00B7} Right-click to remove")
                         .font(.caption)
                         .foregroundStyle(RetroUITheme.textSecondary)
                         .frame(width: 320, alignment: .leading)
+                } else if controller.overlayMode == .power {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Click to lay power line \u{00B7} Right-click to remove")
+                            .font(.caption)
+                            .foregroundStyle(RetroUITheme.textSecondary)
+                        if controller.isPowerOutageActive {
+                            Text("⚠ Outage in progress — grid unpowered this tick")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .frame(width: 320, alignment: .leading)
                 }
             }
 

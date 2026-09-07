@@ -246,6 +246,29 @@ enum RenderPalette {
     /// tile color used to be, before pipes moved off the surface grid.
     static let pipeMarkerColor = SKColor(srgbRed: 0.15, green: 0.40, blue: 0.55, alpha: 1.0)
 
+    /// Color for the "Show Power" overlay — the exact same "plain
+    /// two-color read" shape `waterColor(for:)` documents one paragraph
+    /// up, for the parallel network: `PowerGrid.hasSupply(at:in:)` is
+    /// just as binary as `Water.hasSupply(at:in:)`. Reuses `powerPlant`'s
+    /// own icy blue-white for "supplied," against the same dim
+    /// desaturated tone `waterUnsupplied` uses for "not supplied" —
+    /// deliberately the same unsupplied color both overlays share, since
+    /// "nothing here" should read identically regardless of which
+    /// utility you're looking for.
+    private static let powerSupplied = SKColor(srgbRed: 0.70, green: 0.88, blue: 1.0, alpha: 1.0)
+
+    static func powerColor(for hasSupply: Bool) -> SKColor {
+        hasSupply ? powerSupplied : waterUnsupplied
+    }
+
+    /// Marker drawn on top of the Power overlay wherever `Tile.hasPowerLine`
+    /// is true — the exact same role `pipeMarkerColor` plays for pipes,
+    /// one level up, just tinted toward `powerPlant`'s own icy blue-white
+    /// rather than `waterTower`'s ocean-blue, so the two utility markers
+    /// stay visually distinct from one another even though both share
+    /// the same muted, desaturated "just a line, not a building" treatment.
+    static let powerLineMarkerColor = SKColor(srgbRed: 0.45, green: 0.55, blue: 0.60, alpha: 1.0)
+
     /// Body and outline for the small ambient "cars" `GameScene` animates
     /// driving along road tiles (see `Traffic.carCount(forCongestion:)`).
     /// Pale, headlight-like body so they stand out against road's own gray.

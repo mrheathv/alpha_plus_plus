@@ -11,6 +11,7 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     case landValue
     case traffic
     case water
+    case power
 
     var id: String { rawValue }
 
@@ -20,6 +21,7 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
         case .landValue: return "Land Value"
         case .traffic: return "Traffic"
         case .water: return "Water"
+        case .power: return "Power"
         }
     }
 }

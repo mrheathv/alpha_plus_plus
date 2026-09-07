@@ -61,6 +61,17 @@ struct CityMap: Equatable, Codable, Sendable {
     /// `ServiceFunding`'s 1.0 defaults have.
     var cityDemand = CityDemand()
 
+    /// Which `.hasPowerLine` tiles are actually connected to a funded,
+    /// non-outaged Power Plant, as of the last time `PowerGrid.computeSupply(for:)`
+    /// ran and someone assigned the result here (`GameController.advanceSimulation()`
+    /// does this once per simulation tick, alongside `waterSupply`). Same
+    /// "cache a network search, don't redo it per tile" shape `waterSupply`
+    /// already documents for itself — `PowerGrid` is `Water`'s own shape,
+    /// copied for a second network. Defaults to empty, so a fresh
+    /// `CityMap` (or one built directly in a test, never advanced) reports
+    /// no power anywhere, same as an untouched map has no water supply.
+    var powerSupply = PowerSupply()
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width
@@ -133,13 +144,14 @@ struct CityMap: Equatable, Codable, Sendable {
     /// silent no-op, same "let the caller check first" contract the
     /// subscript above documents).
     ///
-    /// Carries each cell's existing `hasPipe` forward rather than
-    /// defaulting it away — a pipe is an underground layer independent of
-    /// the surface zone (see `Tile.hasPipe`'s own doc comment), so
-    /// re-zoning a tile must never silently erase a pipe laid underneath it.
+    /// Carries each cell's existing `hasPipe`/`hasPowerLine` forward
+    /// rather than defaulting them away — both are underground/overhead
+    /// layers independent of the surface zone (see `Tile.hasPipe`'s own
+    /// doc comment), so re-zoning a tile must never silently erase either
+    /// one laid underneath it.
     mutating func placeBuilding(zone: ZoneType, origin: GridPosition) {
         for cell in footprintCells(origin: origin, size: zone.footprintSize) {
-            self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin, hasPipe: self[cell].hasPipe)
+            self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin, hasPipe: self[cell].hasPipe, hasPowerLine: self[cell].hasPowerLine)
         }
     }
 

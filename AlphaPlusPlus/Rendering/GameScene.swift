@@ -296,7 +296,8 @@ final class GameScene: SKScene {
         // The Water overlay doubles as the pipe-editing layer — whatever
         // zone tool happens to be selected on the toolbar is irrelevant
         // while looking at it. See `Tile.hasPipe`'s doc comment for why
-        // pipes live here instead of as another toolbar button.
+        // pipes live here instead of as another toolbar button. The Power
+        // overlay is the exact same idea for `Tile.hasPowerLine`.
         if controller.overlayMode == .water {
             for step in stroke(from: lastPaintPosition, to: position) {
                 let outcome = controller.layPipe(at: step)
@@ -304,6 +305,18 @@ final class GameScene: SKScene {
                 if outcome == .insufficientFunds {
                     flashInsufficientFunds(at: step)
                     break // same tile-price-doesn't-change-mid-stroke reasoning as below
+                }
+            }
+            lastPaintPosition = position
+            return
+        }
+        if controller.overlayMode == .power {
+            for step in stroke(from: lastPaintPosition, to: position) {
+                let outcome = controller.layPowerLine(at: step)
+                refresh(step)
+                if outcome == .insufficientFunds {
+                    flashInsufficientFunds(at: step)
+                    break
                 }
             }
             lastPaintPosition = position
@@ -345,6 +358,14 @@ final class GameScene: SKScene {
         if controller.overlayMode == .water {
             for step in stroke(from: lastBulldozePosition, to: position) {
                 controller.removePipe(at: step)
+                refresh(step)
+            }
+            lastBulldozePosition = position
+            return
+        }
+        if controller.overlayMode == .power {
+            for step in stroke(from: lastBulldozePosition, to: position) {
+                controller.removePowerLine(at: step)
                 refresh(step)
             }
             lastBulldozePosition = position
@@ -422,10 +443,11 @@ final class GameScene: SKScene {
             return
         }
 
-        // Laying a pipe never conflicts with anything already on the
-        // surface — there's no "blocked" state to warn about the way a
-        // surface building has, so this is always a plain 1×1 "clear" tile.
-        if controller.overlayMode == .water {
+        // Laying a pipe (or a power line) never conflicts with anything
+        // already on the surface — there's no "blocked" state to warn
+        // about the way a surface building has, so this is always a
+        // plain 1×1 "clear" tile.
+        if controller.overlayMode == .water || controller.overlayMode == .power {
             placementPreviewNode.fillColor = RenderPalette.placementPreviewClearFill
             placementPreviewNode.strokeColor = RenderPalette.placementPreviewClearStroke
             let size = layout.spriteSize(forFootprint: 1)
@@ -549,6 +571,7 @@ final class GameScene: SKScene {
         case .none:
             tileRenderer.update(node, for: map[position])
             tileRenderer.clearPipeMarker(on: node)
+            tileRenderer.clearPowerLineMarker(on: node)
             syncLaneLine(at: position)
         case .landValue:
             node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
@@ -556,6 +579,7 @@ final class GameScene: SKScene {
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
+            tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearLaneLine(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
@@ -563,12 +587,14 @@ final class GameScene: SKScene {
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
+            tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearLaneLine(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
+            tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearLaneLine(on: node)
             // Reads `hasPipe` directly rather than the cached
             // `map.waterSupply`, so a pipe you just laid shows up right
@@ -576,6 +602,16 @@ final class GameScene: SKScene {
             // the next simulation tick recomputes it, same as it already
             // does for a newly-placed Water Tower.
             tileRenderer.syncPipeMarker(on: node, hasPipe: map[position].hasPipe)
+        case .power:
+            node.color = RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
+            tileRenderer.clearPips(on: node)
+            tileRenderer.clearIcon(on: node)
+            tileRenderer.clearNetworkGlow(on: node)
+            tileRenderer.clearPipeMarker(on: node)
+            tileRenderer.clearLaneLine(on: node)
+            // Same "read the layer directly, not the cached supply" reasoning
+            // `syncPipeMarker` documents just above, for the parallel layer.
+            tileRenderer.syncPowerLineMarker(on: node, hasPowerLine: map[position].hasPowerLine)
         }
         syncTrafficAnimation(at: position)
     }
@@ -704,6 +740,8 @@ final class GameScene: SKScene {
             return RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
         case .water:
             return RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
+        case .power:
+            return RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
         }
     }
 }
