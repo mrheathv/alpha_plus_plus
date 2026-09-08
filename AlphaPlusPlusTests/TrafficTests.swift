@@ -223,6 +223,76 @@ final class TrafficTests: XCTestCase {
         XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 5, y: 0)), 10)
     }
 
+    // MARK: - Distance-weighted job lottery
+
+    /// The scenario this whole rewrite exists to prove: with two reachable
+    /// jobs, *both* well under capacity, homes don't all pile onto the
+    /// nearer one just because it's nearer — some real fraction of the
+    /// total commute weight lands on the farther job too. Ten homes (one
+    /// tile skipped at `x=10` so a residential building placed there
+    /// wouldn't overlap the near job's own footprint), a small job at
+    /// `x=10-11` and a much farther one at `x=26-27`, both comfortably
+    /// under their capacity (50 each vs. 9 total commute weight) so
+    /// capacity never forces the split — whatever split happens here is
+    /// purely the lottery's doing.
+    func testHomesSpreadAcrossTwoReachableJobsNotAllOnTheNearest() {
+        var map = CityMap(width: 30, height: 3)
+        for x in 0 ..< 30 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 10, y: 1)) // the near job
+        map[GridPosition(x: 10, y: 1)].density = 5
+        map[GridPosition(x: 11, y: 1)].density = 5
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 26, y: 1)) // the far job
+        map[GridPosition(x: 26, y: 1)].density = 5
+        map[GridPosition(x: 27, y: 1)].density = 5
+        for x in [0, 2, 4, 6, 8, 12, 14, 16, 18] {
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: 1))
+            map[GridPosition(x: x, y: 1)].density = 1
+            map[GridPosition(x: x + 1, y: 1)].density = 1
+        }
+
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        // (9,0) sits west of *both* jobs, so every one of the five
+        // westernmost homes' commutes crosses it regardless of which job
+        // they end up choosing — a sanity check that nothing vanished.
+        XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 9, y: 0)), 5)
+        // (25,0) sits just before the *far* job's own frontage — only a
+        // commute that actually chose the far job reaches it at all. A
+        // nonzero load here is the whole point: real commute weight chose
+        // the farther job over the nearer one with room to spare.
+        XCTAssertGreaterThan(map.trafficLoad.load(at: GridPosition(x: 25, y: 0)), 0)
+    }
+
+    /// The lottery draws from a position-seeded pseudo-random value, not
+    /// `GameController`'s shared RNG (see `chooseJob(from:homeSeed:)`'s own
+    /// doc comment for why) — recomputing load for the exact same,
+    /// unchanged map has to reproduce the exact same routing every time,
+    /// or the ambient traffic-car animation would flicker between
+    /// destinations for no in-game reason.
+    func testJobChoiceIsStableAcrossRepeatedCallsOnAnUnchangedMap() {
+        var map = CityMap(width: 30, height: 3)
+        for x in 0 ..< 30 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 10, y: 1))
+        map[GridPosition(x: 10, y: 1)].density = 5
+        map[GridPosition(x: 11, y: 1)].density = 5
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 26, y: 1))
+        map[GridPosition(x: 26, y: 1)].density = 5
+        map[GridPosition(x: 27, y: 1)].density = 5
+        for x in [0, 2, 4, 6, 8, 12, 14, 16, 18] {
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: 1))
+            map[GridPosition(x: x, y: 1)].density = 1
+            map[GridPosition(x: x + 1, y: 1)].density = 1
+        }
+
+        let first = Traffic.computeLoad(for: map)
+        let second = Traffic.computeLoad(for: map)
+
+        for x in 0 ..< 30 {
+            let position = GridPosition(x: x, y: 0)
+            XCTAssertEqual(first.load(at: position), second.load(at: position), "load at x=\(x) differed between two calls on the same map")
+        }
+    }
+
     // MARK: - Highway capacity
 
     /// A `.highway`'s whole reason to exist: the exact same routed load
