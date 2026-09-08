@@ -77,22 +77,26 @@ struct GameView: View {
 
     // MARK: - Toolbar
 
-    /// Four rows: zoning tools, then simulation controls, then view
+    /// Five rows: zoning tools, then simulation controls, then view
     /// options and the stats readout (what you're watching), then budget
-    /// levers (what you're paying for) on the bottom. This used to be
-    /// three, zoning and simulation sharing one row — fine with compact
-    /// native button chrome, not once `RetroButtonStyle`'s bigger, bolder
-    /// buttons made 13 zone tools plus Play/Speed/Advance wider than a
-    /// lot of window widths could hold, silently pushing Play off the
-    /// visible edge. Same "split it when it stops fitting" reasoning
-    /// this file already applied once before, for the same underlying
-    /// reason: controls got visually heavier than the row they lived in.
+    /// levers (what you're paying for), then ordinances (city-wide
+    /// policies you're paying for) on the bottom. This used to be three,
+    /// zoning and simulation sharing one row — fine with compact native
+    /// button chrome, not once `RetroButtonStyle`'s bigger, bolder buttons
+    /// made 13 zone tools plus Play/Speed/Advance wider than a lot of
+    /// window widths could hold, silently pushing Play off the visible
+    /// edge. Same "split it when it stops fitting" reasoning this file
+    /// keeps applying: ordinances could have joined `budgetRow` (they're
+    /// another budget lever), but that row is already tax rate plus seven
+    /// funding steppers plus the bonds control — adding three more toggles
+    /// there risks the exact overflow this reasoning already fixed once.
     private var toolbar: some View {
         VStack(spacing: 10) {
             zoningRow
             simulationRow
             viewAndStatsRow
             budgetRow
+            ordinancesRow
         }
         .padding(10)
         .background(RetroUITheme.background)
@@ -267,6 +271,42 @@ struct GameView: View {
             }
             .buttonStyle(RetroButtonStyle(accent: .yellow, isSelected: false))
         }
+    }
+
+    /// City-wide policy toggles — see `Ordinances`' own doc comment for
+    /// what each one actually does. A plain toggle button per ordinance,
+    /// not a stepper: unlike tax rate or per-service funding, an ordinance
+    /// is binary in every reference game that has one, so there's no
+    /// in-between strength to dial. `isSelected` doubles as "currently
+    /// active," the same way `zoningRow`'s buttons highlight whichever
+    /// tool is selected right now.
+    private var ordinancesRow: some View {
+        HStack(spacing: 12) {
+            Text("Ordinances:").foregroundStyle(RetroUITheme.textSecondary)
+            ordinanceToggle(\.neighborhoodWatch, label: "Neighborhood Watch", accent: RetroUITheme.accent(for: .policeStation))
+            ordinanceToggle(\.fireInspections, label: "Fire Inspections", accent: RetroUITheme.accent(for: .fireStation))
+            ordinanceToggle(\.businessTaxBreak, label: "Business Tax Break", accent: RetroUITheme.accent(for: .commercial))
+            Text("(-$\(Ordinances.costPerOrdinance)/tick each, while active)")
+                .font(.caption)
+                .foregroundStyle(RetroUITheme.textSecondary)
+            Spacer()
+        }
+    }
+
+    /// One ordinance's toggle button, tinted with the same accent the
+    /// zone/service it affects already uses elsewhere (police blue for
+    /// Neighborhood Watch, fire red for Fire Inspections, commercial blue
+    /// for the tax break) — same "the control glows the color of the
+    /// thing it controls" idea `fundingControl(for:)` already uses.
+    /// `WritableKeyPath` rather than a named setter per ordinance, the
+    /// same reasoning `GameController.setOrdinance(_:active:)`'s own doc
+    /// comment gives.
+    private func ordinanceToggle(_ ordinance: WritableKeyPath<Ordinances, Bool>, label: String, accent: Color) -> some View {
+        let isActive = controller.isOrdinanceActive(ordinance)
+        return Button(label) {
+            controller.setOrdinance(ordinance, active: !isActive)
+        }
+        .buttonStyle(RetroButtonStyle(accent: accent, isSelected: isActive))
     }
 
     /// One `RetroStepper` per fundable service, each tinted with that

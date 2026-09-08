@@ -72,6 +72,12 @@ struct CityMap: Equatable, Codable, Sendable {
     /// no power anywhere, same as an untouched map has no water supply.
     var powerSupply = PowerSupply()
 
+    /// Which city-wide policies are currently active — see `Ordinances`'
+    /// own doc comment for why this lives here, next to `serviceFunding`,
+    /// rather than on `GameController`. Defaults to every ordinance off,
+    /// so a fresh `CityMap` behaves exactly as it did before this existed.
+    var ordinances = Ordinances()
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width

@@ -905,6 +905,67 @@ final class GameControllerTests: XCTestCase {
         XCTAssertEqual(controller.bondBalance, 0)
     }
 
+    // MARK: - Ordinances
+
+    /// Every ordinance defaults off — a fresh city has no policies active
+    /// and pays nothing for them, same "untouched behaves exactly as
+    /// before this existed" default every other lever in this project
+    /// starts at.
+    func testEveryOrdinanceStartsInactive() {
+        let controller = GameController()
+
+        XCTAssertFalse(controller.isOrdinanceActive(\.neighborhoodWatch))
+        XCTAssertFalse(controller.isOrdinanceActive(\.fireInspections))
+        XCTAssertFalse(controller.isOrdinanceActive(\.businessTaxBreak))
+    }
+
+    func testSetOrdinanceTogglesItOnAndOff() {
+        let controller = GameController()
+
+        controller.setOrdinance(\.neighborhoodWatch, active: true)
+        XCTAssertTrue(controller.isOrdinanceActive(\.neighborhoodWatch))
+
+        controller.setOrdinance(\.neighborhoodWatch, active: false)
+        XCTAssertFalse(controller.isOrdinanceActive(\.neighborhoodWatch))
+    }
+
+    /// Setting one ordinance doesn't touch the other two — each toggle
+    /// reaches exactly the field its key path names.
+    func testSettingOneOrdinanceDoesNotAffectTheOthers() {
+        let controller = GameController()
+
+        controller.setOrdinance(\.fireInspections, active: true)
+
+        XCTAssertTrue(controller.isOrdinanceActive(\.fireInspections))
+        XCTAssertFalse(controller.isOrdinanceActive(\.neighborhoodWatch))
+        XCTAssertFalse(controller.isOrdinanceActive(\.businessTaxBreak))
+    }
+
+    /// Each active ordinance costs `Ordinances.costPerOrdinance` per tick,
+    /// folded into `netRevenue` alongside upkeep and bond interest —
+    /// proven with two active at once so this can't pass by coincidence
+    /// with a cost of exactly one ordinance's worth.
+    func testActiveOrdinancesReduceNetRevenue() {
+        let controller = GameController()
+        let netRevenueBeforeOrdinances = controller.netRevenue
+
+        controller.setOrdinance(\.neighborhoodWatch, active: true)
+        controller.setOrdinance(\.fireInspections, active: true)
+
+        XCTAssertEqual(controller.netRevenue, netRevenueBeforeOrdinances - 2 * Ordinances.costPerOrdinance)
+    }
+
+    func testResetMapClearsAllOrdinances() {
+        let controller = GameController()
+        controller.setOrdinance(\.neighborhoodWatch, active: true)
+        controller.setOrdinance(\.businessTaxBreak, active: true)
+
+        controller.resetMap()
+
+        XCTAssertFalse(controller.isOrdinanceActive(\.neighborhoodWatch))
+        XCTAssertFalse(controller.isOrdinanceActive(\.businessTaxBreak))
+    }
+
     // MARK: - RCI demand meter
 
     /// `cityDemand` is a passthrough to `map.cityDemand` — this pins that

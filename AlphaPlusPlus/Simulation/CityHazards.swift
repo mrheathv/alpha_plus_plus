@@ -93,11 +93,26 @@ enum CityHazards {
                     LandValue.falloffValue(nearestZone: risk.coveringService, falloffDistance: LandValue.serviceFalloffDistance, at: $0, in: map)
                 }.max() ?? 0
                 guard bestCoverage < risk.coverageThreshold else { continue }
-                guard Double.random(in: 0 ..< 1, using: &rng) < risk.chancePerTick else { continue }
+                let chance = risk.chancePerTick * ordinanceMultiplier(for: risk, in: map)
+                guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
                 for cell in footprint { next[cell].density = max(0, next[cell].density - risk.densityLoss) }
                 strikes.append(Strike(position: tile.position, coveringService: risk.coveringService))
             }
         }
         return (next, strikes)
+    }
+
+    /// How much `map.ordinances` scales this particular `risk`'s chance —
+    /// 1.0 (no change) unless the ordinance covering it is active, in
+    /// which case half. Reads `map.ordinances` directly rather than
+    /// `apply(_:to:using:)` taking a separate parameter, the same "the
+    /// simulation reads city state straight off the map" shape
+    /// `LandValue.falloffValue` already uses for `ServiceFunding`.
+    private static func ordinanceMultiplier(for risk: Risk, in map: CityMap) -> Double {
+        switch risk.coveringService {
+        case .policeStation: return map.ordinances.neighborhoodWatch ? 0.5 : 1.0
+        case .fireStation: return map.ordinances.fireInspections ? 0.5 : 1.0
+        default: return 1.0
+        }
     }
 }

@@ -111,6 +111,77 @@ final class CityHazardsTests: XCTestCase {
         XCTAssertTrue(result.strikes.isEmpty)
     }
 
+    // MARK: - Ordinances
+
+    /// `Ordinances.neighborhoodWatch` halves a police-covered risk's
+    /// chance per tick — proven at the boundary rather than by asserting
+    /// on randomness itself: a risk at chance exactly 1.0 always strikes
+    /// under `AlwaysMaxRNG` (the roll lands just under 1.0, the highest
+    /// value that generator can produce), but the same risk halved to 0.5
+    /// no longer clears that same roll.
+    func testNeighborhoodWatchHalvesAPoliceCoveredRisksChance() {
+        var map = CityMap(width: 5, height: 5)
+        let position = GridPosition(x: 0, y: 0)
+        map[position].zone = .residential
+        map[position].density = 3
+        let guaranteedCrime = CityHazards.Risk(
+            zones: [.residential], coveringService: .policeStation,
+            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 1
+        )
+
+        var withoutOrdinanceRNG = AlwaysMaxRNG()
+        let withoutOrdinance = CityHazards.apply([guaranteedCrime], to: map, using: &withoutOrdinanceRNG)
+        XCTAssertFalse(withoutOrdinance.strikes.isEmpty, "chance 1.0 should always strike regardless of the roll")
+
+        map.ordinances.neighborhoodWatch = true
+        var withOrdinanceRNG = AlwaysMaxRNG()
+        let withOrdinance = CityHazards.apply([guaranteedCrime], to: map, using: &withOrdinanceRNG)
+        XCTAssertTrue(withOrdinance.strikes.isEmpty, "halved to 0.5, the same near-1.0 roll should no longer clear it")
+    }
+
+    /// Same proof, for `Ordinances.fireInspections` against a
+    /// fire-station-covered risk.
+    func testFireInspectionsHalvesAFireCoveredRisksChance() {
+        var map = CityMap(width: 5, height: 5)
+        let position = GridPosition(x: 0, y: 0)
+        map[position].zone = .industrial
+        map[position].density = 3
+        let guaranteedFire = CityHazards.Risk(
+            zones: [.industrial], coveringService: .fireStation,
+            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 2
+        )
+
+        var withoutOrdinanceRNG = AlwaysMaxRNG()
+        let withoutOrdinance = CityHazards.apply([guaranteedFire], to: map, using: &withoutOrdinanceRNG)
+        XCTAssertFalse(withoutOrdinance.strikes.isEmpty)
+
+        map.ordinances.fireInspections = true
+        var withOrdinanceRNG = AlwaysMaxRNG()
+        let withOrdinance = CityHazards.apply([guaranteedFire], to: map, using: &withOrdinanceRNG)
+        XCTAssertTrue(withOrdinance.strikes.isEmpty)
+    }
+
+    /// Each ordinance only touches the risk it names — `fireInspections`
+    /// alone shouldn't quiet down crime, the same "targeted, not a
+    /// blanket effect" contract the roadmap's own ordinance description
+    /// promises.
+    func testFireInspectionsDoesNotAffectAPoliceCoveredRisk() {
+        var map = CityMap(width: 5, height: 5)
+        let position = GridPosition(x: 0, y: 0)
+        map[position].zone = .residential
+        map[position].density = 3
+        map.ordinances.fireInspections = true
+        let guaranteedCrime = CityHazards.Risk(
+            zones: [.residential], coveringService: .policeStation,
+            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 1
+        )
+
+        var rng = AlwaysMaxRNG()
+        let result = CityHazards.apply([guaranteedCrime], to: map, using: &rng)
+
+        XCTAssertFalse(result.strikes.isEmpty, "an unrelated ordinance shouldn't have softened this risk's chance")
+    }
+
     // MARK: - Footprints
 
     /// A strike on a 2×2 building applies the same density loss to every

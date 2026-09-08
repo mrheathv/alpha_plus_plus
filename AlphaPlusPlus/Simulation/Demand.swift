@@ -66,15 +66,24 @@ enum Demand {
     /// playtesting" status every other constant in this project starts at.
     private static let scale: Double = 30
 
+    /// How much `Ordinances.businessTaxBreak` adds to commercial demand
+    /// specifically, on top of the shared residential/industrial pressure
+    /// below — the one place Commercial and Industrial actually do get
+    /// told apart (see this file's own top doc comment on why they
+    /// otherwise don't yet). A first guess, same "needs playtesting"
+    /// status `scale` above already has.
+    static let businessTaxBreakBoost: Double = 0.3
+
     static func compute(for map: CityMap) -> CityDemand {
         let population = map.totalDensity(of: .residential) * ZoneType.residential.populationPerDensityLevel
         let jobs = map.totalDensity(of: .commercial) * ZoneType.commercial.jobsPerDensityLevel
             + map.totalDensity(of: .industrial) * ZoneType.industrial.jobsPerDensityLevel
         let unfilledJobs = jobs - population
         let commercialAndIndustrial = pressure(from: -unfilledJobs)
+        let commercialBoost = map.ordinances.businessTaxBreak ? businessTaxBreakBoost : 0
         return CityDemand(
             residential: pressure(from: unfilledJobs),
-            commercial: commercialAndIndustrial,
+            commercial: min(1, commercialAndIndustrial + commercialBoost),
             industrial: commercialAndIndustrial
         )
     }

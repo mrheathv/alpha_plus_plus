@@ -81,6 +81,45 @@ final class DemandTests: XCTestCase {
         XCTAssertEqual(demand.value(for: .industrial), 0.1, accuracy: 0.0001)
     }
 
+    // MARK: - Ordinances.businessTaxBreak
+
+    /// The one place Commercial and Industrial demand actually get told
+    /// apart (see this file's own top doc comment on why they otherwise
+    /// don't yet): an active tax break nudges Commercial up by
+    /// `businessTaxBreakBoost` without touching Industrial or Residential
+    /// at all.
+    func testBusinessTaxBreakBoostsCommercialDemandOnly() {
+        var map = CityMap(width: 5, height: 5)
+        map.ordinances.businessTaxBreak = true
+
+        let demand = Demand.compute(for: map)
+
+        XCTAssertEqual(demand.commercial, Demand.businessTaxBreakBoost, accuracy: 0.0001)
+        XCTAssertEqual(demand.industrial, 0, accuracy: 0.0001)
+        XCTAssertEqual(demand.residential, 0, accuracy: 0.0001)
+    }
+
+    /// The boost still respects `CityDemand`'s own ±1 range -- a city
+    /// already at maximum commercial demand doesn't read as "even more
+    /// than maximum" just because the ordinance is also active.
+    func testBusinessTaxBreakBoostClampsAtOne() {
+        var map = CityMap(width: 20, height: 20)
+        var x = 0
+        while x < 18 {
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: 0))
+            map[GridPosition(x: x, y: 0)].density = 5
+            x += 2
+        }
+        // A wall of fully-grown residential with zero jobs already pins
+        // commercial demand at +1.0 on its own, same setup
+        // `testDemandClampsAtPlusOrMinusOne` uses for the opposite side.
+        map.ordinances.businessTaxBreak = true
+
+        let demand = Demand.compute(for: map)
+
+        XCTAssertEqual(demand.commercial, 1.0, accuracy: 0.0001)
+    }
+
     /// A fresh `CityMap` (or one built directly in a test, never advanced)
     /// reads as perfectly balanced everywhere -- same "nothing computed
     /// yet reads as neutral/empty" default `TrafficLoad`/`WaterSupply`

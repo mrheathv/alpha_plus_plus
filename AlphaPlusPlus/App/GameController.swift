@@ -515,12 +515,31 @@ final class GameController: ObservableObject {
     }
 
     /// What `advanceSimulation()` actually deposits (or withdraws) this
-    /// step: tax revenue minus upkeep minus bond interest. Can go negative
-    /// — a city with more services (or more debt) than its tax base
-    /// supports yet should feel that as a real drain, not have it silently
-    /// floored at zero.
+    /// step: tax revenue minus upkeep, bond interest, and ordinance
+    /// upkeep. Can go negative — a city with more services (or more debt,
+    /// or more active ordinances) than its tax base supports yet should
+    /// feel that as a real drain, not have it silently floored at zero.
     var netRevenue: Int {
-        taxRevenue - upkeepCost - bondInterest
+        taxRevenue - upkeepCost - bondInterest - map.ordinances.totalUpkeepCost
+    }
+
+    // MARK: - Ordinances (city-wide policy toggles)
+
+    /// Whether `ordinance` is currently active. Reads straight through to
+    /// `map.ordinances`, the same passthrough shape `fundingLevel(for:)`
+    /// already has for `ServiceFunding` — one source of truth the
+    /// simulation itself reads too, not a separate UI-facing copy.
+    func isOrdinanceActive(_ ordinance: KeyPath<Ordinances, Bool>) -> Bool {
+        map.ordinances[keyPath: ordinance]
+    }
+
+    /// Toggles `ordinance` on or off. `WritableKeyPath` rather than naming
+    /// each ordinance its own setter (the way `ServiceFunding.setLevel(_:for:)`
+    /// has to, since that one's keyed by `ZoneType` rather than by field) —
+    /// `Ordinances` has a fixed, small set of named `Bool` properties, so a
+    /// key path is enough to reach any one of them without a `switch`.
+    func setOrdinance(_ ordinance: WritableKeyPath<Ordinances, Bool>, active: Bool) {
+        map.ordinances[keyPath: ordinance] = active
     }
 
     /// How much the city currently wants more of each RCI type — reads
