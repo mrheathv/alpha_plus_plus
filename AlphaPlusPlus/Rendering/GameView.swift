@@ -286,7 +286,7 @@ struct GameView: View {
             ordinanceToggle(\.neighborhoodWatch, label: "Neighborhood Watch", accent: RetroUITheme.accent(for: .policeStation))
             ordinanceToggle(\.fireInspections, label: "Fire Inspections", accent: RetroUITheme.accent(for: .fireStation))
             ordinanceToggle(\.businessTaxBreak, label: "Business Tax Break", accent: RetroUITheme.accent(for: .commercial))
-            Text("(-$\(Ordinances.costPerOrdinance)/tick each, while active)")
+            Text("(-$\(Ordinances.costPerOrdinance(population: controller.population))/tick each, while active)")
                 .font(.caption)
                 .foregroundStyle(RetroUITheme.textSecondary)
             Spacer()

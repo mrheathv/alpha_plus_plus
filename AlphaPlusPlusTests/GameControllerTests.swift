@@ -819,13 +819,16 @@ final class GameControllerTests: XCTestCase {
 
     /// `maxBondBalance` is the cap the roadmap's own "there's no debt in
     /// this model" gap called out as missing — borrowing has to actually
-    /// run out somewhere, or it's not a real constraint.
+    /// run out somewhere, or it's not a real constraint. A fresh
+    /// controller has zero population, so this pins the cap's flat
+    /// `baseBondCap` portion specifically — `testMaxBondBalanceScalesWithPopulation`
+    /// below covers the per-capita half.
     func testIssuingBondsBeyondTheCapIsANoOp() {
         let controller = GameController()
         while controller.issueBond() {} // borrow until the cap refuses
         let balanceAtCap = controller.bondBalance
         let treasuryAtCap = controller.treasury
-        XCTAssertEqual(balanceAtCap, GameController.maxBondBalance)
+        XCTAssertEqual(balanceAtCap, GameController.baseBondCap)
 
         let outcome = controller.issueBond()
 
@@ -941,10 +944,14 @@ final class GameControllerTests: XCTestCase {
         XCTAssertFalse(controller.isOrdinanceActive(\.businessTaxBreak))
     }
 
-    /// Each active ordinance costs `Ordinances.costPerOrdinance` per tick,
-    /// folded into `netRevenue` alongside upkeep and bond interest —
-    /// proven with two active at once so this can't pass by coincidence
-    /// with a cost of exactly one ordinance's worth.
+    /// Each active ordinance costs `Ordinances.costPerOrdinance(population:)`
+    /// per tick, folded into `netRevenue` alongside upkeep and bond
+    /// interest — proven with two active at once so this can't pass by
+    /// coincidence with a cost of exactly one ordinance's worth. A fresh
+    /// controller has zero population, so this pins the flat
+    /// `baseCostPerOrdinance` portion specifically —
+    /// `testOrdinanceCostScalesWithPopulation` below covers the per-capita
+    /// half.
     func testActiveOrdinancesReduceNetRevenue() {
         let controller = GameController()
         let netRevenueBeforeOrdinances = controller.netRevenue
@@ -952,7 +959,43 @@ final class GameControllerTests: XCTestCase {
         controller.setOrdinance(\.neighborhoodWatch, active: true)
         controller.setOrdinance(\.fireInspections, active: true)
 
-        XCTAssertEqual(controller.netRevenue, netRevenueBeforeOrdinances - 2 * Ordinances.costPerOrdinance)
+        XCTAssertEqual(controller.netRevenue, netRevenueBeforeOrdinances - 2 * Ordinances.baseCostPerOrdinance)
+    }
+
+    /// The fix for the gap a real 300-tick playtest harness found: a flat
+    /// ordinance cost stays exactly `baseCostPerOrdinance` forever, while
+    /// tax revenue in the same city grows into the thousands per tick — a
+    /// mature city should pay a meaningfully bigger bill for the same
+    /// policy than a brand-new one does.
+    func testOrdinanceCostScalesWithPopulation() {
+        let controller = GameController(map: {
+            var map = CityMap(width: 10, height: 10)
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+            map[GridPosition(x: 0, y: 0)].density = 5 // 5 * 4 = 20 population
+            return map
+        }())
+        controller.setOrdinance(\.neighborhoodWatch, active: true)
+
+        let expectedCost = Ordinances.baseCostPerOrdinance + Int(Double(controller.population) * Ordinances.costPerCapitaPerOrdinance)
+        XCTAssertGreaterThan(controller.population, 0)
+        XCTAssertGreaterThan(expectedCost, Ordinances.baseCostPerOrdinance)
+        XCTAssertEqual(controller.map.ordinances.totalUpkeepCost(population: controller.population), expectedCost)
+    }
+
+    /// Same fix, for the borrowing cap: `maxBondBalance` used to be a flat
+    /// `static let`, which the same playtest harness found a mature city's
+    /// tax revenue outgrows fast enough that maxing out bonds stops being
+    /// a real decision.
+    func testMaxBondBalanceScalesWithPopulation() {
+        let controller = GameController(map: {
+            var map = CityMap(width: 10, height: 10)
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+            map[GridPosition(x: 0, y: 0)].density = 5 // 5 * 4 = 20 population
+            return map
+        }())
+
+        XCTAssertEqual(controller.maxBondBalance, GameController.baseBondCap + controller.population * GameController.bondCapPerCapita)
+        XCTAssertGreaterThan(controller.maxBondBalance, GameController.baseBondCap)
     }
 
     func testResetMapClearsAllOrdinances() {

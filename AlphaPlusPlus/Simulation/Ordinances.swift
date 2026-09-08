@@ -41,19 +41,45 @@ struct Ordinances: Equatable, Codable, Sendable {
     /// make one ordinance's cost "real" in a more literal sense.
     var businessTaxBreak = false
 
-    /// Flat cost per active ordinance, charged every tick regardless of
-    /// city size — a first guess, same "needs playtesting" status as every
-    /// other number in this project. Real games often scale ordinance cost
-    /// with population; this is deliberately the simplest version that
-    /// could work, the same starting point `Demand`'s own `scale` constant
-    /// documents taking for demand itself.
-    static let costPerOrdinance = 30
+    /// Flat portion of an active ordinance's cost, unrelated to city size —
+    /// what a brand-new city pays from tick one. Found via a real 300-tick
+    /// playtest harness (mixed-use city, real RNG) built for this exact
+    /// question: a flat cost alone stayed exactly this small forever, while
+    /// tax revenue in the same city grew into the thousands per tick — a
+    /// city ten times the size paid the literal same $30 as a brand-new
+    /// one, reading as "free" long before the game was actually over.
+    static let baseCostPerOrdinance = 30
+
+    /// Added on top of `baseCostPerOrdinance`, per point of population —
+    /// the deliberate fix for the gap above: an ordinance covering a
+    /// bigger city costs more to actually run. Service building upkeep
+    /// gets this same "scales with what it covers" property for free, by
+    /// summing over however many buildings exist — but there's exactly
+    /// one Neighborhood Watch, not one per neighborhood, so a flat
+    /// per-ordinance cost never got that scaling on its own. A first
+    /// guess, same "needs playtesting" status as every other number here.
+    static let costPerCapitaPerOrdinance = 0.05
+
+    /// What one active ordinance costs the treasury this tick, given the
+    /// city's current `population` — the flat base plus the per-capita
+    /// term above. Not `Codable` state itself, just a computation over
+    /// state `GameController` already tracks; `GameView` reads this
+    /// directly for its "$X/tick each" hint so the displayed number is
+    /// never stale relative to what `totalUpkeepCost(population:)` (below)
+    /// actually charges.
+    static func costPerOrdinance(population: Int) -> Int {
+        baseCostPerOrdinance + Int(Double(population) * costPerCapitaPerOrdinance)
+    }
 
     /// What every currently-active ordinance costs the treasury this tick,
-    /// summed — folded into `GameController.upkeepCost` alongside every
-    /// service building's own upkeep, the same "one number covers
-    /// everything running this tick" shape that already has.
-    var totalUpkeepCost: Int {
-        [neighborhoodWatch, fireInspections, businessTaxBreak].filter { $0 }.count * Self.costPerOrdinance
+    /// summed — folded into `GameController.netRevenue` alongside upkeep
+    /// and bond interest, the same "one number covers everything running
+    /// this tick" shape that already has. Takes `population` rather than
+    /// reading it off a `CityMap` directly, the same "pure computation
+    /// over a plain value" shape `Demand.compute(for:)` uses instead of
+    /// reaching back into `GameController` for it.
+    func totalUpkeepCost(population: Int) -> Int {
+        let perOrdinance = Self.costPerOrdinance(population: population)
+        return [neighborhoodWatch, fireInspections, businessTaxBreak].filter { $0 }.count * perOrdinance
     }
 }

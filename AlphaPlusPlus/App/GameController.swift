@@ -79,11 +79,30 @@ final class GameController: ObservableObject {
     /// actually tune.
     static let bondInterestRate = 0.02
 
-    /// The most bond principal the city can carry at once — borrowing
-    /// against a temporary shortfall, not a substitute for a tax base that
-    /// can never catch up. Three bonds' worth: enough room to matter, not
-    /// so much that debt stops being a real constraint.
-    static let maxBondBalance = 15_000
+    /// The flat portion of the borrowing cap, unrelated to city size — what
+    /// a brand-new city can access from tick one. Three bonds' worth on its
+    /// own: enough room to matter early, not so much that debt stops being
+    /// a real constraint.
+    static let baseBondCap = 15_000
+
+    /// Added to `baseBondCap` per point of population — a real municipal
+    /// bond's own capacity scales with the issuing city's tax base, and a
+    /// flat cap doesn't: found via the same 300-tick playtest harness that
+    /// caught `Ordinances`' flat cost going stale, a mature city's tax
+    /// revenue outgrows a fixed $15,000 cap fast enough that maxing out
+    /// bonds stops being a real decision. A first guess, same "needs
+    /// playtesting" status every other number here has.
+    static let bondCapPerCapita = 10
+
+    /// The most bond principal the city can carry at once right now —
+    /// `baseBondCap` plus a per-capita allowance for however big the city
+    /// has actually grown. A computed property rather than a flat
+    /// `static let`, the same reason `Ordinances.costPerOrdinance(population:)`
+    /// isn't one either: this needs to answer differently as the city
+    /// grows, not once at compile time.
+    var maxBondBalance: Int {
+        Self.baseBondCap + population * Self.bondCapPerCapita
+    }
 
     /// Interest owed *this tick* on `bondBalance` — a preview, the same
     /// role `taxRevenue` plays for tax income: visible before it's
@@ -99,7 +118,7 @@ final class GameController: ObservableObject {
     /// would cross `maxBondBalance`.
     @discardableResult
     func issueBond() -> Bool {
-        guard bondBalance + Self.bondIssueAmount <= Self.maxBondBalance else { return false }
+        guard bondBalance + Self.bondIssueAmount <= maxBondBalance else { return false }
         bondBalance += Self.bondIssueAmount
         treasury += Self.bondIssueAmount
         return true
@@ -520,7 +539,7 @@ final class GameController: ObservableObject {
     /// or more active ordinances) than its tax base supports yet should
     /// feel that as a real drain, not have it silently floored at zero.
     var netRevenue: Int {
-        taxRevenue - upkeepCost - bondInterest - map.ordinances.totalUpkeepCost
+        taxRevenue - upkeepCost - bondInterest - map.ordinances.totalUpkeepCost(population: population)
     }
 
     // MARK: - Ordinances (city-wide policy toggles)
