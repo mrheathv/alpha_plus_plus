@@ -594,14 +594,42 @@ final class GameControllerTests: XCTestCase {
         XCTAssertEqual(controller.treasury, startingTreasury - ZoneType.highway.placementCost)
     }
 
-    /// `.highway` costs money to place but nothing to keep running — a
-    /// pricier road, not a service.
-    func testHighwayContributesNothingToUpkeepCost() {
+    /// The road network's own per-tile maintenance — the fix for a real
+    /// bug a live playtest found: without this, upkeep was capped at
+    /// whatever the map's fixed handful of *service* buildings cost, so a
+    /// mature city's net revenue settled into a constant positive number
+    /// forever the moment growth stopped, with tax revenue (which keeps
+    /// scaling with population/jobs) completely decoupled from spending.
+    /// Seven tiles rather than one, same boundary-proof reasoning the rest
+    /// of this file uses for a small per-unit rate: `Int(0.5)` alone would
+    /// truncate to 0 and silently pass even if the rate were wrong. (Not
+    /// ten: `10 * roadUpkeepPerTile` and ten additions of it can land on
+    /// opposite sides of a whole number by a single floating-point ULP —
+    /// seven tiles keeps the expected total comfortably away from any
+    /// rounding boundary.)
+    func testRoadUpkeepCostScalesWithTileCount() {
+        let controller = GameController()
+        controller.selectedTool = .road
+        for x in 0 ..< 7 {
+            controller.place(at: GridPosition(x: x, y: 0))
+        }
+
+        XCTAssertEqual(controller.upkeepCost, Int(7 * GameController.roadUpkeepPerTile))
+    }
+
+    /// A highway costs more per tile than a plain road — pricier,
+    /// higher-capacity infrastructure, the same relationship its higher
+    /// `placementCost` already has with `.road`'s — not "free to run
+    /// forever" the way it used to be modeled.
+    func testHighwayUpkeepCostScalesWithTileCountAtAHigherRateThanRoad() {
         let controller = GameController()
         controller.selectedTool = .highway
-        controller.place(at: GridPosition(x: 0, y: 0))
+        for x in 0 ..< 7 {
+            controller.place(at: GridPosition(x: x, y: 0))
+        }
 
-        XCTAssertEqual(controller.upkeepCost, 0)
+        XCTAssertEqual(controller.upkeepCost, Int(7 * GameController.highwayUpkeepPerTile))
+        XCTAssertGreaterThan(GameController.highwayUpkeepPerTile, GameController.roadUpkeepPerTile)
     }
 
     /// `.subway` *is* a service (like `.publicTransit`) — placing one

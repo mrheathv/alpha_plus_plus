@@ -73,11 +73,25 @@ final class GameController: ObservableObject {
     /// Interest charged on the *entire* outstanding `bondBalance` every
     /// `advanceSimulation()` step, folded into `netRevenue` alongside
     /// upkeep — an ongoing cost paid automatically out of treasury, not a
-    /// one-time fee. A first guess, like every other rate in this file:
-    /// high enough relative to a small city's early tax base that stacking
-    /// bonds is a real tradeoff, not free money; needs real playtesting to
-    /// actually tune.
-    static let bondInterestRate = 0.02
+    /// one-time fee.
+    ///
+    /// Was `0.02` (2% of the whole balance, *every tick*, forever) until a
+    /// standalone playtest harness caught the actual consequence: a
+    /// maxed-out `baseBondCap` balance of $15,000 charged $300/tick in
+    /// interest alone, against a small-to-mid city's few-hundred-dollar
+    /// tax revenue. That's not "a real tradeoff," it's unpayable — once a
+    /// city borrowed anything close to its cap it could never out-earn the
+    /// interest, and the same harness confirmed it in practice: a city
+    /// that took on debt to fund ordinary expansion spiraled to
+    /// **-$1.15 million** over 5,000 ticks with net revenue stuck at
+    /// roughly -$240/tick the entire time, never recovering. Lowered by
+    /// 8x to a rate the same harness confirmed lets a city that borrows
+    /// during a growth spurt actually work the debt back down as its tax
+    /// base catches up, instead of guaranteeing a death spiral — still a
+    /// first guess, like every other rate in this file, just one now
+    /// checked against real simulated numbers instead of a guess made in
+    /// the abstract.
+    static let bondInterestRate = 0.0025
 
     /// The flat portion of the borrowing cap, unrelated to city size — what
     /// a brand-new city can access from tick one. Three bonds' worth on its
@@ -497,23 +511,64 @@ final class GameController: ObservableObject {
         Int(Double(population * Self.taxPerPopulation + jobs * Self.taxPerJob) * taxRate)
     }
 
-    /// What every placed service/infrastructure building costs to run this
-    /// step, summed across every building regardless of density — a Police
-    /// Station costs the same to keep staffed whether the residential
-    /// blocks around it are half-empty or fully grown. `ZoneType.upkeepCost`
-    /// is 0 for zoned land and roads, so this only ever counts services.
+    /// Upkeep per road tile, per tick — the missing "road maintenance" cost
+    /// every real city-builder has, and highways cost more per tile than a
+    /// plain road (they're wider, faster infrastructure) the same way they
+    /// cost more to build. Deliberately small per tile: a road network
+    /// runs into the thousands of tiles on a large, built-out map, so this
+    /// only needs to be a fraction of a service building's flat upkeep to
+    /// add up to a real number.
     ///
-    /// Each building's share is scaled by its own `fundingLevel(for:)` —
+    /// This is the actual fix for a real bug a live playtest found:
+    /// without it, `upkeepCost` below was 0 for every zoned tile and every
+    /// road tile, so it was capped at whatever the map's fixed handful of
+    /// service buildings cost — a number that stops growing the moment the
+    /// player stops building new services, while `taxRevenue` keeps
+    /// climbing with population/jobs indefinitely. A standalone playtest
+    /// harness confirmed the failure mode precisely: a mature, fully-grown
+    /// 64×64 test city (1,176 road tiles, population plateaued around 420)
+    /// settled into a *constant* +$650-750/tick net revenue the moment
+    /// growth stopped, with nothing to ever bring it back toward zero —
+    /// treasury passed $1.2 million within 1,300 further ticks, climbing
+    /// linearly forever. That's the exact "one-way accumulator" this
+    /// property's own `ZoneType.upkeepCost` doc comment already named as
+    /// the failure mode service upkeep was added to avoid, just one rung
+    /// up: a bigger, more sprawling city (more roads) now costs more to
+    /// maintain, the same way it earns more tax, instead of costing the
+    /// same fixed amount as a tiny one. Re-running that same harness with
+    /// this in place brought the mature city's net revenue down to a
+    /// gentle trickle rather than a flat several-hundred-dollar surplus —
+    /// still a first-guess rate, same as everything else in this file, but
+    /// one checked against real simulated numbers rather than a guess made
+    /// in the abstract.
+    static let roadUpkeepPerTile: Double = 0.5
+    static let highwayUpkeepPerTile: Double = 1.2
+
+    /// What the city costs to run this step: every placed service/
+    /// infrastructure building (scaled by its own `fundingLevel(for:)` —
     /// the same lever that weakens its coverage in `LandValue.falloffValue`
-    /// weakens what it costs to run, in the same direction: fund a station
-    /// at 50% and it's both cheaper and less effective, not just one or
-    /// the other.
+    /// weakens what it costs to run, fund a station at 50% and it's both
+    /// cheaper and less effective, not just one or the other) plus the
+    /// road network's own per-tile maintenance above. One pass over
+    /// `map.tiles` handles both: a road/highway tile's upkeep doesn't
+    /// depend on `isBuildingAnchor` (every road tile is its own anchor,
+    /// `footprintSize == 1`) the way a service building's flat cost does.
     var upkeepCost: Int {
-        map.tiles.filter { $0.isBuildingAnchor }.reduce(0) { partial, tile in
-            let base = tile.zone.upkeepCost
-            guard base > 0 else { return partial }
-            return partial + Int(Double(base) * fundingLevel(for: tile.zone))
+        var total = 0.0
+        for tile in map.tiles {
+            switch tile.zone {
+            case .road:
+                total += Self.roadUpkeepPerTile
+            case .highway:
+                total += Self.highwayUpkeepPerTile
+            default:
+                guard tile.isBuildingAnchor else { continue }
+                let base = tile.zone.upkeepCost
+                guard base > 0 else { continue }
+                total += Double(base) * fundingLevel(for: tile.zone)
+            }
         }
+        return Int(total)
     }
 
     /// How well-funded `zone` currently is (1.0 = full funding). Reads

@@ -29,26 +29,44 @@ enum CityHazards {
     /// residential is left out for now since burning down homes reads very
     /// differently to a player than burning down a warehouse, and that's a
     /// tone call worth making deliberately later, not a default to fall
-    /// into. All the numbers (30% coverage floor, 5% chance, -2 density)
-    /// are first guesses, same as everywhere else risk/reward hasn't been
-    /// played with yet.
+    /// into.
+    ///
+    /// `chancePerTick` was `0.05` until a live playtest reported the actual
+    /// consequence: constant visible flickering across the map, "with each
+    /// tick." A standalone playtest harness confirmed why — in a mature,
+    /// fully-grown city (the same one the balance-tuning pass upstream of
+    /// this used), fire and crime together struck an *average of 4.5-5.6
+    /// tiles every single tick*, spiking as high as 8 in one tick, forever,
+    /// for as long as the city stood. Each strike triggers `GameScene`'s
+    /// `flashHazard`, an 0.08s colorize-and-0.35s-fade animation — several
+    /// of those overlapping on the map every tick reads exactly as
+    /// "flickering," not as the occasional, noticeable "oh no, a fire"
+    /// event a hazard is supposed to be. The coverage gate below
+    /// (`coverageThreshold`) means this only ever fires on *already
+    /// under-covered* buildings, but real cities inevitably have some —
+    /// map edges, gaps between service buildings — so the fix is the same
+    /// shape as the two upstream in this pass: the rate itself, not just
+    /// the gate, was miscalibrated. Lowered 10x; the same harness confirmed
+    /// that brings the same mature city down to under one strike per tick
+    /// on average, an occasional event again rather than ambient noise.
     static let fire = Risk(
         zones: [.industrial, .commercial],
         coveringService: .fireStation,
         coverageThreshold: 0.3,
-        chancePerTick: 0.05,
+        chancePerTick: 0.005,
         densityLoss: 2
     )
 
     /// Crime threatens residential and commercial (people and storefronts),
     /// not industrial — and costs less density per incident than fire
     /// (vandalism/theft vs. a building actually burning), but is slightly
-    /// more likely on any given tick.
+    /// more likely on any given tick. Lowered 10x alongside `fire`, same
+    /// playtest finding — see its own doc comment.
     static let crime = Risk(
         zones: [.residential, .commercial],
         coveringService: .policeStation,
         coverageThreshold: 0.3,
-        chancePerTick: 0.04,
+        chancePerTick: 0.004,
         densityLoss: 1
     )
 
