@@ -180,18 +180,16 @@ final class GameController: ObservableObject {
     /// would raise its own questions about what happens to existing tiles).
     @Published var selectedMapSize: MapSize = .small
 
-    /// One snapshot of the headline stats, recorded after every
-    /// `advanceSimulation()` step, so `GameView` can show a trend
-    /// (`Sparkline`) instead of just the current instant. Capped at
-    /// `maxHistoryLength` — a running city ticking forever shouldn't grow
-    /// this array without bound.
-    struct HistorySnapshot {
-        let population: Int
-        let jobs: Int
-        let treasury: Int
-    }
-
-    @Published private(set) var history: [HistorySnapshot] = []
+    /// Headline stats recorded after every `advanceSimulation()` step, so
+    /// `GameView` can show a trend (`Sparkline`) instead of just the current
+    /// instant. Capped at `maxHistoryLength` — a running city ticking forever
+    /// shouldn't grow this array without bound.
+    ///
+    /// The element type used to be a `HistorySnapshot` nested right here;
+    /// it's now `CityStatSnapshot` in `Simulation/`, because `CitySave` has
+    /// to name it to persist a city's history and `Simulation/` can't reach
+    /// up into `App/`. See that type's own doc comment.
+    @Published private(set) var history: [CityStatSnapshot] = []
     private static let maxHistoryLength = 120
 
     /// Source of randomness for `CityHazards` and, now, `CitySimulator`'s
@@ -408,6 +406,66 @@ final class GameController: ObservableObject {
         isPowerOutageActive = false
     }
 
+    // MARK: - Save / load
+
+    /// Everything about this city worth keeping, as one serializable value.
+    ///
+    /// Deliberately a plain snapshot with no file handling anywhere near it:
+    /// turning a live controller into data and writing that data to disk are
+    /// two jobs, and only the first one is the simulation's business. That
+    /// split is also what lets a test — or a headless playtest harness — set
+    /// a city up, snapshot it, and replay it without a save file existing at
+    /// all.
+    func snapshot() -> CitySave {
+        CitySave(
+            map: map,
+            treasury: treasury,
+            taxRate: taxRate,
+            bondBalance: bondBalance,
+            history: history
+        )
+    }
+
+    /// Replaces this controller's entire city with `save`'s.
+    ///
+    /// Throws if `save` came from a build with a newer `CitySave` format —
+    /// checked *before* anything is mutated, so a rejected load leaves the
+    /// city you already had completely untouched rather than half-replaced.
+    ///
+    /// Three deliberate choices about what this does beyond copying fields:
+    ///
+    /// - **The simulation is left paused.** Loading a city drops you into it
+    ///   at a standstill, rather than resuming mid-tick into a town you
+    ///   haven't looked at yet.
+    /// - **`selectedMapSize` is realigned to the loaded map** where one
+    ///   matches, so the size picker doesn't keep advertising whatever the
+    ///   last Reset was going to build. A save whose dimensions match no
+    ///   `MapSize` case (an older save, or one a future in-game resize
+    ///   produced) leaves the picker alone rather than lying about it — the
+    ///   map itself is authoritative either way, since `selectedMapSize`
+    ///   only ever describes what the *next* `resetMap()` would build.
+    /// - **Per-tick scratch state is cleared, not restored.**
+    ///   `lastHazardStrikes` and `isPowerOutageActive` are both recomputed
+    ///   from scratch by the next `advanceSimulation()`; carrying stale ones
+    ///   in would briefly show fires on a map that never had them.
+    func restore(from save: CitySave) throws {
+        try save.validateFormatVersion()
+
+        map = save.map
+        treasury = save.treasury
+        taxRate = save.taxRate
+        bondBalance = save.bondBalance
+        history = save.history
+
+        isRunning = false
+        lastHazardStrikes = []
+        isPowerOutageActive = false
+        if let size = MapSize.allCases.first(where: { $0.dimension == save.map.width }),
+           save.map.width == save.map.height {
+            selectedMapSize = size
+        }
+    }
+
     /// Every tile a hazard struck on the most recent `advanceSimulation()`
     /// call — empty most ticks. `GameScene` reads this right after calling
     /// `advanceSimulation()` to flash the tiles that got hit, the same
@@ -484,7 +542,7 @@ final class GameController: ObservableObject {
     }
 
     private func recordHistorySnapshot() {
-        history.append(HistorySnapshot(population: population, jobs: jobs, treasury: treasury))
+        history.append(CityStatSnapshot(population: population, jobs: jobs, treasury: treasury))
         if history.count > Self.maxHistoryLength {
             history.removeFirst(history.count - Self.maxHistoryLength)
         }
