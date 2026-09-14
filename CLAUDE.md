@@ -144,7 +144,12 @@ xcodebuild -project AlphaPlusPlus.xcodeproj \
 open ./build/Build/Products/Debug/AlphaPlusPlus.app
 ```
 
-The app has no icon; that is intentional while grayboxing.
+The app ships an icon (`Assets.xcassets/AppIcon.appiconset`, wired up via
+`ASSETCATALOG_COMPILER_APPICON_NAME`). This is a deliberate exception to the
+grayboxing rule above: the icon is chrome around the game, not game art, so
+producing it early costs nothing that the "wait until mechanics lock" rule is
+meant to protect. That rule still applies in full to anything *inside* the
+map view.
 
 Naming note: the app's user-visible name is **Alpha++**, but the on-disk target,
 folder, and Swift module are named `AlphaPlusPlus`. Swift module names can't
