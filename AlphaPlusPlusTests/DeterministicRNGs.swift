@@ -23,3 +23,38 @@ struct AlwaysZeroRNG: RandomNumberGenerator {
 struct AlwaysMaxRNG: RandomNumberGenerator {
     mutating func next() -> UInt64 { .max }
 }
+
+/// A real pseudo-random generator with a fixed, reproducible seed.
+///
+/// The two generators above are *degenerate* on purpose — they force every
+/// probability-gated roll to always succeed or always fail, which is what a
+/// test asserting "this gate can block growth" wants. That makes them useless
+/// for the opposite question: how often something happens *on average*.
+/// `AlwaysZeroRNG` would make every hazard fire every tick regardless of what
+/// `CityHazards.chancePerTick` is actually set to, so a balance measurement
+/// taken with it would say the same thing at 0.05 and at 0.005.
+///
+/// `SeededRNG` gives the playtest harness realistic randomness that still
+/// reproduces exactly run to run, so a measured rate is both meaningful and
+/// stable enough to assert on.
+///
+/// SplitMix64 — the same small, well-distributed generator Java's
+/// `SplittableRandom` and Swift's own `SystemRandomNumberGenerator`
+/// documentation-adjacent literature use as a reference. Chosen over a
+/// hand-rolled linear congruential generator because a bad LCG's low bits
+/// cycle quickly, and `Double.random(in:using:)` reads exactly those bits.
+struct SeededRNG: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        self.state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}

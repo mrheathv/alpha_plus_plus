@@ -144,6 +144,65 @@ xcodebuild -project AlphaPlusPlus.xcodeproj \
 open ./build/Build/Products/Debug/AlphaPlusPlus.app
 ```
 
+## Balance tuning: the playtest harness
+
+`PlaytestHarness` (test target) builds cities, runs them for hundreds or
+thousands of ticks, and reports what the economy and hazard system actually
+did. `PlaytestScenarioTests` turns those measurements into regression tests,
+so a balance number is something you can re-derive rather than something a
+commit message once claimed.
+
+It runs with the normal suite at a small, fast profile. For real tuning, run
+the full-size profile — and run it in **Release**, which is ~55x faster:
+
+```sh
+TEST_RUNNER_PLAYTEST_FULL=1 xcodebuild -project AlphaPlusPlus.xcodeproj \
+  -scheme AlphaPlusPlus -configuration Release -derivedDataPath ./build \
+  ENABLE_TESTABILITY=YES test \
+  -only-testing:AlphaPlusPlusTests/PlaytestScenarioTests
+```
+
+`ENABLE_TESTABILITY=YES` is needed because Release disables testability and
+`@testable import` requires it. `TEST_RUNNER_` is required because xcodebuild
+forwards only variables carrying that prefix, which it strips.
+
+### Simulation cost, measured
+
+`HarnessTimingTests` (opt-in, same flag) measures per-tick cost on a fully
+built-out city:
+
+| map   | Debug     | Release  | lots |
+|-------|-----------|----------|------|
+| 16×16 |   25.8 ms |   0.8 ms |   33 |
+| 24×24 |  124.5 ms |   3.1 ms |   80 |
+| 32×32 |  364.2 ms |   8.5 ms |  133 |
+| 48×48 | 1994.5 ms |  39.5 ms |  320 |
+| 64×64 | 6286.3 ms | 114.5 ms |  560 |
+
+Two consequences worth knowing before playing or profiling:
+
+- **A Debug build cannot play a large map.** 6.3 s/tick against
+  `SimulationSpeed.fast`'s 0.35 s interval is 18x over budget, and still 6x
+  over at `.normal`. Cmd-R gives you Debug. Use Release for anything above
+  `.small`.
+- **Cost grows superlinearly in map area** — 16x the tiles costs 143x the
+  time, from `Traffic.computeLoad` routing more commuters over longer paths.
+  Even in Release a 64×64 tick blocks `@MainActor` for 114 ms, roughly seven
+  dropped frames.
+
+### Known-unfixed: the treasury still runs away
+
+`testAMatureCityDoesNotBecomeAMoneyPrinter` is a strict `XCTExpectFailure`.
+Once a city plateaus it banks a flat ~74% of its tax revenue every tick
+forever (measured: +$6,160/tick, treasury past $9M in 1,500 ticks). Every cost
+in the model scales with *placed infrastructure*, which is static once a city
+is built out, while `taxRevenue` scales with *population and jobs*, which
+plateau high — so no infrastructure-scaled constant can close the gap, road
+upkeep included. Fixing it needs a cost that grows with economic activity,
+which is a design decision rather than a retuning. Strict mode means the test
+will fail loudly if it ever starts passing, so the expectation gets removed
+when that happens.
+
 ## Looking at the art without playing to it
 
 Every `ZoneIcon` variant renders to a single PNG contact sheet via a test, so
