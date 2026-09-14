@@ -140,8 +140,13 @@ struct TileRenderer {
     /// a hair of breathing room so neighboring buildings' glow doesn't
     /// perfectly z-fight along shared tile edges, not the kind of margin
     /// that reads as "a small building on an empty lot."
-    private static let iconFillFactor: CGFloat = 0.98
+    static let iconFillFactor: CGFloat = 0.98
 
+    /// Not `private`: `ZoneIconContactSheetTests` renders the icon
+    /// catalog through this exact function, so the contact sheet shows
+    /// the same fill the game does rather than a reimplementation that
+    /// could quietly drift away from it.
+    ///
     /// Scales `icon` so its *actual drawn silhouette* — measured directly
     /// via `calculateAccumulatedFrame()`, not assumed from `ZoneIcon.designSize` —
     /// fills the tile it sits on, edge to edge.
@@ -162,7 +167,7 @@ struct TileRenderer {
     /// as much of its actual lot as its own silhouette proportions allow,
     /// without this file needing to know or care what those proportions
     /// are for any given building.
-    private static func fitIconToTile(_ icon: SKNode, footprintSize: Int, layout: GridLayout) {
+    static func fitIconToTile(_ icon: SKNode, footprintSize: Int, layout: GridLayout) {
         let spriteSize = layout.spriteSize(forFootprint: footprintSize)
         let occupied = icon.calculateAccumulatedFrame().size
         let fitScale = min(spriteSize.width / max(occupied.width, 1), spriteSize.height / max(occupied.height, 1))

@@ -144,6 +144,28 @@ xcodebuild -project AlphaPlusPlus.xcodeproj \
 open ./build/Build/Products/Debug/AlphaPlusPlus.app
 ```
 
+## Looking at the art without playing to it
+
+Every `ZoneIcon` variant renders to a single PNG contact sheet via a test, so
+checking a building's look no longer means growing a city to that tier:
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/ZoneIconContactSheetTests
+
+open ./build/ContactSheet/zone-icons.png
+```
+
+Pass `TEST_RUNNER_CONTACT_SHEET_PATH=/some/where.png` to write it elsewhere —
+`xcodebuild` only forwards environment variables to the test process when they
+carry that `TEST_RUNNER_` prefix, which it strips.
+
+The same test file also asserts every catalogued icon actually draws (non-nil,
+non-zero frame) and that both variant seeds really select different buildings,
+so a silently-blank or accidentally-duplicated icon fails the build instead of
+waiting to be noticed in play.
+
 The app ships an icon (`Assets.xcassets/AppIcon.appiconset`, wired up via
 `ASSETCATALOG_COMPILER_APPICON_NAME`). This is a deliberate exception to the
 grayboxing rule above: the icon is chrome around the game, not game art, so
