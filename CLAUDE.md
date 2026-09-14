@@ -74,14 +74,17 @@ simulation depth, then real art direction — has played out in full:
 
 **Genuinely next**, in rough order:
 
-- **Balance tuning.** Nearly every constant introduced in Phase 2 (land-value
-  thresholds, hazard chances/coverage floors, traffic capacities, upkeep and
-  tax rates) is documented in-place as a first guess awaiting real
-  playtesting, not a tuned design.
-- **Save/load.** Called out as deliberately deferred since the Vision section
-  above was written; the data model (`CityMap`, `Tile`, and friends) has been
-  kept `Codable` throughout for exactly this, but no save/load system exists
-  yet.
+- **Balance tuning**, now with a tool for it. Most Phase 2 constants
+  (land-value thresholds, coverage floors, traffic capacities) are still
+  documented in-place as first guesses. The economic ones have been measured:
+  see the playtest harness section below. The biggest one left is that a
+  plateaued city still banks ~20% of its tax revenue every tick — bounded now
+  rather than unbounded, but whether 20% is the *right* target is an
+  unplaytested design question, not a measured one.
+- **Simulation performance.** Tick cost grows superlinearly with map area and
+  `Traffic.computeLoad` dominates it. A 64×64 tick blocks the main thread for
+  114 ms in Release, so a large map visibly hitches, and a Debug build cannot
+  play one at all. Numbers in the harness section below.
 - Everything else is genre-parity gap-filling of the kind Phase 2 already did
   repeatedly (see `Traffic`/`Water`'s own doc comments for the pattern) —
   there's no fixed list, just whichever missing SimCity-style mechanic is
@@ -190,18 +193,40 @@ Two consequences worth knowing before playing or profiling:
   Even in Release a 64×64 tick blocks `@MainActor` for 114 ms, roughly seven
   dropped frames.
 
-### Known-unfixed: the treasury still runs away
+### The treasury runaway, and how it was fixed
 
-`testAMatureCityDoesNotBecomeAMoneyPrinter` is a strict `XCTExpectFailure`.
-Once a city plateaus it banks a flat ~74% of its tax revenue every tick
-forever (measured: +$6,160/tick, treasury past $9M in 1,500 ticks). Every cost
-in the model scales with *placed infrastructure*, which is static once a city
-is built out, while `taxRevenue` scales with *population and jobs*, which
-plateau high — so no infrastructure-scaled constant can close the gap, road
-upkeep included. Fixing it needs a cost that grows with economic activity,
-which is a design decision rather than a retuning. Strict mode means the test
-will fail loudly if it ever starts passing, so the expectation gets removed
-when that happens.
+`upkeepCost` used to scale only with *placed infrastructure*, which stops
+changing once a city is built out, while `taxRevenue` scales with *population
+and jobs*, which climb until they plateau high. The result was a plateaued
+64×64 city banking a flat +$6,160/tick forever, treasury past $9.2M in 1,500
+ticks. `roadUpkeepPerTile` had been added to fix exactly this and hadn't,
+because it addressed the wrong axis — no infrastructure-scaled constant can
+close a gap between a static cost and a much larger static income.
+
+`GameController.civicUpkeepPerCitizen` is the fix: a per-resident and per-job
+cost, charged on the same axis `taxRevenue` is computed from. At 0.75 the same
+city's steady-state net revenue falls from +$6,160/tick to +$1,798, about a
+fifth of tax revenue — still profitable enough to fund expansion, no longer
+unbounded. Kept below 1.0 deliberately, so against `taxPerPopulation` of 1 and
+`taxPerJob` of 2 every resident and job stays net-positive and growth stays
+worth pursuing.
+
+## Save and load
+
+`Cmd-O` / `Cmd-S` / `Cmd-Shift-S`. Cities are JSON (`.alphacity`), written
+atomically, defaulting to `~/Library/Application Support/Alpha++/Cities`.
+
+The layering is deliberate and worth preserving: `CitySave` (Simulation/) is a
+pure `Codable` value and knows nothing about files; `CitySaveFile` (App/) does
+the encoding and disk I/O; `CityDocument` (App/) owns the open city, the
+current file, and the panels. That split is what lets the playtest harness
+snapshot and replay cities with no file ever existing.
+
+Two invariants the tests pin: a save from a newer `formatVersion` is rejected
+*before* `restore(from:)` mutates anything, so a bad file leaves the open city
+intact; and a load bumps `GameController.cityGeneration`, which is how
+`GameView` knows to rebuild the scene's sprites rather than just refresh them
+(a load can change the tile count).
 
 ## Looking at the art without playing to it
 

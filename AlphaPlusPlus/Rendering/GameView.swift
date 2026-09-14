@@ -21,14 +21,18 @@ import SpriteKit
 /// neon game world until now.
 struct GameView: View {
 
-    /// `@StateObject` (not a plain `let`/`@State`) because `GameController`
-    /// is a *class* that SwiftUI needs to subscribe to: it re-renders this
-    /// view's body whenever `map` or `selectedTool` change, which is how the
-    /// stats bar updates after a click the SpriteKit scene handled.
-    /// `@StateObject` guarantees SwiftUI creates it exactly once for this
-    /// view's lifetime, the same "don't rebuild it on every body
-    /// evaluation" concern `scene` below has.
-    @StateObject private var controller = GameController()
+    /// `@ObservedObject`, and injected rather than created here.
+    ///
+    /// This was a `@StateObject` owned by this view until save/load arrived.
+    /// The menu bar needs to reach the same controller in order to snapshot
+    /// or replace the city, and menu commands are built in `AlphaPlusPlusApp`
+    /// — above this view, with no way to reach down into its private state.
+    /// So ownership moved up to `CityDocument`, which both this view and the
+    /// commands are handed. `@ObservedObject` still subscribes exactly as
+    /// `@StateObject` did; the only thing that changed is who guarantees the
+    /// single instance, and `CityDocument` being the App's own `@StateObject`
+    /// guarantees it just as well.
+    @ObservedObject var controller: GameController
 
     /// The SpriteKit scene, created once and held here.
     ///
@@ -53,6 +57,14 @@ struct GameView: View {
             }
             .frame(minWidth: 760, minHeight: 520)
             .ignoresSafeArea(edges: .bottom)
+        }
+        .onChange(of: controller.cityGeneration) {
+            // A load can change the tile count, so the scene's sprites no
+            // longer match the map one-to-one — the same rebuild-and-recentre
+            // the Reset button does for a map-size change. See
+            // `GameController.cityGeneration`.
+            scene?.rebuildEntireGrid()
+            scene?.centerCameraOnMap()
         }
         .onAppear {
             if scene == nil {
@@ -349,6 +361,14 @@ struct GameView: View {
             statTile(label: "Population", value: "\(controller.population)", history: controller.history.map(\.population), color: .green)
             statTile(label: "Jobs", value: "\(controller.jobs)", history: controller.history.map(\.jobs), color: .cyan)
             statTile(label: "Treasury", value: "$\(controller.treasury) (\(netRevenueLabel)/tick)", history: controller.history.map(\.treasury), color: .yellow)
+                // A tooltip rather than another visible tile: `netRevenueLabel`
+                // is one number with five things behind it, and the one a
+                // player is least likely to guess at is `civicUpkeep` — it
+                // scales with population rather than with anything they
+                // placed, so without a breakdown it reads as money vanishing.
+                // A tooltip shows it on demand without spending the toolbar
+                // width this file's own doc comments already warn is scarce.
+                .help(budgetBreakdown)
             demandTile
         }
     }
@@ -373,6 +393,18 @@ struct GameView: View {
     /// its tax base — `netRevenue` can go negative now that services cost
     /// something to run, so this can't just always prepend "+" the way the
     /// old tax-only readout did.
+    /// Every term behind `netRevenueLabel`, spelled out for the tooltip.
+    private var budgetBreakdown: String {
+        let ordinances = controller.map.ordinances.totalUpkeepCost(population: controller.population)
+        return [
+            "Tax revenue:    +\(controller.taxRevenue)",
+            "Infrastructure: -\(controller.upkeepCost)",
+            "Civic services: -\(controller.civicUpkeep)",
+            "Bond interest:  -\(controller.bondInterest)",
+            "Ordinances:     -\(ordinances)",
+        ].joined(separator: "\n")
+    }
+
     private var netRevenueLabel: String {
         let net = controller.netRevenue
         return net < 0 ? "-$\(-net)" : "+$\(net)"

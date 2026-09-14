@@ -83,12 +83,6 @@ final class PlaytestScenarioTests: XCTestCase {
     /// that the expectation should come off, instead of the suite quietly
     /// continuing to tolerate a bug that no longer exists.
     func testAMatureCityDoesNotBecomeAMoneyPrinter() {
-        XCTExpectFailure(
-            "Known unfixed: a plateaued city still banks ~74% of its tax revenue every tick, "
-            + "forever. See this test's doc comment for the measured trajectory and why "
-            + "roadUpkeepPerTile does not close the gap."
-        )
-
         let spec = PlaytestHarness.spec()
         let (_, result) = PlaytestHarness.runScenario(spec, ticks: PlaytestHarness.Profile.current.ticks)
         let tail = result.tail()
@@ -202,17 +196,13 @@ final class PlaytestScenarioTests: XCTestCase {
             "an under-served city takes \(String(format: "%.2f", meanStrikes)) hazard strikes per tick — "
             + "that reads as constant flicker, not as an occasional event (see CityHazards rates)"
         )
-    }
 
-    /// The other end of the same constant: hazards must still actually
-    /// happen. A 10x cut that silently became a 1000x cut would pass the test
-    /// above and quietly delete the mechanic.
-    func testHazardsStillHappenAtAll() {
-        let spec = PlaytestHarness.spec(includeServices: false)
-        let (_, result) = PlaytestHarness.runScenario(spec, ticks: PlaytestHarness.Profile.current.ticks)
-
+        // The other end of the same constant, asserted on the same run rather
+        // than on a second identical one: a 10x cut that silently became a
+        // 1000x cut would satisfy the bound above while quietly deleting the
+        // mechanic.
         let total = result.ticks.reduce(0) { $0 + $1.hazardStrikes }
-        XCTAssertGreaterThan(total, 0, "1,000 ticks of an unprotected city produced no hazards at all")
+        XCTAssertGreaterThan(total, 0, "an unprotected city produced no hazards at all")
     }
 
     /// Service coverage must measurably suppress hazards, which is the whole
@@ -255,9 +245,12 @@ final class PlaytestScenarioTests: XCTestCase {
     /// identical numbers, or nothing measured here is reproducible and the
     /// harness has failed at its one job.
     func testScenariosAreReproducible() {
+        // Fixed and short rather than profile-sized: this asserts determinism,
+        // which needs enough ticks for randomness to have diverged if it were
+        // going to and no more — it is not measuring a steady state.
         let spec = PlaytestHarness.CitySpec(size: 16)
-        let (_, first) = PlaytestHarness.runScenario(spec, ticks: 150, seed: 12345)
-        let (_, second) = PlaytestHarness.runScenario(spec, ticks: 150, seed: 12345)
+        let (_, first) = PlaytestHarness.runScenario(spec, ticks: 80, seed: 12345)
+        let (_, second) = PlaytestHarness.runScenario(spec, ticks: 80, seed: 12345)
 
         XCTAssertEqual(first.final.population, second.final.population)
         XCTAssertEqual(first.final.treasury, second.final.treasury)

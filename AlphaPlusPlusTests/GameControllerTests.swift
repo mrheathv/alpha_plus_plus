@@ -390,7 +390,16 @@ final class GameControllerTests: XCTestCase {
 
         // Growth happens before tax, so this taxes the *post-growth*
         // population: density 0 -> 1 -> population 4 -> tax 4 * $1 = $4.
-        XCTAssertEqual(controller.treasury, treasuryBeforeAdvance + 4)
+        XCTAssertEqual(controller.taxRevenue, 4)
+
+        // Those same 4 residents also cost the city something to serve, at
+        // `civicUpkeepPerCitizen` (0.75) each: Int(4 * 0.75) = $3. Spelled
+        // out rather than folded into one number because the whole point of
+        // civic upkeep is that it moves with population in lockstep with the
+        // tax on the *same* population — a test asserting only the $1 net
+        // would pass just as happily if either half silently changed.
+        XCTAssertEqual(controller.civicUpkeep, 3)
+        XCTAssertEqual(controller.treasury, treasuryBeforeAdvance + 4 - 3)
     }
 
     func testAdvanceSimulationTaxesJobsAtAHigherRateThanPopulation() {
@@ -405,8 +414,14 @@ final class GameControllerTests: XCTestCase {
 
         controller.advanceSimulation()
 
-        // density 0 -> 1 -> jobs 3 -> tax 3 * $2 = $6.
-        XCTAssertEqual(controller.treasury, treasuryBeforeAdvance + 6)
+        // density 0 -> 1 -> jobs 3 -> tax 3 * $2 = $6, against civic upkeep of
+        // Int(3 * 0.75) = $2 for the same 3 jobs. A job therefore still earns
+        // the city more than it costs, by more than a resident does — which
+        // is the relationship `taxPerJob` being 2 to `taxPerPopulation`'s 1
+        // exists to create, and which civic upkeep must not invert.
+        XCTAssertEqual(controller.taxRevenue, 6)
+        XCTAssertEqual(controller.civicUpkeep, 2)
+        XCTAssertEqual(controller.treasury, treasuryBeforeAdvance + 6 - 2)
     }
 
     /// The gap tax revenue closes: before it existed, spending the starting
@@ -630,6 +645,101 @@ final class GameControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.upkeepCost, Int(7 * GameController.highwayUpkeepPerTile))
         XCTAssertGreaterThan(GameController.highwayUpkeepPerTile, GameController.roadUpkeepPerTile)
+    }
+
+    // MARK: - Civic upkeep (the cost that scales with the city, not the build)
+
+    /// An empty city owes nothing: `civicUpkeep` is charged per resident and
+    /// per job, so with neither it must be exactly zero rather than some
+    /// baseline a brand-new city starts in the hole against.
+    func testCivicUpkeepIsZeroForACityWithNoPopulationOrJobs() {
+        let controller = GameController()
+        XCTAssertEqual(controller.population, 0)
+        XCTAssertEqual(controller.jobs, 0)
+        XCTAssertEqual(controller.civicUpkeep, 0)
+    }
+
+    /// The property that makes this the fix for the money-printer bug:
+    /// civic upkeep tracks *population and jobs*, the same axis `taxRevenue`
+    /// scales on — unlike every other cost in `GameController`, which scales
+    /// with placed infrastructure and therefore stops growing the moment a
+    /// city is built out.
+    func testCivicUpkeepScalesWithPopulationAndJobs() {
+        let controller = GameController(rng: AlwaysZeroRNG())
+        XCTAssertEqual(controller.civicUpkeep, 0)
+
+        // Grow a city the ordinary way, then check the cost followed.
+        for x in 0 ..< 12 {
+            controller.selectedTool = .road
+            controller.place(at: GridPosition(x: x, y: 4))
+        }
+        controller.selectedTool = .residential
+        controller.place(at: GridPosition(x: 0, y: 2))
+        controller.selectedTool = .commercial
+        controller.place(at: GridPosition(x: 2, y: 2))
+        for _ in 0 ..< 10 { controller.advanceSimulation() }
+
+        XCTAssertGreaterThan(controller.population + controller.jobs, 0, "the test city never grew")
+        XCTAssertEqual(
+            controller.civicUpkeep,
+            Int(Double(controller.population + controller.jobs) * GameController.civicUpkeepPerCitizen)
+        )
+        XCTAssertGreaterThan(controller.civicUpkeep, 0)
+    }
+
+    /// Growth must stay worth pursuing. Against `taxPerPopulation` of 1 and
+    /// `taxPerJob` of 2, a civic rate at or above 1.0 would make every new
+    /// resident a net loss and turn the whole game upside down — this pins
+    /// the rate below that line rather than trusting the constant to stay
+    /// sensible through future tuning.
+    func testEachCitizenStillEarnsTheCityMoreThanTheyCost() {
+        XCTAssertLessThan(
+            GameController.civicUpkeepPerCitizen, 1.0,
+            "a citizen now costs more than the 1/tick they pay in tax — growth is a net loss"
+        )
+        XCTAssertGreaterThan(
+            GameController.civicUpkeepPerCitizen, 0,
+            "civic upkeep is switched off, which re-opens the money-printer bug"
+        )
+    }
+
+    /// Civic upkeep is a *cost*, so it must not move when the player changes
+    /// the tax rate — otherwise raising taxes would silently raise the bill
+    /// it is meant to be paying.
+    func testCivicUpkeepIgnoresTaxRate() {
+        let controller = GameController(rng: AlwaysZeroRNG())
+        for x in 0 ..< 12 {
+            controller.selectedTool = .road
+            controller.place(at: GridPosition(x: x, y: 4))
+        }
+        controller.selectedTool = .residential
+        controller.place(at: GridPosition(x: 0, y: 2))
+        for _ in 0 ..< 10 { controller.advanceSimulation() }
+
+        controller.taxRate = 1.0
+        let atNormalRate = controller.civicUpkeep
+        controller.taxRate = 2.0
+        XCTAssertEqual(controller.civicUpkeep, atNormalRate)
+    }
+
+    /// `netRevenue` has to actually subtract it, not just expose it.
+    func testNetRevenueSubtractsCivicUpkeep() {
+        let controller = GameController(rng: AlwaysZeroRNG())
+        for x in 0 ..< 12 {
+            controller.selectedTool = .road
+            controller.place(at: GridPosition(x: x, y: 4))
+        }
+        controller.selectedTool = .residential
+        controller.place(at: GridPosition(x: 0, y: 2))
+        for _ in 0 ..< 10 { controller.advanceSimulation() }
+
+        let ordinances = controller.map.ordinances.totalUpkeepCost(population: controller.population)
+        XCTAssertEqual(
+            controller.netRevenue,
+            controller.taxRevenue - controller.upkeepCost - controller.civicUpkeep
+                - controller.bondInterest - ordinances
+        )
+        XCTAssertGreaterThan(controller.civicUpkeep, 0, "the fixture grew nobody, so this proved nothing")
     }
 
     /// `.subway` *is* a service (like `.publicTransit`) — placing one

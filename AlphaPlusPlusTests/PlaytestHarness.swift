@@ -81,7 +81,12 @@ enum PlaytestHarness {
 
         var ticks: Int {
             switch self {
-            case .quick: return 200
+            // 120 rather than a rounder 200: a 16×16 city plateaus well
+            // inside 60 ticks, so the back half is already steady state and
+            // everything beyond that is paying 25.8 ms/tick to re-measure the
+            // same numbers. Trimming it is most of why the scenario suite
+            // runs in about half the time it first did.
+            case .quick: return 120
             case .full: return 1_500
             }
         }
@@ -218,6 +223,7 @@ enum PlaytestHarness {
         let treasury: Int
         let taxRevenue: Int
         let upkeepCost: Int
+        let civicUpkeep: Int
         let bondInterest: Int
         let netRevenue: Int
         let hazardStrikes: Int
@@ -258,6 +264,7 @@ enum PlaytestHarness {
                 treasury: controller.treasury,
                 taxRevenue: controller.taxRevenue,
                 upkeepCost: controller.upkeepCost,
+                civicUpkeep: controller.civicUpkeep,
                 bondInterest: controller.bondInterest,
                 netRevenue: controller.netRevenue,
                 hazardStrikes: controller.lastHazardStrikes.count
@@ -316,6 +323,7 @@ enum PlaytestHarness {
         row("treasury") { $0.treasury }
         row("tax revenue") { $0.taxRevenue }
         row("upkeep") { $0.upkeepCost }
+        row("civic upkeep") { $0.civicUpkeep }
         row("bond interest") { $0.bondInterest }
         row("net revenue") { $0.netRevenue }
         row("hazard strikes") { $0.hazardStrikes }

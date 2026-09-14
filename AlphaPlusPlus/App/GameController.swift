@@ -408,6 +408,19 @@ final class GameController: ObservableObject {
 
     // MARK: - Save / load
 
+    /// Bumped every time the *entire* city is replaced wholesale, as opposed
+    /// to a tile changing.
+    ///
+    /// `map` is already `@Published`, so an ordinary edit redraws fine. A
+    /// load is different in kind: the tile *count* can change, which means
+    /// `GameScene`'s sprites no longer correspond one-to-one with the map and
+    /// `refreshAll()` isn't enough — it needs `rebuildEntireGrid()` plus a
+    /// recentre, the same path `GameView`'s Reset button already takes for a
+    /// map-size change. Watching this counter is how the rendering layer
+    /// learns that happened without the controller needing to know a scene
+    /// exists.
+    @Published private(set) var cityGeneration = 0
+
     /// Everything about this city worth keeping, as one serializable value.
     ///
     /// Deliberately a plain snapshot with no file handling anywhere near it:
@@ -464,6 +477,7 @@ final class GameController: ObservableObject {
            save.map.width == save.map.height {
             selectedMapSize = size
         }
+        cityGeneration += 1
     }
 
     /// Every tile a hazard struck on the most recent `advanceSimulation()`
@@ -646,13 +660,66 @@ final class GameController: ObservableObject {
         map.serviceFunding.setLevel(level, for: zone)
     }
 
+    /// Per-tick cost of running the city itself, per resident and per job —
+    /// schools, sanitation, administration, everything a city owes its
+    /// population that isn't a building the player placed.
+    ///
+    /// **This is the fix for the money-printer bug**, and it is deliberately
+    /// a different *shape* of cost than everything above it rather than
+    /// another rate to tune. A playtest harness run
+    /// (`PlaytestScenarioTests.testAMatureCityDoesNotBecomeAMoneyPrinter`)
+    /// showed a plateaued 64×64 city banking a flat +$6,160/tick forever,
+    /// treasury climbing linearly past $9.2M, with `upkeepCost` pinned at a
+    /// constant 2,174 against 8,334 of tax revenue. `roadUpkeepPerTile` had
+    /// been added to fix exactly that and hadn't, because it addressed the
+    /// wrong axis: every cost in this file scales with *placed
+    /// infrastructure*, which stops changing the moment a city is built out,
+    /// while `taxRevenue` scales with *population and jobs*, which keep
+    /// climbing until they plateau high. No infrastructure-scaled constant
+    /// can close a gap between a static cost and a much larger static
+    /// income — only a cost on the same axis as the income can, which is
+    /// this one.
+    ///
+    /// Charged per *citizen* — `population + jobs` — so it lands on exactly
+    /// what `taxRevenue` is computed from. Against `taxPerPopulation` of 1
+    /// and `taxPerJob` of 2, a rate below 1.0 leaves every resident and
+    /// every job still net-positive for the treasury, so growth remains
+    /// worth pursuing; it just stops being *unboundedly* profitable.
+    ///
+    /// Deliberately not scaled by `taxRate` (a cost, not a tax) and not by
+    /// `fundingLevel(for:)` (the funding dial is about how well individual
+    /// services are staffed, not about whether the city runs at all).
+    ///
+    /// The rate below was chosen by measurement, not guessed: at 0.75 the
+    /// same harness city's steady-state net revenue falls from +$6,160/tick
+    /// to roughly a fifth of tax revenue — a city that still profits enough
+    /// to fund expansion, without the surplus growing without bound. Like
+    /// every other number in this file it is a first guess in the sense that
+    /// the *target* (how profitable a well-run city should be) is a design
+    /// question nobody has playtested; unlike most of them, the number
+    /// actually hits the target it was aimed at.
+    static let civicUpkeepPerCitizen = 0.75
+
+    /// `civicUpkeepPerCitizen` applied to the city's current population and
+    /// jobs. Separate from `upkeepCost` rather than folded into it so the
+    /// two stay legible as the different things they are — one is what the
+    /// player *built*, the other is what the city *became*.
+    var civicUpkeep: Int {
+        Int(Double(population + jobs) * Self.civicUpkeepPerCitizen)
+    }
+
     /// What `advanceSimulation()` actually deposits (or withdraws) this
-    /// step: tax revenue minus upkeep, bond interest, and ordinance
-    /// upkeep. Can go negative — a city with more services (or more debt,
-    /// or more active ordinances) than its tax base supports yet should
-    /// feel that as a real drain, not have it silently floored at zero.
+    /// step: tax revenue minus infrastructure upkeep, the city's own civic
+    /// cost, bond interest, and ordinance upkeep. Can go negative — a city
+    /// with more services (or more debt, or more active ordinances) than its
+    /// tax base supports yet should feel that as a real drain, not have it
+    /// silently floored at zero.
     var netRevenue: Int {
-        taxRevenue - upkeepCost - bondInterest - map.ordinances.totalUpkeepCost(population: population)
+        taxRevenue
+            - upkeepCost
+            - civicUpkeep
+            - bondInterest
+            - map.ordinances.totalUpkeepCost(population: population)
     }
 
     // MARK: - Ordinances (city-wide policy toggles)
