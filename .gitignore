@@ -17,7 +17,12 @@ xcuserdata/
 # DerivedData is Xcode's build cache. It is fully regenerated from source,
 # and it is large. It must never be committed.
 DerivedData/
+# Any derived-data directory, not just the one CLAUDE.md's build command uses:
+# the playtest harness and timing benchmarks are run with a separate
+# `-derivedDataPath ./build-release` so a Release measurement doesn't fight
+# the Debug suite over the same cache.
 build/
+build-*/
 *.moved-aside
 *.hmap
 *.ipa

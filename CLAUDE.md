@@ -219,6 +219,51 @@ unbounded. Kept below 1.0 deliberately, so against `taxPerPopulation` of 1 and
 `taxPerJob` of 2 every resident and job stays net-positive and growth stays
 worth pursuing.
 
+## Is it a game yet? (measured, 2026-09-14)
+
+`DesignPlaytestTests` runs the same map under different player strategies and
+prints the spread. It exists to keep "is this fun" honest: a city builder is
+only a game if the player's decisions move the outcome.
+
+Measured on a built-out 64×64 city over 1,500 ticks:
+
+| finding | evidence |
+|---|---|
+| **Tax rate does nothing** | population 3,320 at tax 0.0, 1.0 *and* 2.0 — identical. Only treasury moves. |
+| **All-residential is dominant** | 5,152 population with zero jobs, vs 3,320 balanced. |
+| **Services are a net loss** | adding them: population 2,564 → 2,188, treasury 3.69M → 709K. Doubling their density bankrupts the city. |
+| **Utilities genuinely work** | water + power together: population 2,188 → 3,320 (+52%). |
+| **Hazards are cosmetic** | all ordinances on halves strikes (1.73 → 0.86/tick) and changes final population by 4. |
+| **No pacing** | a fully zoned map hits 90% of final population in 12 ticks. |
+| **You can't lose** | every failure found required setting tax to 0, which no player does. |
+
+The through-line is that **almost nothing pushes back on the player**. Every
+SimCity mechanic that creates a decision is a constraint — high taxes drive
+residents out, pollution spoils land, crime empties neighbourhoods. Here the
+only constraint is money, and money is abundant, so the levers are either
+strictly dominant (max the tax), negligible (ordinances, hazards), or a
+punishment for engaging (services).
+
+In rough order of how much each would add:
+
+1. **Make tax rate suppress growth.** `GameController.taxRate`'s doc comment
+   already names this as deliberately unmodeled. It is the genre's central
+   risk/reward dial and its absence is why the budget row has no decisions.
+2. **Make RCI demand gate growth, not just weight a die roll.** Today
+   imbalance slows growth slightly; it should stall it, so zoning is a
+   balancing act rather than a paint job.
+3. **Make hazard damage persist.** Abandonment the player has to fix, rather
+   than density that grows straight back.
+4. **Slow growth down.** Zoning is currently rewarded almost instantly, which
+   leaves no window in which to react to anything.
+5. **Rebalance services** so coverage is worth more than the lot and upkeep it
+   costs.
+
+One caveat on the numbers: the harness zones a whole map at once, where a
+player zones incrementally. That makes "12 ticks to plateau" a statement about
+how fast zoned land fills in, not about session length — but the underlying
+point stands, that zoning meets no resistance over time.
+
 ## Save and load
 
 `Cmd-O` / `Cmd-S` / `Cmd-Shift-S`. Cities are JSON (`.alphacity`), written

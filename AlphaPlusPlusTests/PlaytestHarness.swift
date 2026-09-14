@@ -140,6 +140,12 @@ enum PlaytestHarness {
         /// next. Larger means thinner coverage and more hazard-eligible
         /// buildings.
         var serviceSpacing: Int = 6
+
+        /// The rotation lots are zoned from, cycled in order. The default is
+        /// 2 residential : 1 commercial : 1 industrial, roughly what `Demand`
+        /// considers balanced. Override it to model a player who zones badly
+        /// — all housing and no jobs, say.
+        var zoneMix: [ZoneType] = [.residential, .residential, .commercial, .industrial]
     }
 
     /// Lays out a city according to `spec`.
@@ -197,8 +203,8 @@ enum PlaytestHarness {
     }
 
     /// Which zone lot number `index` gets: a service building at every
-    /// `serviceSpacing`-th lot when services are enabled, otherwise the
-    /// 2:1:1 residential/commercial/industrial rotation.
+    /// `serviceSpacing`-th lot when services are enabled, otherwise the next
+    /// entry in `spec.zoneMix`.
     private static func placement(for index: Int, spec: CitySpec) -> ZoneType {
         if spec.includeServices, index % spec.serviceSpacing == 0 {
             // Rotate through the services so coverage is mixed rather than
@@ -206,11 +212,7 @@ enum PlaytestHarness {
             let services: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .waterTower, .powerPlant]
             return services[(index / spec.serviceSpacing) % services.count]
         }
-        switch index % 4 {
-        case 0, 1: return .residential
-        case 2: return .commercial
-        default: return .industrial
-        }
+        return spec.zoneMix[index % spec.zoneMix.count]
     }
 
     // MARK: - Running
