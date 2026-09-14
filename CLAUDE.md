@@ -172,26 +172,34 @@ forwards only variables carrying that prefix, which it strips.
 ### Simulation cost, measured
 
 `HarnessTimingTests` (opt-in, same flag) measures per-tick cost on a fully
-built-out city:
+built-out city, and `testMeasureTickBreakdown` splits a tick by component.
 
-| map   | Debug     | Release  | lots |
-|-------|-----------|----------|------|
-| 16×16 |   25.8 ms |   0.8 ms |   33 |
-| 24×24 |  124.5 ms |   3.1 ms |   80 |
-| 32×32 |  364.2 ms |   8.5 ms |  133 |
-| 48×48 | 1994.5 ms |  39.5 ms |  320 |
-| 64×64 | 6286.3 ms | 114.5 ms |  560 |
+| map   | Debug    | Release  | lots |
+|-------|----------|----------|------|
+| 16×16 |   4.5 ms |   0.4 ms |   33 |
+| 24×24 |  11.6 ms |   1.2 ms |   80 |
+| 32×32 |  23.0 ms |   2.8 ms |  133 |
+| 48×48 |  69.7 ms |   9.6 ms |  320 |
+| 64×64 | 157.7 ms |  24.8 ms |  560 |
 
-Two consequences worth knowing before playing or profiling:
+A 64×64 tick used to cost 6,286 ms in Debug and 114.5 ms in Release — 40x and
+4.6x worse respectively. The cause was `LandValue.distanceToNearest` scanning
+every tile on the map, eight times per `value(at:)` call, once per footprint
+cell of every building: about 73 million tile visits per tick, and
+`O(buildings × tiles)`, which is what made cost grow superlinearly with map
+area. `ZoneDistanceField` precomputes every answer with a linear-time distance
+transform instead. See its doc comment.
 
-- **A Debug build cannot play a large map.** 6.3 s/tick against
-  `SimulationSpeed.fast`'s 0.35 s interval is 18x over budget, and still 6x
-  over at `.normal`. Cmd-R gives you Debug. Use Release for anything above
-  `.small`.
-- **Cost grows superlinearly in map area** — 16x the tiles costs 143x the
-  time, from `Traffic.computeLoad` routing more commuters over longer paths.
-  Even in Release a 64×64 tick blocks `@MainActor` for 114 ms, roughly seven
-  dropped frames.
+Both configurations now fit inside `SimulationSpeed.fast`'s 0.35 s interval at
+every map size, so a Debug build (what Cmd-R gives you) can play a large map.
+Release still blocks `@MainActor` for ~25 ms per 64×64 tick, about 1.5 frames.
+
+**What's left:** `Traffic.computeLoad` is now ~90% of a tick (21.8 ms of 24.3
+at 64×64). It runs a full breadth-first search over the road network per
+residential building per tick, so it is `O(homes × road tiles)` — the
+remaining superlinear term. Those searches depend only on the road layout and
+building positions, neither of which usually changes tick to tick, so caching
+them is the obvious next move if ticks need to get cheaper again.
 
 ### The treasury runaway, and how it was fixed
 

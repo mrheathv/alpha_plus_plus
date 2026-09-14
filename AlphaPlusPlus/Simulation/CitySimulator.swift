@@ -51,6 +51,12 @@ enum CitySimulator {
     /// just assigns it to `map`).
     static func advance<RNG: RandomNumberGenerator>(_ map: CityMap, using rng: inout RNG) -> CityMap {
         var next = map
+        // One field for the whole sweep rather than eight full map scans per
+        // footprint cell — see `ZoneDistanceField`'s doc comment. Built from
+        // `map` (the tick's starting state), which is the same snapshot every
+        // `LandValue.value` call below would otherwise have scanned, so this
+        // changes nothing about the answers.
+        let distances = ZoneDistanceField.compute(for: map)
         for tile in map.tiles where tile.isBuildingAnchor {
             guard tile.zone.maxDensity > 0 else { continue }
             let footprint = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
@@ -59,7 +65,7 @@ enum CitySimulator {
             if isConnected {
                 let nextLevel = tile.density + 1
                 guard nextLevel <= tile.zone.maxDensity else { continue }
-                let bestLandValue = footprint.map { LandValue.value(at: $0, in: map) }.max() ?? 0
+                let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
                 guard bestLandValue >= requiredLandValue(toReach: nextLevel) else { continue }
                 if nextLevel >= Self.waterRequiredFromLevel {
                     guard footprint.contains(where: { Water.hasSupply(at: $0, in: map) }) else { continue }

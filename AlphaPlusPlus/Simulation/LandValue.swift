@@ -122,13 +122,27 @@ enum LandValue {
     /// operating on map data takes (`CitySimulator.hasAccess`,
     /// `CityMap.contains`) — consistent signatures made this a non-decision
     /// rather than a choice.
-    static func value(at position: GridPosition, in map: CityMap) -> Double {
-        let road = roadValue(at: position, in: map)
-        let transit = falloffValue(nearestZone: .publicTransit, falloffDistance: transitFalloffDistance, at: position, in: map)
-        let subway = falloffValue(nearestZone: .subway, falloffDistance: subwayFalloffDistance, at: position, in: map)
-        let police = falloffValue(nearestZone: .policeStation, falloffDistance: serviceFalloffDistance, at: position, in: map)
-        let fire = falloffValue(nearestZone: .fireStation, falloffDistance: serviceFalloffDistance, at: position, in: map)
-        let stadium = falloffValue(nearestZone: .stadium, falloffDistance: stadiumFalloffDistance, at: position, in: map)
+    /// `field` is an optional precomputed `ZoneDistanceField`.
+    ///
+    /// Passing one is what makes a whole-map sweep affordable: without it,
+    /// every `falloffValue` below re-scans the entire tile array looking for
+    /// the nearest tile of its zone, so one `value(at:)` call costs eight full
+    /// map scans. Callers that ask about many tiles in a row —
+    /// `CitySimulator.advance`, `CityHazards.apply`, the land-value overlay —
+    /// compute the field once and hand it to every call. Callers asking about
+    /// a single tile can leave it `nil` and pay the scan, which is cheaper
+    /// than building a field for one question.
+    ///
+    /// Both paths go through `distanceToNearest`, which is the only place
+    /// either strategy is implemented, so they cannot drift apart —
+    /// `LandValueTests` asserts they agree tile for tile.
+    static func value(at position: GridPosition, in map: CityMap, using field: ZoneDistanceField? = nil) -> Double {
+        let road = roadValue(at: position, in: map, using: field)
+        let transit = falloffValue(nearestZone: .publicTransit, falloffDistance: transitFalloffDistance, at: position, in: map, using: field)
+        let subway = falloffValue(nearestZone: .subway, falloffDistance: subwayFalloffDistance, at: position, in: map, using: field)
+        let police = falloffValue(nearestZone: .policeStation, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let fire = falloffValue(nearestZone: .fireStation, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let stadium = falloffValue(nearestZone: .stadium, falloffDistance: stadiumFalloffDistance, at: position, in: map, using: field)
         let positives = max(road, transit, subway, police, fire, stadium)
 
         // The power plant penalty is subtracted from the combined positive
@@ -137,7 +151,7 @@ enum LandValue {
         // already has. Floored at 0 rather than allowed to go negative:
         // "worthless" is as bad as this model represents, not "worse than
         // worthless."
-        let powerPlantPenalty = falloffValue(nearestZone: .powerPlant, falloffDistance: powerPlantPenaltyDistance, at: position, in: map) * powerPlantPenaltyStrength
+        let powerPlantPenalty = falloffValue(nearestZone: .powerPlant, falloffDistance: powerPlantPenaltyDistance, at: position, in: map, using: field) * powerPlantPenaltyStrength
         return max(0, positives - powerPlantPenalty)
     }
 
@@ -159,10 +173,10 @@ enum LandValue {
     /// `falloffValue` calls, same falloff distance for both), and either
     /// one adjacent contributes to the congestion check. A highway isn't a
     /// *different* kind of frontage, just a higher-capacity `.road`.
-    private static func roadValue(at position: GridPosition, in map: CityMap) -> Double {
+    private static func roadValue(at position: GridPosition, in map: CityMap, using field: ZoneDistanceField?) -> Double {
         let base = max(
-            falloffValue(nearestZone: .road, falloffDistance: roadFalloffDistance, at: position, in: map),
-            falloffValue(nearestZone: .highway, falloffDistance: roadFalloffDistance, at: position, in: map)
+            falloffValue(nearestZone: .road, falloffDistance: roadFalloffDistance, at: position, in: map, using: field),
+            falloffValue(nearestZone: .highway, falloffDistance: roadFalloffDistance, at: position, in: map, using: field)
         )
         let worstAdjacentCongestion = position.orthogonalNeighbors()
             .filter { map.contains($0) && (map[$0].zone == .road || map[$0].zone == .highway) }
@@ -186,14 +200,38 @@ enum LandValue {
     /// keep in sync. `zone`s that aren't fundable report a funding level of
     /// 1.0 (see `ServiceFunding.level(for:)`), so this is a no-op for
     /// roads and every other non-service falloff.
-    static func falloffValue(nearestZone zone: ZoneType, falloffDistance: Int, at position: GridPosition, in map: CityMap) -> Double {
-        guard let distance = distanceToNearest(zone, from: position, in: map) else { return 0 }
+    static func falloffValue(
+        nearestZone zone: ZoneType,
+        falloffDistance: Int,
+        at position: GridPosition,
+        in map: CityMap,
+        using field: ZoneDistanceField? = nil
+    ) -> Double {
+        guard let distance = distanceToNearest(zone, from: position, in: map, using: field) else { return 0 }
         let base = max(0, 1 - Double(distance) / Double(falloffDistance))
+        // Funding is read live rather than baked into the field: a field is a
+        // snapshot of where things *are*, and moving a funding slider must
+        // take effect immediately rather than at the next field rebuild.
         return base * map.serviceFunding.level(for: zone)
     }
 
-    private static func distanceToNearest(_ zone: ZoneType, from position: GridPosition, in map: CityMap) -> Int? {
-        map.tiles
+    /// The one place "distance to the nearest tile of this zone" is defined.
+    ///
+    /// Two strategies, identical results: read a precomputed
+    /// `ZoneDistanceField` when the caller supplied one, otherwise scan the
+    /// map. Keeping both behind a single function is what stops the fast path
+    /// from quietly disagreeing with the slow one — and `LandValueTests` pins
+    /// that agreement across a whole map rather than trusting it.
+    private static func distanceToNearest(
+        _ zone: ZoneType,
+        from position: GridPosition,
+        in map: CityMap,
+        using field: ZoneDistanceField?
+    ) -> Int? {
+        if let field {
+            return field.distance(to: zone, at: position)
+        }
+        return map.tiles
             .filter { $0.zone == zone }
             .map { position.manhattanDistance(to: $0.position) }
             .min()

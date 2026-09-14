@@ -746,7 +746,7 @@ final class GameScene: SKScene {
                 hasPowerSupply: PowerGrid.hasSupply(at: position, in: map)
             )
         case .landValue:
-            node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
+            node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map, using: overlayDistances))
             tileRenderer.clearPips(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
@@ -817,7 +817,27 @@ final class GameScene: SKScene {
         tileRenderer.syncLaneLine(on: node, zone: zone, connections: Traffic.roadConnections(at: position, in: map))
     }
 
+    /// A `ZoneDistanceField` held only for the duration of a `refreshAll()`.
+    ///
+    /// The land-value overlay colors every tile by `LandValue.value(at:)`,
+    /// which without a precomputed field scans the whole map eight times
+    /// *per tile* — on a 64×64 map that is the same `O(tiles²)` cost that
+    /// made `CitySimulator.advance` 72% of a tick, except paid on the render
+    /// thread. Computing one field for the sweep makes it linear.
+    ///
+    /// Deliberately `nil` outside `refreshAll()` rather than kept as a
+    /// standing cache: a single `refresh(_:)` after one click would have to
+    /// decide whether an existing field were still valid, and a stale
+    /// land-value field would paint the map with values that no longer match
+    /// what the simulation would compute. One tile's worth of scanning is
+    /// cheap; being wrong is not.
+    private var overlayDistances: ZoneDistanceField?
+
     func refreshAll() {
+        if controller.overlayMode == .landValue {
+            overlayDistances = ZoneDistanceField.compute(for: map)
+        }
+        defer { overlayDistances = nil }
         for position in tileNodes.keys {
             refresh(position)
         }
@@ -1025,7 +1045,7 @@ final class GameScene: SKScene {
             let tile = map[position]
             return RenderPalette.color(for: tile.zone, density: tile.density)
         case .landValue:
-            return RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
+            return RenderPalette.landValueColor(for: LandValue.value(at: position, in: map, using: overlayDistances))
         case .traffic:
             return RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
         case .water:

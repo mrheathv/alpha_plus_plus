@@ -103,12 +103,16 @@ enum CityHazards {
     static func apply<RNG: RandomNumberGenerator>(_ risks: [Risk] = all, to map: CityMap, using rng: inout RNG) -> (map: CityMap, strikes: [Strike]) {
         var next = map
         var strikes: [Strike] = []
+        // Same reasoning as `CitySimulator.advance`: one precomputed field for
+        // the whole sweep instead of a full map scan per coverage query. See
+        // `ZoneDistanceField`.
+        let distances = ZoneDistanceField.compute(for: map)
         for tile in map.tiles where tile.isBuildingAnchor {
             guard tile.density > 0 else { continue }
             let footprint = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
             for risk in risks where risk.zones.contains(tile.zone) {
                 let bestCoverage = footprint.map {
-                    LandValue.falloffValue(nearestZone: risk.coveringService, falloffDistance: LandValue.serviceFalloffDistance, at: $0, in: map)
+                    LandValue.falloffValue(nearestZone: risk.coveringService, falloffDistance: LandValue.serviceFalloffDistance, at: $0, in: map, using: distances)
                 }.max() ?? 0
                 guard bestCoverage < risk.coverageThreshold else { continue }
                 let chance = risk.chancePerTick * ordinanceMultiplier(for: risk, in: map)

@@ -83,6 +83,66 @@ final class HarnessTimingTests: XCTestCase {
         print(log)
     }
 
+    /// Where a tick's time actually goes, component by component.
+    ///
+    /// Worth running before optimizing anything: this is what showed that the
+    /// obvious suspect was the wrong one. `Traffic.computeLoad` looked like
+    /// the bottleneck — it does a full breadth-first search per home per tick
+    /// — but measured only 18.6% of a 64×64 tick, while `CitySimulator.advance`
+    /// was 72%. The actual cost was `LandValue.distanceToNearest` scanning
+    /// every tile, eight times per `value(at:)` call, once per footprint cell
+    /// of every building; see `ZoneDistanceField`.
+    ///
+    /// After that fix, at 64×64: traffic 21.8 ms (90%), grow 1.2 ms (was
+    /// 83.0), hazards 0.4 ms (was 11.0). Traffic is now the bottleneck it
+    /// originally only looked like.
+    func testMeasureTickBreakdown() throws {
+        try XCTSkipUnless(
+            PlaytestHarness.Profile.current == .full,
+            "benchmark; set TEST_RUNNER_PLAYTEST_FULL=1 to run it"
+        )
+
+        for size in [MapSize.small.dimension, MapSize.medium.dimension, MapSize.large.dimension] {
+            let spec = PlaytestHarness.CitySpec(size: size)
+            let controller = GameController(map: PlaytestHarness.buildCity(spec), rng: SeededRNG(seed: 1))
+            for _ in 0..<5 { controller.advanceSimulation() }
+
+            let sample = 10
+
+            let tickStart = Date()
+            for _ in 0..<sample { controller.advanceSimulation() }
+            let perTick = Date().timeIntervalSince(tickStart) / Double(sample)
+
+            let map = controller.map
+            let trafficStart = Date()
+            for _ in 0..<sample { _ = Traffic.computeLoad(for: map) }
+            let perTraffic = Date().timeIntervalSince(trafficStart) / Double(sample)
+
+            func time(_ body: () -> Void) -> Double {
+                let start = Date()
+                for _ in 0..<sample { body() }
+                return Date().timeIntervalSince(start) / Double(sample) * 1000
+            }
+
+            var rng = SeededRNG(seed: 2)
+            let water = time { _ = Water.computeSupply(for: map) }
+            let demand = time { _ = Demand.compute(for: map) }
+            let hazards = time { _ = CityHazards.apply(to: map, using: &rng) }
+            let grow = time { _ = CitySimulator.advance(map, using: &rng) }
+
+            print(String(
+                format: "%d×%d tick %6.1f ms  = traffic %5.1f (%4.1f%%) water %5.1f (%4.1f%%) "
+                      + "demand %5.1f (%4.1f%%) hazards %5.1f (%4.1f%%) grow %5.1f (%4.1f%%)",
+                size, size, perTick * 1000,
+                perTraffic * 1000, perTraffic * 1000 / (perTick * 1000) * 100,
+                water, water / (perTick * 1000) * 100,
+                demand, demand / (perTick * 1000) * 100,
+                hazards, hazards / (perTick * 1000) * 100,
+                grow, grow / (perTick * 1000) * 100
+            ))
+        }
+    }
+
     private func buildConfiguration() -> String {
         #if DEBUG
         return "Debug"
