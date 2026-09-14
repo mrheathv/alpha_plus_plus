@@ -15,6 +15,15 @@ enum RenderPalette {
     /// Retrowave SimCity reference palette.
     static let background = SKColor(srgbRed: 0.051, green: 0.008, blue: 0.129, alpha: 1.0)
 
+    /// The warm glow `GameScene`'s ambient sun sprite tints — the
+    /// retrowave "sun on the horizon" motif, sitting fixed in world space
+    /// well below the map's own bottom edge rather than on any literal
+    /// horizon line (a top-down camera has none). Every reference image
+    /// this project's art pass has pulled from puts a big warm sun behind
+    /// the skyline; this is that same light, adapted for a camera that
+    /// looks straight down instead of across a horizon.
+    static let sunGlow = SKColor(srgbRed: 1.0, green: 0.58, blue: 0.16, alpha: 1.0)
+
     /// Flash color for "you can't afford this" feedback, when `place(at:)`
     /// reports `.insufficientFunds`. Saturated red reads as an error against
     /// every zone color, including road's gray and residential's green.

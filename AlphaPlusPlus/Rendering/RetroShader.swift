@@ -32,7 +32,7 @@ enum RetroShader {
             SKUniform(name: "u_scanlineCount", float: 240),
             SKUniform(name: "u_scanlineStrength", float: 0.22),
             SKUniform(name: "u_vignetteStrength", float: 0.35),
-            SKUniform(name: "u_aberrationStrength", float: 0.6),
+            SKUniform(name: "u_aberrationStrength", float: 0.2),
             SKUniform(name: "u_aspect", float: 1),
         ]
         return shader
@@ -61,7 +61,7 @@ enum RetroShader {
         // from center, growing with distance -- a VHS-tape color fringe
         // toward the edges of frame, neutral and sharp in the middle.
         vec2 direction = distanceFromCenter > 0.0001 ? normalize(centered) : vec2(0.0);
-        vec2 offset = vec2(direction.x / max(u_aspect, 0.0001), direction.y) * 0.006 * distanceFromCenter;
+        vec2 offset = vec2(direction.x / max(u_aspect, 0.0001), direction.y) * 0.004 * distanceFromCenter;
         float redSample = texture2D(u_texture, uv + offset).r;
         float blueSample = texture2D(u_texture, uv - offset).b;
 

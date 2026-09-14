@@ -54,53 +54,66 @@ enum ZoneIcon {
         case .empty, .road, .highway:
             return nil
         case .residential:
+            // No small-house stage any more: a lot is a mid-rise the
+            // moment it's built at all, a high-rise once it's grown, and
+            // an even taller high-rise variety at full density — every
+            // growable zone reads as dense city from tier 1 on, matching
+            // Commercial and Industrial's own ladders below.
             let tier = RenderPalette.growthTier(for: density)
             let accent = RenderPalette.tierColor(for: zone, tier: tier)
             switch tier {
             case 0: return nil
-            case 1: return variant(for: seed, optionCount: 2) == 0 ? smallHouseIcon(accent: accent) : smallCottageIcon(accent: accent)
-            case 2: return variant(for: seed, optionCount: 2) == 0 ? mediumHouseIcon(accent: accent) : mediumDuplexIcon(accent: accent)
-            default: return variant(for: seed, optionCount: 2) == 0 ? largeHousingIcon(accent: accent) : largeApartmentIcon(accent: accent)
+            case 1: return variant(for: seed, optionCount: 2) == 0 ? midriseApartmentIcon(accent: accent) : midriseCondoIcon(accent: accent)
+            case 2: return variant(for: seed, optionCount: 2) == 0 ? highRiseApartmentIcon(accent: accent) : residentialTowerIcon(accent: accent)
+            default: return variant(for: seed, optionCount: 2) == 0 ? superHighRiseApartmentIcon(accent: accent) : largeApartmentIcon(accent: accent)
             }
         case .commercial:
+            // Same "dense from tier 1" ladder as Residential/Industrial:
+            // the old tier 2 (mid-rise office/retail) is now tier 1, the
+            // old tier 3 (tower/stepped tower) is now tier 2, and tier 3
+            // is a new, even-taller variety — no more small shop/diner
+            // stage.
             let tier = RenderPalette.growthTier(for: density)
             let accent = RenderPalette.tierColor(for: zone, tier: tier)
             switch tier {
             case 0: return nil
-            case 1: return variant(for: seed, optionCount: 2) == 0 ? smallShopIcon(accent: accent) : smallDinerIcon(accent: accent)
-            case 2: return variant(for: seed, optionCount: 2) == 0 ? midriseOfficeIcon(accent: accent) : midriseRetailIcon(accent: accent)
-            default: return variant(for: seed, optionCount: 2) == 0 ? towerIcon(accent: accent) : steppedTowerIcon(accent: accent)
+            case 1: return variant(for: seed, optionCount: 2) == 0 ? midriseOfficeIcon(accent: accent, seed: seed) : midriseRetailIcon(accent: accent, seed: seed)
+            case 2: return variant(for: seed, optionCount: 2) == 0 ? towerIcon(accent: accent, seed: seed) : steppedTowerIcon(accent: accent, seed: seed)
+            default: return variant(for: seed, optionCount: 2) == 0 ? megaTowerIcon(accent: accent, seed: seed) : twinSpireTowerIcon(accent: accent, seed: seed)
             }
         case .industrial:
+            // Same ladder shift again: mid-rise industrial from tier 1,
+            // high-rise industrial at tier 2, an even taller variety at
+            // tier 3 — no more low-shed warehouse/factory stage.
             let tier = RenderPalette.growthTier(for: density)
             let accent = RenderPalette.tierColor(for: zone, tier: tier)
             switch tier {
             case 0: return nil
-            case 1: return variant(for: seed, optionCount: 2) == 0 ? smallWarehouseIcon(accent: accent) : smallDepotIcon(accent: accent)
-            case 2: return variant(for: seed, optionCount: 2) == 0 ? factoryIcon(accent: accent) : sawtoothFactoryIcon(accent: accent)
-            default: return variant(for: seed, optionCount: 2) == 0 ? bigFactoryIcon(accent: accent) : refineryIcon(accent: accent)
+            case 1: return variant(for: seed, optionCount: 2) == 0 ? midriseFactoryIcon(accent: accent) : midriseAssemblyIcon(accent: accent)
+            case 2: return variant(for: seed, optionCount: 2) == 0 ? highRiseIndustrialIcon(accent: accent) : industrialComplexIcon(accent: accent)
+            default: return variant(for: seed, optionCount: 2) == 0 ? industrialSpireIcon(accent: accent) : refineryTowerIcon(accent: accent)
             }
         case .policeStation:
             let accent = RenderPalette.fullColor(for: zone)
-            return variant(for: seed, optionCount: 2) == 0 ? shieldIcon(accent: accent) : patrolCarIcon(accent: accent)
+            return variant(for: seed, optionCount: 2) == 0 ? precinctTowerIcon(accent: accent, seed: seed) : patrolCarIcon(accent: accent)
         case .fireStation:
             let accent = RenderPalette.fullColor(for: zone)
-            return variant(for: seed, optionCount: 2) == 0 ? torchIcon(accent: accent) : fireTruckIcon(accent: accent)
+            return variant(for: seed, optionCount: 2) == 0 ? fireHouseTowerIcon(accent: accent, seed: seed) : twinBayFirehouseIcon(accent: accent, seed: seed)
         case .publicTransit:
             let accent = RenderPalette.fullColor(for: zone)
-            return variant(for: seed, optionCount: 2) == 0 ? transitIcon(accent: accent) : tramIcon(accent: accent)
+            return variant(for: seed, optionCount: 2) == 0 ? transitIcon(accent: accent, seed: seed) : tramIcon(accent: accent, seed: seed)
         case .powerPlant:
             let accent = RenderPalette.fullColor(for: zone)
-            return variant(for: seed, optionCount: 2) == 0 ? powerPlantIcon(accent: accent) : singleTowerPlantIcon(accent: accent)
+            return variant(for: seed, optionCount: 2) == 0 ? powerPlantIcon(accent: accent, seed: seed) : singleTowerPlantIcon(accent: accent, seed: seed)
         case .stadium:
             let accent = RenderPalette.fullColor(for: zone)
-            return variant(for: seed, optionCount: 2) == 0 ? stadiumIcon(accent: accent) : arenaIcon(accent: accent)
+            return variant(for: seed, optionCount: 2) == 0 ? stadiumIcon(accent: accent, seed: seed) : arenaIcon(accent: accent, seed: seed)
         case .subway:
             let accent = RenderPalette.fullColor(for: zone)
-            return variant(for: seed, optionCount: 2) == 0 ? subwayIcon(accent: accent) : subwayStairsIcon(accent: accent)
+            return variant(for: seed, optionCount: 2) == 0 ? subwayIcon(accent: accent, seed: seed) : subwayStairsIcon(accent: accent, seed: seed)
         case .waterTower:
             let accent = RenderPalette.fullColor(for: zone)
-            return variant(for: seed, optionCount: 2) == 0 ? waterTowerIcon(accent: accent) : standpipeTowerIcon(accent: accent)
+            return variant(for: seed, optionCount: 2) == 0 ? waterTowerIcon(accent: accent, seed: seed) : standpipeTowerIcon(accent: accent, seed: seed)
         }
     }
 
@@ -134,6 +147,33 @@ enum ZoneIcon {
     /// kind of light, not just a paler version of the building's neon.
     private static let litAccent = SKColor(srgbRed: 0.55, green: 0.98, blue: 1.0, alpha: 0.95)
 
+    /// A small mix of window-light colors — `litAccent`'s original cool
+    /// cyan, plus a warm incandescent and a dimmer cool white — spread
+    /// across one facade's many cells (`facadeGrid` below) instead of
+    /// repeating `litAccent` identically in every one. A real skyline is
+    /// never one color of window: different tenants, different bulbs,
+    /// different hours. Deliberately scoped to *dense grids* only — a
+    /// building's one or two *featured* windows (`mullionedWindow`, a
+    /// shop's display window) stay pure `litAccent`, so a single accent
+    /// window still reads as this file's one consistent "lit window"
+    /// color the way `litAccent`'s own doc comment intends; the mixed
+    /// palette is additional texture for "many independent units of
+    /// light," not a replacement for that rule.
+    private static let windowPalette: [SKColor] = [
+        litAccent,
+        SKColor(srgbRed: 1.0, green: 0.92, blue: 0.70, alpha: 0.95),  // warm incandescent
+        SKColor(srgbRed: 0.80, green: 0.92, blue: 1.0, alpha: 0.85),  // dimmer cool white
+    ]
+
+    /// Which `windowPalette` color one cell of a `facadeGrid` should be —
+    /// a fixed formula on the cell's own row/column (plus `salt`, so two
+    /// grids on the same building don't repeat the same pattern), not
+    /// real randomness, the same "deterministic, not random" reasoning
+    /// `signColor(for:salt:)` documents.
+    private static func windowColor(row: Int, column: Int, salt: Int = 0) -> SKColor {
+        windowPalette[abs(row * 11 + column * 7 + salt) % windowPalette.count]
+    }
+
     /// Doors, wheels, smokestacks, rail ties — anything that should read
     /// as the darkest, most recessed part of a shape, darker even than
     /// `silhouetteFill` itself.
@@ -145,6 +185,39 @@ enum ZoneIcon {
     /// (a neon diner sign glowing orange/red is its own classic look, not
     /// a departure from one).
     private static let emberColor = SKColor(srgbRed: 1.0, green: 0.45, blue: 0.15, alpha: 0.95)
+
+    /// The mixed-neon-signage look a dense night skyline reference photo
+    /// showed — hanging plaques and marquees in a handful of different hot
+    /// colors, not one fixed hue the way every window already reads.
+    /// `signColor(for:salt:)` below picks one per plaque, deterministically,
+    /// the same "no real randomness" reasoning `variant(for:)` documents.
+    private static let signPalette: [SKColor] = [
+        SKColor(srgbRed: 0.0, green: 0.95, blue: 1.0, alpha: 0.95),   // electric cyan
+        SKColor(srgbRed: 1.0, green: 0.15, blue: 0.55, alpha: 0.95),  // hot magenta
+        SKColor(srgbRed: 1.0, green: 0.75, blue: 0.20, alpha: 0.95),  // amber
+    ]
+
+    /// Which `signPalette` color a given signboard should glow — mixed
+    /// deterministically off the building's own anchor position the same
+    /// way `variant(for:)` mixes `x`/`y`, plus a `salt` so a building with
+    /// more than one sign doesn't just repeat the same color on each of
+    /// them.
+    private static func signColor(for seed: GridPosition, salt: Int = 0) -> SKColor {
+        signPalette[abs(seed.x &* 17 &+ seed.y &* 13 &+ salt) % signPalette.count]
+    }
+
+    /// A small glowing plaque — a projecting shop sign, a rooftop logo
+    /// board, a marquee readout — filled and stroked in its own
+    /// `signPalette` color rather than `litAccent`'s fixed cyan or the
+    /// building's own `accent`, so it reads as an independent light
+    /// source bolted onto the facade, the way real neon signage does.
+    private static func neonSignboard(rect: CGRect, color: SKColor) -> SKNode {
+        let plaque = SKShapeNode(rect: rect)
+        plaque.fillColor = color
+        plaque.strokeColor = color
+        plaque.lineWidth = 1
+        return withGlow([plaque], color: color, blurRadius: 4)
+    }
 
     /// A shape filled `silhouetteFill` (or `fill`, for the rare shape that
     /// isn't a primary body) with a crisp stroke in the zone's own
@@ -183,13 +256,107 @@ enum ZoneIcon {
         return node
     }
 
-    private static func peakedRoofPath(left: CGFloat, right: CGFloat, base: CGFloat, peak: CGPoint) -> CGPath {
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: left, y: base))
-        path.addLine(to: CGPoint(x: right, y: base))
-        path.addLine(to: peak)
-        path.closeSubpath()
-        return path
+    /// A window with an actual frame — `detail(rect:fill:)`'s flat lit
+    /// square, plus a thin `recessedAccent` border, so a pane reads as
+    /// glass sitting in a wall rather than a sticker with no edge. The
+    /// default for every *grid* of windows (an office/tower/apartment
+    /// facade): several of these read cleanly at the small size a grid
+    /// cell actually gets, where `mullionedWindow`'s extra cross-lines
+    /// would start to look like noise instead of glazing bars.
+    private static func framedWindow(rect: CGRect, fill: SKColor = litAccent, frame: SKColor = recessedAccent) -> SKShapeNode {
+        let node = SKShapeNode(rect: rect)
+        node.fillColor = fill
+        node.strokeColor = frame
+        node.lineWidth = 1
+        return node
+    }
+
+    /// A window with a crossed mullion — `framedWindow`'s frame, plus one
+    /// vertical and one horizontal glazing bar splitting it into four
+    /// panes. Reserved for a building's one or two *featured* windows (a
+    /// house's front window, a shop's display window) where there's room
+    /// for the extra line work to read as real carpentry rather than
+    /// clutter — the specific detail this file's houses were missing that
+    /// made a window read as a flat colored square instead of glass.
+    private static func mullionedWindow(rect: CGRect, fill: SKColor = litAccent, frame: SKColor = recessedAccent) -> SKNode {
+        let container = SKNode()
+        container.addChild(framedWindow(rect: rect, fill: fill, frame: frame))
+        let cross = CGMutablePath()
+        cross.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        cross.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        cross.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        cross.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        let muntin = SKShapeNode(path: cross)
+        muntin.strokeColor = frame
+        muntin.lineWidth = 1.2
+        container.addChild(muntin)
+        return container
+    }
+
+    /// A thin, darker strip along a body's own bottom edge — the ground
+    /// meeting the wall, grounding a silhouette that would otherwise seem
+    /// to float free of its own tile.
+    private static func foundation(under bodyRect: CGRect, height: CGFloat = 3) -> SKShapeNode {
+        detail(rect: CGRect(x: bodyRect.minX, y: bodyRect.minY, width: bodyRect.width, height: height), fill: recessedAccent)
+    }
+
+    /// A window strip divided into even panes by vertical mullion lines —
+    /// a vehicle's windshield/side-window band, so it reads as individual
+    /// panes of glass along the body rather than one flat lit rectangle.
+    private static func panedBand(rect: CGRect, paneCount: Int, fill: SKColor = litAccent, frame: SKColor = recessedAccent) -> SKNode {
+        let container = SKNode()
+        container.addChild(framedWindow(rect: rect, fill: fill, frame: frame))
+        let dividers = CGMutablePath()
+        let step = rect.width / CGFloat(paneCount)
+        for index in 1 ..< paneCount {
+            let x = rect.minX + step * CGFloat(index)
+            dividers.move(to: CGPoint(x: x, y: rect.minY))
+            dividers.addLine(to: CGPoint(x: x, y: rect.maxY))
+        }
+        let lines = SKShapeNode(path: dividers)
+        lines.strokeColor = frame
+        lines.lineWidth = 1
+        container.addChild(lines)
+        return container
+    }
+
+    /// A dense grid of small windows covering most of a facade — most lit,
+    /// a fixed fraction left dark for texture — the checkerboard-glow look
+    /// of a real nighttime skyscraper, instead of a handful of sparse
+    /// windows. `rows`/`columns` count cells; `cell` is each window's
+    /// size; `spacing` is the gap between cells; `origin` is the
+    /// bottom-left corner of the whole grid. Which cells are dark, and
+    /// which `windowPalette` color a lit one gets, are both fixed
+    /// formulas on the cell's own row/column, not real randomness — this
+    /// file's other "pick 1 of 2" variety already comes from
+    /// `variant(for:)`, so a second source of randomness here would just
+    /// make every tower of the same variant look different for no reason.
+    ///
+    /// Every few rows reads as one wide lit strip — a floor of continuous
+    /// glass, or a sign band — spanning the whole grid's width, instead of
+    /// individual cells: the "mixed window texture" a real dense skyline
+    /// (and the app icon's own skyline) actually has, rather than one
+    /// uniform grid of identical squares repeated top to bottom.
+    private static func facadeGrid(rows: Int, columns: Int, cell: CGSize, spacing: CGSize, origin: CGPoint) -> SKNode {
+        let container = SKNode()
+        let totalWidth = CGFloat(columns) * cell.width + CGFloat(max(columns - 1, 0)) * spacing.width
+        for row in 0 ..< rows {
+            let y = origin.y + CGFloat(row) * (cell.height + spacing.height)
+            let isStripRow = columns > 1 && row % 4 == 3 && (row * 7) % 5 < 3
+            if isStripRow {
+                let lit = (row * 3) % 7 < 6
+                let fill = lit ? windowColor(row: row, column: 0) : silhouetteFill
+                container.addChild(framedWindow(rect: CGRect(x: origin.x, y: y, width: totalWidth, height: cell.height), fill: fill))
+                continue
+            }
+            for column in 0 ..< columns {
+                let lit = (row * 3 + column * 5) % 7 < 5
+                let x = origin.x + CGFloat(column) * (cell.width + spacing.width)
+                let fill = lit ? windowColor(row: row, column: column) : silhouetteFill
+                container.addChild(framedWindow(rect: CGRect(x: x, y: y, width: cell.width, height: cell.height), fill: fill))
+            }
+        }
+        return container
     }
 
     /// A four-point polygon — used for the power plant's and water
@@ -268,221 +435,276 @@ enum ZoneIcon {
         return withGlow([path], color: litAccent, blurRadius: 4)
     }
 
-    // MARK: - Residential (3 tiers)
+    // MARK: - Residential (3 tiers — mid-rise, high-rise, taller high-rise)
 
-    /// Tier 1 (density 1–2): a single-story cottage — body, peaked roof,
-    /// one door.
-    private static func smallHouseIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -24, y: -30, width: 48, height: 28)
+    /// Tier 1 (density 1–2): a mid-rise apartment slab — the entry-level
+    /// residential building now, not a house. A dense window grid with
+    /// balcony rails under alternating floors (the detail that reads
+    /// "apartments," not "office" the way a bare grid alone would), a
+    /// street-level entrance, and `walkway`'s glowing path up to it —
+    /// residential's one visual signature (the other two zones' buildings
+    /// don't get a walkway) carried over from this zone's old house tiers.
+    private static func midriseApartmentIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -24, y: -34, width: 48, height: 62)
         let body = neonShape(rect: bodyRect, accent: accent)
-        let roof = neonShape(peakedRoofPath(left: -28, right: 28, base: -2, peak: CGPoint(x: 0, y: 26)), accent: accent)
+        let roofCap = neonShape(rect: CGRect(x: -26, y: 26, width: 52, height: 5), accent: accent, lineWidth: 1.5)
+        let canopy = neonShape(rect: CGRect(x: -10, y: -24, width: 20, height: 3), accent: accent, lineWidth: 1.2)
 
         let container = SKNode()
-        container.addChild(walkway(upTo: -30))
-        container.addChild(withGlow([body, roof], color: accent))
-        container.addChild(detail(rect: CGRect(x: -6, y: -30, width: 12, height: 16), fill: recessedAccent))
-        return container
-    }
-
-    /// Tier 1, variant B: a cottage with a chimney and a round window
-    /// instead of a plain door — same footprint and proportions as
-    /// `smallHouseIcon`, different enough silhouette that two freshly-grown
-    /// lots picked by `variant(for:optionCount:)` don't look identical.
-    private static func smallCottageIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -24, y: -30, width: 48, height: 28)
-        let body = neonShape(rect: bodyRect, accent: accent)
-        let roof = neonShape(peakedRoofPath(left: -28, right: 28, base: -2, peak: CGPoint(x: 0, y: 26)), accent: accent)
-        let chimney = neonShape(rect: CGRect(x: 12, y: 12, width: 8, height: 18), accent: accent, lineWidth: 1.5)
-
-        let container = SKNode()
-        container.addChild(walkway(upTo: -30))
-        container.addChild(withGlow([body, roof, chimney], color: accent))
-        container.addChild(dot(radius: 6, at: CGPoint(x: -6, y: -16), fill: litAccent, stroke: accent))
-        return container
-    }
-
-    /// Tier 2 (density 3–4): a taller two-story house with upstairs windows.
-    private static func mediumHouseIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -26, y: -32, width: 52, height: 42)
-        let body = neonShape(rect: bodyRect, accent: accent)
-        let roof = neonShape(peakedRoofPath(left: -30, right: 30, base: 10, peak: CGPoint(x: 0, y: 32)), accent: accent)
-
-        let container = SKNode()
-        container.addChild(walkway(upTo: -32))
-        container.addChild(withGlow([body, roof], color: accent))
-        container.addChild(detail(rect: CGRect(x: -7, y: -32, width: 14, height: 16), fill: recessedAccent))
-        container.addChild(detail(rect: CGRect(x: -21, y: -6, width: 12, height: 12), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: 9, y: -6, width: 12, height: 12), fill: litAccent))
-        return container
-    }
-
-    /// Tier 2, variant B: a flat-roofed duplex with a rooftop parapet band
-    /// and a 2×2 window grid, instead of `mediumHouseIcon`'s peaked roof
-    /// and upstairs-window pair — same footprint, a different roofline
-    /// reads as a genuinely different building rather than a recolor.
-    private static func mediumDuplexIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -26, y: -32, width: 52, height: 46)
-        let body = neonShape(rect: bodyRect, accent: accent)
-        let parapet = neonShape(rect: CGRect(x: -28, y: 14, width: 56, height: 6), accent: accent, lineWidth: 1.5)
-
-        let container = SKNode()
-        container.addChild(walkway(upTo: -32))
-        container.addChild(withGlow([body, parapet], color: accent))
-        for row in 0 ..< 2 {
-            for column in 0 ..< 2 {
-                let point = CGPoint(x: -16 + CGFloat(column) * 22, y: -22 + CGFloat(row) * 22)
-                container.addChild(detail(rect: CGRect(x: point.x, y: point.y, width: 12, height: 12), fill: litAccent))
-            }
+        container.addChild(walkway(upTo: -34))
+        container.addChild(withGlow([body, roofCap, canopy], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect))
+        container.addChild(facadeGrid(rows: 5, columns: 3, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 2.5, height: 3), origin: CGPoint(x: -14, y: -28)))
+        for row in stride(from: 0, to: 5, by: 2) {
+            let y = -28 + CGFloat(row) * 11 - 1.5
+            container.addChild(detail(rect: CGRect(x: -15, y: y, width: 30, height: 1.5), fill: recessedAccent)) // balcony rail
         }
+        container.addChild(detail(rect: CGRect(x: -6, y: -34, width: 12, height: 10), fill: recessedAccent)) // entrance
         return container
     }
 
-    /// Tier 3 (density 5): fully developed — two houses side by side, the
-    /// clearest "this lot is built out" silhouette of the three tiers.
-    private static func largeHousingIcon(accent: SKColor) -> SKNode {
-        let leftBodyRect = CGRect(x: -42, y: -30, width: 32, height: 30)
-        let leftBody = neonShape(rect: leftBodyRect, accent: accent)
-        let leftRoof = neonShape(peakedRoofPath(left: -44, right: -8, base: 0, peak: CGPoint(x: -26, y: 20)), accent: accent)
-
-        let rightBodyRect = CGRect(x: 6, y: -30, width: 36, height: 36)
-        let rightBody = neonShape(rect: rightBodyRect, accent: accent)
-        let rightRoof = neonShape(peakedRoofPath(left: 4, right: 44, base: 6, peak: CGPoint(x: 24, y: 28)), accent: accent)
+    /// Tier 1, variant B: a stepped two-block condo — a shorter, wider
+    /// base with a narrower setback block on top, instead of
+    /// `midriseApartmentIcon`'s single slab — a genuinely different
+    /// massing, the same "two different silhouettes per tier" rule every
+    /// other zone's ladder already follows.
+    private static func midriseCondoIcon(accent: SKColor) -> SKNode {
+        let lowerRect = CGRect(x: -26, y: -34, width: 52, height: 34)
+        let upperRect = CGRect(x: -18, y: 0, width: 36, height: 28)
+        let lower = neonShape(rect: lowerRect, accent: accent)
+        let upper = neonShape(rect: upperRect, accent: accent)
 
         let container = SKNode()
-        container.addChild(walkway(upTo: -30))
-        container.addChild(withGlow([leftBody, leftRoof, rightBody, rightRoof], color: accent))
-        container.addChild(detail(rect: CGRect(x: -32, y: -18, width: 10, height: 10), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: 14, y: -30, width: 12, height: 16), fill: recessedAccent))
-        container.addChild(detail(rect: CGRect(x: 30, y: -10, width: 10, height: 10), fill: litAccent))
+        container.addChild(walkway(upTo: -34))
+        container.addChild(withGlow([lower, upper], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: lowerRect))
+        container.addChild(facadeGrid(rows: 3, columns: 4, cell: CGSize(width: 8, height: 7), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -20, y: -28)))
+        container.addChild(facadeGrid(rows: 2, columns: 3, cell: CGSize(width: 7, height: 7), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -13.5, y: 4)))
+        container.addChild(detail(rect: CGRect(x: -6, y: -34, width: 12, height: 10), fill: recessedAccent)) // entrance
         return container
     }
 
-    /// Tier 3, variant B: one wide apartment block with a 3×2 window grid
-    /// and a flat roof cap, instead of `largeHousingIcon`'s two separate
-    /// peaked-roof houses — "one big building" reads as just as developed
-    /// as "two full-size houses," just a different shape of developed.
+    /// Tier 2 (density 3–4): a genuine high-rise — taller and narrower
+    /// than `midriseApartmentIcon`, with a rooftop mechanical penthouse
+    /// box instead of a plain cap.
+    private static func highRiseApartmentIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -20, y: -38, width: 40, height: 80)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let roofCap = neonShape(rect: CGRect(x: -22, y: 40, width: 44, height: 5), accent: accent, lineWidth: 1.5)
+        let penthouseBox = neonShape(rect: CGRect(x: -8, y: 45, width: 16, height: 8), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(walkway(upTo: -38))
+        container.addChild(withGlow([body, roofCap, penthouseBox], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(facadeGrid(rows: 8, columns: 3, cell: CGSize(width: 7, height: 7), spacing: CGSize(width: 2.5, height: 2.5), origin: CGPoint(x: -12.5, y: -33)))
+        for row in stride(from: 1, to: 8, by: 2) {
+            let y = -33 + CGFloat(row) * 9.5 - 1.5
+            container.addChild(detail(rect: CGRect(x: -13.5, y: y, width: 27, height: 1.5), fill: recessedAccent)) // balcony rail
+        }
+        container.addChild(detail(rect: CGRect(x: -6, y: -38, width: 12, height: 10), fill: recessedAccent)) // entrance
+        return container
+    }
+
+    /// Tier 2, variant B: a rounded-corner residential tower with recessed
+    /// balcony bays down its narrower face, instead of
+    /// `highRiseApartmentIcon`'s square-cornered slab and balcony rails —
+    /// a curved silhouette reads as a different building, not just the
+    /// same box with fewer balconies.
+    private static func residentialTowerIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -18, y: -38, width: 36, height: 78)
+        let body = neonShape(CGPath(roundedRect: bodyRect, cornerWidth: 8, cornerHeight: 8, transform: nil), accent: accent)
+        let crown = neonShape(rect: CGRect(x: -10, y: 40, width: 20, height: 10), accent: accent, lineWidth: 1.8)
+
+        let container = SKNode()
+        container.addChild(walkway(upTo: -38))
+        container.addChild(withGlow([body, crown], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(facadeGrid(rows: 8, columns: 2, cell: CGSize(width: 9, height: 7), spacing: CGSize(width: 3, height: 2.5), origin: CGPoint(x: -10.5, y: -33)))
+        container.addChild(detail(rect: CGRect(x: -6, y: -38, width: 12, height: 10), fill: recessedAccent)) // entrance
+        return container
+    }
+
+    /// Tier 3 (density 5): the tallest apartment tower — a narrow slab
+    /// pushed well past `highRiseApartmentIcon`'s height, with its own
+    /// antenna, the same "this lot redeveloped again, taller" reading
+    /// Commercial and Industrial's own tier-3 buildings use.
+    private static func superHighRiseApartmentIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -22, y: -40, width: 44, height: 96)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let roofCap = neonShape(rect: CGRect(x: -24, y: 56, width: 48, height: 5), accent: accent, lineWidth: 1.5)
+        let penthouseBox = neonShape(rect: CGRect(x: -9, y: 61, width: 18, height: 9), accent: accent, lineWidth: 1.5)
+        let antenna = neonShape(rect: CGRect(x: -1.5, y: 70, width: 3, height: 14), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(walkway(upTo: -40))
+        container.addChild(withGlow([body, roofCap, penthouseBox, antenna], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(facadeGrid(rows: 10, columns: 3, cell: CGSize(width: 7, height: 7), spacing: CGSize(width: 2.5, height: 2.5), origin: CGPoint(x: -13.5, y: -35)))
+        for row in stride(from: 1, to: 10, by: 2) {
+            let y = -35 + CGFloat(row) * 9.5 - 1.5
+            container.addChild(detail(rect: CGRect(x: -14.5, y: y, width: 29, height: 1.5), fill: recessedAccent)) // balcony rail
+        }
+        container.addChild(detail(rect: CGRect(x: -6, y: -40, width: 12, height: 10), fill: recessedAccent)) // entrance
+        return container
+    }
+
+    /// Tier 3, variant B: a wide residential superblock — tall *and* wide,
+    /// instead of `superHighRiseApartmentIcon`'s narrow tower — "big" reads
+    /// as a different shape of big, the same relationship Commercial's own
+    /// `megaTowerIcon`/`twinSpireTowerIcon` pair has.
     private static func largeApartmentIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -40, y: -30, width: 80, height: 50)
+        let bodyRect = CGRect(x: -40, y: -34, width: 80, height: 90)
         let body = neonShape(rect: bodyRect, accent: accent)
-        let roofCap = neonShape(rect: CGRect(x: -42, y: 18, width: 84, height: 6), accent: accent, lineWidth: 1.5)
+        let roofCap = neonShape(rect: CGRect(x: -42, y: 56, width: 84, height: 6), accent: accent, lineWidth: 1.5)
+        let roofBox = neonShape(rect: CGRect(x: -10, y: 62, width: 20, height: 9), accent: accent, lineWidth: 1.5) // rooftop mechanical penthouse
+        let canopy = neonShape(rect: CGRect(x: -12, y: -24, width: 24, height: 3), accent: accent, lineWidth: 1.2)
 
         let container = SKNode()
-        container.addChild(walkway(upTo: -30))
-        container.addChild(withGlow([body, roofCap], color: accent, blurRadius: 6))
-        for row in 0 ..< 2 {
-            for column in 0 ..< 3 {
-                let point = CGPoint(x: -30 + CGFloat(column) * 22, y: -18 + CGFloat(row) * 22)
-                container.addChild(detail(rect: CGRect(x: point.x, y: point.y, width: 12, height: 12), fill: litAccent))
-            }
-        }
+        container.addChild(walkway(upTo: -34))
+        container.addChild(withGlow([body, roofCap, roofBox, canopy], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect))
+        container.addChild(facadeGrid(rows: 7, columns: 5, cell: CGSize(width: 9, height: 9), spacing: CGSize(width: 2.5, height: 2.5), origin: CGPoint(x: -27.5, y: -28)))
+        container.addChild(detail(rect: CGRect(x: -8, y: -34, width: 16, height: 10), fill: recessedAccent)) // entrance
         return container
     }
 
-    // MARK: - Commercial (3 tiers)
+    // MARK: - Commercial (3 tiers — mid-rise, high-rise, taller high-rise)
 
-    /// Tier 1: a single-story storefront with an awning and a display window.
-    private static func smallShopIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -28, y: -28, width: 56, height: 32)
-        let body = neonShape(rect: bodyRect, accent: accent)
-        let awning = neonShape(rect: CGRect(x: -30, y: 4, width: 60, height: 8), accent: accent, lineWidth: 1.5)
-
-        let container = SKNode()
-        container.addChild(withGlow([body, awning], color: accent))
-        container.addChild(detail(rect: CGRect(x: -20, y: -22, width: 40, height: 20), fill: litAccent))
-        return container
-    }
-
-    /// Tier 1, variant B: a diner-style storefront with a sign on a pole
-    /// instead of an awning — same body proportions as `smallShopIcon`.
-    private static func smallDinerIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -28, y: -28, width: 56, height: 30)
-        let body = neonShape(rect: bodyRect, accent: accent)
-        let signPole = detail(rect: CGRect(x: -2, y: 2, width: 4, height: 14), fill: recessedAccent)
-        let sign = neonShape(rect: CGRect(x: -16, y: 16, width: 32, height: 10), accent: emberColor, fill: emberColor, lineWidth: 1.5)
-
-        let container = SKNode()
-        container.addChild(withGlow([body], color: accent))
-        container.addChild(withGlow([sign], color: emberColor, blurRadius: 4))
-        container.addChild(signPole)
-        container.addChild(detail(rect: CGRect(x: -22, y: -22, width: 44, height: 18), fill: litAccent))
-        return container
-    }
-
-    /// Tier 2: a mid-rise office — taller body, a grid of windows, a flat
-    /// roof cap.
-    private static func midriseOfficeIcon(accent: SKColor) -> SKNode {
+    /// Tier 1: a mid-rise office — taller body, a grid of framed windows,
+    /// a flat roof cap with its own coping line. Commercial's entry-level
+    /// building now, not a single-story storefront.
+    private static func midriseOfficeIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let bodyRect = CGRect(x: -26, y: -30, width: 52, height: 50)
         let body = neonShape(rect: bodyRect, accent: accent)
         let roofCap = neonShape(rect: CGRect(x: -28, y: 20, width: 56, height: 6), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
         container.addChild(withGlow([body, roofCap], color: accent))
+        container.addChild(foundation(under: bodyRect))
         container.addChild(satelliteDish(at: CGPoint(x: 14, y: 32)))
-        for row in 0 ..< 2 {
-            for column in 0 ..< 3 {
-                let point = CGPoint(x: -18 + CGFloat(column) * 18, y: -18 + CGFloat(row) * 20)
-                container.addChild(detail(rect: CGRect(x: point.x, y: point.y, width: 10, height: 10), fill: litAccent))
-            }
-        }
+        container.addChild(facadeGrid(rows: 4, columns: 4, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -19, y: -27)))
+        container.addChild(neonSignboard(rect: CGRect(x: -31, y: 6, width: 6, height: 16), color: signColor(for: seed))) // projecting logo sign
         return container
     }
 
-    /// Tier 2, variant B: a stepped, two-level retail building — a
+    /// Tier 1, variant B: a stepped, two-level retail building — a
     /// setback upper floor, a storefront band along the bottom, and a
     /// rooftop sign card — instead of `midriseOfficeIcon`'s plain slab
     /// with a flat roof cap.
-    private static func midriseRetailIcon(accent: SKColor) -> SKNode {
+    private static func midriseRetailIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let lowerRect = CGRect(x: -30, y: -30, width: 60, height: 28)
         let upperRect = CGRect(x: -18, y: -2, width: 36, height: 30)
         let lower = neonShape(rect: lowerRect, accent: accent)
         let upper = neonShape(rect: upperRect, accent: accent)
-        let sign = neonShape(rect: CGRect(x: -14, y: 30, width: 28, height: 8), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
-        container.addChild(withGlow([lower, upper, sign], color: accent))
+        container.addChild(withGlow([lower, upper], color: accent))
+        container.addChild(neonSignboard(rect: CGRect(x: -14, y: 30, width: 28, height: 8), color: signColor(for: seed))) // rooftop sign card, now an actual lit plaque instead of a bare outline
+        container.addChild(foundation(under: lowerRect))
         container.addChild(satelliteDish(at: CGPoint(x: -10, y: 34)))
-        container.addChild(detail(rect: CGRect(x: -24, y: -24, width: 48, height: 14), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: -12, y: 6, width: 10, height: 10), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: 2, y: 6, width: 10, height: 10), fill: litAccent))
+        container.addChild(mullionedWindow(rect: CGRect(x: -24, y: -24, width: 48, height: 14))) // ground-floor storefront glass
+        container.addChild(facadeGrid(rows: 3, columns: 3, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -14, y: 0))) // office floors above
+        container.addChild(neonSignboard(rect: CGRect(x: -34, y: 4, width: 6, height: 14), color: signColor(for: seed, salt: 1))) // side-mounted sign
         return container
     }
 
-    /// Tier 3: a high-rise tower — tall and narrow, a denser window grid,
-    /// a rooftop antenna.
-    private static func towerIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -20, y: -34, width: 40, height: 66)
+    /// Tier 2: a high-rise tower — tall and narrow, a denser window grid,
+    /// a rooftop antenna, a foundation course wide enough to actually
+    /// ground a building this tall.
+    private static func towerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        // Taller than the old single slab, with its own setback spire and
+        // an aircraft-warning light at the very top — the "big city
+        // skyscraper" silhouette, not just a scaled-up box.
+        let bodyRect = CGRect(x: -20, y: -40, width: 40, height: 84)
         let body = neonShape(rect: bodyRect, accent: accent)
-        let antenna = neonShape(rect: CGRect(x: -2, y: 32, width: 4, height: 16), accent: accent, lineWidth: 1.5)
+        let spireRect = CGRect(x: -7, y: 44, width: 14, height: 14)
+        let spire = neonShape(rect: spireRect, accent: accent, lineWidth: 1.8)
+        let antenna = neonShape(rect: CGRect(x: -1.5, y: 58, width: 3, height: 16), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
-        container.addChild(withGlow([body, antenna], color: accent, blurRadius: 6))
-        for row in 0 ..< 4 {
-            for column in 0 ..< 2 {
-                let point = CGPoint(x: -13 + CGFloat(column) * 16, y: -26 + CGFloat(row) * 14)
-                container.addChild(detail(rect: CGRect(x: point.x, y: point.y, width: 9, height: 9), fill: litAccent))
-            }
-        }
+        container.addChild(withGlow([body, spire, antenna], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 2, at: CGPoint(x: 0, y: 75), fill: emberColor, stroke: .clear)) // aircraft warning light
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(facadeGrid(rows: 7, columns: 3, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -15, y: -35)))
+        container.addChild(framedWindow(rect: CGRect(x: -3, y: 48, width: 6, height: 6)))
+        container.addChild(neonSignboard(rect: CGRect(x: -24, y: -10, width: 6, height: 18), color: signColor(for: seed)))
+        container.addChild(neonSignboard(rect: CGRect(x: 22, y: -30, width: 5, height: 14), color: signColor(for: seed, salt: 1)))
         return container
     }
 
-    /// Tier 3, variant B: a "wedding cake" tower — three stacked, shrinking
+    /// Tier 2, variant B: a "wedding cake" tower — three stacked, shrinking
     /// rectangles instead of `towerIcon`'s single tall slab, the Art Deco
     /// skyscraper silhouette every synthwave skyline reference leans on.
-    private static func steppedTowerIcon(accent: SKColor) -> SKNode {
-        let base = CGRect(x: -24, y: -34, width: 48, height: 26)
+    private static func steppedTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        // A fourth, smaller setback added above the old three-tier stack,
+        // plus a taller antenna and warning light — more of the "wedding
+        // cake" stepping the old three tiers only gestured at.
+        let base = CGRect(x: -24, y: -36, width: 48, height: 28)
         let middle = CGRect(x: -17, y: -8, width: 34, height: 26)
-        let top = CGRect(x: -10, y: 18, width: 20, height: 22)
+        let upper = CGRect(x: -10, y: 18, width: 20, height: 20)
+        let spire = CGRect(x: -5, y: 38, width: 10, height: 14)
         let baseShape = neonShape(rect: base, accent: accent)
         let middleShape = neonShape(rect: middle, accent: accent)
-        let topShape = neonShape(rect: top, accent: accent)
-        let antenna = neonShape(rect: CGRect(x: -2, y: 40, width: 4, height: 12), accent: accent, lineWidth: 1.5)
+        let upperShape = neonShape(rect: upper, accent: accent)
+        let spireShape = neonShape(rect: spire, accent: accent, lineWidth: 1.8)
+        let antenna = neonShape(rect: CGRect(x: -1.5, y: 52, width: 3, height: 14), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
-        container.addChild(withGlow([baseShape, middleShape, topShape, antenna], color: accent, blurRadius: 6))
-        container.addChild(detail(rect: CGRect(x: -16, y: -26, width: 10, height: 10), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: 2, y: -26, width: 10, height: 10), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: -9, y: 0, width: 9, height: 9), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: 4, y: 0, width: 9, height: 9), fill: litAccent))
+        container.addChild(withGlow([baseShape, middleShape, upperShape, spireShape, antenna], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 2, at: CGPoint(x: 0, y: 68), fill: emberColor, stroke: .clear)) // aircraft warning light
+        container.addChild(foundation(under: base, height: 4))
+        container.addChild(facadeGrid(rows: 2, columns: 3, cell: CGSize(width: 7, height: 7), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -13.5, y: -30)))
+        container.addChild(facadeGrid(rows: 2, columns: 2, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -9.5, y: -2)))
+        container.addChild(framedWindow(rect: CGRect(x: -6, y: 22, width: 12, height: 12)))
+        container.addChild(neonSignboard(rect: CGRect(x: -28, y: -30, width: 5, height: 16), color: signColor(for: seed)))
+        return container
+    }
+
+    /// Tier 3 (density 5): the tallest commercial building — an even
+    /// taller single slab than `towerIcon`, with a taller spire and its
+    /// own warning light further up — "this lot redeveloped again," not
+    /// `towerIcon` recolored.
+    private static func megaTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let bodyRect = CGRect(x: -20, y: -42, width: 40, height: 100)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let spireRect = CGRect(x: -6, y: 58, width: 12, height: 18)
+        let spire = neonShape(rect: spireRect, accent: accent, lineWidth: 1.8)
+        let antenna = neonShape(rect: CGRect(x: -1.5, y: 76, width: 3, height: 18), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([body, spire, antenna], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 2, at: CGPoint(x: 0, y: 95), fill: emberColor, stroke: .clear)) // aircraft warning light
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(facadeGrid(rows: 9, columns: 3, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -15, y: -37)))
+        container.addChild(framedWindow(rect: CGRect(x: -3, y: 62, width: 6, height: 6)))
+        container.addChild(neonSignboard(rect: CGRect(x: -24, y: -14, width: 6, height: 20), color: signColor(for: seed)))
+        container.addChild(neonSignboard(rect: CGRect(x: 22, y: -34, width: 5, height: 16), color: signColor(for: seed, salt: 1)))
+        return container
+    }
+
+    /// Tier 3, variant B: twin slim spires rising from one wide base —
+    /// the "twin towers" skyline silhouette, distinct from
+    /// `megaTowerIcon`'s single central spire the way `steppedTowerIcon`
+    /// already reads differently from `towerIcon` despite both being
+    /// commercial high-rises.
+    private static func twinSpireTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let baseRect = CGRect(x: -26, y: -40, width: 52, height: 40)
+        let leftSpireRect = CGRect(x: -22, y: 0, width: 16, height: 76)
+        let rightSpireRect = CGRect(x: 6, y: 0, width: 16, height: 66)
+        let base = neonShape(rect: baseRect, accent: accent)
+        let leftSpire = neonShape(rect: leftSpireRect, accent: accent, lineWidth: 2)
+        let rightSpire = neonShape(rect: rightSpireRect, accent: accent, lineWidth: 2)
+        let leftAntenna = neonShape(rect: CGRect(x: -15.5, y: 76, width: 3, height: 14), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([base, leftSpire, rightSpire, leftAntenna], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 2, at: CGPoint(x: -14, y: 91), fill: emberColor, stroke: .clear)) // aircraft warning light
+        container.addChild(foundation(under: baseRect, height: 4))
+        container.addChild(facadeGrid(rows: 3, columns: 3, cell: CGSize(width: 7, height: 7), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -12.5, y: -34)))
+        container.addChild(facadeGrid(rows: 6, columns: 2, cell: CGSize(width: 6, height: 7), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -19, y: 4)))
+        container.addChild(facadeGrid(rows: 5, columns: 2, cell: CGSize(width: 6, height: 7), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: 9, y: 4)))
+        container.addChild(neonSignboard(rect: CGRect(x: -30, y: -20, width: 5, height: 18), color: signColor(for: seed)))
         return container
     }
 
@@ -532,107 +754,158 @@ enum ZoneIcon {
         return container
     }
 
-    // MARK: - Industrial (3 tiers)
+    // MARK: - Industrial (3 tiers — mid-rise, high-rise, taller high-rise)
 
-    /// Tier 1: a plain low warehouse with a garage door.
-    private static func smallWarehouseIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -32, y: -28, width: 64, height: 26)
-        let body = neonShape(rect: bodyRect, accent: accent)
-
+    /// A roll-up garage/dock door — `recessedAccent`'s flat rect, plus a
+    /// few horizontal tick lines suggesting the door's own segmented
+    /// panels, so it reads as an actual roll-up door rather than a dark
+    /// hole cut in the wall.
+    private static func rollUpDoor(rect: CGRect) -> SKNode {
         let container = SKNode()
-        container.addChild(withGlow([body], color: accent))
-        container.addChild(detail(rect: CGRect(x: -16, y: -28, width: 32, height: 18), fill: recessedAccent))
-        return container
-    }
-
-    /// Tier 1, variant B: a loading depot — a wide low dock door instead of
-    /// a centered garage door, same body proportions as `smallWarehouseIcon`.
-    private static func smallDepotIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -32, y: -28, width: 64, height: 26)
-        let body = neonShape(rect: bodyRect, accent: accent)
-
-        let container = SKNode()
-        container.addChild(withGlow([body], color: accent))
-        container.addChild(detail(rect: CGRect(x: -32, y: -28, width: 22, height: 14), fill: recessedAccent))
-        container.addChild(detail(rect: CGRect(x: 6, y: -28, width: 22, height: 14), fill: recessedAccent))
-        return container
-    }
-
-    /// Tier 2: a warehouse that's started producing something — one
-    /// smokestack, one puff of smoke.
-    private static func factoryIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -30, y: -28, width: 60, height: 28)
-        let body = neonShape(rect: bodyRect, accent: accent)
-        let stack = neonShape(rect: CGRect(x: 6, y: 0, width: 12, height: 26), accent: accent, lineWidth: 1.5)
-
-        let container = SKNode()
-        container.addChild(withGlow([body, stack], color: accent))
-        container.addChild(dot(radius: 8, at: CGPoint(x: 12, y: 34), fill: litAccent, stroke: accent))
-        return container
-    }
-
-    /// Tier 2, variant B: a sawtooth roofline — the classic daylight-factory
-    /// silhouette, a zigzag of straight lines sitting on the same body
-    /// `factoryIcon` uses — instead of a smokestack and a puff of smoke.
-    private static func sawtoothFactoryIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -32, y: -28, width: 64, height: 22)
-        let body = neonShape(rect: bodyRect, accent: accent)
-
-        let toothPath = CGMutablePath()
-        let toothCount = 4
-        let toothWidth: CGFloat = 16
-        let startX: CGFloat = -32
-        let baseY: CGFloat = -6
-        let peakY: CGFloat = 8
-        toothPath.move(to: CGPoint(x: startX, y: baseY))
-        for index in 0 ..< toothCount {
-            let left = startX + CGFloat(index) * toothWidth
-            toothPath.addLine(to: CGPoint(x: left, y: peakY))
-            toothPath.addLine(to: CGPoint(x: left + toothWidth, y: baseY))
+        container.addChild(detail(rect: rect, fill: recessedAccent))
+        let ridges = CGMutablePath()
+        var y = rect.minY + 4
+        while y < rect.maxY - 2 {
+            ridges.move(to: CGPoint(x: rect.minX + 2, y: y))
+            ridges.addLine(to: CGPoint(x: rect.maxX - 2, y: y))
+            y += 4
         }
-        toothPath.closeSubpath()
-        let teeth = neonShape(toothPath, accent: accent, lineWidth: 1.5)
-
-        let container = SKNode()
-        container.addChild(withGlow([body, teeth], color: accent))
-        container.addChild(detail(rect: CGRect(x: -14, y: -26, width: 28, height: 16), fill: recessedAccent))
+        let lines = SKShapeNode(path: ridges)
+        lines.strokeColor = silhouetteFill
+        lines.lineWidth = 1
+        container.addChild(lines)
         return container
     }
 
-    /// Tier 3: a full factory — wider body, two stacks of different
-    /// heights, more smoke.
-    private static func bigFactoryIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -38, y: -30, width: 76, height: 28)
+    /// Tier 1: a mid-rise factory block — a roll-up loading door at street
+    /// level, a rooftop vent stack, and a hazard stripe band, instead of
+    /// the old low single-story shed. Industrial's entry-level building
+    /// now, still readably industrial (the loading door, the exposed
+    /// exterior pipe) rather than just a smaller office tower.
+    private static func midriseFactoryIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -24, y: -34, width: 48, height: 58)
         let body = neonShape(rect: bodyRect, accent: accent)
-        let shortStack = neonShape(rect: CGRect(x: -22, y: -2, width: 12, height: 22), accent: accent, lineWidth: 1.5)
-        let tallStack = neonShape(rect: CGRect(x: 6, y: -2, width: 12, height: 32), accent: accent, lineWidth: 1.5)
+        let vent = neonShape(rect: CGRect(x: 10, y: 24, width: 8, height: 14), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
-        container.addChild(withGlow([body, shortStack, tallStack], color: accent, blurRadius: 6))
-        container.addChild(dot(radius: 7, at: CGPoint(x: -16, y: 24), fill: litAccent, stroke: accent))
-        container.addChild(dot(radius: 9, at: CGPoint(x: 12, y: 38), fill: litAccent, stroke: accent))
-        container.addChild(warningTriangle(at: CGPoint(x: 28, y: -14)))
+        container.addChild(withGlow([body, vent], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect))
+        container.addChild(rollUpDoor(rect: CGRect(x: -20, y: -34, width: 20, height: 16)))
+        container.addChild(facadeGrid(rows: 3, columns: 3, cell: CGSize(width: 9, height: 9), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -14, y: -10)))
+        container.addChild(detail(rect: CGRect(x: -24, y: -16, width: 48, height: 5), fill: emberColor)) // hazard stripe band
+        container.addChild(detail(rect: CGRect(x: -22, y: -30, width: 3, height: 44), fill: recessedAccent)) // exposed exterior pipe
         return container
     }
 
-    /// Tier 3, variant B: a refinery — a wide body, one tall stack, and a
-    /// large cylindrical storage tank, instead of `bigFactoryIcon`'s two
-    /// stacks of different heights.
-    private static func refineryIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -38, y: -30, width: 76, height: 26)
+    /// Tier 1, variant B: a two-bay assembly building — two loading doors
+    /// side by side and a pair of shorter roof vents, instead of
+    /// `midriseFactoryIcon`'s single centered door and single vent.
+    private static func midriseAssemblyIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -24, y: -34, width: 48, height: 56)
         let body = neonShape(rect: bodyRect, accent: accent)
-        let stack = neonShape(rect: CGRect(x: 16, y: -4, width: 10, height: 36), accent: accent, lineWidth: 1.5)
-        let tank = SKShapeNode(ellipseOf: CGSize(width: 30, height: 30))
-        tank.position = CGPoint(x: -18, y: -4)
+        let ventA = neonShape(rect: CGRect(x: -16, y: 22, width: 7, height: 12), accent: accent, lineWidth: 1.5)
+        let ventB = neonShape(rect: CGRect(x: 9, y: 22, width: 7, height: 12), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([body, ventA, ventB], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect))
+        container.addChild(rollUpDoor(rect: CGRect(x: -22, y: -34, width: 18, height: 14)))
+        container.addChild(rollUpDoor(rect: CGRect(x: 4, y: -34, width: 18, height: 14)))
+        container.addChild(facadeGrid(rows: 3, columns: 4, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 2, height: 3), origin: CGPoint(x: -18, y: -16)))
+        container.addChild(detail(rect: CGRect(x: -24, y: -20, width: 48, height: 4), fill: emberColor)) // hazard stripe band
+        return container
+    }
+
+    /// Tier 2: a high-rise industrial building — taller than
+    /// `midriseFactoryIcon`, with two rooftop vents of different heights
+    /// and an exposed pipe running the full height of the facade.
+    private static func highRiseIndustrialIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -22, y: -36, width: 44, height: 78)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let ventA = neonShape(rect: CGRect(x: -14, y: 42, width: 9, height: 16), accent: accent, lineWidth: 1.5)
+        let ventB = neonShape(rect: CGRect(x: 5, y: 42, width: 9, height: 20), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([body, ventA, ventB], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(rollUpDoor(rect: CGRect(x: -18, y: -36, width: 18, height: 16)))
+        container.addChild(facadeGrid(rows: 5, columns: 3, cell: CGSize(width: 9, height: 9), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -14, y: -18)))
+        container.addChild(detail(rect: CGRect(x: -20, y: -20, width: 3, height: 58), fill: recessedAccent)) // exposed exterior pipe
+        container.addChild(dot(radius: 6, at: CGPoint(x: -9, y: 58), fill: litAccent, stroke: accent))
+        return container
+    }
+
+    /// Tier 2, variant B: an industrial complex — a tall central tower
+    /// with a shorter annex block beside it, instead of
+    /// `highRiseIndustrialIcon`'s single slab — "one wide site," not just
+    /// a taller box, the same "genuinely different massing" other tiers'
+    /// variant B already goes for.
+    private static func industrialComplexIcon(accent: SKColor) -> SKNode {
+        let towerRect = CGRect(x: -8, y: -36, width: 30, height: 76)
+        let annexRect = CGRect(x: -34, y: -36, width: 26, height: 40)
+        let tower = neonShape(rect: towerRect, accent: accent)
+        let annex = neonShape(rect: annexRect, accent: accent)
+        let stack = neonShape(rect: CGRect(x: 2, y: 40, width: 10, height: 20), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([tower, annex, stack], color: accent, blurRadius: 6))
+        container.addChild(foundation(under: towerRect, height: 4))
+        container.addChild(foundation(under: annexRect, height: 4))
+        container.addChild(rollUpDoor(rect: CGRect(x: -30, y: -36, width: 18, height: 14)))
+        container.addChild(facadeGrid(rows: 6, columns: 2, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -5, y: -30)))
+        container.addChild(facadeGrid(rows: 2, columns: 2, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -28, y: -14)))
+        container.addChild(dot(radius: 7, at: CGPoint(x: 7, y: 62), fill: litAccent, stroke: accent))
+        container.addChild(warningTriangle(at: CGPoint(x: 15, y: -20)))
+        return container
+    }
+
+    /// Tier 3 (density 5): the tallest industrial building — a high-rise
+    /// pushed even taller than `highRiseIndustrialIcon`, with its own
+    /// rooftop stack and warning light — the "even taller variety of
+    /// high-rise" reading Residential/Commercial's own tier-3 buildings use.
+    private static func industrialSpireIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -22, y: -38, width: 44, height: 92)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let stack = neonShape(rect: CGRect(x: -3, y: 54, width: 6, height: 22), accent: accent, lineWidth: 1.8)
+
+        let container = SKNode()
+        container.addChild(withGlow([body, stack], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 3, at: CGPoint(x: 0, y: 78), fill: emberColor, stroke: .clear)) // warning light
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(rollUpDoor(rect: CGRect(x: -18, y: -38, width: 18, height: 16)))
+        container.addChild(facadeGrid(rows: 6, columns: 3, cell: CGSize(width: 9, height: 9), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -14, y: -20)))
+        container.addChild(detail(rect: CGRect(x: -20, y: -22, width: 3, height: 74), fill: recessedAccent)) // exposed exterior pipe
+        container.addChild(detail(rect: CGRect(x: -22, y: 49, width: 44, height: 5), fill: emberColor)) // hazard stripe band
+        container.addChild(warningTriangle(at: CGPoint(x: 16, y: -28)))
+        return container
+    }
+
+    /// Tier 3, variant B: a refinery tower — `refineryIcon`'s cylindrical
+    /// storage tank and banding, now mounted at the base of a genuine
+    /// high-rise instead of a low wide body — the tank makes it read as
+    /// industrial, the height makes it read as tier 3.
+    private static func refineryTowerIcon(accent: SKColor) -> SKNode {
+        let bodyRect = CGRect(x: -10, y: -38, width: 34, height: 86)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let tank = SKShapeNode(ellipseOf: CGSize(width: 34, height: 34))
+        tank.position = CGPoint(x: -26, y: -22)
         tank.fillColor = silhouetteFill
         tank.strokeColor = accent
         tank.lineWidth = 2.5
+        let tankBand = SKShapeNode(ellipseOf: CGSize(width: 34, height: 9))
+        tankBand.position = CGPoint(x: -26, y: -22)
+        tankBand.fillColor = .clear
+        tankBand.strokeColor = accent
+        tankBand.lineWidth = 1
 
         let container = SKNode()
-        container.addChild(withGlow([body, stack, tank], color: accent, blurRadius: 6))
-        container.addChild(dot(radius: 6, at: CGPoint(x: 21, y: 34), fill: litAccent, stroke: accent))
-        container.addChild(detail(rect: CGRect(x: -22, y: -6, width: 8, height: 8), fill: recessedAccent))
-        container.addChild(warningTriangle(at: CGPoint(x: 0, y: -14)))
+        container.addChild(withGlow([body, tank], color: accent, blurRadius: 6))
+        container.addChild(tankBand)
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(facadeGrid(rows: 6, columns: 2, cell: CGSize(width: 9, height: 9), spacing: CGSize(width: 3, height: 3), origin: CGPoint(x: -4, y: -20)))
+        container.addChild(detail(rect: CGRect(x: -30, y: -6, width: 8, height: 8), fill: recessedAccent))
+        container.addChild(dot(radius: 5, at: CGPoint(x: 7, y: 52), fill: litAccent, stroke: accent))
+        container.addChild(warningTriangle(at: CGPoint(x: 15, y: -30)))
         return container
     }
 
@@ -640,27 +913,29 @@ enum ZoneIcon {
     // second variant is the only way two of the same service ever look
     // different from one another)
 
-    /// A badge: shield outline with a gold band and a glowing center rivet.
-    private static func shieldIcon(accent: SKColor) -> SKNode {
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: -24, y: 28))
-        path.addLine(to: CGPoint(x: 24, y: 28))
-        path.addLine(to: CGPoint(x: 24, y: -6))
-        path.addLine(to: CGPoint(x: 0, y: -32))
-        path.addLine(to: CGPoint(x: -24, y: -6))
-        path.closeSubpath()
-        let badge = neonShape(path, accent: accent)
+    /// A precinct tower: a mid-rise station house with a dense window
+    /// grid, a rooftop beacon light, and its own projecting sign — a real
+    /// building now, matching the mid-rise/high-rise language every
+    /// growable zone's own tier-1 building already uses, instead of a
+    /// free-floating badge symbol with no architecture to it.
+    private static func precinctTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let bodyRect = CGRect(x: -22, y: -34, width: 44, height: 64)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let roofCap = neonShape(rect: CGRect(x: -24, y: 30, width: 48, height: 5), accent: accent, lineWidth: 1.5)
+        let beacon = neonShape(rect: CGRect(x: -3, y: 35, width: 6, height: 10), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
-        container.addChild(withGlow([badge], color: accent))
-        let gold = SKColor(srgbRed: 0.90, green: 0.75, blue: 0.25, alpha: 0.95)
-        container.addChild(detail(rect: CGRect(x: -18, y: -4, width: 36, height: 10), fill: gold))
-        container.addChild(dot(radius: 5, at: .zero, fill: litAccent, stroke: accent))
+        container.addChild(withGlow([body, roofCap, beacon], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 3, at: CGPoint(x: 0, y: 47), fill: litAccent, stroke: accent)) // rooftop beacon light
+        container.addChild(foundation(under: bodyRect, height: 4))
+        container.addChild(facadeGrid(rows: 5, columns: 3, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 2.5, height: 2.5), origin: CGPoint(x: -13, y: -28)))
+        container.addChild(detail(rect: CGRect(x: -6, y: -34, width: 12, height: 10), fill: recessedAccent)) // entrance
+        container.addChild(neonSignboard(rect: CGRect(x: -28, y: -14, width: 6, height: 16), color: signColor(for: seed))) // precinct sign
         return container
     }
 
     /// A patrol car: a rounded body, a raised cabin, and a light bar on
-    /// the roof — a vehicle instead of a badge, the same "building vs.
+    /// the roof — a vehicle instead of a building, the same "building vs.
     /// vehicle" variety `transitIcon`/`tramIcon` use for Transit.
     private static func patrolCarIcon(accent: SKColor) -> SKNode {
         let bodyRect = CGRect(x: -30, y: -12, width: 60, height: 22)
@@ -669,70 +944,75 @@ enum ZoneIcon {
 
         let container = SKNode()
         container.addChild(withGlow([body, cabin], color: accent))
-        container.addChild(detail(rect: CGRect(x: -10, y: 12, width: 20, height: 8), fill: litAccent))
-        container.addChild(detail(rect: CGRect(x: -8, y: 22, width: 16, height: 5), fill: litAccent)) // roof light bar
+        container.addChild(panedBand(rect: CGRect(x: -10, y: 12, width: 20, height: 8), paneCount: 2))
+        container.addChild(detail(rect: CGRect(x: -8, y: 22, width: 7, height: 5), fill: emberColor)) // light bar, red side
+        container.addChild(detail(rect: CGRect(x: 1, y: 22, width: 7, height: 5), fill: litAccent)) // light bar, blue side
         container.addChild(dot(radius: 6, at: CGPoint(x: -18, y: -16), fill: recessedAccent, stroke: accent))
         container.addChild(dot(radius: 6, at: CGPoint(x: 18, y: -16), fill: recessedAccent, stroke: accent))
         return container
     }
 
-    /// A torch: the same flame silhouette as before, with a smaller
-    /// ember-colored flame nested inside for a two-tone look, and its own
-    /// glow like every other icon.
-    private static func torchIcon(accent: SKColor) -> SKNode {
-        let outerFlame = neonShape(flamePath(scale: 1.0), accent: accent)
+    /// A firehouse: a squat station body with a tall, narrow hose-drying
+    /// tower attached beside it — the real architectural feature that
+    /// reads as "fire station" at a glance the way a plain flame symbol
+    /// couldn't, and gives it real height matching the mid-rise language
+    /// everywhere else. A rooftop warning light on the tower stands in for
+    /// the flame this variant used to be.
+    private static func fireHouseTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let bodyRect = CGRect(x: -24, y: -34, width: 40, height: 46)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let hoseTowerRect = CGRect(x: 18, y: -34, width: 14, height: 70)
+        let hoseTower = neonShape(rect: hoseTowerRect, accent: accent, lineWidth: 1.8)
+        let towerCap = neonShape(rect: CGRect(x: 16, y: 34, width: 18, height: 5), accent: accent, lineWidth: 1.5)
+
         let container = SKNode()
-        container.addChild(withGlow([outerFlame], color: accent))
-        let inner = neonShape(flamePath(scale: 0.55), accent: emberColor, fill: emberColor, lineWidth: 1.5)
-        inner.position = CGPoint(x: 0, y: -3)
-        container.addChild(withGlow([inner], color: emberColor, blurRadius: 4))
+        container.addChild(withGlow([body, hoseTower, towerCap], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 3, at: CGPoint(x: 25, y: 42), fill: emberColor, stroke: .clear)) // rooftop warning light
+        container.addChild(foundation(under: bodyRect))
+        container.addChild(rollUpDoor(rect: CGRect(x: -20, y: -34, width: 32, height: 20)))
+        container.addChild(facadeGrid(rows: 2, columns: 3, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -12, y: -4)))
+        container.addChild(neonSignboard(rect: CGRect(x: -30, y: -8, width: 6, height: 14), color: signColor(for: seed))) // firehouse sign
         return container
     }
 
-    private static func flamePath(scale: CGFloat) -> CGPath {
-        let points: [CGPoint] = [
-            CGPoint(x: 0, y: 32), CGPoint(x: 18, y: -6), CGPoint(x: 9, y: -6),
-            CGPoint(x: 9, y: -28), CGPoint(x: -9, y: -28), CGPoint(x: -9, y: -6), CGPoint(x: -18, y: -6),
-        ]
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: points[0].x * scale, y: points[0].y * scale))
-        for point in points.dropFirst() {
-            path.addLine(to: CGPoint(x: point.x * scale, y: point.y * scale))
-        }
-        path.closeSubpath()
-        return path
-    }
-
-    /// A fire truck: a long body, a raised cabin, two wheels, a folded
-    /// ladder along the roofline, and one small ember-colored light — a
-    /// vehicle instead of a flame, `fireTruckIcon` to `torchIcon`'s
-    /// building-vs-vehicle pairing the same way `patrolCarIcon` pairs
-    /// with `shieldIcon`.
-    private static func fireTruckIcon(accent: SKColor) -> SKNode {
-        let bodyRect = CGRect(x: -34, y: -14, width: 68, height: 26)
-        let body = neonShape(CGPath(roundedRect: bodyRect, cornerWidth: 6, cornerHeight: 6, transform: nil), accent: accent)
-        let cabin = neonShape(rect: CGRect(x: 18, y: -6, width: 16, height: 18), accent: accent, lineWidth: 1.5)
+    /// A twin-bay firehouse: two roll-up apparatus doors side by side under
+    /// a wide, flat-roofed body, with a rooftop siren instead of
+    /// `fireHouseTowerIcon`'s tall hose-drying tower — a second *building*
+    /// variant, not a vehicle. Police, Transit, and every growable zone
+    /// keep a genuine two-different-buildings (or two-different-vehicles)
+    /// pair; Fire used to be the odd one out with a truck standing in for
+    /// its second look, which read as inconsistent once every other
+    /// service in the skyline was a real building — a live request asked
+    /// for exactly this fix.
+    private static func twinBayFirehouseIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let bodyRect = CGRect(x: -30, y: -34, width: 60, height: 48)
+        let body = neonShape(rect: bodyRect, accent: accent)
+        let roofCap = neonShape(rect: CGRect(x: -32, y: 14, width: 64, height: 5), accent: accent, lineWidth: 1.5)
+        let siren = neonShape(rect: CGRect(x: -4, y: 19, width: 8, height: 10), accent: accent, lineWidth: 1.5)
 
         let container = SKNode()
-        container.addChild(withGlow([body, cabin], color: accent))
-        container.addChild(detail(rect: CGRect(x: -28, y: 10, width: 44, height: 3), fill: recessedAccent)) // folded ladder
-        container.addChild(detail(rect: CGRect(x: 20, y: 0, width: 10, height: 10), fill: litAccent))
-        container.addChild(dot(radius: 7, at: CGPoint(x: -18, y: -18), fill: recessedAccent, stroke: accent))
-        container.addChild(dot(radius: 7, at: CGPoint(x: 14, y: -18), fill: recessedAccent, stroke: accent))
-        container.addChild(dot(radius: 4, at: CGPoint(x: -4, y: 20), fill: emberColor, stroke: accent))
+        container.addChild(withGlow([body, roofCap, siren], color: accent, blurRadius: 6))
+        container.addChild(dot(radius: 3, at: CGPoint(x: 0, y: 32), fill: emberColor, stroke: .clear)) // rooftop siren light
+        container.addChild(foundation(under: bodyRect))
+        container.addChild(rollUpDoor(rect: CGRect(x: -26, y: -34, width: 22, height: 22)))
+        container.addChild(rollUpDoor(rect: CGRect(x: 4, y: -34, width: 22, height: 22)))
+        container.addChild(facadeGrid(rows: 2, columns: 4, cell: CGSize(width: 8, height: 8), spacing: CGSize(width: 2, height: 2), origin: CGPoint(x: -22, y: -8)))
+        container.addChild(neonSignboard(rect: CGRect(x: 32, y: -14, width: 6, height: 16), color: signColor(for: seed)))
         return container
     }
 
-    /// A bus: rounded body, a windshield band, two wheels.
-    private static func transitIcon(accent: SKColor) -> SKNode {
+    /// A bus: rounded body, a windshield band split into individual panes,
+    /// two wheels.
+    private static func transitIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let bodyRect = CGRect(x: -30, y: -14, width: 60, height: 28)
         let body = neonShape(CGPath(roundedRect: bodyRect, cornerWidth: 8, cornerHeight: 8, transform: nil), accent: accent)
 
         let container = SKNode()
         container.addChild(withGlow([body], color: accent))
-        container.addChild(detail(rect: CGRect(x: -24, y: 1, width: 48, height: 9), fill: litAccent))
+        container.addChild(panedBand(rect: CGRect(x: -24, y: 1, width: 48, height: 9), paneCount: 4))
         container.addChild(dot(radius: 6, at: CGPoint(x: -17, y: -17), fill: recessedAccent, stroke: accent))
         container.addChild(dot(radius: 6, at: CGPoint(x: 17, y: -17), fill: recessedAccent, stroke: accent))
+        container.addChild(neonSignboard(rect: CGRect(x: 24, y: -6, width: 5, height: 12), color: signColor(for: seed))) // route sign
         return container
     }
 
@@ -740,17 +1020,18 @@ enum ZoneIcon {
     /// distinguished by a pantograph arm reaching up to an overhead wire
     /// instead of round wheel-wells — the detail that reads "rail-guided
     /// street vehicle" rather than "bus" at this size.
-    private static func tramIcon(accent: SKColor) -> SKNode {
+    private static func tramIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let bodyRect = CGRect(x: -32, y: -14, width: 64, height: 26)
         let body = neonShape(CGPath(roundedRect: bodyRect, cornerWidth: 6, cornerHeight: 6, transform: nil), accent: accent)
 
         let container = SKNode()
         container.addChild(withGlow([body], color: accent))
-        container.addChild(detail(rect: CGRect(x: -26, y: -2, width: 52, height: 9), fill: litAccent))
+        container.addChild(panedBand(rect: CGRect(x: -26, y: -2, width: 52, height: 9), paneCount: 4))
         container.addChild(dot(radius: 6, at: CGPoint(x: -20, y: -18), fill: recessedAccent, stroke: accent))
         container.addChild(dot(radius: 6, at: CGPoint(x: 20, y: -18), fill: recessedAccent, stroke: accent))
         container.addChild(detail(rect: CGRect(x: -2, y: 12, width: 4, height: 14), fill: recessedAccent)) // pantograph arm
         container.addChild(detail(rect: CGRect(x: -20, y: 26, width: 40, height: 3), fill: accent)) // overhead wire
+        container.addChild(neonSignboard(rect: CGRect(x: 26, y: -6, width: 5, height: 12), color: signColor(for: seed))) // route sign
         return container
     }
 
@@ -758,12 +1039,13 @@ enum ZoneIcon {
     /// another wheeled vehicle — `.publicTransit`'s bus already owns that
     /// silhouette, and a track-and-tie motif reads as "rail" at a glance
     /// the way a second bus wouldn't distinguish itself from the first.
-    private static func subwayIcon(accent: SKColor) -> SKNode {
+    private static func subwayIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let kioskRect = CGRect(x: -22, y: -2, width: 44, height: 32)
         let kiosk = neonShape(CGPath(roundedRect: kioskRect, cornerWidth: 10, cornerHeight: 10, transform: nil), accent: accent)
 
         let container = SKNode()
         container.addChild(withGlow([kiosk], color: accent))
+        container.addChild(framedWindow(rect: CGRect(x: -16, y: 20, width: 32, height: 8), fill: signColor(for: seed))) // lit sign panel above the entrance
         container.addChild(detail(rect: CGRect(x: -11, y: -2, width: 22, height: 20), fill: recessedAccent))
 
         // Two rails with cross-ties beneath the kiosk, built from straight
@@ -782,7 +1064,7 @@ enum ZoneIcon {
     /// than a street-level kiosk — a receding row of narrowing steps
     /// (the same "shrinking rects" perspective trick used elsewhere in
     /// this file, just applied downward) under an entrance sign band.
-    private static func subwayStairsIcon(accent: SKColor) -> SKNode {
+    private static func subwayStairsIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let frameRect = CGRect(x: -26, y: -30, width: 52, height: 40)
         let frame = neonShape(rect: frameRect, accent: accent)
 
@@ -794,7 +1076,7 @@ enum ZoneIcon {
             let stepY = -20 - CGFloat(index) * 6
             container.addChild(detail(rect: CGRect(x: -22 + inset, y: stepY, width: 44 - inset * 2, height: 4), fill: recessedAccent))
         }
-        container.addChild(detail(rect: CGRect(x: -22, y: 6, width: 44, height: 8), fill: litAccent)) // entrance sign band
+        container.addChild(framedWindow(rect: CGRect(x: -22, y: 6, width: 44, height: 8), fill: signColor(for: seed))) // entrance sign band
         return container
     }
 
@@ -802,7 +1084,7 @@ enum ZoneIcon {
     /// classic silhouette, built the same way the power plant's cooling
     /// towers are (the shared `trapezoid` primitive), just narrow-to-narrow
     /// rather than narrow-to-wide.
-    private static func waterTowerIcon(accent: SKColor) -> SKNode {
+    private static func waterTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let tankRect = CGRect(x: -26, y: 6, width: 52, height: 34)
         let tank = neonShape(CGPath(roundedRect: tankRect, cornerWidth: 12, cornerHeight: 10, transform: nil), accent: accent)
         let leftLeg = neonShape(trapezoid(
@@ -819,6 +1101,7 @@ enum ZoneIcon {
         container.addChild(withGlow([tank, leftLeg, rightLeg, centerLeg], color: accent))
         container.addChild(detail(rect: CGRect(x: -26, y: 6, width: 52, height: 4), fill: recessedAccent)) // support band at the tank's base
         container.addChild(detail(rect: CGRect(x: -24, y: -14, width: 48, height: 4), fill: recessedAccent)) // cross-brace tying the legs together
+        container.addChild(neonSignboard(rect: CGRect(x: -3, y: -30, width: 6, height: 14), color: signColor(for: seed))) // municipal placard on the center leg
         return container
     }
 
@@ -826,7 +1109,7 @@ enum ZoneIcon {
     /// solid base, no legs — the other real-world water tower silhouette,
     /// distinct enough from `waterTowerIcon`'s elevated-tank-on-legs look
     /// to read as a different building at a glance.
-    private static func standpipeTowerIcon(accent: SKColor) -> SKNode {
+    private static func standpipeTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let tankRect = CGRect(x: -20, y: -10, width: 40, height: 44)
         let tank = neonShape(CGPath(roundedRect: tankRect, cornerWidth: 10, cornerHeight: 10, transform: nil), accent: accent)
         let baseRect = CGRect(x: -14, y: -34, width: 28, height: 24)
@@ -836,12 +1119,14 @@ enum ZoneIcon {
         container.addChild(withGlow([tank, base], color: accent))
         container.addChild(detail(rect: CGRect(x: -20, y: 20, width: 40, height: 4), fill: recessedAccent))
         container.addChild(detail(rect: CGRect(x: -20, y: -2, width: 40, height: 4), fill: recessedAccent))
+        container.addChild(foundation(under: baseRect))
+        container.addChild(neonSignboard(rect: CGRect(x: -26, y: -20, width: 5, height: 14), color: signColor(for: seed))) // municipal placard
         return container
     }
 
     /// A power plant: a base building with a hazard stripe and two
     /// trapezoidal cooling towers of different heights.
-    private static func powerPlantIcon(accent: SKColor) -> SKNode {
+    private static func powerPlantIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let baseRect = CGRect(x: -38, y: -34, width: 76, height: 24)
         let base = neonShape(rect: baseRect, accent: accent)
         let towerA = neonShape(trapezoid(
@@ -855,7 +1140,11 @@ enum ZoneIcon {
 
         let container = SKNode()
         container.addChild(withGlow([base, towerA, towerB], color: accent, blurRadius: 6))
+        container.addChild(framedWindow(rect: CGRect(x: -34, y: -30, width: 14, height: 12)))
+        container.addChild(framedWindow(rect: CGRect(x: -6, y: -30, width: 14, height: 12)))
         container.addChild(detail(rect: CGRect(x: -38, y: -10, width: 76, height: 6), fill: emberColor))
+        container.addChild(foundation(under: baseRect))
+        container.addChild(neonSignboard(rect: CGRect(x: -44, y: -28, width: 6, height: 16), color: signColor(for: seed))) // plant ID sign
         return container
     }
 
@@ -863,7 +1152,7 @@ enum ZoneIcon {
     /// (two trapezoids, narrow waist between a wide base and a wider
     /// crown — built from the same `trapezoid` primitive as `powerPlantIcon`'s
     /// pair of towers) instead of two smaller ones side by side.
-    private static func singleTowerPlantIcon(accent: SKColor) -> SKNode {
+    private static func singleTowerPlantIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let baseRect = CGRect(x: -34, y: -34, width: 68, height: 20)
         let base = neonShape(rect: baseRect, accent: accent)
         let tower = neonShape(trapezoid(
@@ -877,13 +1166,17 @@ enum ZoneIcon {
 
         let container = SKNode()
         container.addChild(withGlow([base, tower, crown], color: accent, blurRadius: 6))
+        container.addChild(framedWindow(rect: CGRect(x: -28, y: -20, width: 12, height: 6)))
+        container.addChild(framedWindow(rect: CGRect(x: 16, y: -20, width: 12, height: 6)))
         container.addChild(detail(rect: CGRect(x: -34, y: -28, width: 68, height: 6), fill: emberColor))
+        container.addChild(foundation(under: baseRect))
+        container.addChild(neonSignboard(rect: CGRect(x: -40, y: -28, width: 6, height: 14), color: signColor(for: seed))) // plant ID sign
         return container
     }
 
     /// A stadium: an outer bowl, a track ring, a field, and four glowing
     /// corner floodlights.
-    private static func stadiumIcon(accent: SKColor) -> SKNode {
+    private static func stadiumIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let bowlShape = SKShapeNode(ellipseOf: CGSize(width: 88, height: 62))
         bowlShape.fillColor = silhouetteFill
         bowlShape.strokeColor = accent
@@ -909,23 +1202,33 @@ enum ZoneIcon {
         for (dx, dy): (CGFloat, CGFloat) in [(-40, 26), (40, 26), (-40, -26), (40, -26)] {
             container.addChild(dot(radius: 4, at: CGPoint(x: dx, y: dy), fill: litAccent, stroke: accent))
         }
+        container.addChild(neonSignboard(rect: CGRect(x: -14, y: 34, width: 28, height: 8), color: signColor(for: seed))) // scoreboard sign above the bowl
         return container
     }
 
     /// An enclosed arena: a rounded rectangular hall with a marquee sign,
     /// instead of `stadiumIcon`'s open bowl-and-track — "indoor venue" as
     /// a genuinely different building shape, not just the bowl recolored.
-    private static func arenaIcon(accent: SKColor) -> SKNode {
+    private static func arenaIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let bodyRect = CGRect(x: -44, y: -30, width: 88, height: 40)
         let body = neonShape(CGPath(roundedRect: bodyRect, cornerWidth: 16, cornerHeight: 16, transform: nil), accent: accent, lineWidth: 3)
         let marquee = neonShape(rect: CGRect(x: -20, y: 12, width: 40, height: 10), accent: accent, lineWidth: 1.5)
+        // An attached office/hotel tower — the "arena complex," not just
+        // the bowl — the detail that gives this variant real height next
+        // to the mid-rise/high-rise buildings surrounding it.
+        let annexRect = CGRect(x: 30, y: -30, width: 20, height: 66)
+        let annex = neonShape(rect: annexRect, accent: accent, lineWidth: 1.8)
 
         let container = SKNode()
-        container.addChild(withGlow([body, marquee], color: accent, blurRadius: 6))
-        container.addChild(detail(rect: CGRect(x: -16, y: 14, width: 32, height: 6), fill: litAccent))
-        for (dx, dy): (CGFloat, CGFloat) in [(-34, -22), (34, -22)] {
+        container.addChild(withGlow([body, marquee, annex], color: accent, blurRadius: 6))
+        container.addChild(panedBand(rect: CGRect(x: -16, y: 14, width: 32, height: 6), paneCount: 4, fill: signColor(for: seed)))
+        container.addChild(foundation(under: bodyRect))
+        container.addChild(foundation(under: annexRect, height: 4))
+        container.addChild(facadeGrid(rows: 5, columns: 1, cell: CGSize(width: 10, height: 8), spacing: CGSize(width: 0, height: 3), origin: CGPoint(x: 35, y: -24)))
+        for (dx, dy): (CGFloat, CGFloat) in [(-34, -22), (54, -22)] {
             container.addChild(dot(radius: 4, at: CGPoint(x: dx, y: dy), fill: litAccent, stroke: accent))
         }
+        container.addChild(neonSignboard(rect: CGRect(x: -50, y: -14, width: 6, height: 16), color: signColor(for: seed, salt: 1))) // side-mounted sign
         return container
     }
 }

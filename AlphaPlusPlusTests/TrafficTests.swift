@@ -410,6 +410,115 @@ final class TrafficTests: XCTestCase {
         XCTAssertTrue(Traffic.isHorizontallyOriented(at: position, in: intersection))
     }
 
+    // MARK: - roadConnections (turns/intersections)
+
+    func testRoadConnectionsIsAllFalseWithNoNeighborsAtAll() {
+        let map = CityMap(width: 3, height: 3)
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertFalse(connections.north)
+        XCTAssertFalse(connections.south)
+        XCTAssertFalse(connections.east)
+        XCTAssertFalse(connections.west)
+        XCTAssertEqual(connections.count, 0)
+    }
+
+    /// A road with exactly one neighbor is a dead end — one direction
+    /// true, the rest false.
+    func testRoadConnectionsIsADeadEndWithExactlyOneNeighbor() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 2, y: 1)].zone = .road
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.east)
+        XCTAssertFalse(connections.north)
+        XCTAssertFalse(connections.south)
+        XCTAssertFalse(connections.west)
+        XCTAssertEqual(connections.count, 1)
+    }
+
+    /// Two *opposite* neighbors (east/west, or north/south) is a straight
+    /// run through the tile.
+    func testRoadConnectionsIsStraightWithTwoOppositeNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 0, y: 1)].zone = .road
+        map[GridPosition(x: 2, y: 1)].zone = .road
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.east)
+        XCTAssertTrue(connections.west)
+        XCTAssertFalse(connections.north)
+        XCTAssertFalse(connections.south)
+        XCTAssertEqual(connections.count, 2)
+    }
+
+    /// Two *adjacent* neighbors (e.g. north + east) is a 90° turn/corner —
+    /// the actual "concept of turns" this type exists to represent, distinct
+    /// from a straight run despite both being exactly two connections.
+    func testRoadConnectionsIsACornerWithTwoAdjacentNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 1, y: 2)].zone = .road // north
+        map[GridPosition(x: 2, y: 1)].zone = .road // east
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.north)
+        XCTAssertTrue(connections.east)
+        XCTAssertFalse(connections.south)
+        XCTAssertFalse(connections.west)
+        XCTAssertEqual(connections.count, 2)
+    }
+
+    func testRoadConnectionsIsATJunctionWithThreeNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 1, y: 2)].zone = .road // north
+        map[GridPosition(x: 0, y: 1)].zone = .road // west
+        map[GridPosition(x: 2, y: 1)].zone = .road // east
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.north)
+        XCTAssertTrue(connections.east)
+        XCTAssertTrue(connections.west)
+        XCTAssertFalse(connections.south)
+        XCTAssertEqual(connections.count, 3)
+    }
+
+    func testRoadConnectionsIsACrossroadsWithAllFourNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        let position = GridPosition(x: 1, y: 1)
+        for neighbor in position.orthogonalNeighbors() {
+            map[neighbor].zone = .road
+        }
+        let connections = Traffic.roadConnections(at: position, in: map)
+
+        XCTAssertTrue(connections.north)
+        XCTAssertTrue(connections.south)
+        XCTAssertTrue(connections.east)
+        XCTAssertTrue(connections.west)
+        XCTAssertEqual(connections.count, 4)
+    }
+
+    /// A `.highway` neighbor counts as a connection too — a highway meeting
+    /// a plain road is still a real intersection, the same "one definition
+    /// of road-like" reasoning `isHorizontallyOriented` already documents.
+    func testRoadConnectionsTreatsHighwayNeighborsAsConnected() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 2, y: 1)].zone = .highway
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.east)
+    }
+
+    /// A non-road building next door isn't a connection, even though it
+    /// might grant *access* for growth purposes elsewhere in the sim.
+    func testRoadConnectionsIgnoresNonRoadNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 2, y: 1)].zone = .residential
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertFalse(connections.east)
+        XCTAssertEqual(connections.count, 0)
+    }
+
     // MARK: - Ambient cars point the way real commutes actually flow
 
     /// `straightCommuteMap` puts the home west and the job east, so every

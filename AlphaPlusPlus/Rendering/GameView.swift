@@ -202,6 +202,12 @@ struct GameView: View {
             Button("Reset") {
                 controller.resetMap()
                 scene?.rebuildEntireGrid()
+                // Explicit, and only here: a size change may have made the
+                // old camera position invalid, so this is the one place
+                // recentering actually belongs — see
+                // `GameScene.rebuildEntireGrid()`'s own doc comment for why
+                // it doesn't do this on its own any more.
+                scene?.centerCameraOnMap()
             }
             .buttonStyle(RetroButtonStyle(accent: .red))
 
@@ -262,6 +268,7 @@ struct GameView: View {
             Text("Bonds:").foregroundStyle(RetroUITheme.textSecondary)
             Text("$\(controller.bondBalance) owed (-$\(controller.bondInterest)/tick)")
                 .foregroundStyle(RetroUITheme.textPrimary)
+                .lineLimit(1)
             Button("+$\(GameController.bondIssueAmount)") {
                 controller.issueBond()
             }
@@ -289,6 +296,7 @@ struct GameView: View {
             Text("(-$\(Ordinances.costPerOrdinance(population: controller.population))/tick each, while active)")
                 .font(.caption)
                 .foregroundStyle(RetroUITheme.textSecondary)
+                .lineLimit(1)
             Spacer()
         }
     }
@@ -372,7 +380,21 @@ struct GameView: View {
 
     private func statTile(label: String, value: String, history: [Int], color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(label): \(value)").font(.callout).foregroundStyle(RetroUITheme.textPrimary)
+            // `.lineLimit(1)` is the actual fix for a real bug a live
+            // playtest found: this text's length grows with `controller`'s
+            // own numbers (population, jobs, and especially treasury, which
+            // this project's balance-tuning pass confirmed can climb into
+            // 6-7+ digits over a long session) with nothing capping it.
+            // Without a line limit, once it grew long enough to not fit
+            // this HStack's available width, SwiftUI would wrap it to a
+            // second line instead of truncating — changing this row's own
+            // height, which changes the SpriteKit view's height below it,
+            // which fires `GameScene.didChangeSize`, which recenters the
+            // camera. Every tick these volatile numbers wobbled across
+            // that wrap threshold, the *whole map* would visibly jump —
+            // reading as "the city is shifting up and down," not as a
+            // rendering performance problem at all.
+            Text("\(label): \(value)").font(.callout).foregroundStyle(RetroUITheme.textPrimary).lineLimit(1)
             Sparkline(values: history, color: color)
                 .frame(width: 70, height: 16)
         }

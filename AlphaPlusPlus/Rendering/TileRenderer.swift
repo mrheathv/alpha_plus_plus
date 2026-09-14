@@ -97,34 +97,86 @@ struct TileRenderer {
 
     private static let iconNodeName = "zoneIcon"
 
-    /// Removes and rebuilds a tile's icon from scratch every call, same
-    /// "simpler beats diffing" reasoning as `syncPips` — and necessary here
-    /// for a reason pips don't have: `ZoneIcon` picks a different *shape*
-    /// per growth tier, so the icon itself needs to change, not just be
-    /// left alone, whenever density crosses a tier boundary. `ZoneIcon`
-    /// authors every shape in a fixed `ZoneIcon.designSize`-point square, so
-    /// scaling it to fit this specific node — whatever its actual
-    /// `footprintSize` — is one division, not a per-icon concern.
-    /// `seed` (a building's anchor position) picks which visual *variant*
-    /// `ZoneIcon` draws when a tier has more than one — deterministic per
-    /// building, so the same lot always renders the same look tick to
-    /// tick, but two different lots at the same growth tier don't have to
-    /// look pixel-identical.
+    /// The (zone, density) a node's current icon was last built for,
+    /// stashed in `SKNode.userData` so `syncIcon` can tell "nothing
+    /// actually changed" apart from "this tile grew/decayed/re-zoned" —
+    /// see `syncIcon`'s own doc comment for why that distinction matters
+    /// enough to track.
+    private static let iconCacheKey = "iconCacheKey"
+
+    /// Rebuilds a tile's icon *only* when its (zone, density) actually
+    /// changed since the last call — checked via `iconCacheKey` — rather
+    /// than unconditionally tearing it down and remaking it every call the
+    /// way this used to work. That used to mean every simulation tick threw
+    /// away and recreated *every* building's icon on the map, including its
+    /// `ZoneIcon.withGlow` layer — an `SKEffectNode` with
+    /// `shouldRasterize = true`, whose entire point is to cache a Core Image
+    /// blur pass across frames. Recreating that node from scratch every tick
+    /// defeated the cache completely: a brand new, unrasterized effect node
+    /// for every building, every tick, forcing a fresh Gaussian blur pass
+    /// each time and reading as exactly the flicker a live playtest
+    /// surfaced once a city had enough buildings (and enough simultaneous
+    /// blur passes) for that per-tick rebuild to cost a visible frame or
+    /// more. `ZoneIcon` picks a different *shape* per growth tier and
+    /// nothing else ever changes an icon's look, so (zone, density) is a
+    /// complete cache key — `seed` (picking a building's visual variant)
+    /// is fixed for a given tile's whole lifetime, never a reason to rebuild
+    /// on its own.
     func syncIcon(on node: SKSpriteNode, zone: ZoneType, density: Int, footprintSize: Int, seed: GridPosition) {
+        let cacheKey = "\(zone.rawValue)-\(density)"
+        if node.userData?[Self.iconCacheKey] as? String == cacheKey { return }
+
         node.children.filter { $0.name == Self.iconNodeName }.forEach { $0.removeFromParent() }
-        guard let icon = ZoneIcon.makeNode(for: zone, density: density, seed: seed) else { return }
-        icon.name = Self.iconNodeName
-        // A small margin so the icon doesn't touch the tile's own edges,
-        // leaving a sliver of the base color visible as a border.
-        let spriteWidth = layout.spriteSize(forFootprint: footprintSize).width
-        icon.setScale(spriteWidth / ZoneIcon.designSize * 0.85)
-        node.addChild(icon)
+        if let icon = ZoneIcon.makeNode(for: zone, density: density, seed: seed) {
+            icon.name = Self.iconNodeName
+            Self.fitIconToTile(icon, footprintSize: footprintSize, layout: layout)
+            node.addChild(icon)
+        }
+        if node.userData == nil { node.userData = NSMutableDictionary() }
+        node.userData?[Self.iconCacheKey] = cacheKey
+    }
+
+    /// How much smaller than an exact edge-to-edge fit an icon is scaled —
+    /// a hair of breathing room so neighboring buildings' glow doesn't
+    /// perfectly z-fight along shared tile edges, not the kind of margin
+    /// that reads as "a small building on an empty lot."
+    private static let iconFillFactor: CGFloat = 0.98
+
+    /// Scales `icon` so its *actual drawn silhouette* — measured directly
+    /// via `calculateAccumulatedFrame()`, not assumed from `ZoneIcon.designSize` —
+    /// fills the tile it sits on, edge to edge.
+    ///
+    /// Every `ZoneIcon` shape is authored inside a fixed `designSize`
+    /// square, but few of them actually *use* the whole square — a
+    /// `towerIcon` body is under half as wide as the square it's drawn in,
+    /// the rest left as headroom for a roofline, a projecting sign, a
+    /// glow's soft edge. Scaling by a flat `spriteWidth / designSize`
+    /// (this file's old approach) treated every icon as if it filled that
+    /// whole square, so most buildings rendered as a small icon floating
+    /// in a lot-sized field of bare tile color — especially visible once
+    /// `ZoneType.footprintSize` made ordinary buildings 2×2, not 1×1: a
+    /// real city block's worth of empty color around what should read as
+    /// a building filling its lot. Measuring the icon's own accumulated
+    /// frame and fitting *that* to the tile (aspect-fit, so nothing
+    /// overflows past the footprint in either axis) makes every icon claim
+    /// as much of its actual lot as its own silhouette proportions allow,
+    /// without this file needing to know or care what those proportions
+    /// are for any given building.
+    private static func fitIconToTile(_ icon: SKNode, footprintSize: Int, layout: GridLayout) {
+        let spriteSize = layout.spriteSize(forFootprint: footprintSize)
+        let occupied = icon.calculateAccumulatedFrame().size
+        let fitScale = min(spriteSize.width / max(occupied.width, 1), spriteSize.height / max(occupied.height, 1))
+        icon.setScale(fitScale * iconFillFactor)
     }
 
     /// Removes a tile's icon — used alongside `clearPips` when `GameScene`
-    /// draws an overlay instead of normal zone colors.
+    /// draws an overlay instead of normal zone colors. Also clears the
+    /// cache key `syncIcon` checks, so switching back out of an overlay
+    /// always rebuilds the icon it just tore down rather than seeing an
+    /// unchanged (zone, density) and leaving the tile bare.
     func clearIcon(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.iconNodeName }.forEach { $0.removeFromParent() }
+        node.userData?.removeObject(forKey: Self.iconCacheKey)
     }
 
     // MARK: - Network glow (roads, highways, pipes)
@@ -206,35 +258,58 @@ struct TileRenderer {
 
     private static let laneLineNodeName = "laneLine"
 
-    /// A bright line down the center of a road/highway tile, oriented
-    /// along the street's own direction — the literal "glowing lane
-    /// marking" a synthwave highway is drawn with, on top of the tile's
-    /// own dark asphalt-purple base (`RenderPalette.fullColor(for:)`).
-    /// Colored via `RenderPalette.networkAccentColor(for:)`, the same
-    /// value `syncNetworkGlow` tints its bleed with, so the line and its
-    /// own glow always agree.
+    /// A bright line down the center of a road/highway tile, shaped to
+    /// match what's actually connected to it — a straight run, a 90°
+    /// turn, a T-junction, a full 4-way crossroads, or a dead-end stub —
+    /// instead of always a straight line through the tile regardless of
+    /// its real neighbors. The literal "glowing lane marking" a synthwave
+    /// street is drawn with, on top of the tile's own dark asphalt-purple
+    /// base (`RenderPalette.fullColor(for:)`). Colored via
+    /// `RenderPalette.networkAccentColor(for:)`, the same value
+    /// `syncNetworkGlow` tints its bleed with, so the line and its own
+    /// glow always agree.
     ///
-    /// `horizontal` is a plain `Bool`, not something this method computes
-    /// itself: answering "which way does this road run" needs
-    /// `Traffic.isHorizontallyOriented(at:in:)`, which needs the whole
-    /// `CityMap` to check neighbors — more than the single `Tile` this
-    /// file otherwise works from. `GameScene` already computes that exact
-    /// answer once per tile for the ambient traffic-car animation
-    /// (`syncTrafficAnimation`), so it just passes it along here instead
-    /// of this file taking on a `Simulation/` dependency of its own.
-    func syncLaneLine(on node: SKSpriteNode, zone: ZoneType, horizontal: Bool) {
+    /// Built from up to four independent half-length segments, one per
+    /// connected direction, each running from the tile's center out to
+    /// that edge — a straight tile ends up with two segments (e.g. east +
+    /// west) that together span the same full length the old always-one-
+    /// piece line did, so an ordinary street reads exactly as it always
+    /// has; a corner draws only the two connected segments, meeting at
+    /// the center as an L; a T-junction draws three; a crossroads all
+    /// four. `connections` is a plain `Traffic.RoadConnections`, not
+    /// something this method computes itself — same reasoning `horizontal`
+    /// used to document here: answering "what's actually connected to this
+    /// tile" needs the whole `CityMap`, more than the single `Tile` this
+    /// file otherwise works from, so `GameScene` computes it once per tile
+    /// and passes it along instead of this file taking on a `Simulation/`
+    /// dependency of its own.
+    func syncLaneLine(on node: SKSpriteNode, zone: ZoneType, connections: Traffic.RoadConnections) {
         node.childNode(withName: Self.laneLineNodeName)?.removeFromParent()
         guard zone == .road || zone == .highway else { return }
 
         let thickness: CGFloat = zone == .highway ? 5 : 3
-        let length = layout.spriteSize.width * 0.9
-        let size = horizontal ? CGSize(width: length, height: thickness) : CGSize(width: thickness, height: length)
-        let line = SKShapeNode(rectOf: size)
-        line.name = Self.laneLineNodeName
-        line.fillColor = RenderPalette.networkAccentColor(for: zone)
-        line.strokeColor = .clear
-        line.zPosition = 1
-        node.addChild(line)
+        let halfLength = layout.spriteSize.width * 0.45
+        let color = RenderPalette.networkAccentColor(for: zone)
+
+        let container = SKNode()
+        container.name = Self.laneLineNodeName
+        container.zPosition = 1
+
+        func addSegment(dx: CGFloat, dy: CGFloat) {
+            let size = dx == 0 ? CGSize(width: thickness, height: halfLength) : CGSize(width: halfLength, height: thickness)
+            let segment = SKShapeNode(rectOf: size)
+            segment.position = CGPoint(x: dx * halfLength / 2, y: dy * halfLength / 2)
+            segment.fillColor = color
+            segment.strokeColor = .clear
+            container.addChild(segment)
+        }
+
+        if connections.north { addSegment(dx: 0, dy: 1) }
+        if connections.south { addSegment(dx: 0, dy: -1) }
+        if connections.east { addSegment(dx: 1, dy: 0) }
+        if connections.west { addSegment(dx: -1, dy: 0) }
+
+        node.addChild(container)
     }
 
     /// Removes a tile's lane line — used alongside `clearNetworkGlow` when
@@ -312,6 +387,90 @@ struct TileRenderer {
         node.childNode(withName: Self.powerLineMarkerNodeName)?.removeFromParent()
     }
 
+    // MARK: - Utility warning (Normal view only)
+
+    private static let utilityWarningNodeName = "utilityWarning"
+
+    /// A small warning badge in a tile's corner for a building that's
+    /// missing water and/or power it actually needs right now — the
+    /// consequence a live playtest asked for. Without this, an
+    /// unconnected building silently capped its own growth with nothing
+    /// on the map to explain why short of switching to the Water or Power
+    /// overlay and going looking for the gap. Two colors, not one, reusing
+    /// the exact hues `RenderPalette.waterColor(for:)`/`powerColor(for:)`
+    /// already use for "supplied" in their own overlays, so which utility
+    /// is missing is legible at a glance to anyone who's used those
+    /// overlays even once — both badges show if both are missing.
+    ///
+    /// `density` is only "missing" a utility once `CitySimulator` would
+    /// actually check for it (`waterRequiredFromLevel`/
+    /// `powerRequiredFromLevel`) — a brand-new tier-1 lot hasn't earned the
+    /// right to need water yet, so warning it here would be a false alarm
+    /// for a building that isn't actually stuck on anything.
+    func syncUtilityWarning(on node: SKSpriteNode, density: Int, hasWaterSupply: Bool, hasPowerSupply: Bool) {
+        node.children.filter { $0.name == Self.utilityWarningNodeName }.forEach { $0.removeFromParent() }
+
+        let missingWater = density >= CitySimulator.waterRequiredFromLevel - 1 && !hasWaterSupply
+        let missingPower = density >= CitySimulator.powerRequiredFromLevel - 1 && !hasPowerSupply
+        guard missingWater || missingPower else { return }
+
+        let badgeSize = layout.spriteSize.width * 0.22
+        let cornerY = layout.spriteSize.height * 0.5 - badgeSize * 0.6
+        if missingWater {
+            let x = missingPower ? -badgeSize * 0.6 : 0
+            node.addChild(utilityWarningBadge(at: CGPoint(x: x, y: cornerY), size: badgeSize, color: RenderPalette.waterColor(for: true)))
+        }
+        if missingPower {
+            let x = missingWater ? badgeSize * 0.6 : 0
+            node.addChild(utilityWarningBadge(at: CGPoint(x: x, y: cornerY), size: badgeSize, color: RenderPalette.powerColor(for: true)))
+        }
+    }
+
+    /// Removes a tile's utility warning badge(s) — used alongside
+    /// `clearPips`/`clearIcon` when `GameScene` draws an overlay instead of
+    /// Normal view; the Water/Power overlays already have their own,
+    /// bigger signal for this (the tile's own supply-state color), so a
+    /// small corner badge on top would just be redundant there.
+    func clearUtilityWarning(on node: SKSpriteNode) {
+        node.children.filter { $0.name == Self.utilityWarningNodeName }.forEach { $0.removeFromParent() }
+    }
+
+    /// One warning badge: a dark triangle outlined in `color`, with a
+    /// small exclamation mark (a rect and a dot, this file's usual
+    /// straight-lines-and-circles-only shape vocabulary) in the same
+    /// color — legible as "warning," not just "a colored dot," even at a
+    /// badge this small.
+    private func utilityWarningBadge(at center: CGPoint, size: CGFloat, color: SKColor) -> SKNode {
+        let half = size / 2
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: center.x, y: center.y + half))
+        path.addLine(to: CGPoint(x: center.x - half, y: center.y - half))
+        path.addLine(to: CGPoint(x: center.x + half, y: center.y - half))
+        path.closeSubpath()
+
+        let triangle = SKShapeNode(path: path)
+        triangle.fillColor = SKColor.black.withAlphaComponent(0.8)
+        triangle.strokeColor = color
+        triangle.lineWidth = 1.5
+
+        let mark = SKShapeNode(rect: CGRect(x: center.x - size * 0.06, y: center.y - half * 0.45, width: size * 0.12, height: size * 0.35))
+        mark.fillColor = color
+        mark.strokeColor = .clear
+
+        let dot = SKShapeNode(circleOfRadius: size * 0.07)
+        dot.position = CGPoint(x: center.x, y: center.y - half * 0.6)
+        dot.fillColor = color
+        dot.strokeColor = .clear
+
+        let container = SKNode()
+        container.name = Self.utilityWarningNodeName
+        container.zPosition = 4
+        container.addChild(triangle)
+        container.addChild(mark)
+        container.addChild(dot)
+        return container
+    }
+
     // MARK: - Building shadow (Water/Power overlays only)
 
     private static let buildingShadowNodeName = "buildingShadow"
@@ -331,20 +490,36 @@ struct TileRenderer {
     /// `ZoneIcon.makeNode` already (nothing to shadow), so this needs no
     /// zone filtering of its own beyond that.
     private static let shadowAlpha: CGFloat = 0.35
+    private static let shadowCacheKey = "buildingShadowCacheKey"
 
+    /// Same (zone, density) cache-key check `syncIcon` uses, and for the
+    /// same reason — this draws through the same `ZoneIcon.makeNode`, glow
+    /// pass included, so rebuilding it unconditionally every tick would
+    /// reintroduce the exact per-tick re-blur cost/flicker `syncIcon`'s own
+    /// doc comment describes, just while a Water/Power overlay is open
+    /// instead of Normal view.
     func syncBuildingShadow(on node: SKSpriteNode, zone: ZoneType, density: Int, footprintSize: Int, seed: GridPosition) {
+        let cacheKey = "\(zone.rawValue)-\(density)"
+        if node.userData?[Self.shadowCacheKey] as? String == cacheKey { return }
+
         node.children.filter { $0.name == Self.buildingShadowNodeName }.forEach { $0.removeFromParent() }
-        guard let icon = ZoneIcon.makeNode(for: zone, density: density, seed: seed) else { return }
-        icon.name = Self.buildingShadowNodeName
-        icon.alpha = Self.shadowAlpha
-        let spriteWidth = layout.spriteSize(forFootprint: footprintSize).width
-        icon.setScale(spriteWidth / ZoneIcon.designSize * 0.85)
-        node.addChild(icon)
+        if let icon = ZoneIcon.makeNode(for: zone, density: density, seed: seed) {
+            icon.name = Self.buildingShadowNodeName
+            icon.alpha = Self.shadowAlpha
+            Self.fitIconToTile(icon, footprintSize: footprintSize, layout: layout)
+            node.addChild(icon)
+        }
+        if node.userData == nil { node.userData = NSMutableDictionary() }
+        node.userData?[Self.shadowCacheKey] = cacheKey
     }
 
     /// Removes a tile's building shadow — used alongside `clearIcon` for
-    /// every overlay except Water/Power.
+    /// every overlay except Water/Power. Also clears the cache key
+    /// `syncBuildingShadow` checks, so leaving Water/Power and coming back
+    /// always rebuilds rather than seeing an unchanged (zone, density) and
+    /// leaving the tile bare — the same reasoning `clearIcon` documents.
     func clearBuildingShadow(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.buildingShadowNodeName }.forEach { $0.removeFromParent() }
+        node.userData?.removeObject(forKey: Self.shadowCacheKey)
     }
 }

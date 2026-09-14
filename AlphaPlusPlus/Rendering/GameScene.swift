@@ -53,6 +53,51 @@ final class GameScene: SKScene {
     /// retro shader treatment everything else on the map gets.
     private let placementPreviewNode = SKShapeNode()
 
+    /// A soft, warm glow parked at a fixed point in world space, well
+    /// below the map's own bottom edge — the retrowave "sun behind the
+    /// skyline" motif every reference image this project's art pass has
+    /// pulled from includes, adapted for a camera that's strictly
+    /// top-down and so has no literal horizon for a sun to sit on. Not a
+    /// light source anything in the simulation reacts to, purely
+    /// backdrop — the same role `RenderPalette.background`'s flat "night
+    /// sky" color already plays, just with one warm glow bleeding up into
+    /// it from a fixed spot rather than a flat color everywhere. Opaque
+    /// tile sprites (every tile, zoned or not, is one) occlude it
+    /// wherever the map itself covers that screen area — by construction
+    /// it can only ever show through in the empty space beyond the map's
+    /// own edge, which is exactly the "sun peeking from behind the city"
+    /// read this is going for. A sibling of `tileLayer`, same reasoning
+    /// `placementPreviewNode` documents: survives `rebuildEntireGrid()`'s
+    /// `tileLayer.removeAllChildren()`, and still picks up the retro
+    /// shader pass.
+    private let sunGlowNode = SKSpriteNode()
+
+    /// A radial gradient, white fading to transparent, tinted by
+    /// `sunGlowNode.color` — the same "cache one shared gradient texture,
+    /// tint and additively blend it per use" technique
+    /// `TileRenderer.glowTexture` uses for road/highway network glow,
+    /// just larger (this gets stretched across a much bigger sprite) and
+    /// generated here rather than there since it's a scene-level backdrop
+    /// element, not a per-tile one.
+    private static let sunGlowTexture: SKTexture = {
+        let diameter = 512
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil, width: diameter, height: diameter, bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return SKTexture() }
+
+        let components: [CGFloat] = [1, 1, 1, 0.9, 1, 1, 1, 0]
+        guard let gradient = CGGradient(colorSpace: colorSpace, colorComponents: components, locations: [0, 1], count: 2) else {
+            return SKTexture()
+        }
+        let center = CGPoint(x: CGFloat(diameter) / 2, y: CGFloat(diameter) / 2)
+        context.drawRadialGradient(gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: CGFloat(diameter) / 2, options: [])
+
+        guard let image = context.makeImage() else { return SKTexture() }
+        return SKTexture(cgImage: image)
+    }()
+
     /// Grid coordinate -> sprite, so updating one tile is O(1) instead of a
     /// scene-graph search.
     private var tileNodes: [GridPosition: SKSpriteNode] = [:]
@@ -124,8 +169,16 @@ final class GameScene: SKScene {
         placementPreviewNode.zPosition = 5
         retroEffectLayer.addChild(placementPreviewNode)
 
+        sunGlowNode.texture = Self.sunGlowTexture
+        sunGlowNode.color = RenderPalette.sunGlow
+        sunGlowNode.colorBlendFactor = 1
+        sunGlowNode.blendMode = .add
+        sunGlowNode.zPosition = -1
+        retroEffectLayer.addChild(sunGlowNode)
+
         buildTileNodes()
         centerCameraOnMap()
+        positionSunGlow()
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -323,6 +376,36 @@ final class GameScene: SKScene {
             return
         }
 
+        // The "Bulldoze" toolbar tool is `.empty` selected as the left-click
+        // tool — clearing whatever's here, for free, meant as the same
+        // operation the dedicated right-click gesture already performs via
+        // `bulldoze(at:)`. Routing it there too (instead of falling through
+        // to `place(at:)` below) is the actual fix for a real bug a live
+        // playtest found: `place(at:)` refuses to place over anything but
+        // bare `.empty` land — a deliberate rule for the *other* tools (see
+        // its own doc comment) — which made this toolbar button a no-op
+        // against every occupied tile, exactly backwards for the one tool
+        // whose entire purpose is clearing occupied tiles. Mirrors
+        // `bulldoze(with:)`'s own multi-tile/stroke split immediately below,
+        // since it's functionally the same operation now, just reachable
+        // from the left-click toolbar instead of only the right-click one.
+        if controller.selectedTool == .empty {
+            if map[position].zone.footprintSize > 1 {
+                guard lastPaintPosition == nil else { return }
+                controller.bulldoze(at: position)
+                rebuildEntireGrid()
+                lastPaintPosition = position
+                return
+            }
+            for step in stroke(from: lastPaintPosition, to: position) {
+                controller.bulldoze(at: step)
+                refresh(step)
+                refreshRoadNeighbors(of: step)
+            }
+            lastPaintPosition = position
+            return
+        }
+
         // A multi-tile building is placed one at a time, not painted in a
         // stroke — and it can overlap-clear a *different* multi-tile
         // building whose sprite lives at another anchor entirely, which a
@@ -342,6 +425,7 @@ final class GameScene: SKScene {
         for step in stroke(from: lastPaintPosition, to: position) {
             let outcome = controller.place(at: step)
             refresh(step)
+            refreshRoadNeighbors(of: step)
             if outcome == .insufficientFunds {
                 flashInsufficientFunds(at: step)
                 // The tool's cost doesn't change mid-stroke, so if this tile
@@ -396,8 +480,28 @@ final class GameScene: SKScene {
         for step in stroke(from: lastBulldozePosition, to: position) {
             controller.bulldoze(at: step)
             refresh(step)
+            refreshRoadNeighbors(of: step)
         }
         lastBulldozePosition = position
+    }
+
+    /// Also refreshes `position`'s orthogonal neighbors that are
+    /// themselves road/highway tiles — placing or clearing a road tile
+    /// can change a *neighboring* road tile's own turn/intersection shape
+    /// (a dead-end growing a new connection, a straight run gaining a
+    /// branch), but that neighbor's own sprite was never touched by this
+    /// click, so its lane line wouldn't otherwise pick up the change until
+    /// the next simulation tick's `refreshAll()`. Immediate correctness
+    /// matters more here than for most one-tick lags this project already
+    /// tolerates elsewhere (`syncTrafficAnimation`'s own doc comment) —
+    /// roads are drawn in long strokes the player is watching closely as
+    /// they happen, not placed once and left alone.
+    private func refreshRoadNeighbors(of position: GridPosition) {
+        for neighbor in position.orthogonalNeighbors() where map.contains(neighbor) {
+            let zone = map[neighbor].zone
+            guard zone == .road || zone == .highway else { continue }
+            refresh(neighbor)
+        }
     }
 
     /// Would placing `tool` at `position` touch a multi-tile building —
@@ -561,24 +665,59 @@ final class GameScene: SKScene {
         }
     }
 
-    /// Tear down and rebuild every tile sprite from scratch, then recenter
-    /// the camera. `refreshAll()` isn't enough for this — it re-syncs the
-    /// sprites that already exist, but a map-size change means the *number*
-    /// of tiles changed (a smaller map has stale sprites with nowhere valid
-    /// to point; a larger one has positions with no sprite yet). This is
-    /// what `GameView`'s Reset calls when `selectedMapSize` might have
-    /// changed, instead of `performFullMapChange`'s `refreshAll()`.
+    /// Tear down and rebuild every tile sprite from scratch. `refreshAll()`
+    /// isn't enough for this — it re-syncs the sprites that already exist,
+    /// but a map-size change means the *number* of tiles changed (a
+    /// smaller map has stale sprites with nowhere valid to point; a larger
+    /// one has positions with no sprite yet). Also what `place(with:)` and
+    /// `bulldoze(with:)` call for a multi-tile footprint, since clearing or
+    /// placing one can touch a sprite that isn't even at the clicked
+    /// position (a non-anchor cell) — see their own doc comments.
+    ///
+    /// Deliberately does *not* touch the camera — a live playtest surfaced
+    /// this as a real bug, not a nice-to-have: residential/commercial/
+    /// industrial/police/fire/water tower are all 2×2, so *every* one of
+    /// those placements or clears used to call `centerCameraOnMap()` too,
+    /// snapping the view back to the middle of the map on every single one.
+    /// Barely noticeable on a small map worked from its own center; on a
+    /// 64×64 map worked from a far corner, it reads as "placing a building
+    /// teleports the camera away" — and after a bulldoze, as "bulldoze did
+    /// nothing," since the view yanks away from the exact spot you were
+    /// just looking at. `GameView`'s Reset button — the one place recentering
+    /// actually belongs, since `selectedMapSize` may have changed and the
+    /// old camera position might not even be valid any more — calls
+    /// `centerCameraOnMap()` itself, explicitly, right after this.
     func rebuildEntireGrid() {
         tileLayer.removeAllChildren()
         tileNodes.removeAll()
         buildTileNodes()
-        centerCameraOnMap()
+        positionSunGlow()
     }
 
-    /// Point the camera at the middle of the map. The camera's position is the
-    /// scene point that appears at the center of the view.
-    private func centerCameraOnMap() {
+    /// Point the camera at the middle of the map. The camera's position is
+    /// the scene point that appears at the center of the view. Called from
+    /// `didMove(to:)` on first load and explicitly by `GameView`'s Reset
+    /// button after `rebuildEntireGrid()` — never implicitly by
+    /// `rebuildEntireGrid()` itself any more; see that method's own doc
+    /// comment for why.
+    func centerCameraOnMap() {
         cameraNode.position = layout.centerPoint(of: map)
+    }
+
+    /// Re-anchor `sunGlowNode` to the current map's size — called whenever
+    /// the map itself might have changed size (`rebuildEntireGrid()`), not
+    /// just once at startup. Sized and placed off of `contentSize(of:)`
+    /// rather than a fixed constant so a 64×64 map's sun is proportionally
+    /// the same "how much of the view does this fill" as a 32×32 map's.
+    /// Centered horizontally on the map, low enough that only its topmost
+    /// sliver would fall inside the map's own bottom edge (where tiles
+    /// occlude it) — the rest sits in the empty space below the map,
+    /// where it's actually visible.
+    private func positionSunGlow() {
+        let content = layout.contentSize(of: map)
+        let diameter = max(content.width, content.height) * 1.6
+        sunGlowNode.size = CGSize(width: diameter, height: diameter)
+        sunGlowNode.position = CGPoint(x: content.width / 2, y: -diameter * 0.4)
     }
 
     // MARK: - Refreshing from data
@@ -597,6 +736,15 @@ final class GameScene: SKScene {
             tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearBuildingShadow(on: node)
             syncLaneLine(at: position)
+            // Normal view only — the Water/Power overlays already have
+            // their own, bigger signal for this (the tile's whole color),
+            // so a small corner badge on top of that would be redundant.
+            tileRenderer.syncUtilityWarning(
+                on: node,
+                density: map[position].density,
+                hasWaterSupply: Water.hasSupply(at: position, in: map),
+                hasPowerSupply: PowerGrid.hasSupply(at: position, in: map)
+            )
         case .landValue:
             node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map))
             tileRenderer.clearPips(on: node)
@@ -606,6 +754,7 @@ final class GameScene: SKScene {
             tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearBuildingShadow(on: node)
             tileRenderer.clearLaneLine(on: node)
+            tileRenderer.clearUtilityWarning(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
             tileRenderer.clearPips(on: node)
@@ -615,6 +764,7 @@ final class GameScene: SKScene {
             tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearBuildingShadow(on: node)
             tileRenderer.clearLaneLine(on: node)
+            tileRenderer.clearUtilityWarning(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
             tileRenderer.clearPips(on: node)
@@ -622,6 +772,7 @@ final class GameScene: SKScene {
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearLaneLine(on: node)
+            tileRenderer.clearUtilityWarning(on: node)
             // Reads `hasPipe` directly rather than the cached
             // `map.waterSupply`, so a pipe you just laid shows up right
             // away — the *supply* coloring above still only updates once
@@ -640,6 +791,7 @@ final class GameScene: SKScene {
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
             tileRenderer.clearLaneLine(on: node)
+            tileRenderer.clearUtilityWarning(on: node)
             // Same "read the layer directly, not the cached supply" reasoning
             // `syncPipeMarker` documents just above, for the parallel layer.
             tileRenderer.syncPowerLineMarker(on: node, hasPowerLine: map[position].hasPowerLine)
@@ -650,11 +802,11 @@ final class GameScene: SKScene {
     }
 
     /// Adds (or removes) a road/highway tile's glowing lane-line detail,
-    /// oriented along the street's own direction
-    /// (`Traffic.isHorizontallyOriented(at:in:)`) — see
-    /// `TileRenderer.syncLaneLine`'s own doc comment for why that
-    /// orientation answer has to be computed here, with the full `map`,
-    /// and passed down rather than computed inside `TileRenderer` itself.
+    /// shaped to match what's actually connected to it
+    /// (`Traffic.roadConnections(at:in:)`) — see `TileRenderer.syncLaneLine`'s
+    /// own doc comment for why that connectivity answer has to be computed
+    /// here, with the full `map`, and passed down rather than computed
+    /// inside `TileRenderer` itself.
     private func syncLaneLine(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let zone = map[position].zone
@@ -662,7 +814,7 @@ final class GameScene: SKScene {
             tileRenderer.clearLaneLine(on: node)
             return
         }
-        tileRenderer.syncLaneLine(on: node, zone: zone, horizontal: Traffic.isHorizontallyOriented(at: position, in: map))
+        tileRenderer.syncLaneLine(on: node, zone: zone, connections: Traffic.roadConnections(at: position, in: map))
     }
 
     func refreshAll() {
@@ -675,11 +827,69 @@ final class GameScene: SKScene {
 
     private static let trafficCarNodeName = "trafficCar"
 
+    /// A horizontal gradient, transparent at its left edge fading to
+    /// near-opaque at its right — the raw material for each car's speed
+    /// trail below. Same "cache one shared gradient texture, tint and
+    /// additively blend it per use" technique `TileRenderer.glowTexture`
+    /// and `GameScene`'s own sun glow use, just linear instead of radial:
+    /// a streak of light has a direction, a glow doesn't.
+    private static let speedTrailTexture: SKTexture = {
+        let width = 128
+        let height = 16
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return SKTexture() }
+
+        let components: [CGFloat] = [1, 1, 1, 0, 1, 1, 1, 0.9]
+        guard let gradient = CGGradient(colorSpace: colorSpace, colorComponents: components, locations: [0, 1], count: 2) else {
+            return SKTexture()
+        }
+        context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: CGFloat(height) / 2), end: CGPoint(x: CGFloat(width), y: CGFloat(height) / 2), options: [])
+
+        guard let image = context.makeImage() else { return SKTexture() }
+        return SKTexture(cgImage: image)
+    }()
+
+    /// A retrowave light-trail streaking behind a car, opposite its
+    /// direction of travel — a synthwave highway shot is defined by long
+    /// motion-blurred light trails, not sharply-frozen cars, and a car
+    /// that's just sliding across a tile doesn't read as "fast" without
+    /// one. Length and brightness both scale with how free-flowing the
+    /// traffic actually is (`speedFactor`, `1 - congestion`): free-flowing
+    /// traffic streaks long and bright, jammed traffic barely trails at
+    /// all — reusing the exact signal `crossingDuration` already encodes,
+    /// so the streak reinforces "this road is fast/slow" rather than
+    /// adding a second, uncoordinated one. Tinted the same
+    /// `RenderPalette.networkAccentColor` the road's own lane line and
+    /// glow already use, so a trail reads as light spilling from the same
+    /// source as the street it's on, not a color competing with it.
+    /// Parented to `car` itself (not animated separately) so it rides
+    /// along for free with whatever `SKAction` is already moving the car.
+    private func makeSpeedTrail(zone: ZoneType, travelAngle: CGFloat, carLength: CGFloat, carThickness: CGFloat, speedFactor: CGFloat) -> SKSpriteNode {
+        let trail = SKSpriteNode(texture: Self.speedTrailTexture)
+        let trailLength = layout.spriteSize.width * (0.3 + speedFactor * 1.4)
+        trail.size = CGSize(width: trailLength, height: carThickness * 0.7)
+        trail.color = RenderPalette.networkAccentColor(for: zone)
+        trail.colorBlendFactor = 1
+        trail.blendMode = .add
+        trail.alpha = 0.4 + speedFactor * 0.5
+        trail.zRotation = travelAngle
+        let offset = carLength / 2 + trailLength / 2
+        trail.position = CGPoint(x: -cos(travelAngle) * offset, y: -sin(travelAngle) * offset)
+        return trail
+    }
+
     /// Ambient "cars" driving back and forth across a road tile — purely
     /// decorative, visualizing `Traffic.congestion(at:in:)` (more, slower
     /// cars as a road gets busier) without needing "Show Traffic" turned
     /// on. Cleared during either overlay, same as pips/icons, and for
-    /// anything that isn't a road.
+    /// anything that isn't a road. Each car also gets a `makeSpeedTrail`
+    /// light streak behind it — the retrowave-highway-shot look, and a
+    /// second read of the exact same congestion signal (long bright
+    /// streak = free-flowing, short dim one = jammed) rather than a purely
+    /// decorative addition.
     ///
     /// Still one tile's worth of loop, not a car actually driving the
     /// full route `Traffic.computeLoad` routed it over — a real
@@ -742,6 +952,18 @@ final class GameScene: SKScene {
         // on by default, reading as straddling the center line rather
         // than driving in a lane.
         let lane = flowsPositive ? laneSpacing : -laneSpacing
+        // How free-flowing this tile's traffic actually is, 1 (empty
+        // road) down to 0 (gridlocked) — the same signal `crossingDuration`
+        // above already reads off `congestion`, reused here so the speed
+        // trail agrees with how fast the car it's attached to actually
+        // looks like it's crossing the tile.
+        let speedFactor = CGFloat(1 - congestion)
+        let travelAngle: CGFloat
+        if horizontal {
+            travelAngle = flowsPositive ? 0 : .pi
+        } else {
+            travelAngle = flowsPositive ? .pi / 2 : -.pi / 2
+        }
 
         for index in 0 ..< carCount {
             let carSize = horizontal ? CGSize(width: 8, height: 5) : CGSize(width: 5, height: 8)
@@ -751,6 +973,13 @@ final class GameScene: SKScene {
             car.strokeColor = RenderPalette.trafficCarOutline
             car.lineWidth = 1
             car.zPosition = 2
+            car.addChild(makeSpeedTrail(
+                zone: zone,
+                travelAngle: travelAngle,
+                carLength: horizontal ? carSize.width : carSize.height,
+                carThickness: horizontal ? carSize.height : carSize.width,
+                speedFactor: speedFactor
+            ))
 
             let lowEnd = horizontal ? CGPoint(x: -half, y: lane) : CGPoint(x: lane, y: -half)
             let highEnd = horizontal ? CGPoint(x: half, y: lane) : CGPoint(x: lane, y: half)
@@ -758,9 +987,24 @@ final class GameScene: SKScene {
             let end = flowsPositive ? highEnd : lowEnd
             car.position = start
 
+            // A car can't actually drive its full routed commute across
+            // every tile along the way — that's the individual-agent
+            // rendering complexity this file's own doc comment above
+            // already rules out — so it has to reset back to this tile's
+            // own start point somewhere. The reset itself used to be an
+            // instant, zero-duration teleport, which read exactly as a
+            // visible stutter: a car (and its speed trail, since that's a
+            // child of `car` and fades right along with it) would glide
+            // smoothly across, then pop backward with no transition at
+            // all. Fading out just before the teleport and back in right
+            // after masks the jump behind a beat of invisibility instead
+            // of showing it — the car glides away, and a fresh one glides
+            // in, rather than one car visibly snapping in place.
             let drive = SKAction.move(to: end, duration: crossingDuration)
-            let loopBack = SKAction.move(to: start, duration: 0)
-            let loop = SKAction.repeatForever(.sequence([drive, loopBack]))
+            let fadeOutAtEnd = SKAction.fadeOut(withDuration: 0.2)
+            let teleportToStart = SKAction.move(to: start, duration: 0)
+            let fadeInAtStart = SKAction.fadeIn(withDuration: 0.2)
+            let loop = SKAction.repeatForever(.sequence([drive, fadeOutAtEnd, teleportToStart, fadeInAtStart]))
             // Stagger each car's start so a multi-car tile doesn't drive in
             // lockstep.
             let stagger = crossingDuration * Double(index) / Double(carCount)

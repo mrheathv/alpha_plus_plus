@@ -126,7 +126,13 @@ enum CitySimulator {
     /// insufficient land value doesn't — it just holds growth where it
     /// is until the supply comes back. A first guess like every other
     /// number in this file.
-    private static let waterRequiredFromLevel = 3
+    ///
+    /// Not `private`: `TileRenderer.syncUtilityWarning` (Rendering/) reads
+    /// this too, so the on-map "you're missing water" badge lights up at
+    /// the exact same density this file actually starts caring about
+    /// water, instead of a second, hand-copied threshold silently drifting
+    /// out of sync with this one.
+    static let waterRequiredFromLevel = 3
 
     /// The power-grid counterpart to `waterRequiredFromLevel` — from this
     /// level on, a zone *additionally* needs a real, connected power
@@ -143,7 +149,9 @@ enum CitySimulator {
     /// depends on water's own threshold" over strict realism — exactly
     /// the kind of tradeoff this whole file's numbers already document
     /// making elsewhere.
-    private static let powerRequiredFromLevel = 4
+    ///
+    /// Not `private`, same reason as `waterRequiredFromLevel` just above.
+    static let powerRequiredFromLevel = 4
 
     /// `growthChance(for:)`'s floor, at demand -1 (the city is drowning
     /// in this type already). Deliberately not 0: a hard freeze reads as

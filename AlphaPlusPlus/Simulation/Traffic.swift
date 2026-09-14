@@ -341,6 +341,38 @@ enum Traffic {
         ])
         return horizontal >= vertical
     }
+
+    /// Which of a road tile's four orthogonal neighbors are also road-like
+    /// — the actual shape of the street network at this tile (a straight
+    /// run, a turn, a T-junction, a 4-way crossroads, a dead end, or an
+    /// isolated stub with no connections at all yet), not just the single
+    /// "horizontal or vertical" axis `isHorizontallyOriented(at:in:)`
+    /// picks for orienting the ambient traffic animation. `TileRenderer`
+    /// reads this to draw the glowing lane line as that actual shape
+    /// instead of always a straight line through the tile regardless of
+    /// what's really connected to it.
+    struct RoadConnections: Equatable {
+        let north: Bool
+        let south: Bool
+        let east: Bool
+        let west: Bool
+
+        /// How many of the four directions are actually connected — 0
+        /// (isolated stub) through 4 (a full crossroads).
+        var count: Int { [north, south, east, west].filter { $0 }.count }
+    }
+
+    static func roadConnections(at position: GridPosition, in map: CityMap) -> RoadConnections {
+        func connected(_ neighbor: GridPosition) -> Bool {
+            map.contains(neighbor) && isRoadLike(map[neighbor].zone)
+        }
+        return RoadConnections(
+            north: connected(GridPosition(x: position.x, y: position.y + 1)),
+            south: connected(GridPosition(x: position.x, y: position.y - 1)),
+            east: connected(GridPosition(x: position.x + 1, y: position.y)),
+            west: connected(GridPosition(x: position.x - 1, y: position.y))
+        )
+    }
 }
 
 /// Routed commute load per drivable tile, as computed by
