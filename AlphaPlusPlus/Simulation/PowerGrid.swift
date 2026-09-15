@@ -32,8 +32,28 @@ enum PowerGrid {
     /// comment on the outage roll for why city-wide rather than
     /// per-plant is this project's deliberate first cut, not an
     /// oversight).
+    /// How many density levels one power plant can serve.
+    ///
+    /// Higher than `Water.capacityPerTower` because a plant is the expensive,
+    /// large (3×3) half of the utility pair — a city needs fewer of them, and
+    /// each one costs a real amount of space. Against a built-out large map's
+    /// 1,500-2,000 total density that is four or five plants.
+    static let capacityPerPlant = 400
+
+    static func load(in map: CityMap) -> UtilityLoad {
+        UtilityLoad(
+            demand: UtilityLoad.demand(in: map),
+            capacity: UtilityLoad.capacity(of: .powerPlant, perBuilding: capacityPerPlant, in: map)
+        )
+    }
+
     static func computeSupply(for map: CityMap, outageActive: Bool) -> PowerSupply {
         guard !outageActive else { return PowerSupply() }
+
+        // Drawing more than the plants can supply browns the grid out, the
+        // same city-wide way an outage does — see `Water.computeSupply` for
+        // why whole-network rather than partial.
+        guard !load(in: map).isOverloaded else { return PowerSupply() }
 
         // Funding is one city-wide dial per service (`ServiceFunding`'s
         // own design), not per-building — so defunding power takes every

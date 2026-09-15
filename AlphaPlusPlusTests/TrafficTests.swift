@@ -572,4 +572,51 @@ final class TrafficTests: XCTestCase {
         XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 1, y: 1), horizontal: true))
         XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 1, y: 1), horizontal: false))
     }
+
+    // MARK: - Determinism
+
+    /// `computeLoad` must return the same answer for the same map, every time.
+    ///
+    /// It did not. Route ties — two equally short paths, two equidistant
+    /// frontage cells — were broken by `Set` iteration order, which is not
+    /// stable across two sets holding the same elements, so consecutive calls
+    /// on one unchanged map alternated between different loads. It needs a map
+    /// complex enough to produce ties, which is why no hand-built fixture ever
+    /// caught it and why it instead showed up as the playtest harness failing
+    /// its own reproducibility check. Every balance measurement taken before
+    /// the fix carried that noise.
+    func testComputeLoadIsDeterministicForTheSameMap() {
+        var map = CityMap(width: 24, height: 24)
+        // A grid with several equally good routes between homes and jobs —
+        // ties are the whole point of the fixture.
+        for y in stride(from: 0, to: 24, by: 3) {
+            for x in 0 ..< 24 {
+                map.placeBuilding(zone: .road, origin: GridPosition(x: x, y: y))
+            }
+        }
+        for x in stride(from: 0, to: 24, by: 3) {
+            for y in 0 ..< 24 where map[GridPosition(x: x, y: y)].zone == .empty {
+                map.placeBuilding(zone: .road, origin: GridPosition(x: x, y: y))
+            }
+        }
+        var placed = 0
+        for y in stride(from: 1, to: 23, by: 3) {
+            for x in stride(from: 1, to: 23, by: 3) {
+                let origin = GridPosition(x: x, y: y)
+                guard map.footprintCells(origin: origin, size: 2).allSatisfy({ map[$0].zone == .empty }) else { continue }
+                map.placeBuilding(zone: placed % 2 == 0 ? .residential : .commercial, origin: origin)
+                for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 4 }
+                placed += 1
+            }
+        }
+        XCTAssertGreaterThan(placed, 8, "the fixture is too small to produce route ties")
+
+        let reference = Traffic.computeLoad(for: map)
+        for attempt in 1 ... 8 {
+            XCTAssertEqual(
+                Traffic.computeLoad(for: map), reference,
+                "computeLoad returned a different answer on attempt \(attempt) for an unchanged map"
+            )
+        }
+    }
 }

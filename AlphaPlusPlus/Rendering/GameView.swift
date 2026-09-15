@@ -370,7 +370,30 @@ struct GameView: View {
                 // width this file's own doc comments already warn is scarce.
                 .help(budgetBreakdown)
             demandTile
+            utilityTile
         }
+    }
+
+    /// Water and power draw against capacity.
+    ///
+    /// Compact text rather than another sparkline tile: these are a
+    /// current-state signal ("am I about to run out"), not a trend, the same
+    /// reasoning `demandTile` already uses for the RCI bars. Turns red the
+    /// moment a network is overloaded, because an overloaded network silently
+    /// stops every high-density building in the city from growing — the
+    /// single least guessable stall in the game without a readout.
+    private var utilityTile: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            utilityLine(label: "Water", load: controller.waterLoad)
+            utilityLine(label: "Power", load: controller.powerLoad)
+        }
+    }
+
+    private func utilityLine(label: String, load: UtilityLoad) -> some View {
+        Text("\(label): \(load.demand)/\(load.capacity)")
+            .font(.caption)
+            .lineLimit(1)
+            .foregroundStyle(load.isOverloaded ? Color.red : RetroUITheme.textSecondary)
     }
 
     /// The one place `CitySimulator`'s demand-gated growth (see

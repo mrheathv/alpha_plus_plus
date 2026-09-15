@@ -191,8 +191,39 @@ enum PlaytestHarness {
             }
         }
 
+        // A reserved strip along the top edge for power plants, which need
+        // three rows and so cannot share the two-row lot grid. Realistic
+        // enough — plants go on the outskirts — and it is the only way the
+        // generator produces any at all.
+        let plantStripTop = spec.size - 4
+        if spec.includeServices {
+            for x in 0 ..< spec.size {
+                map[GridPosition(x: x, y: spec.size - 1)].hasPowerLine = true
+            }
+            // Sized from expected draw rather than picked: lots work out at
+            // about `size² / 6`, each reaching roughly density 4, so a
+            // built-out city draws on the order of `size² / 1.5`. Dividing
+            // that by `PowerGrid.capacityPerPlant` and leaving headroom lands
+            // near `size² / 600`. Headroom is deliberate — the *default*
+            // generated city should not be power-starved, or every other
+            // scenario in the suite would silently be measuring a capacity
+            // stall instead of whatever it meant to measure.
+            // `DesignPlaytestTests.testUtilityCapacityGatesGrowth` thins them
+            // back down when it wants capacity to bite.
+            // Rounded *up*: plain integer division turned 32×32's 1.7 plants
+            // into 1, leaving the small map permanently over capacity while
+            // the large one was fine.
+            let plantCount = max(1, (spec.size * spec.size + 599) / 600)
+            var x = 0
+            for _ in 0 ..< plantCount {
+                guard x + 3 <= spec.size else { break }
+                map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: x, y: plantStripTop))
+                x += 4
+            }
+        }
+
         var lotIndex = 0
-        for y in stride(from: 1, to: spec.size - 1, by: spec.roadSpacing) {
+        for y in stride(from: 1, to: spec.includeServices ? plantStripTop : spec.size - 1, by: spec.roadSpacing) {
             for x in stride(from: 0, to: spec.size - 1, by: 2) {
                 let origin = GridPosition(x: x, y: y)
                 guard map[origin].zone == .empty else { continue }
@@ -219,7 +250,14 @@ enum PlaytestHarness {
         if spec.includeServices, index % spec.serviceSpacing == 0 {
             // Rotate through the services so coverage is mixed rather than
             // every station being the same kind.
-            let services: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .waterTower, .powerPlant]
+            // No `.powerPlant` here: it is 3×3 and the lot rows are two tiles
+            // deep, so it never fit and was silently skipped every single
+            // time — every generated city ran with *zero* power plants, which
+            // capped everything at density 3 (`powerRequiredFromLevel`) and
+            // went unnoticed until utility capacity started reporting a
+            // capacity of 0. Plants now get their own reserved strip in
+            // `buildCity`.
+            let services: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .waterTower]
             return services[(index / spec.serviceSpacing) % services.count]
         }
         guard spec.segregateIndustry else {

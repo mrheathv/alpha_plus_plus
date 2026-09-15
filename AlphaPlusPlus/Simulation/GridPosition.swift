@@ -87,3 +87,17 @@ extension GridPosition {
         abs(x - other.x) + abs(y - other.y)
     }
 }
+
+extension Sequence where Element == GridPosition {
+    /// A stable row-major ordering: top-to-bottom, then left-to-right.
+    ///
+    /// Exists because `Set<GridPosition>` iteration order is not a reliable
+    /// tiebreaker. Two sets holding the same positions can iterate differently,
+    /// so any algorithm whose *result* depends on which equal-ranked element it
+    /// reaches first — a shortest-path tie, a nearest-frontage tie — has to
+    /// impose an order of its own. `Traffic.computeLoad` learned this the hard
+    /// way: it returned different answers for the same map on consecutive calls.
+    func sortedByPosition() -> [GridPosition] {
+        sorted { ($0.y, $0.x) < ($1.y, $1.x) }
+    }
+}

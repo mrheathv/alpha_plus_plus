@@ -144,6 +144,79 @@ final class DesignPlaytestTests: XCTestCase {
         )
     }
 
+    /// Does utility capacity actually gate a growing city?
+    ///
+    /// The generated cities in `PlaytestHarness` rotate through five service
+    /// types at `serviceSpacing`, which on a 64×64 map leaves roughly nineteen
+    /// water towers and nineteen power plants — several times what the city
+    /// draws, so capacity never binds there and every other scenario in this
+    /// file is unchanged by it. That is a fact about the generator, not about
+    /// the mechanic, so this scenario thins the utilities down to what a
+    /// player would plausibly build and checks that it bites.
+    func testUtilityCapacityGatesGrowth() {
+        // Always at least 32×32, whatever the profile. A 16×16 city draws less
+        // than a single tower plus a single plant supply, so at the quick
+        // profile's size "starved" would not actually be starved and the
+        // scenario would assert nothing.
+        let size = max(32, PlaytestHarness.Profile.current.size)
+        let ticks = PlaytestHarness.Profile.current.ticks
+
+        /// Keeps the first `keep` water towers and power plants, clearing the
+        /// rest back to empty land.
+        func thinUtilities(_ map: CityMap, keep: Int) -> CityMap {
+            var next = map
+            for zone in [ZoneType.waterTower, .powerPlant] {
+                var kept = 0
+                for tile in map.tiles where tile.isBuildingAnchor && tile.zone == zone {
+                    kept += 1
+                    guard kept > keep else { continue }
+                    for cell in map.footprintCells(origin: tile.position, size: zone.footprintSize) {
+                        next[cell] = Tile(
+                            position: cell,
+                            hasPipe: next[cell].hasPipe,
+                            hasPowerLine: next[cell].hasPowerLine
+                        )
+                    }
+                }
+            }
+            return next
+        }
+
+        func run(keep: Int) -> (population: Int, overloadedTicks: Int) {
+            var spec = PlaytestHarness.spec()
+            spec.size = size
+            let controller = GameController(
+                map: thinUtilities(PlaytestHarness.buildCity(spec), keep: keep),
+                rng: SeededRNG(seed: 4242)
+            )
+            var overloaded = 0
+            for _ in 0 ..< ticks {
+                controller.advanceSimulation()
+                if controller.waterLoad.isOverloaded || controller.powerLoad.isOverloaded {
+                    overloaded += 1
+                }
+            }
+            return (controller.population, overloaded)
+        }
+
+        let starved = run(keep: 1)
+        let ample = run(keep: 99)
+
+        print("\n=== Utility capacity (\(size)×\(size), \(ticks) ticks) ===")
+        print("1 tower + 1 plant : population \(starved.population), overloaded on \(starved.overloadedTicks) ticks")
+        print("all utilities     : population \(ample.population), overloaded on \(ample.overloadedTicks) ticks")
+        print("")
+
+        XCTAssertGreaterThan(
+            starved.overloadedTicks, 0,
+            "a whole city ran on one water tower and one power plant without ever going over capacity"
+        )
+        XCTAssertGreaterThan(
+            ample.population, starved.population,
+            "building more utilities bought no growth — capacity is not gating anything"
+        )
+    }
+
     // MARK: - Do the budget dials matter?
 
     /// Tax rate, funding, ordinances, debt — everything the player sets

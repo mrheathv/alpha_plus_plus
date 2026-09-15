@@ -757,6 +757,14 @@ final class GameController: ObservableObject {
         map.ordinances[keyPath: ordinance] = active
     }
 
+    /// What the city draws from its water network against what its towers
+    /// supply. `GameView` shows it so that "growth stopped because you are out
+    /// of water" is something the player can see coming rather than infer.
+    var waterLoad: UtilityLoad { Water.load(in: map) }
+
+    /// The power-grid counterpart to `waterLoad`.
+    var powerLoad: UtilityLoad { PowerGrid.load(in: map) }
+
     /// How much the city currently wants more of each RCI type — reads
     /// straight through to `map.cityDemand`, which is where the simulation
     /// itself (`CitySimulator.advance`) reads it too. Exists so `GameView`

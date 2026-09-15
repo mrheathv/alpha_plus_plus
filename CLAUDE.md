@@ -311,13 +311,66 @@ acceptance test, and it compares layouts with *identical* zone composition — a
 earlier version also changed the R:C:I ratio and so compared two different
 cities rather than two arrangements.
 
+### Utility capacity: making *when* matter
+
+Water and power used to be pure connectivity — one tower and one plant served an
+infinite city, so growth created no new demands and you were finished with your
+infrastructure the moment it was first connected.
+
+Both now have capacity. Demand is the city's total density across growable
+zones; capacity is `Water.capacityPerTower` (200) or
+`PowerGrid.capacityPerPlant` (400) per building, scaled by funding — so the
+funding slider buys throughput, not just coverage. Over capacity the whole
+network drops, the same city-wide way a power outage already did. Growth stalls,
+the toolbar meter turns red, and one more plant fixes it.
+
+It is worth a lot: a 64×64 city on one tower and one plant reaches 1,976 people
+against 3,580 with enough utilities, and spends every tick overloaded.
+
+Finding it also turned up two bugs that had been quietly distorting everything.
+
+**The harness had never placed a single power plant.** A plant is 3×3 and the
+generated lot rows are two tiles deep, so the service rotation silently skipped
+it every time. Every city ever measured for this project ran with *zero* power,
+capped at density 3 by `powerRequiredFromLevel`, and nothing noticed until
+capacity reported a capacity of zero. Plants now get a reserved strip along the
+map edge. **Every population figure recorded before this is from a city that
+could not exceed density 3.**
+
+**`Traffic.computeLoad` was non-deterministic.** Route ties — two equally short
+paths, two equidistant frontage cells — were broken by `Set` iteration order,
+which is not stable between two sets holding the same elements, so consecutive
+calls on one unchanged map alternated between different answers. It needs a map
+complex enough to produce ties, so no hand-built fixture caught it; it surfaced
+as the harness failing its own reproducibility check. Fixed by sorting
+(`GridPosition.sortedByPosition()`) wherever order decides an outcome. Every
+balance measurement taken before this carried that noise.
+
+### Where the game stands (measured, 64×64, 1,500 ticks)
+
+| strategy | population | treasury |
+|---|---|---|
+| all housing, no jobs | 100 | bankrupt |
+| balanced, no infrastructure | 1,640 | $2.1M |
+| + services | 1,956 | bankrupt |
+| + water & power | 3,580 | $3.1M |
+| industry zoned apart | **3,984** | **$4.3M** |
+| one tower + one plant | 1,976 | — |
+| all services unfunded | 1,268 | $1.4M |
+| all services double-funded | 4,852 | bankrupt |
+
+Best-to-worst spread is **35x**. Every lever now moves the outcome, and several
+are genuine tradeoffs rather than dominant strategies — double funding buys the
+most people and bankrupts you; maximum tax buys $17.5M and costs you residents.
+
 ### Still open
 
 | finding | evidence |
 |---|---|
-| **Money still accumulates** | a default city banks $1.65M over 1,500 ticks, a max-tax one $11M. Services are a sink now, but not a big enough one. |
+| **Money still accumulates** | a default city banks $3.1M over 1,500 ticks, a max-tax one $17.5M. |
 | **No pacing** | a fully zoned map still fills in within a handful of ticks. |
-| **Utilities have no capacity** | one water tower and one power plant serve an infinite city, so growth creates no new demands. The next-biggest genre gap. |
+| **No goals** | no win condition, milestone or objective — nothing to aim at once the city runs itself. |
+| **No education/health** | the classic progression axis gating high-value industry is absent. |
 | **Testing gotcha** | `AlwaysZeroRNG` fires every hazard every tick, so fixtures without service coverage are levelled and never recover. See its doc comment. |
 
 One caveat on the numbers: the harness zones a whole map at once, where a

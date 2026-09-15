@@ -158,7 +158,15 @@ enum Traffic {
             for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
                 // A job can front more than one drivable tile; this home's
                 // distance to it is the closest of those it actually reached.
-                guard let nearest = job.frontage.compactMap({ cell in distance[cell].map { (cell, $0) } }).min(by: { $0.1 < $1.1 }) else { continue }
+                // `sortedByPosition` rather than iterating the `Set` directly:
+                // when two frontage cells are equidistant, `min(by:)` keeps
+                // whichever it saw first, so `Set` iteration order would decide
+                // the route — and that is not stable between two `Set`
+                // instances holding the same elements. See
+                // `reachableTiles(from:over:)` for the full story.
+                guard let nearest = job.frontage.sortedByPosition()
+                    .compactMap({ cell in distance[cell].map { (cell, $0) } })
+                    .min(by: { $0.1 < $1.1 }) else { continue }
                 candidates.append(JobCandidate(jobIndex: index, frontageCell: nearest.0, distance: nearest.1))
             }
             guard let chosen = chooseJob(from: candidates, homeSeed: tile.position) else { continue } // no reachable job has room
@@ -267,9 +275,23 @@ enum Traffic {
     /// source `reconstructPath(to:parent:)` walks to rebuild an actual
     /// route once a destination is chosen.
     private static func reachableTiles(from sources: Set<GridPosition>, over drivable: Set<GridPosition>) -> (distance: [GridPosition: Int], parent: [GridPosition: GridPosition]) {
-        var distance: [GridPosition: Int] = Dictionary(uniqueKeysWithValues: sources.map { ($0, 0) })
+        // Seeded from a *sorted* array, not straight from the `Set`.
+        //
+        // The order sources enter the queue decides which of several equally
+        // short routes a tile's `parent` pointer ends up describing, and
+        // therefore which road tiles the commute is drawn onto. Taking that
+        // order from `Set` iteration made `computeLoad` genuinely
+        // non-deterministic: two calls on the *same* map returned different
+        // loads, alternating between two answers on repeated calls. It went
+        // unnoticed because it needs a map complex enough to produce ties —
+        // a small hand-built fixture is stable, a generated city is not — and
+        // it quietly added noise to every measurement the playtest harness
+        // has ever taken, including the ones this project tuned balance
+        // constants against.
+        let orderedSources = sources.sortedByPosition()
+        var distance: [GridPosition: Int] = Dictionary(uniqueKeysWithValues: orderedSources.map { ($0, 0) })
         var parent: [GridPosition: GridPosition] = [:]
-        var queue = Array(sources)
+        var queue = orderedSources
         var head = 0
 
         while head < queue.count {
