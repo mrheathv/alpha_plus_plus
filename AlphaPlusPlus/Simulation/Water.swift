@@ -66,6 +66,21 @@ enum Water {
     /// no shortest-path bookkeeping): unlike `Traffic`'s routing, this
     /// only ever asks "is this tile connected at all," never "how far,"
     /// so there's nothing to reconstruct a path for.
+    /// How far a working water source serves *without any pipes at all*.
+    ///
+    /// Playing the game found the gap this closes. A new player's instinct is
+    /// to put a pump next to their houses — and nothing happened, because
+    /// supply required an unbroken pipe run, and laying pipe requires
+    /// discovering the Water overlay. The result was a city showing "no water"
+    /// warnings with a pump sitting right there.
+    ///
+    /// A small direct radius makes the obvious move work, and leaves pipes as
+    /// what they should be: the way to *extend* a utility across a city, not a
+    /// prerequisite for it doing anything at all. Deliberately short — four
+    /// tiles covers a starter cluster and nothing more, so a city of any size
+    /// still has to lay a real network.
+    static let directSupplyRadius = 4
+
     /// How many density levels one water tower can serve.
     ///
     /// Sized against a built-out large map, which runs roughly 1,500-2,000
@@ -108,8 +123,15 @@ enum Water {
         // red, growth stalls, and one more tower fixes it.
         guard !load(in: map).isOverloaded else { return WaterSupply() }
 
+        // Direct coverage is computed first and carried through every early
+        // return below. A city with a pump and no pipes at all still gets
+        // water near that pump — which is the whole point of the direct
+        // radius, and was silently defeated when these guards returned an
+        // empty supply before ever reaching it.
+        let direct = directCoverage(in: map)
+
         let pipes = Set(map.tiles.filter { $0.hasPipe }.map(\.position))
-        guard !pipes.isEmpty else { return WaterSupply() }
+        guard !pipes.isEmpty else { return WaterSupply(reachablePipes: [], directlyServed: direct) }
 
         var frontier: [GridPosition] = []
         for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .waterTower || tile.zone == .waterPump) {
@@ -117,7 +139,7 @@ enum Water {
                 .flatMap { $0.orthogonalNeighbors() }
                 .filter { pipes.contains($0) })
         }
-        guard !frontier.isEmpty else { return WaterSupply() }
+        guard !frontier.isEmpty else { return WaterSupply(reachablePipes: [], directlyServed: direct) }
 
         var reachable = Set(frontier)
         var queue = frontier
@@ -130,7 +152,25 @@ enum Water {
                 queue.append(neighbor)
             }
         }
-        return WaterSupply(reachablePipes: reachable)
+        return WaterSupply(reachablePipes: reachable, directlyServed: direct)
+    }
+
+    /// Every tile within `directSupplyRadius` of a source's footprint.
+    static func directCoverage(in map: CityMap) -> Set<GridPosition> {
+        var served: Set<GridPosition> = []
+        for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .waterTower || tile.zone == .waterPump) {
+            for cell in map.footprintCells(origin: tile.position, size: tile.zone.footprintSize) {
+                for dy in -directSupplyRadius ... directSupplyRadius {
+                    for dx in -directSupplyRadius ... directSupplyRadius {
+                        let target = GridPosition(x: cell.x + dx, y: cell.y + dy)
+                        guard map.contains(target),
+                              cell.manhattanDistance(to: target) <= directSupplyRadius else { continue }
+                        served.insert(target)
+                    }
+                }
+            }
+        }
+        return served
     }
 
     /// Is any tile sharing an edge with `position` a supplied pipe? The
@@ -139,7 +179,13 @@ enum Water {
     /// (`CityMap.waterSupply`) instead of a raw zone — a building doesn't
     /// need to *be* a pipe, just touch one that's actually connected.
     static func hasSupply(at position: GridPosition, in map: CityMap) -> Bool {
-        position.orthogonalNeighbors().contains { map.waterSupply.isSupplied(at: $0) }
+        // Either route works: touching a pipe that traces back to a source, or
+        // simply being close enough to one (`directSupplyRadius`). The second
+        // is what makes "put a pump next to the houses" do something.
+        if position.orthogonalNeighbors().contains(where: { map.waterSupply.isSupplied(at: $0) }) {
+            return true
+        }
+        return map.waterSupply.isDirectlyServed(at: position)
     }
 }
 
@@ -149,12 +195,23 @@ enum Water {
 struct WaterSupply: Equatable, Codable, Sendable {
     private var reachablePipes: Set<GridPosition>
 
+    /// Tiles close enough to a working source to be served with no pipes at
+    /// all — see `Water.directSupplyRadius`.
+    private var directlyServed: Set<GridPosition>
+
     init() {
         self.reachablePipes = []
+        self.directlyServed = []
     }
 
-    fileprivate init(reachablePipes: Set<GridPosition>) {
+    fileprivate init(reachablePipes: Set<GridPosition>, directlyServed: Set<GridPosition>) {
         self.reachablePipes = reachablePipes
+        self.directlyServed = directlyServed
+    }
+
+    /// Is `position` close enough to a source to be served without pipes?
+    func isDirectlyServed(at position: GridPosition) -> Bool {
+        directlyServed.contains(position)
     }
 
     /// Is `position` a pipe tile actually connected to a funded water

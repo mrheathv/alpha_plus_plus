@@ -45,6 +45,10 @@ struct GameView: View {
     /// fire again (e.g. if the view is removed and reinserted).
     @State private var scene: GameScene?
 
+    /// Which group of tools the zoning row is showing. See `ToolCategory` for
+    /// why the row is grouped at all.
+    @State private var toolCategory: ToolCategory = .zones
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -127,27 +131,68 @@ struct GameView: View {
         }
     }
 
+    /// The bulldozer, a group picker, and the tools in the chosen group.
+    ///
+    /// Seventeen tools in one row had stopped fitting; see `ToolCategory`.
+    /// Bulldoze sits outside the groups and never moves, because having to
+    /// change category before you can undo a mistake would be miserable.
     private var zoningRow: some View {
-        HStack {
-            ForEach(ZoneType.allCases, id: \.self) { zone in
-                let unlocked = controller.isUnlocked(zone)
-                Button(toolLabel(for: zone)) {
-                    controller.selectedTool = zone
-                }
-                .buttonStyle(RetroButtonStyle(accent: RetroUITheme.accent(for: zone), isSelected: controller.selectedTool == zone))
-                // Disabled and dimmed rather than hidden. A tool you can see
-                // but cannot use yet is the thing to aim at — hiding it would
-                // turn the ladder into a series of surprises, and a player
-                // would have no idea the stadium exists until it appears.
-                .disabled(!unlocked)
-                .opacity(unlocked ? 1 : 0.35)
-                .help(unlocked
-                      ? toolLabel(for: zone)
-                      : "\(toolLabel(for: zone)) — needs \(Unlocks.requiredPopulation(for: zone)) residents "
-                        + "(\(controller.residentsNeeded(for: zone)) to go)")
+        HStack(spacing: 10) {
+            toolButton(for: .empty)
+
+            Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
+
+            RetroSegmentedPicker(
+                options: ToolCategory.allCases,
+                label: \.displayName,
+                selection: Binding(
+                    get: { toolCategory },
+                    set: { category in
+                        toolCategory = category
+                        // Move the selection to something in the group the
+                        // player just opened, so the highlighted tool is always
+                        // one they can actually see.
+                        if let first = category.tools.first, !category.tools.contains(controller.selectedTool) {
+                            controller.selectedTool = first
+                        }
+                    }
+                )
+            )
+
+            Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
+
+            ForEach(toolCategory.tools, id: \.self) { zone in
+                toolButton(for: zone)
             }
+
             Spacer()
         }
+        // Keep the picker honest when something else changes the tool — a
+        // future keyboard shortcut, or restoring a save.
+        .onChange(of: controller.selectedTool) {
+            if let category = ToolCategory.containing(controller.selectedTool), category != toolCategory {
+                toolCategory = category
+            }
+        }
+    }
+
+    /// One tool button, disabled and dimmed with its requirement when the city
+    /// has not earned it yet.
+    private func toolButton(for zone: ZoneType) -> some View {
+        let unlocked = controller.isUnlocked(zone)
+        return Button(toolLabel(for: zone)) {
+            controller.selectedTool = zone
+        }
+        .buttonStyle(RetroButtonStyle(
+            accent: RetroUITheme.accent(for: zone),
+            isSelected: controller.selectedTool == zone
+        ))
+        .disabled(!unlocked)
+        .opacity(unlocked ? 1 : 0.35)
+        .help(unlocked
+              ? toolLabel(for: zone)
+              : "\(toolLabel(for: zone)) — needs \(Unlocks.requiredPopulation(for: zone)) residents "
+                + "(\(controller.residentsNeeded(for: zone)) to go)")
     }
 
     /// One row: Play/Pause, the editing hint for whichever overlay is up, and

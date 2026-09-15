@@ -17,7 +17,15 @@ enum RetroUITheme {
     /// already glow (`RenderPalette.fullColor(for:)`), so the toolbar
     /// button and the thing it places always agree by construction.
     static func accent(for zone: ZoneType) -> Color {
-        Color(nsColor: RenderPalette.fullColor(for: zone))
+        // `.empty` is the one zone whose tile colour is wrong as a button
+        // accent. On the map it is unzoned land — a near-black "night" the
+        // neon sits on — which as a toolbar accent renders the Bulldoze
+        // button so dim it reads as disabled, next to a row of tools that
+        // genuinely can be. It is an *action*, not a patch of ground, so it
+        // gets an action's colour: the same red the game already uses to mean
+        // "this destroys or refuses something."
+        guard zone != .empty else { return .red }
+        return Color(nsColor: RenderPalette.fullColor(for: zone))
     }
 
     /// The toolbar's own background — the same "night" `RenderPalette.background`

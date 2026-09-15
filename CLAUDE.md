@@ -571,6 +571,34 @@ One caveat on the numbers: the harness zones a whole map at once, where a
 player zones incrementally. "A handful of ticks to plateau" describes how fast
 zoned land fills in, not session length.
 
+## The toolbar, and utilities that work out of the box
+
+Two things playing the game turned up, both about the first five minutes.
+
+**A utility now serves its surroundings without pipes.** A new player's
+instinct is to put a pump next to the houses, and that did nothing: supply
+needed an unbroken pipe run, and laying pipe means finding the Water overlay
+first — which now lives in a menu. So a starter city sat there showing "no
+water" warnings with a pump right beside it. `Water.directSupplyRadius` (4
+tiles, matched by `PowerGrid`) makes the obvious move work and leaves pipes as
+what they should be: the way to *extend* a utility across a city rather than a
+prerequisite for it doing anything. Direct service still respects capacity and
+funding, so it is not a way to dodge either.
+
+Worth noting the shape of that bug: the radius was implemented correctly and
+still did nothing, because `computeSupply` returns early when a city has no
+pipes *at all* — and that early return predates the radius. Direct coverage is
+now computed before every guard.
+
+**The tool row is grouped.** Seventeen tools in one row had stopped fitting;
+`ToolCategory` splits them into Zones, Transport, Water & Power and Services,
+with Bulldoze always visible outside the groups (needing to change category
+before you can undo would be miserable). Within a group tools appear in unlock
+order, so everything currently available sits to the left and locked tools
+trail off to the right. `ToolCategoryTests` asserts every zone belongs to
+exactly one group — a new `ZoneType` that nobody adds to a category would
+otherwise be unreachable from the toolbar with nothing to say so.
+
 ## Menus, and one SwiftUI trap
 
 Simulation, Overlay and City menus hold everything you set occasionally; the

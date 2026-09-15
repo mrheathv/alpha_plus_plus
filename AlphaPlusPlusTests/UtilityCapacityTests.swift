@@ -226,4 +226,93 @@ final class UtilityCapacityTests: XCTestCase {
         )
         XCTAssertGreaterThan(densities.max() ?? 0, 0, "the fixture never grew at all")
     }
+
+    // MARK: - Serving without pipes
+
+    /// The move a new player actually makes: drop a pump next to the houses.
+    ///
+    /// It used to do nothing. Supply required an unbroken pipe run, and laying
+    /// pipe means finding the Water overlay first — so a starter city sat
+    /// there showing "no water" warnings with a pump right beside it.
+    func testAPumpServesNearbyBuildingsWithNoPipesAtAll() {
+        var map = CityMap(width: 20, height: 20)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map.placeBuilding(zone: .waterPump, origin: GridPosition(x: 3, y: 0))
+        XCTAssertFalse(map.tiles.contains { $0.hasPipe }, "the fixture must have no pipes at all")
+
+        map.waterSupply = Water.computeSupply(for: map)
+
+        XCTAssertTrue(
+            Water.hasSupply(at: GridPosition(x: 0, y: 0), in: map),
+            "a pump three tiles away supplied nothing without pipes"
+        )
+    }
+
+    func testAGeneratorPowersNearbyBuildingsWithNoLinesAtAll() {
+        var map = CityMap(width: 20, height: 20)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map.placeBuilding(zone: .generator, origin: GridPosition(x: 3, y: 0))
+        XCTAssertFalse(map.tiles.contains { $0.hasPowerLine })
+
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
+
+        XCTAssertTrue(PowerGrid.hasSupply(at: GridPosition(x: 0, y: 0), in: map))
+    }
+
+    /// The radius is deliberately short, so a city of any size still has to lay
+    /// a real network — direct service is a starting convenience, not a
+    /// replacement for pipes.
+    func testDirectServiceDoesNotReachAcrossTheMap() {
+        var map = CityMap(width: 30, height: 30)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 20, y: 20))
+
+        map.waterSupply = Water.computeSupply(for: map)
+
+        XCTAssertFalse(Water.hasSupply(at: GridPosition(x: 0, y: 0), in: map))
+    }
+
+    /// Pipes still do their job: they carry supply well past the direct radius.
+    func testPipesExtendSupplyBeyondTheDirectRadius() {
+        var map = CityMap(width: 30, height: 30)
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 0, y: 0))
+        for x in 0 ..< 25 {
+            map[GridPosition(x: x, y: 2)].hasPipe = true
+        }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 22, y: 3))
+
+        map.waterSupply = Water.computeSupply(for: map)
+
+        XCTAssertGreaterThan(
+            GridPosition(x: 22, y: 3).manhattanDistance(to: GridPosition(x: 0, y: 0)),
+            Water.directSupplyRadius,
+            "the fixture is inside the direct radius, so it proves nothing about pipes"
+        )
+        XCTAssertTrue(Water.hasSupply(at: GridPosition(x: 22, y: 3), in: map))
+    }
+
+    /// Direct service is still service: going over capacity cuts it off along
+    /// with everything else, or a player could dodge capacity entirely by
+    /// clustering buildings around the plant.
+    func testDirectServiceStopsWhenTheNetworkIsOverloaded() {
+        var map = makeCity(towers: 1, plants: 1, lots: lotsToExceed(Water.capacityPerTower))
+        XCTAssertTrue(Water.load(in: map).isOverloaded)
+
+        map.waterSupply = Water.computeSupply(for: map)
+
+        // A lot right beside the tower at (0,2), well inside the direct radius.
+        XCTAssertFalse(Water.hasSupply(at: GridPosition(x: 0, y: 4), in: map))
+    }
+
+    /// An unfunded utility serves nobody, near or far.
+    func testDefundingCutsOffDirectServiceToo() {
+        var map = CityMap(width: 20, height: 20)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map.placeBuilding(zone: .waterPump, origin: GridPosition(x: 3, y: 0))
+        map.serviceFunding.setLevel(0, for: .waterTower)
+
+        map.waterSupply = Water.computeSupply(for: map)
+
+        XCTAssertFalse(Water.hasSupply(at: GridPosition(x: 0, y: 0), in: map))
+    }
 }

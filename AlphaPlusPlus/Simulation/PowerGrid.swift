@@ -68,8 +68,13 @@ enum PowerGrid {
         // plant offline at once, not just some of them, same as `Water`.
         guard map.serviceFunding.level(for: .powerPlant) > 0 else { return PowerSupply() }
 
+        // Same reasoning as `Water.computeSupply(for:)`: direct coverage is
+        // computed up front and survives every early return, so a generator
+        // with no lines still powers what is next to it.
+        let direct = directCoverage(in: map)
+
         let lines = Set(map.tiles.filter { $0.hasPowerLine }.map(\.position))
-        guard !lines.isEmpty else { return PowerSupply() }
+        guard !lines.isEmpty else { return PowerSupply(reachableLines: [], directlyServed: direct) }
 
         var frontier: [GridPosition] = []
         for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .powerPlant || tile.zone == .generator) {
@@ -77,7 +82,7 @@ enum PowerGrid {
                 .flatMap { $0.orthogonalNeighbors() }
                 .filter { lines.contains($0) })
         }
-        guard !frontier.isEmpty else { return PowerSupply() }
+        guard !frontier.isEmpty else { return PowerSupply(reachableLines: [], directlyServed: direct) }
 
         var reachable = Set(frontier)
         var queue = frontier
@@ -90,7 +95,7 @@ enum PowerGrid {
                 queue.append(neighbor)
             }
         }
-        return PowerSupply(reachableLines: reachable)
+        return PowerSupply(reachableLines: reachable, directlyServed: direct)
     }
 
     /// Is any tile sharing an edge with `position` a supplied power line?
@@ -98,7 +103,36 @@ enum PowerGrid {
     /// building doesn't need to *be* a power line, just touch one that's
     /// actually connected.
     static func hasSupply(at position: GridPosition, in map: CityMap) -> Bool {
-        position.orthogonalNeighbors().contains { map.powerSupply.isSupplied(at: $0) }
+        // Same two routes as `Water.hasSupply(at:in:)`, for the same reason:
+        // a generator dropped next to a few houses has to light them without
+        // the player first discovering the Power overlay and drawing lines.
+        if position.orthogonalNeighbors().contains(where: { map.powerSupply.isSupplied(at: $0) }) {
+            return true
+        }
+        return map.powerSupply.isDirectlyServed(at: position)
+    }
+
+    /// How far a working plant powers without any lines — see
+    /// `Water.directSupplyRadius`, which this deliberately matches so the two
+    /// utilities behave the same way.
+    static let directSupplyRadius = Water.directSupplyRadius
+
+    /// Every tile within `directSupplyRadius` of a plant's footprint.
+    static func directCoverage(in map: CityMap) -> Set<GridPosition> {
+        var served: Set<GridPosition> = []
+        for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .powerPlant || tile.zone == .generator) {
+            for cell in map.footprintCells(origin: tile.position, size: tile.zone.footprintSize) {
+                for dy in -directSupplyRadius ... directSupplyRadius {
+                    for dx in -directSupplyRadius ... directSupplyRadius {
+                        let target = GridPosition(x: cell.x + dx, y: cell.y + dy)
+                        guard map.contains(target),
+                              cell.manhattanDistance(to: target) <= directSupplyRadius else { continue }
+                        served.insert(target)
+                    }
+                }
+            }
+        }
+        return served
     }
 }
 
@@ -109,12 +143,23 @@ enum PowerGrid {
 struct PowerSupply: Equatable, Codable, Sendable {
     private var reachableLines: Set<GridPosition>
 
+    /// Tiles close enough to a working plant to be powered with no lines at
+    /// all — see `PowerGrid.directSupplyRadius`.
+    private var directlyServed: Set<GridPosition>
+
     init() {
         self.reachableLines = []
+        self.directlyServed = []
     }
 
-    fileprivate init(reachableLines: Set<GridPosition>) {
+    fileprivate init(reachableLines: Set<GridPosition>, directlyServed: Set<GridPosition>) {
         self.reachableLines = reachableLines
+        self.directlyServed = directlyServed
+    }
+
+    /// Is `position` close enough to a plant to be powered without lines?
+    func isDirectlyServed(at position: GridPosition) -> Bool {
+        directlyServed.contains(position)
     }
 
     /// Is `position` a power-line tile actually connected to a funded,
