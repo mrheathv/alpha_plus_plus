@@ -60,7 +60,7 @@ final class ZoneIconContactSheetTests: XCTestCase {
     private static let serviceZones: [ZoneType] = [
         .policeStation, .fireStation, .publicTransit,
         .powerPlant, .stadium, .subway, .waterTower,
-        .waterPump, .generator,
+        .waterPump, .generator, .school, .hospital,
     ]
 
     /// Services drawn with a single look rather than two.
@@ -69,7 +69,7 @@ final class ZoneIconContactSheetTests: XCTestCase {
     /// little room to say anything with — a second variant would be the same
     /// box with a window moved. They are still catalogued and still have to
     /// draw something; they are only exempt from the two-looks rule.
-    private static let singleVariantZones: Set<ZoneType> = [.waterPump, .generator]
+    private static let singleVariantZones: Set<ZoneType> = [.waterPump, .generator, .school, .hospital]
 
     private static let growableZones: [ZoneType] = [.residential, .commercial, .industrial]
 

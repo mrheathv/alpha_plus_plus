@@ -106,6 +106,16 @@ enum CitySimulator {
                 if nextLevel >= Self.powerRequiredFromLevel {
                     guard footprint.contains(where: { PowerGrid.hasSupply(at: $0, in: map) }) else { continue }
                 }
+                if nextLevel >= Self.educationRequiredFromLevel {
+                    let schooled = footprint.contains { cell in
+                        LandValue.falloffValue(
+                            nearestZone: .school,
+                            falloffDistance: LandValue.serviceFalloffDistance,
+                            at: cell, in: map, using: distances
+                        ) >= Self.educationCoverageThreshold
+                    }
+                    guard schooled else { continue }
+                }
                 let chance = growthChance(for: demand)
                 guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
                 for cell in footprint { next[cell].density = nextLevel }
@@ -191,6 +201,29 @@ enum CitySimulator {
     ///
     /// Not `private`, same reason as `waterRequiredFromLevel` just above.
     static let powerRequiredFromLevel = 4
+
+    /// From this level on, a zone additionally needs a `.school` in range —
+    /// the third and last rung of the utility ladder, after water at 3 and
+    /// power at 4.
+    ///
+    /// The top density tier was previously gated on land value alone, which
+    /// made it a reward for building *near good things* rather than a
+    /// decision of its own. An education requirement turns the last tier into
+    /// something a player has to go and build for, and gives the mid-game its
+    /// own objective the way water and power give the early game theirs.
+    ///
+    /// Uses `educationCoverageThreshold` rather than a simple
+    /// present-or-absent check, because unlike a pipe or a power line a school
+    /// serves a *radius* — the question is "is this block in a school's
+    /// catchment," not "is a school connected to it."
+    static let educationRequiredFromLevel = 5
+
+    /// How much school coverage a block needs to reach
+    /// `educationRequiredFromLevel`. The same bar `CityHazards` uses for its
+    /// own coverage checks, for the same reason the repair threshold reuses
+    /// it: one "is this adequately served" standard across the game rather
+    /// than a different number per system.
+    static let educationCoverageThreshold = 0.3
 
     /// `growthChance(for:)`'s floor, at demand -1 (the city is drowning
     /// in this type already).

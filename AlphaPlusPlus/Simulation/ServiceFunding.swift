@@ -37,6 +37,12 @@ struct ServiceFunding: Equatable, Codable, Sendable {
     // there's no separate "is a pipe fundable" question to answer.
     var waterTower: Double = 1.0
 
+    /// The education/health pair get their own dials — a city budget lists
+    /// schools and hospitals separately from police and fire, and both are
+    /// heavy enough per building that defunding one is a real lever.
+    var school: Double = 1.0
+    var hospital: Double = 1.0
+
     /// How well-funded `zone` currently is. Never optional — every
     /// `ZoneType` has an answer, even the ones that can't be funded at all.
     func level(for zone: ZoneType) -> Double {
@@ -52,6 +58,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         // size, and `ServiceFunding` is explicitly one dial per service type
         // rather than per building.
         case .waterTower, .waterPump: return waterTower
+        case .school: return school
+        case .hospital: return hospital
         case .empty, .residential, .commercial, .industrial, .road, .highway: return 1.0
         }
     }
@@ -70,6 +78,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .stadium: stadium = level
         case .subway: subway = level
         case .waterTower, .waterPump: waterTower = level
+        case .school: school = level
+        case .hospital: hospital = level
         case .empty, .residential, .commercial, .industrial, .road, .highway: break
         }
     }

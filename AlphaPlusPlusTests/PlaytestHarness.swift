@@ -74,7 +74,15 @@ enum PlaytestHarness {
 
         var size: Int {
             switch self {
-            case .quick: return 16
+            // 24 rather than 16. The smaller size was chosen when a tick cost
+            // 25.8 ms; after `ZoneDistanceField` a 24×24 tick costs 11.6 ms,
+            // so this is *cheaper* than the old quick profile while being far
+            // more representative. 16×16 held only ~33 lots, which meant a
+            // full set of services — schools and hospitals included — was a
+            // fixed cost heavy enough to bankrupt the city on its own, and
+            // scenarios started failing for reasons that were about the
+            // fixture's size rather than about the thing being measured.
+            case .quick: return 24
             case .full: return MapSize.large.dimension
             }
         }
@@ -86,7 +94,10 @@ enum PlaytestHarness {
             // everything beyond that is paying 25.8 ms/tick to re-measure the
             // same numbers. Trimming it is most of why the scenario suite
             // runs in about half the time it first did.
-            case .quick: return 120
+            // 80 rather than 120, to pay for the larger quick map above: a
+            // 24×24 city plateaus well inside that, and the extra ticks were
+            // re-measuring a settled city at 2.6x the per-tick cost.
+            case .quick: return 80
             case .full: return 1_500
             }
         }
@@ -222,61 +233,60 @@ enum PlaytestHarness {
             }
         }
 
-        var lotIndex = 0
+        // Lots are assigned in two passes rather than one, so that
+        // `segregateIndustry` can rearrange the *same* set of zones instead of
+        // producing a different mix.
+        //
+        // The single-pass version decided each lot's zone as it reached it,
+        // which meant the planned and mixed layouts ended up with genuinely
+        // different compositions once services had eaten an uneven share of
+        // each — 34R/14C/21I against 29R/20C/20I in one measured case. That
+        // makes the planning comparison a comparison of two different cities,
+        // which is exactly the confound it was written to avoid.
+        var lots: [GridPosition] = []
         for y in stride(from: 1, to: spec.includeServices ? plantStripTop : spec.size - 1, by: spec.roadSpacing) {
             for x in stride(from: 0, to: spec.size - 1, by: 2) {
                 let origin = GridPosition(x: x, y: y)
                 guard map[origin].zone == .empty else { continue }
-
-                let zone = placement(for: lotIndex, at: origin, spec: spec)
-                lotIndex += 1
-
-                guard map.footprintCells(origin: origin, size: zone.footprintSize).count
-                        == zone.footprintSize * zone.footprintSize else { continue }
-                guard map.footprintCells(origin: origin, size: zone.footprintSize)
-                        .allSatisfy({ map[$0].zone == .empty }) else { continue }
-
-                map.placeBuilding(zone: zone, origin: origin)
+                lots.append(origin)
             }
         }
 
+        // Services first, at a fixed stride, so both layouts place them
+        // identically.
+        var assignment = [ZoneType?](repeating: nil, count: lots.count)
+        if spec.includeServices {
+            let services: [ZoneType] = [
+                .policeStation, .fireStation, .publicTransit, .waterTower, .school, .hospital,
+            ]
+            for index in stride(from: 0, to: lots.count, by: spec.serviceSpacing) {
+                assignment[index] = services[(index / spec.serviceSpacing) % services.count]
+            }
+        }
+
+        // Everything else cycles `zoneMix`. Segregating keeps that exact
+        // multiset and only changes *where* each zone lands: industry takes
+        // the lowest rows, since `lots` is built in row order.
+        let openSlots = assignment.indices.filter { assignment[$0] == nil }
+        var mix = openSlots.indices.map { spec.zoneMix[$0 % spec.zoneMix.count] }
+        if spec.segregateIndustry {
+            let industrial = mix.filter { $0 == .industrial }
+            let everythingElse = mix.filter { $0 != .industrial }
+            mix = industrial + everythingElse
+        }
+        for (slot, zone) in zip(openSlots, mix) {
+            assignment[slot] = zone
+        }
+
+        for (index, origin) in lots.enumerated() {
+            guard let zone = assignment[index] else { continue }
+            let footprint = map.footprintCells(origin: origin, size: zone.footprintSize)
+            guard footprint.count == zone.footprintSize * zone.footprintSize else { continue }
+            guard footprint.allSatisfy({ map[$0].zone == .empty }) else { continue }
+            map.placeBuilding(zone: zone, origin: origin)
+        }
+
         return map
-    }
-
-    /// Which zone lot number `index` gets: a service building at every
-    /// `serviceSpacing`-th lot when services are enabled, otherwise the next
-    /// entry in `spec.zoneMix`.
-    private static func placement(for index: Int, at origin: GridPosition, spec: CitySpec) -> ZoneType {
-        if spec.includeServices, index % spec.serviceSpacing == 0 {
-            // Rotate through the services so coverage is mixed rather than
-            // every station being the same kind.
-            // No `.powerPlant` here: it is 3×3 and the lot rows are two tiles
-            // deep, so it never fit and was silently skipped every single
-            // time — every generated city ran with *zero* power plants, which
-            // capped everything at density 3 (`powerRequiredFromLevel`) and
-            // went unnoticed until utility capacity started reporting a
-            // capacity of 0. Plants now get their own reserved strip in
-            // `buildCity`.
-            let services: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .waterTower]
-            return services[(index / spec.serviceSpacing) % services.count]
-        }
-        guard spec.segregateIndustry else {
-            return spec.zoneMix[index % spec.zoneMix.count]
-        }
-
-        // Same *composition* as `zoneMix`, different *arrangement* — which is
-        // the only way this comparison measures planning rather than zone
-        // ratios. The default mix is 2 residential : 1 commercial : 1
-        // industrial, so industry takes the lowest quarter of the lot rows and
-        // the rest cycle 2:1 above it. An earlier version banished industry to
-        // the bottom fifth and rebalanced everything else, which changed the
-        // ratio as well as the layout and so compared two different cities.
-        let rows = Int((Double(spec.size - 2) / Double(spec.roadSpacing)).rounded(.up))
-        let industrialRows = max(1, rows / 4)
-        if origin.y < 1 + industrialRows * spec.roadSpacing {
-            return .industrial
-        }
-        return index % 3 == 2 ? .commercial : .residential
     }
 
     // MARK: - Running

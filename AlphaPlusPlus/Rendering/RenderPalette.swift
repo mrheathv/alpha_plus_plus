@@ -95,6 +95,14 @@ enum RenderPalette {
             return SKColor(srgbRed: 0.11, green: 0.035, blue: 0.23, alpha: 1.0)
         case .residential, .commercial, .industrial:
             return tierColor(for: zone, tier: 3)
+        case .school:
+            // Warm amber against the cool blues of water and transit — the
+            // civic buildings should read as their own family on the map.
+            return SKColor(srgbRed: 1.0, green: 0.78, blue: 0.25, alpha: 1.0)
+        case .hospital:
+            // Clinical white-pink, the one nearly-desaturated colour in the
+            // palette, so a hospital stands out from every neon around it.
+            return SKColor(srgbRed: 1.0, green: 0.62, blue: 0.70, alpha: 1.0)
         case .waterPump:
             // Deliberately the same hue as `.waterTower`, and `.generator`
             // as `.powerPlant` below: the pair is the same utility at two
@@ -347,6 +355,8 @@ enum RenderPalette {
         case .fireStation: return "Fire Station"
         case .publicTransit: return "Transit Stop"
         case .powerPlant: return "Power Plant"
+        case .school: return "School"
+        case .hospital: return "Hospital"
         case .waterPump: return "Water Pump"
         case .generator: return "Generator"
         case .stadium: return "Stadium"

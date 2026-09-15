@@ -188,7 +188,9 @@ enum LandValue {
         let police = falloffValue(nearestZone: .policeStation, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
         let fire = falloffValue(nearestZone: .fireStation, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
         let stadium = falloffValue(nearestZone: .stadium, falloffDistance: stadiumFalloffDistance, at: position, in: map, using: field)
-        let positives = max(road, transit, subway, police, fire, stadium)
+        let school = falloffValue(nearestZone: .school, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let hospital = falloffValue(nearestZone: .hospital, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let positives = max(road, transit, subway, police, fire, stadium, school, hospital)
 
         // The power plant penalty is subtracted from the combined positive
         // score, not folded into the same `max` — it's not competing to be

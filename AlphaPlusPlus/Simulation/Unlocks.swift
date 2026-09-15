@@ -54,6 +54,14 @@ enum Unlocks {
             return 100
         case .publicTransit:
             return 200
+        // Mid-game, and in this order because a school is what unlocks the
+        // top density tier: it has to arrive comfortably before a city is
+        // pressing against that ceiling, while a hospital is the later,
+        // wider-reaching civic building.
+        case .school:
+            return 250
+        case .hospital:
+            return 600
         // Just past where water-only growth tops out, since
         // `powerRequiredFromLevel` gates density 4.
         case .powerPlant:

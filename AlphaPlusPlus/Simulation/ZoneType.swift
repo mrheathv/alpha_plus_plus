@@ -63,6 +63,15 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // it starts you on a water pump and a small plant.
     case waterPump
     case generator
+
+    // The education/health axis — the genre's classic mid-game progression,
+    // and this project's first real money *sink*: a mature city was banking
+    // millions with nothing left to buy. A `.school` is what lets a lot reach
+    // the top density tier at all (see
+    // `CitySimulator.educationRequiredFromLevel`), and a `.hospital` halves
+    // what a hazard takes out of the blocks it covers.
+    case school
+    case hospital
 }
 
 extension ZoneType {
@@ -92,6 +101,11 @@ extension ZoneType {
         // $10,000 starting treasury, since a new city now has to buy both.
         case .waterPump: return 250
         case .generator: return 500
+        // Priced against the stations they sit alongside ($800): a school is
+        // the cheaper of the two because every neighbourhood wants one, while
+        // a hospital serves a wider area and costs accordingly.
+        case .school: return 900
+        case .hospital: return 1_400
         // City-scale infrastructure/civic projects, priced well above even
         // a service station to match sitting on 9 tiles instead of 4.
         case .powerPlant: return 2000
@@ -117,7 +131,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower, .waterPump, .generator: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower, .waterPump, .generator, .school, .hospital: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -177,6 +191,14 @@ extension ZoneType {
         case .publicTransit: return 5
         case .waterPump: return 8
         case .generator: return 15
+        // Heavy on purpose: a mature city was banking millions with nothing
+        // left to buy, and an ongoing cost is a better sink than a one-off
+        // purchase. A hospital is the single most expensive thing in the game
+        // to run; a school sits below the power plant, which is right — a 3×3
+        // plant serving the whole city should cost more than a neighbourhood
+        // school — but well above the stations.
+        case .school: return 35
+        case .hospital: return 55
         case .powerPlant: return 50
         case .stadium: return 40
         // `.subway` *is* a service, same as `.publicTransit` (staffed
@@ -199,7 +221,7 @@ extension ZoneType {
     var footprintSize: Int {
         switch self {
         case .empty, .road, .publicTransit, .highway, .subway, .waterPump: return 1
-        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator: return 2
+        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital: return 2
         case .powerPlant, .stadium: return 3
         }
     }

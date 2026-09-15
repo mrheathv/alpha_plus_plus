@@ -436,6 +436,41 @@ has to be visible for it to be something to aim at. That also thins the zoning
 row from thirteen buttons to four for a new city, which is a UI problem
 `GameView`'s own doc comments had already flagged twice.
 
+### Education and health: the mid-game axis, and a money sink
+
+A mature city was banking millions with nothing left to buy, and the genre's
+classic mid-game progression — schools and hospitals gating better development
+— was missing entirely. Those are the same problem: a progression axis is what
+gives money somewhere to go.
+
+- **`.school`** is the third and last rung of the utility ladder. Water gates
+  density 3, power gates 4, and a school in range now gates 5. The top tier used
+  to be a reward for building *near good things*; it is now something you go and
+  build for.
+- **`.hospital`** halves what a hazard takes out of the blocks it covers. It
+  does not prevent a strike — coverage by the *relevant* service is what does
+  that — and it never makes a hazard free, so a one-level risk stays one level.
+  That gives it a role of its own rather than making it a second police station.
+
+Both are the heaviest ongoing costs in the game (a hospital is the single most
+expensive thing to run), which is the sink. Both unlock mid-game, school first,
+since a school has to arrive before a city is pressing on the ceiling it opens.
+
+Two harness fixes came out of this. The generator now places schools and
+hospitals — without a school no generated city can reach density 5, so every
+scenario would quietly have been measuring a capped city. And lot assignment
+moved to two passes so that `segregateIndustry` rearranges the *same* zones
+rather than producing a different mix; the single-pass version gave the planned
+and mixed layouts genuinely different compositions once services had eaten an
+uneven share of each, which made the planning comparison a comparison of two
+different cities.
+
+The quick playtest profile also grew from 16×16 to 24×24. The smaller size was
+chosen when a tick cost 25.8 ms; after `ZoneDistanceField` a 24×24 tick costs
+11.6 ms, so it is *cheaper* than the old profile while being big enough that a
+full set of services is not a fixed cost heavy enough to bankrupt the city on
+its own.
+
 ### Still open
 
 | finding | evidence |

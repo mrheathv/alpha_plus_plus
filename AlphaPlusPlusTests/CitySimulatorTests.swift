@@ -189,6 +189,10 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 9, y: 8)].hasPowerLine = true
         map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 10, y: 7)) // covers (10,7)-(12,9), touches (9,8)
         map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
+        // The top tier now wants a school in range as well — see
+        // `CitySimulator.educationRequiredFromLevel`. Land value alone used to
+        // be enough for density 5, which is exactly what that gate changed.
+        map.placeBuilding(zone: .school, origin: GridPosition(x: 0, y: 3)) // clear of the station at (3,0)-(4,1)
 
         var rng = AlwaysZeroRNG()
         let next = CitySimulator.advance(map, using: &rng)
@@ -250,6 +254,10 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 9, y: 8)].hasPowerLine = true
         map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 10, y: 7)) // covers (10,7)-(12,9), touches (9,8)
         map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
+        // Density 5 wants a school in range as well — see
+        // `CitySimulator.educationRequiredFromLevel`. Placed clear of the
+        // station at (3,0)-(4,1) and the water tower at (3,3)-(4,4).
+        map.placeBuilding(zone: .school, origin: GridPosition(x: 0, y: 3))
 
         var rng = AlwaysZeroRNG()
         let next = CitySimulator.advance(map, using: &rng)

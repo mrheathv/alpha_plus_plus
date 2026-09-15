@@ -117,8 +117,18 @@ enum CityHazards {
                 guard bestCoverage < risk.coverageThreshold else { continue }
                 let chance = risk.chancePerTick * ordinanceMultiplier(for: risk, in: map)
                 guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
+                // A hospital in range halves what the hazard takes out. It
+                // does not stop the fire — coverage by the *relevant* service
+                // is what prevents a strike, and that is `coverageThreshold`
+                // above — but it is the difference between a setback and a
+                // block being flattened, which is what a health service is
+                // for. It also gives the hospital a role of its own rather
+                // than making it a second police station.
+                let damage = hospitalIsInRange(of: footprint, in: map, using: distances)
+                    ? Swift.max(1, risk.densityLoss / 2)
+                    : risk.densityLoss
                 for cell in footprint {
-                    next[cell].density = max(0, next[cell].density - risk.densityLoss)
+                    next[cell].density = max(0, next[cell].density - damage)
                     // The block is now waiting on the very service whose
                     // absence let this happen — see `Tile.damagedBy`.
                     next[cell].damagedBy = risk.coveringService
@@ -142,4 +152,23 @@ enum CityHazards {
         default: return 1.0
         }
     }
+    /// Is any cell of this building inside a hospital's catchment?
+    ///
+    /// Floored at 1 density level of damage where it applies, via
+    /// `Swift.max(1, ...)` at the call site: a hospital should soften a
+    /// hazard, never make one free. A `densityLoss` of 1 stays 1.
+    private static func hospitalIsInRange(
+        of footprint: [GridPosition],
+        in map: CityMap,
+        using distances: ZoneDistanceField
+    ) -> Bool {
+        footprint.contains { cell in
+            LandValue.falloffValue(
+                nearestZone: .hospital,
+                falloffDistance: LandValue.serviceFalloffDistance,
+                at: cell, in: map, using: distances
+            ) >= 0.3
+        }
+    }
+
 }

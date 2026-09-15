@@ -114,6 +114,10 @@ enum ZoneIcon {
         case .waterTower:
             let accent = RenderPalette.fullColor(for: zone)
             return variant(for: seed, optionCount: 2) == 0 ? waterTowerIcon(accent: accent, seed: seed) : standpipeTowerIcon(accent: accent, seed: seed)
+        case .school:
+            return schoolIcon(accent: RenderPalette.fullColor(for: zone), seed: seed)
+        case .hospital:
+            return hospitalIcon(accent: RenderPalette.fullColor(for: zone), seed: seed)
         case .waterPump:
             return waterPumpIcon(accent: RenderPalette.fullColor(for: zone), seed: seed)
         case .generator:
@@ -1088,6 +1092,58 @@ enum ZoneIcon {
     /// classic silhouette, built the same way the power plant's cooling
     /// towers are (the shared `trapezoid` primitive), just narrow-to-narrow
     /// rather than narrow-to-wide.
+    /// A low, wide schoolhouse with a pitched roof and a clock.
+    ///
+    /// Civic buildings get silhouettes nothing else in the game uses — a
+    /// gable and a clock face here, a cross there — because they are the two
+    /// zones a player most needs to pick out at a glance while scanning for
+    /// coverage gaps.
+    private static func schoolIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let body = neonShape(rect: CGRect(x: -34, y: -30, width: 68, height: 44), accent: accent)
+        // A gable, the one pitched roof in the whole icon set.
+        let roof = neonShape(trapezoid(
+            bottomLeft: CGPoint(x: -38, y: 14), bottomRight: CGPoint(x: 38, y: 14),
+            topRight: CGPoint(x: 16, y: 40), topLeft: CGPoint(x: -16, y: 40)
+        ), accent: accent)
+
+        let container = SKNode()
+        container.addChild(withGlow([body, roof], color: accent))
+        container.addChild(detail(rect: CGRect(x: -34, y: 10, width: 68, height: 4), fill: recessedAccent))
+        // Clock face in the gable.
+        container.addChild(dot(radius: 6, at: CGPoint(x: 0, y: 24), fill: litAccent))
+        for index in 0 ..< 3 {
+            let x = -24 + CGFloat(index) * 18
+            container.addChild(framedWindow(rect: CGRect(x: x, y: -8, width: 14, height: 14)))
+        }
+        container.addChild(detail(rect: CGRect(x: -6, y: -30, width: 12, height: 16), fill: recessedAccent)) // door
+        container.addChild(neonSignboard(rect: CGRect(x: 14, y: -26, width: 16, height: 7), color: signColor(for: seed)))
+        return container
+    }
+
+    /// A blocky ward with a cross above the entrance.
+    private static func hospitalIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let body = neonShape(rect: CGRect(x: -32, y: -32, width: 64, height: 58), accent: accent)
+        let entrance = neonShape(rect: CGRect(x: -14, y: -32, width: 28, height: 18), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([body, entrance], color: accent))
+        // The cross — the clearest "this is a hospital" mark available inside
+        // this file's straight-lines-only vocabulary.
+        let arm: CGFloat = 5
+        let span: CGFloat = 16
+        container.addChild(detail(rect: CGRect(x: -arm, y: 26 - span / 2, width: arm * 2, height: span), fill: litAccent))
+        container.addChild(detail(rect: CGRect(x: -span / 2, y: 26 - arm, width: span, height: arm * 2), fill: litAccent))
+        for row in 0 ..< 2 {
+            for column in 0 ..< 3 {
+                let x = -24 + CGFloat(column) * 18
+                let y = -6 + CGFloat(row) * 16
+                container.addChild(framedWindow(rect: CGRect(x: x, y: y, width: 13, height: 11)))
+            }
+        }
+        container.addChild(neonSignboard(rect: CGRect(x: -10, y: -28, width: 20, height: 7), color: signColor(for: seed)))
+        return container
+    }
+
     /// The starter water supply: a squat pumphouse with a stub of pipe.
     ///
     /// Deliberately low and wide against `waterTowerIcon`'s tall silhouette —
