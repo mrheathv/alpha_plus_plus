@@ -400,7 +400,7 @@ across the whole map immediately.
 
 | unlocks at | tools |
 |---|---|
-| start | residential, commercial, industrial, road (and the bulldozer, always) |
+| start | residential, commercial, industrial, road, water pump, generator (and the bulldozer, always) |
 | 40 | police station, fire station |
 | 100 | water tower |
 | 200 | transit stop |
@@ -413,6 +413,18 @@ Thresholds are shaped by the gates that already exist rather than picked
 freely. Water is needed to pass density 2, so the tower has to arrive while a
 city is still capped there; power gates density 4, so the plant lands just past
 where water-only growth tops out. The cheap/upgraded pairs keep their order.
+
+**The starter utilities exist because of a bug playing the game found.** A
+building raises a "no water" warning badge from density 2, but the tower was
+locked until 100 residents — so a new city showed errors for a problem the
+player was forbidden from fixing. `.waterPump` and `.generator` are the small,
+cheap, low-capacity versions available from tick one; the tower and plant became
+upgrades rather than prerequisites. They form the same cheap/upgraded pair
+`.road`/`.highway` and `.publicTransit`/`.subway` already use, share their
+counterpart's funding dial, and feed the same networks.
+
+The general rule worth keeping: **every warning the game raises has to have an
+answer the player can act on right now.**
 
 A **high-water mark**, not current population: a city knocked back by fire or a
 bad tax rate keeps what it earned. Losing the fire station because your city

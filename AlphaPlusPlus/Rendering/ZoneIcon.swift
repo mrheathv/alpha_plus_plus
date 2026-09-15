@@ -114,6 +114,10 @@ enum ZoneIcon {
         case .waterTower:
             let accent = RenderPalette.fullColor(for: zone)
             return variant(for: seed, optionCount: 2) == 0 ? waterTowerIcon(accent: accent, seed: seed) : standpipeTowerIcon(accent: accent, seed: seed)
+        case .waterPump:
+            return waterPumpIcon(accent: RenderPalette.fullColor(for: zone), seed: seed)
+        case .generator:
+            return generatorIcon(accent: RenderPalette.fullColor(for: zone), seed: seed)
         }
     }
 
@@ -1084,6 +1088,50 @@ enum ZoneIcon {
     /// classic silhouette, built the same way the power plant's cooling
     /// towers are (the shared `trapezoid` primitive), just narrow-to-narrow
     /// rather than narrow-to-wide.
+    /// The starter water supply: a squat pumphouse with a stub of pipe.
+    ///
+    /// Deliberately low and wide against `waterTowerIcon`'s tall silhouette —
+    /// the pair is the same utility at two sizes, and the whole point of a
+    /// starter building is that a glance tells you it is the small one. Single
+    /// variant rather than the two most services get: it occupies a 1×1 lot,
+    /// so there is very little room to say anything with.
+    private static func waterPumpIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let housing = neonShape(rect: CGRect(x: -30, y: -20, width: 60, height: 34), accent: accent)
+        let capRect = CGRect(x: -14, y: 14, width: 28, height: 10)
+        let cap = neonShape(CGPath(roundedRect: capRect, cornerWidth: 4, cornerHeight: 4, transform: nil), accent: accent)
+        // A short outlet pipe, the visual promise that this feeds a network.
+        let outlet = neonShape(rect: CGRect(x: 26, y: -8, width: 14, height: 8), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([housing, cap, outlet], color: accent))
+        container.addChild(detail(rect: CGRect(x: -30, y: -6, width: 60, height: 4), fill: recessedAccent))
+        container.addChild(framedWindow(rect: CGRect(x: -20, y: -16, width: 14, height: 10)))
+        container.addChild(neonSignboard(rect: CGRect(x: 4, y: -16, width: 18, height: 8), color: signColor(for: seed)))
+        return container
+    }
+
+    /// The starter power supply: a boxy generator shed with an exhaust stack,
+    /// against `powerPlantIcon`'s cooling towers. Same "obviously the small
+    /// one" reasoning as `waterPumpIcon`.
+    private static func generatorIcon(accent: SKColor, seed: GridPosition) -> SKNode {
+        let shed = neonShape(rect: CGRect(x: -32, y: -26, width: 64, height: 40), accent: accent)
+        let stack = neonShape(rect: CGRect(x: 12, y: 14, width: 12, height: 26), accent: accent, lineWidth: 2)
+        let vent = neonShape(rect: CGRect(x: -26, y: 14, width: 26, height: 8), accent: accent, lineWidth: 1.5)
+
+        let container = SKNode()
+        container.addChild(withGlow([shed, stack, vent], color: accent))
+        container.addChild(detail(rect: CGRect(x: -32, y: -12, width: 64, height: 4), fill: recessedAccent))
+        // Louvres along the shed face — straight lines only, same vocabulary
+        // as every other building in this file.
+        for index in 0 ..< 3 {
+            let x = -24 + CGFloat(index) * 18
+            container.addChild(detail(rect: CGRect(x: x, y: -22, width: 12, height: 6), fill: recessedAccent))
+        }
+        container.addChild(dot(radius: 3.5, at: CGPoint(x: 18, y: 42), fill: emberColor))
+        container.addChild(neonSignboard(rect: CGRect(x: -26, y: -22, width: 14, height: 6), color: signColor(for: seed)))
+        return container
+    }
+
     private static func waterTowerIcon(accent: SKColor, seed: GridPosition) -> SKNode {
         let tankRect = CGRect(x: -26, y: 6, width: 52, height: 34)
         let tank = neonShape(CGPath(roundedRect: tankRect, cornerWidth: 12, cornerHeight: 10, transform: nil), accent: accent)

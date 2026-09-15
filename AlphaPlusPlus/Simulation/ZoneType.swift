@@ -52,6 +52,17 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // it per tile" shape `Traffic.computeLoad` already uses for routed
     // commutes.
     case waterTower
+
+    // The starter utilities. Playing the game turned up a genuine dead end:
+    // a building at density 2 raises a "no water" warning badge, but the
+    // water tower isn't earned until 100 residents — so a new city showed
+    // errors for a problem the player was forbidden from fixing. These are
+    // the small, cheap, low-capacity versions available from tick one, the
+    // same cheap/upgraded relationship `.road` has with `.highway` and
+    // `.publicTransit` with `.subway`, and the same shape SimCity uses when
+    // it starts you on a water pump and a small plant.
+    case waterPump
+    case generator
 }
 
 extension ZoneType {
@@ -77,6 +88,10 @@ extension ZoneType {
         // than a road tile (it projects access over an area, not just to
         // its own neighbors).
         case .publicTransit: return 150
+        // Cheap enough to afford alongside the first few zones out of the
+        // $10,000 starting treasury, since a new city now has to buy both.
+        case .waterPump: return 250
+        case .generator: return 500
         // City-scale infrastructure/civic projects, priced well above even
         // a service station to match sitting on 9 tiles instead of 4.
         case .powerPlant: return 2000
@@ -102,7 +117,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower, .waterPump, .generator: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -160,6 +175,8 @@ extension ZoneType {
         case .empty, .residential, .commercial, .industrial, .road, .highway: return 0
         case .policeStation, .fireStation: return 20
         case .publicTransit: return 5
+        case .waterPump: return 8
+        case .generator: return 15
         case .powerPlant: return 50
         case .stadium: return 40
         // `.subway` *is* a service, same as `.publicTransit` (staffed
@@ -181,8 +198,8 @@ extension ZoneType {
     /// everything built on it) doesn't care how big a zone is.
     var footprintSize: Int {
         switch self {
-        case .empty, .road, .publicTransit, .highway, .subway: return 1
-        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower: return 2
+        case .empty, .road, .publicTransit, .highway, .subway, .waterPump: return 1
+        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator: return 2
         case .powerPlant, .stadium: return 3
         }
     }

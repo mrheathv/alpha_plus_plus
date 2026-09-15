@@ -40,10 +40,18 @@ enum PowerGrid {
     /// 1,500-2,000 total density that is four or five plants.
     static let capacityPerPlant = 400
 
+    /// The starter `.generator`'s output — same reasoning as
+    /// `Water.capacityPerPump`: enough to light an early city, not enough to
+    /// make the full plant skippable.
+    static let capacityPerGenerator = 120
+
     static func load(in map: CityMap) -> UtilityLoad {
         UtilityLoad(
             demand: UtilityLoad.demand(in: map),
-            capacity: UtilityLoad.capacity(of: .powerPlant, perBuilding: capacityPerPlant, in: map)
+            capacity: UtilityLoad.capacity(
+                of: [(.powerPlant, capacityPerPlant), (.generator, capacityPerGenerator)],
+                in: map
+            )
         )
     }
 
@@ -64,7 +72,7 @@ enum PowerGrid {
         guard !lines.isEmpty else { return PowerSupply() }
 
         var frontier: [GridPosition] = []
-        for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .powerPlant {
+        for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .powerPlant || tile.zone == .generator) {
             frontier.append(contentsOf: map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
                 .flatMap { $0.orthogonalNeighbors() }
                 .filter { lines.contains($0) })

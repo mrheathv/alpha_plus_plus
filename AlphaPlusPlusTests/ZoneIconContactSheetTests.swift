@@ -60,7 +60,16 @@ final class ZoneIconContactSheetTests: XCTestCase {
     private static let serviceZones: [ZoneType] = [
         .policeStation, .fireStation, .publicTransit,
         .powerPlant, .stadium, .subway, .waterTower,
+        .waterPump, .generator,
     ]
+
+    /// Services drawn with a single look rather than two.
+    ///
+    /// The starter utilities sit on a 1×1 and a 2×2 lot, which leaves very
+    /// little room to say anything with — a second variant would be the same
+    /// box with a window moved. They are still catalogued and still have to
+    /// draw something; they are only exempt from the two-looks rule.
+    private static let singleVariantZones: Set<ZoneType> = [.waterPump, .generator]
 
     private static let growableZones: [ZoneType] = [.residential, .commercial, .industrial]
 
@@ -82,12 +91,13 @@ final class ZoneIconContactSheetTests: XCTestCase {
             }
         }
         for zone in serviceZones {
-            for (index, seed) in variantSeeds.enumerated() {
+            let seeds = singleVariantZones.contains(zone) ? [variantSeeds[0]] : variantSeeds
+            for (index, seed) in seeds.enumerated() {
                 entries.append(Entry(
                     zone: zone,
                     density: 0,
                     seed: seed,
-                    label: "\(displayName(zone)).\(index)"
+                    label: seeds.count == 1 ? displayName(zone) : "\(displayName(zone)).\(index)"
                 ))
             }
         }
@@ -124,7 +134,8 @@ final class ZoneIconContactSheetTests: XCTestCase {
     /// if `ZoneIcon.variant(for:optionCount:)` changes so both seeds collapse
     /// onto one variant, the sheet would silently show duplicates.
     func testEveryVariantIsReachable() {
-        for zone in Self.growableZones + Self.serviceZones {
+        for zone in Self.growableZones + Self.serviceZones
+        where !Self.singleVariantZones.contains(zone) {
             let density = zone.maxDensity > 0 ? 5 : 0
             let shapes = Self.variantSeeds.map { seed -> String in
                 let node = ZoneIcon.makeNode(for: zone, density: density, seed: seed)

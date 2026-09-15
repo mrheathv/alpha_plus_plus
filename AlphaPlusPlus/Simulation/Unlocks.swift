@@ -37,6 +37,14 @@ enum Unlocks {
         // which must never be locked — it is the only way out of a mistake.
         case .empty, .residential, .commercial, .industrial, .road:
             return 0
+        // The starter utilities are part of the core loop, not a reward.
+        // Buildings warn about missing water from density 2, so a city that
+        // could not build *any* water supply until 100 residents showed
+        // errors for a problem the player was not allowed to fix. These are
+        // the answer to that warning from tick one; the tower and plant
+        // become upgrades rather than prerequisites.
+        case .waterPump, .generator:
+            return 0
         // Once there is something standing, there is something to protect.
         case .policeStation, .fireStation:
             return 40

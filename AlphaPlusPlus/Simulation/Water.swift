@@ -49,6 +49,11 @@ struct UtilityLoad: Equatable {
         let plants = map.tiles.filter { $0.isBuildingAnchor && $0.zone == zone }.count
         return Int(Double(plants * perBuilding) * map.serviceFunding.level(for: zone))
     }
+
+    /// Total capacity across a utility's small and large buildings.
+    static func capacity(of sizes: [(zone: ZoneType, perBuilding: Int)], in map: CityMap) -> Int {
+        sizes.reduce(0) { $0 + capacity(of: $1.zone, perBuilding: $1.perBuilding, in: map) }
+    }
 }
 
 enum Water {
@@ -72,10 +77,18 @@ enum Water {
     /// harness can now check.
     static let capacityPerTower = 200
 
+    /// What the starter `.waterPump` supplies — a fraction of a full tower, so
+    /// an early city can get water immediately but a growing one still has to
+    /// graduate to towers rather than tiling the map with pumps.
+    static let capacityPerPump = 60
+
     static func load(in map: CityMap) -> UtilityLoad {
         UtilityLoad(
             demand: UtilityLoad.demand(in: map),
-            capacity: UtilityLoad.capacity(of: .waterTower, perBuilding: capacityPerTower, in: map)
+            capacity: UtilityLoad.capacity(
+                of: [(.waterTower, capacityPerTower), (.waterPump, capacityPerPump)],
+                in: map
+            )
         )
     }
 
@@ -83,6 +96,8 @@ enum Water {
         // Funding is one city-wide dial per service (`ServiceFunding`'s
         // own design), not per-building — so defunding water takes every
         // tower offline at once, not just some of them.
+        // One dial covers both sizes (see `ServiceFunding.level(for:)`), so
+        // defunding water takes the pumps offline alongside the towers.
         guard map.serviceFunding.level(for: .waterTower) > 0 else { return WaterSupply() }
 
         // Over capacity, the whole network fails rather than some fraction of
@@ -97,7 +112,7 @@ enum Water {
         guard !pipes.isEmpty else { return WaterSupply() }
 
         var frontier: [GridPosition] = []
-        for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .waterTower {
+        for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .waterTower || tile.zone == .waterPump) {
             frontier.append(contentsOf: map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
                 .flatMap { $0.orthogonalNeighbors() }
                 .filter { pipes.contains($0) })

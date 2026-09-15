@@ -95,6 +95,14 @@ enum RenderPalette {
             return SKColor(srgbRed: 0.11, green: 0.035, blue: 0.23, alpha: 1.0)
         case .residential, .commercial, .industrial:
             return tierColor(for: zone, tier: 3)
+        case .waterPump:
+            // Deliberately the same hue as `.waterTower`, and `.generator`
+            // as `.powerPlant` below: the pair is the same utility at two
+            // sizes, so they should read as the same *system* on the map,
+            // the way `.road` and `.highway` share their asphalt base.
+            return fullColor(for: .waterTower)
+        case .generator:
+            return fullColor(for: .powerPlant)
         case .road, .highway:
             // Dark asphalt-purple base — both read as the same paved
             // surface now; what makes a highway a highway is its brighter
@@ -339,6 +347,8 @@ enum RenderPalette {
         case .fireStation: return "Fire Station"
         case .publicTransit: return "Transit Stop"
         case .powerPlant: return "Power Plant"
+        case .waterPump: return "Water Pump"
+        case .generator: return "Generator"
         case .stadium: return "Stadium"
         case .highway: return "Highway"
         case .subway: return "Subway"

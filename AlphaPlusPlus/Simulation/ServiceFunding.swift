@@ -44,10 +44,14 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .policeStation: return policeStation
         case .fireStation: return fireStation
         case .publicTransit: return publicTransit
-        case .powerPlant: return powerPlant
+        case .powerPlant, .generator: return powerPlant
         case .stadium: return stadium
         case .subway: return subway
-        case .waterTower: return waterTower
+        // The starter utilities share their upgraded counterpart's dial: a
+        // budget line is "water" or "power", not one slider per building
+        // size, and `ServiceFunding` is explicitly one dial per service type
+        // rather than per building.
+        case .waterTower, .waterPump: return waterTower
         case .empty, .residential, .commercial, .industrial, .road, .highway: return 1.0
         }
     }
@@ -62,10 +66,10 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .policeStation: policeStation = level
         case .fireStation: fireStation = level
         case .publicTransit: publicTransit = level
-        case .powerPlant: powerPlant = level
+        case .powerPlant, .generator: powerPlant = level
         case .stadium: stadium = level
         case .subway: subway = level
-        case .waterTower: waterTower = level
+        case .waterTower, .waterPump: waterTower = level
         case .empty, .residential, .commercial, .industrial, .road, .highway: break
         }
     }

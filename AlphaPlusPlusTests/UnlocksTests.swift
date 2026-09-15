@@ -226,4 +226,90 @@ final class UnlocksTests: XCTestCase {
         XCTAssertEqual(restored.peakPopulation, restored.population)
         XCTAssertGreaterThan(restored.peakPopulation, 0)
     }
+
+    // MARK: - The starter utilities
+
+    /// The bug that prompted these: a building warns about missing water from
+    /// density 2, but the tower was not earned until 100 residents — so a new
+    /// city displayed errors for a problem the player was forbidden from
+    /// fixing. Every warning the game raises has to have an answer available.
+    func testANewCityCanBuildBothUtilitiesImmediately() {
+        let controller = GameController()
+
+        controller.selectedTool = .waterPump
+        XCTAssertEqual(controller.place(at: GridPosition(x: 0, y: 0)), .placed)
+
+        controller.selectedTool = .generator
+        XCTAssertEqual(controller.place(at: GridPosition(x: 4, y: 0)), .placed)
+    }
+
+    /// Both must be affordable out of the starting treasury *together*, since
+    /// a new city needs water and power as well as something to zone.
+    func testBothStartersFitInTheStartingTreasuryAlongsideSomeZoning() {
+        let starterCost = ZoneType.waterPump.placementCost + ZoneType.generator.placementCost
+        XCTAssertLessThan(
+            starterCost, GameController.startingTreasury / 2,
+            "a new city cannot afford both utilities and still have money to build a town"
+        )
+    }
+
+    /// They have to be genuinely smaller than what they lead to, or the tower
+    /// and plant are pointless.
+    func testStartersAreCheaperAndWeakerThanTheUpgradesTheyLeadTo() {
+        XCTAssertLessThan(ZoneType.waterPump.placementCost, ZoneType.waterTower.placementCost)
+        XCTAssertLessThan(ZoneType.generator.placementCost, ZoneType.powerPlant.placementCost)
+        XCTAssertLessThan(Water.capacityPerPump, Water.capacityPerTower)
+        XCTAssertLessThan(PowerGrid.capacityPerGenerator, PowerGrid.capacityPerPlant)
+        XCTAssertLessThan(ZoneType.waterPump.footprintSize, ZoneType.waterTower.footprintSize)
+        XCTAssertLessThan(ZoneType.generator.footprintSize, ZoneType.powerPlant.footprintSize)
+    }
+
+    /// A pump has to actually supply water, not merely be placeable.
+    func testAPumpSuppliesWaterAndAGeneratorSuppliesPower() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .waterPump, origin: GridPosition(x: 0, y: 0))
+        map.placeBuilding(zone: .generator, origin: GridPosition(x: 4, y: 0))
+        for x in 0 ..< 12 {
+            map[GridPosition(x: x, y: 1)].hasPipe = true
+            map[GridPosition(x: x, y: 1)].hasPowerLine = true
+        }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 8, y: 2))
+        map[GridPosition(x: 8, y: 2)].density = 3
+
+        map.waterSupply = Water.computeSupply(for: map)
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
+
+        XCTAssertTrue(Water.hasSupply(at: GridPosition(x: 8, y: 2), in: map), "the pump supplied no water")
+        XCTAssertTrue(PowerGrid.hasSupply(at: GridPosition(x: 8, y: 2), in: map), "the generator supplied no power")
+    }
+
+    /// Starters and upgrades share one budget dial, because a budget line is
+    /// "water", not "water, by building size".
+    func testStartersShareTheirUpgradesFundingDial() {
+        var funding = ServiceFunding()
+        funding.setLevel(0.5, for: .waterTower)
+        funding.setLevel(0.25, for: .powerPlant)
+
+        XCTAssertEqual(funding.level(for: .waterPump), 0.5)
+        XCTAssertEqual(funding.level(for: .generator), 0.25)
+    }
+
+    /// A starter city's capacity should be modest — enough to get going, not
+    /// enough to make the upgrades skippable.
+    func testStarterCapacityIsEnoughToBeginButNotToFinish() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .waterPump, origin: GridPosition(x: 0, y: 0))
+        map.placeBuilding(zone: .generator, origin: GridPosition(x: 4, y: 0))
+
+        XCTAssertEqual(Water.load(in: map).capacity, Water.capacityPerPump)
+        XCTAssertEqual(PowerGrid.load(in: map).capacity, PowerGrid.capacityPerGenerator)
+
+        // A pump covers a city comfortably past the water tower's own unlock
+        // threshold, so the bootstrap has real slack rather than being a
+        // knife-edge: 60 density is 30 lots at density 2, or 240 residents.
+        XCTAssertGreaterThan(
+            Water.capacityPerPump * ZoneType.residential.populationPerDensityLevel,
+            Unlocks.requiredPopulation(for: .waterTower)
+        )
+    }
 }
