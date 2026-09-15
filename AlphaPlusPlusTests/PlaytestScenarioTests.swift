@@ -132,10 +132,19 @@ final class PlaytestScenarioTests: XCTestCase {
     /// rather than being mathematically doomed the moment it borrows.
     func testACityThatBorrowsToItsCapCanStillPayTheInterest() {
         let spec = PlaytestHarness.spec()
-        let (controller, result) = PlaytestHarness.runScenario(spec, ticks: PlaytestHarness.Profile.current.ticks) { controller in
-            // Borrow as much as the city will allow, up front.
-            while controller.issueBond() { }
-        }
+        let ticks = PlaytestHarness.Profile.current.ticks
+
+        // Borrow *after* the city has grown, not at tick 0.
+        //
+        // `bondCap` is `baseBondCap` plus `bondCapPerCapita` per resident, so
+        // borrowing before anyone lives there caps out at the $15,000 floor —
+        // a third of what a built-out city can actually raise. Configuring the
+        // borrow up front meant this scenario was quietly testing the smallest
+        // debt the game allows rather than the largest.
+        let controller = GameController(map: PlaytestHarness.buildCity(spec), rng: SeededRNG(seed: 0xA1F4))
+        _ = PlaytestHarness.run(controller, ticks: ticks / 4)
+        while controller.issueBond() { }
+        let result = PlaytestHarness.run(controller, ticks: ticks - ticks / 4)
 
         print(PlaytestHarness.report(title: "Maximally indebted city", spec: spec, result: result))
 
@@ -156,10 +165,15 @@ final class PlaytestScenarioTests: XCTestCase {
         let spec = PlaytestHarness.spec()
         let ticks = PlaytestHarness.Profile.current.ticks
 
-        let (_, withoutDebt) = PlaytestHarness.runScenario(spec, ticks: ticks, seed: 7)
-        let (_, withDebt) = PlaytestHarness.runScenario(spec, ticks: ticks, seed: 7) { controller in
-            while controller.issueBond() { }
+        func run(borrowing: Bool) -> PlaytestHarness.RunResult {
+            let controller = GameController(map: PlaytestHarness.buildCity(spec), rng: SeededRNG(seed: 7))
+            _ = PlaytestHarness.run(controller, ticks: ticks / 4)
+            if borrowing { while controller.issueBond() { } }
+            return PlaytestHarness.run(controller, ticks: ticks - ticks / 4)
         }
+        // Same "borrow once the city exists" reasoning as the scenario above.
+        let withoutDebt = run(borrowing: false)
+        let withDebt = run(borrowing: true)
 
         let cleanNet = withoutDebt.tail().mean { $0.netRevenue }
         let indebtedNet = withDebt.tail().mean { $0.netRevenue }
@@ -185,16 +199,35 @@ final class PlaytestScenarioTests: XCTestCase {
     /// assert nothing at all.
     func testHazardsAreAnOccasionalEventNotAmbientNoise() {
         let spec = PlaytestHarness.spec(includeServices: false)
-        let (_, result) = PlaytestHarness.runScenario(spec, ticks: PlaytestHarness.Profile.current.ticks)
+        let (controller, result) = PlaytestHarness.runScenario(spec, ticks: PlaytestHarness.Profile.current.ticks)
 
         let meanStrikes = result.mean { $0.hazardStrikes }
-        print(PlaytestHarness.report(title: "Under-served city (hazards)", spec: spec, result: result))
-        print("mean hazard strikes/tick: \(String(format: "%.3f", meanStrikes))")
+        let buildings = controller.map.tiles.filter {
+            $0.isBuildingAnchor && $0.zone.maxDensity > 0
+        }.count
+        let strikesPerBuilding = meanStrikes / Double(max(buildings, 1))
 
+        print(PlaytestHarness.report(title: "Under-served city (hazards)", spec: spec, result: result))
+        print("mean hazard strikes/tick: \(String(format: "%.3f", meanStrikes))"
+              + " across \(buildings) buildings"
+              + " = \(String(format: "%.5f", strikesPerBuilding)) per building")
+
+        // Per *building*, not per tick outright.
+        //
+        // Strikes-per-tick is not scale-invariant: hazards roll once per
+        // building, so a bigger city takes proportionally more of them at the
+        // identical per-building rate. An absolute bound therefore tests the
+        // map size as much as the constant, and this assertion passed at the
+        // quick profile's 16×16 while failing at 64×64 with the rates
+        // completely unchanged. What `CityHazards.chancePerTick` actually
+        // controls is the per-building figure, so that is what to hold it to:
+        // below 0.01 means any given building is struck less than once per
+        // hundred ticks, which is an event rather than ambient noise.
         XCTAssertLessThan(
-            meanStrikes, 1.0,
-            "an under-served city takes \(String(format: "%.2f", meanStrikes)) hazard strikes per tick — "
-            + "that reads as constant flicker, not as an occasional event (see CityHazards rates)"
+            strikesPerBuilding, 0.01,
+            "each building in an under-served city is struck every "
+            + "\(Int(1 / max(strikesPerBuilding, 0.000001))) ticks — that is ambient noise, "
+            + "not an occasional event (see CityHazards rates)"
         )
 
         // The other end of the same constant, asserted on the same run rather

@@ -363,6 +363,30 @@ Best-to-worst spread is **35x**. Every lever now moves the outcome, and several
 are genuine tradeoffs rather than dominant strategies — double funding buys the
 most people and bankrupts you; maximum tax buys $17.5M and costs you residents.
 
+### Re-tune after the power-plant fix: the constants held
+
+Since every earlier measurement came from cities capped at density 3, the
+balance constants were re-checked against cities that reach density 5. **None
+of them needed changing.** What was wrong was two tests.
+
+- `civicUpkeepPerCitizen` (0.75) still lands almost exactly on its target: tax
+  revenue 9,806/tick against upkeep 2,778 and civic 4,995, for net 2,034 — a
+  net-to-tax ratio of 0.207 against the 0.2 it was aimed at. It scaled for free
+  because it is charged per citizen, the same axis tax revenue is computed on.
+- The `CityHazards` rates are fine; the assertion was not. "Strikes per tick" is
+  not scale-invariant — hazards roll once per building, so a bigger city takes
+  proportionally more at an identical per-building rate. The bound passed at
+  16×16 and failed at 64×64 with the rates untouched. It now measures strikes
+  per building per tick: 0.00396, or one strike per building per ~250 ticks.
+- The bond scenario borrowed at tick 0, when `bondCap` is still the $15,000
+  floor because nobody lives there yet — so it was testing the *smallest* debt
+  the game allows rather than the largest. Borrowing once the city exists
+  raises interest from 37/tick to 112, about 5.5% of net revenue: a modest but
+  real cost.
+
+The lesson worth keeping: when a measurement changes, check whether the thing
+being measured moved or the yardstick did.
+
 ### Still open
 
 | finding | evidence |
