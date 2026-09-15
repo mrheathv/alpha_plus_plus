@@ -736,6 +736,13 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: GridPosition(x: 0, y: 2))
         controller.selectedTool = .commercial
         controller.place(at: GridPosition(x: 2, y: 2))
+        // Coverage for both hazards: under `AlwaysZeroRNG` every hazard roll
+        // succeeds, and damage no longer regrows on its own, so an unprotected
+        // fixture is levelled before it can grow anything worth measuring.
+        controller.selectedTool = .policeStation
+        controller.place(at: GridPosition(x: 6, y: 2))
+        controller.selectedTool = .fireStation
+        controller.place(at: GridPosition(x: 8, y: 2))
         for _ in 0 ..< 10 { controller.advanceSimulation() }
 
         XCTAssertGreaterThan(controller.population + controller.jobs, 0, "the test city never grew")
@@ -790,6 +797,11 @@ final class GameControllerTests: XCTestCase {
         }
         controller.selectedTool = .residential
         controller.place(at: GridPosition(x: 0, y: 2))
+        // See `testCivicUpkeepScalesWithPopulationAndJobs` for why the station
+        // is here: `AlwaysZeroRNG` fires every hazard, and damage is permanent
+        // without coverage.
+        controller.selectedTool = .policeStation
+        controller.place(at: GridPosition(x: 6, y: 2))
         for _ in 0 ..< 10 { controller.advanceSimulation() }
 
         let ordinances = controller.map.ordinances.totalUpkeepCost(population: controller.population)

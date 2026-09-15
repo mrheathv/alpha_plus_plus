@@ -736,6 +736,9 @@ final class GameScene: SKScene {
             tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearBuildingShadow(on: node)
             syncLaneLine(at: position)
+            // Damage is drawn on the anchor's sprite only, since that's the
+            // one cell of a building that gets a sprite at all.
+            tileRenderer.syncDamageMarker(on: node, damagedBy: map[position].damagedBy)
             // Normal view only — the Water/Power overlays already have
             // their own, bigger signal for this (the tile's whole color),
             // so a small corner badge on top of that would be redundant.
@@ -755,6 +758,7 @@ final class GameScene: SKScene {
             tileRenderer.clearBuildingShadow(on: node)
             tileRenderer.clearLaneLine(on: node)
             tileRenderer.clearUtilityWarning(on: node)
+            tileRenderer.clearDamageMarker(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
             tileRenderer.clearPips(on: node)
@@ -765,6 +769,7 @@ final class GameScene: SKScene {
             tileRenderer.clearBuildingShadow(on: node)
             tileRenderer.clearLaneLine(on: node)
             tileRenderer.clearUtilityWarning(on: node)
+            tileRenderer.clearDamageMarker(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
             tileRenderer.clearPips(on: node)
@@ -773,6 +778,7 @@ final class GameScene: SKScene {
             tileRenderer.clearPowerLineMarker(on: node)
             tileRenderer.clearLaneLine(on: node)
             tileRenderer.clearUtilityWarning(on: node)
+            tileRenderer.clearDamageMarker(on: node)
             // Reads `hasPipe` directly rather than the cached
             // `map.waterSupply`, so a pipe you just laid shows up right
             // away — the *supply* coloring above still only updates once
@@ -792,6 +798,7 @@ final class GameScene: SKScene {
             tileRenderer.clearPipeMarker(on: node)
             tileRenderer.clearLaneLine(on: node)
             tileRenderer.clearUtilityWarning(on: node)
+            tileRenderer.clearDamageMarker(on: node)
             // Same "read the layer directly, not the cached supply" reasoning
             // `syncPipeMarker` documents just above, for the parallel layer.
             tileRenderer.syncPowerLineMarker(on: node, hasPowerLine: map[position].hasPowerLine)

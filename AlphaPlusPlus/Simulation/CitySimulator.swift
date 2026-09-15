@@ -63,6 +63,25 @@ enum CitySimulator {
             let isConnected = footprint.contains { hasAccess(at: $0, in: map) }
 
             if isConnected {
+                // A damaged building rebuilds before it does anything else,
+                // and only once the service it's waiting on actually reaches
+                // it. Until then it neither grows nor decays — it just sits
+                // there, which is the whole point: an uncovered block that
+                // burns stays burnt until the player does something.
+                if let repairingService = tile.damagedBy {
+                    let covered = footprint.contains { cell in
+                        LandValue.falloffValue(
+                            nearestZone: repairingService,
+                            falloffDistance: LandValue.serviceFalloffDistance,
+                            at: cell, in: map, using: distances
+                        ) >= repairCoverageThreshold
+                    }
+                    if covered || Double.random(in: 0 ..< 1, using: &rng) < Self.unassistedRepairChancePerTick {
+                        for cell in footprint { next[cell].damagedBy = nil }
+                    }
+                    continue
+                }
+
                 let demand = map.cityDemand.value(for: tile.zone)
 
                 // Deep oversupply doesn't just stall growth, it reverses it.
@@ -209,6 +228,38 @@ enum CitySimulator {
     /// type outpaces another for a few ticks — never triggers it. It takes
     /// sustained, serious oversupply, or a punishing tax rate, to reach.
     static let abandonmentDemand = -0.75
+
+    /// How much coverage a damaged building needs before it rebuilds.
+    ///
+    /// Deliberately the same number as `CityHazards.Risk.coverageThreshold`,
+    /// which is the level *below* which a hazard can strike at all. One
+    /// constant, read two ways: a block burns because coverage was too thin,
+    /// and rebuilds exactly when coverage stops being too thin. So the repair
+    /// condition is literally "fix the gap that caused this," rather than a
+    /// second, unrelated bar the player has to learn.
+    static let repairCoverageThreshold = 0.3
+
+    /// How likely a damaged building with *no* covering service is to rebuild
+    /// itself anyway, on any given tick.
+    ///
+    /// Without this, repair-gated damage has no equilibrium and quietly
+    /// guarantees total decay. A building below the coverage threshold takes a
+    /// hazard at roughly 0.009 per tick, so over the hundreds of ticks a city
+    /// runs, *every* uncovered building is hit eventually — and if damage only
+    /// ever clears through coverage, every uncovered building therefore ends
+    /// up permanently dead. A design playtest showed exactly that: with no
+    /// unassisted repair, nearly every strategy went bankrupt and a
+    /// service-less city fell to 32 people. That is not difficulty, it is a
+    /// ratchet.
+    ///
+    /// At 0.01 against a ~0.009 damage rate, an uncovered district settles
+    /// around half its buildings broken at any moment — visibly blighted,
+    /// permanently worse off, but alive and recoverable the moment a station
+    /// reaches it. Coverage still repairs on the very next tick, so it remains
+    /// roughly a hundred times faster than waiting; the difference between
+    /// protected and unprotected is a difference of degree rather than the
+    /// difference between a city and a graveyard.
+    static let unassistedRepairChancePerTick = 0.01
 
     /// How likely an abandonment-eligible building is to lose a level on any
     /// given tick. Deliberately slow: a city should visibly decline over a

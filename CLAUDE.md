@@ -249,23 +249,49 @@ against a flat scale of 30, so in a city of thousands demand was pinned at ±1
 essentially always — a boolean, not a gradient, which swamped anything trying
 to nudge it. It now scales with city size (`relativeScale`).
 
+### Hazards, services, and repair
+
+Hazard damage used to regrow on its own, which a design playtest measured as
+worth about 20 population across a whole city — damage with no consequence, and
+therefore services with nothing to protect. Adding services actively *cost*
+population and money.
+
+Damage now persists: a struck building records `Tile.damagedBy` (the service
+whose absence let it happen) and neither grows nor decays until that service
+covers it, at `CitySimulator.repairCoverageThreshold` — deliberately the same
+number as `CityHazards.Risk.coverageThreshold`, so the repair condition is
+literally "fix the gap that caused this." Bulldozing and rebuilding clears it
+too, as the expensive escape hatch.
+
+Services flipped from a net loss to the most valuable thing you can build:
+population 1,640 with no services, 1,692 with them, 2,332 with them dense.
+Ordinances went from moving population by ~4 to ~292. There is now an *optimum*
+service density rather than "more is always better" — dense services buy
+population but bankrupt the city, so normal spacing plus utilities beats them on
+both axes.
+
+One correction worth recording. Repair-gated damage with no other escape has no
+equilibrium: a building below the coverage threshold takes a hazard at roughly
+0.009 per tick, so over hundreds of ticks *every* uncovered building is hit, and
+if only coverage clears damage then every uncovered building ends up
+permanently dead. The first version did exactly that — nearly every strategy
+went bankrupt and a service-less city fell to 32 people. That is a ratchet, not
+difficulty. `unassistedRepairChancePerTick` (0.01) lets an uncovered block
+rebuild itself eventually, so an unprotected district settles around half-broken
+— visibly blighted, permanently worse off, but alive. Coverage still repairs on
+the next tick, roughly a hundred times faster.
+
 ### Still open
 
 | finding | evidence |
 |---|---|
-| **Services are a net loss** | adding them: population 2,532 → 2,056, treasury 3.66M → 675K. Doubling their density still bankrupts the city. |
-| **Hazards are cosmetic** | all ordinances on halves strikes (1.73 → 0.84/tick) and changes population by ~20. Damage regrows. |
-| **Money has nowhere to go** | a max-tax city banks $14M with nothing to spend it on. |
-| **No pacing** | a fully zoned map still hits 90% of peak population in ~7 ticks. |
-
-The remaining through-line is the same one: costs and consequences don't scale
-with what the player is doing. Next most valuable, in rough order: make hazard
-damage persist (so services have something to protect against), rebalance
-service coverage against its upkeep, and give growth a reason to take time.
+| **Money still accumulates** | a default city banks $1.65M over 1,500 ticks, a max-tax one $11M. Services are a sink now, but not a big enough one. |
+| **No pacing** | a fully zoned map still fills in within a handful of ticks. |
+| **Testing gotcha** | `AlwaysZeroRNG` fires every hazard every tick, so fixtures without service coverage are levelled and never recover. See its doc comment. |
 
 One caveat on the numbers: the harness zones a whole map at once, where a
-player zones incrementally. "7 ticks to plateau" describes how fast zoned land
-fills in, not session length.
+player zones incrementally. "A handful of ticks to plateau" describes how fast
+zoned land fills in, not session length.
 
 ## Save and load
 

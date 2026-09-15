@@ -76,12 +76,49 @@ struct Tile: Equatable, Codable, Sendable {
     /// re-zoning or bulldozing.
     var hasPowerLine: Bool
 
-    init(position: GridPosition, zone: ZoneType = .empty, density: Int = 0, buildingOrigin: GridPosition? = nil, hasPipe: Bool = false, hasPowerLine: Bool = false) {
+    /// Which service this building is waiting on to be rebuilt after a
+    /// hazard, or `nil` if it isn't damaged.
+    ///
+    /// Set by `CityHazards.apply` to the risk's own `coveringService` — a
+    /// fire leaves a block waiting on a fire station, crime on a police
+    /// station. A damaged building doesn't grow at all until that service
+    /// covers it (`CitySimulator.advance`), at which point the flag clears
+    /// and ordinary growth resumes.
+    ///
+    /// This is what makes hazards matter. They used to knock a level off a
+    /// building that then grew straight back, which a design playtest
+    /// measured as worth about 20 population across a whole city — damage
+    /// with no consequence, and therefore services with nothing to protect.
+    /// Now an uncovered block that burns *stays* burnt until the player does
+    /// something about it, which is the difference between a city that
+    /// maintains itself and one that needs you.
+    ///
+    /// Optional rather than a `Bool` so the repair knows which service to
+    /// look for, and so that `CityHazards` doesn't need a parallel record of
+    /// what hit what. Being `Optional` also means `Codable` decodes a save
+    /// written before this field existed as `nil` (synthesised `init(from:)`
+    /// uses `decodeIfPresent` for optionals), so old cities load as undamaged
+    /// rather than failing outright.
+    var damagedBy: ZoneType?
+
+    /// Is this building currently waiting on repair?
+    var isDamaged: Bool { damagedBy != nil }
+
+    init(
+        position: GridPosition,
+        zone: ZoneType = .empty,
+        density: Int = 0,
+        buildingOrigin: GridPosition? = nil,
+        hasPipe: Bool = false,
+        hasPowerLine: Bool = false,
+        damagedBy: ZoneType? = nil
+    ) {
         self.position = position
         self.zone = zone
         self.density = density
         self.buildingOrigin = buildingOrigin ?? position
         self.hasPipe = hasPipe
         self.hasPowerLine = hasPowerLine
+        self.damagedBy = damagedBy
     }
 }

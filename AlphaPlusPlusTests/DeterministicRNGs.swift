@@ -11,6 +11,20 @@ import Foundation
 /// demand from ever being the reason one of those tests passes or fails,
 /// since `CitySimulator.growthChance(for:)` is never exactly 0 for any
 /// demand in `-1...1` — the roll always clears with this generator.
+/// **Careful: this also fires every hazard, every tick.** `CityHazards.apply`
+/// rolls against this same generator, so a fixture built on `AlwaysZeroRNG`
+/// suffers a fire or a crime on every single tick that any building sits below
+/// `CityHazards.Risk.coverageThreshold`. Since hazard damage is now permanent
+/// until a covering service repairs it (`Tile.damagedBy`), an unprotected
+/// fixture city is levelled within a tick or two and then never recovers —
+/// which shows up as "population 0" or "no traffic was routed" in a test that
+/// looks like it should be about something else entirely.
+///
+/// So a fixture that needs to *grow* under this generator needs real service
+/// coverage: a police station in range of anything residential or commercial,
+/// a fire station in range of anything commercial or industrial. Remember that
+/// coverage is falloff × funding, so lowering a service's funding can drop a
+/// city below the threshold just as surely as moving the station away.
 struct AlwaysZeroRNG: RandomNumberGenerator {
     mutating func next() -> UInt64 { 0 }
 }

@@ -478,6 +478,65 @@ struct TileRenderer {
 
     // MARK: - Building shadow (Water/Power overlays only)
 
+    private static let damageNodeName = "hazardDamage"
+
+    /// Marks a building that a hazard knocked down and that is waiting on a
+    /// service to rebuild it (`Tile.damagedBy`).
+    ///
+    /// Deliberately louder than `syncUtilityWarning`'s corner badge: a missing
+    /// water pipe is a *ceiling* on growth the player can take their time
+    /// about, while damage is a block that has actually stopped working and
+    /// will stay stopped until they act. So this darkens the whole lot as well
+    /// as adding a badge — a visible hole in the city rather than a detail to
+    /// notice.
+    ///
+    /// The badge is tinted with the colour of the service the block is waiting
+    /// on, so the marker also says *what to build*: a fire-red badge means put
+    /// a fire station in reach, a police-blue one means a police station.
+    func syncDamageMarker(on node: SKSpriteNode, damagedBy: ZoneType?) {
+        node.children.filter { $0.name == Self.damageNodeName }.forEach { $0.removeFromParent() }
+        guard let service = damagedBy else { return }
+
+        let container = SKNode()
+        container.name = Self.damageNodeName
+        container.zPosition = 6
+
+        let scrim = SKSpriteNode(color: .black, size: layout.spriteSize)
+        scrim.alpha = 0.55
+        container.addChild(scrim)
+
+        let badgeSize = layout.spriteSize.width * 0.26
+        let badge = SKShapeNode(rectOf: CGSize(width: badgeSize, height: badgeSize), cornerRadius: badgeSize * 0.18)
+        badge.fillColor = .black
+        badge.strokeColor = RenderPalette.fullColor(for: service)
+        badge.lineWidth = 2
+        badge.glowWidth = 1.5
+        badge.position = CGPoint(x: 0, y: 0)
+        container.addChild(badge)
+
+        // A broken-window "X" in the service's colour — the same
+        // straight-lines-only shape vocabulary the rest of this file uses.
+        let arm = badgeSize * 0.3
+        let cross = CGMutablePath()
+        cross.move(to: CGPoint(x: -arm, y: -arm))
+        cross.addLine(to: CGPoint(x: arm, y: arm))
+        cross.move(to: CGPoint(x: -arm, y: arm))
+        cross.addLine(to: CGPoint(x: arm, y: -arm))
+        let mark = SKShapeNode(path: cross)
+        mark.strokeColor = RenderPalette.fullColor(for: service)
+        mark.lineWidth = 2
+        mark.glowWidth = 1
+        container.addChild(mark)
+
+        node.addChild(container)
+    }
+
+    /// Removes a damage marker — used alongside `clearPips`/`clearIcon` when
+    /// `GameScene` draws an overlay instead of Normal view.
+    func clearDamageMarker(on node: SKSpriteNode) {
+        node.children.filter { $0.name == Self.damageNodeName }.forEach { $0.removeFromParent() }
+    }
+
     private static let buildingShadowNodeName = "buildingShadow"
 
     /// A dimmed copy of a building's own icon, drawn in the Water/Power

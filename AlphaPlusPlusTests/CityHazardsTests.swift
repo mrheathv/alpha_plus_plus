@@ -208,4 +208,157 @@ final class CityHazardsTests: XCTestCase {
         // Reported once, at the anchor — the one cell with a visible sprite.
         XCTAssertEqual(result.strikes, [CityHazards.Strike(position: origin, coveringService: .fireStation)])
     }
+
+    // MARK: - Damage persists until a service repairs it
+
+    /// A hazard doesn't just knock a level off — it leaves the block waiting
+    /// on the service whose absence let it happen.
+    func testAHazardMarksTheBuildingAsDamagedByItsCoveringService() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .industrial, origin: GridPosition(x: 0, y: 0))
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 4
+        }
+
+        var rng = AlwaysZeroRNG() // clears every hazard roll
+        let (next, strikes) = CityHazards.apply([CityHazards.fire], to: map, using: &rng)
+
+        XCTAssertFalse(strikes.isEmpty, "the fixture never caught fire, so this proved nothing")
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].damagedBy, .fireStation)
+        XCTAssertTrue(next[GridPosition(x: 1, y: 1)].isDamaged, "damage must cover the whole footprint")
+    }
+
+    /// The point of the whole mechanic: an uncovered damaged block stays
+    /// broken. It neither grows back nor decays further — it just sits there.
+    ///
+    /// `AlwaysMaxRNG` so the `unassistedRepairChancePerTick` roll *fails*:
+    /// this is about what coverage does, and an uncovered block does
+    /// eventually rebuild itself on its own (see
+    /// `testUncoveredDamageEventuallyRepairsItself`). Under `AlwaysZeroRNG`
+    /// that self-repair would fire on the first tick and mask the thing being
+    /// tested.
+    func testDamageWithoutCoverageBlocksGrowthIndefinitely() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 2
+            map[cell].damagedBy = .fireStation
+        }
+
+        var rng = AlwaysMaxRNG() // fails the self-repair roll, so only coverage could help
+        var next = map
+        for _ in 0 ..< 10 { next = CitySimulator.advance(next, using: &rng) }
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2, "damaged block grew or decayed without repair")
+        XCTAssertTrue(next[GridPosition(x: 0, y: 0)].isDamaged)
+    }
+
+    /// Put the right service in range and the block rebuilds — which is the
+    /// answer to "why am I paying for this station."
+    func testCoverageRepairsDamageAndGrowthResumes() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        // Density 1, so the level this grows *to* stays below
+        // `CitySimulator.waterRequiredFromLevel` — otherwise the water gate,
+        // not the repair, would be what decides whether it grows.
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 1
+            map[cell].damagedBy = .fireStation
+        }
+        map.placeBuilding(zone: .fireStation, origin: GridPosition(x: 0, y: 3))
+
+        var rng = AlwaysZeroRNG()
+        let repaired = CitySimulator.advance(map, using: &rng)
+        XCTAssertFalse(repaired[GridPosition(x: 0, y: 0)].isDamaged, "coverage did not repair the block")
+        XCTAssertEqual(repaired[GridPosition(x: 0, y: 0)].density, 1, "repair should not also grow in the same tick")
+
+        // Repair takes the tick; ordinary growth resumes on the next one.
+        let afterRepair = CitySimulator.advance(repaired, using: &rng)
+        XCTAssertEqual(afterRepair[GridPosition(x: 0, y: 0)].density, 2)
+    }
+
+    /// The wrong service doesn't help: a block burnt down needs a fire
+    /// station, not a police station.
+    func testTheWrongServiceDoesNotRepairDamage() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 2
+            map[cell].damagedBy = .fireStation
+        }
+        map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 0, y: 3))
+
+        var rng = AlwaysMaxRNG() // fails self-repair, isolating the coverage check
+        let next = CitySimulator.advance(map, using: &rng)
+
+        XCTAssertTrue(next[GridPosition(x: 0, y: 0)].isDamaged)
+    }
+
+    /// Damage is a setback, not a ratchet: an uncovered block rebuilds itself
+    /// eventually, just far more slowly than a covered one.
+    ///
+    /// Without this, repair-gated damage guarantees total decay — every
+    /// building below the coverage threshold is hit eventually, so every
+    /// uncovered building ends up permanently dead. See
+    /// `CitySimulator.unassistedRepairChancePerTick`.
+    func testUncoveredDamageEventuallyRepairsItself() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 1
+            map[cell].damagedBy = .fireStation
+        }
+
+        var rng = AlwaysZeroRNG() // clears the self-repair roll
+        let next = CitySimulator.advance(map, using: &rng)
+
+        XCTAssertFalse(
+            next[GridPosition(x: 0, y: 0)].isDamaged,
+            "an uncovered block never rebuilds on its own, which makes damage a one-way ratchet"
+        )
+    }
+
+    /// Coverage must be dramatically better than waiting, or building the
+    /// station isn't worth it.
+    func testCoverageRepairsFarFasterThanWaiting() {
+        XCTAssertLessThan(
+            CitySimulator.unassistedRepairChancePerTick, 0.1,
+            "self-repair is fast enough that service coverage barely matters"
+        )
+        XCTAssertGreaterThan(
+            CitySimulator.unassistedRepairChancePerTick, 0,
+            "self-repair is off, which makes hazard damage a one-way ratchet"
+        )
+    }
+
+    /// Bulldozing and rebuilding is the expensive escape hatch — it clears
+    /// damage, because `CityMap.placeBuilding` rebuilds the tile from scratch.
+    func testRezoningClearsDamage() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].damagedBy = .fireStation
+        }
+
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 0, y: 0))
+
+        XCTAssertFalse(map[GridPosition(x: 0, y: 0)].isDamaged)
+    }
+
+    /// An undamaged city must behave exactly as it did before this existed —
+    /// the repair check has to be invisible when nothing is damaged.
+    func testUndamagedBuildingsGrowExactlyAsBefore() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+
+        var rng = AlwaysZeroRNG()
+        let next = CitySimulator.advance(map, using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
+    }
 }

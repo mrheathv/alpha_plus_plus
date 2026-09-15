@@ -45,8 +45,15 @@ final class CitySaveTests: XCTestCase {
         _ = controller.place(at: GridPosition(x: 6, y: 2))
 
         // A service building, and the two independent utility layers.
+        // Both stations, not just police. Under `AlwaysZeroRNG` every hazard
+        // roll succeeds, and damage is now permanent without coverage — so a
+        // fixture missing a fire station has its commercial and industrial
+        // blocks burnt to nothing within a tick or two, and then routes no
+        // commutes at all. See `AlwaysZeroRNG`'s own doc comment.
         controller.selectedTool = .policeStation
         _ = controller.place(at: GridPosition(x: 8, y: 2))
+        controller.selectedTool = .fireStation
+        _ = controller.place(at: GridPosition(x: 10, y: 2))
         controller.selectedTool = .waterTower
         _ = controller.place(at: GridPosition(x: 0, y: 6))
         for x in 0..<8 {
@@ -59,7 +66,15 @@ final class CitySaveTests: XCTestCase {
         }
 
         // Levers the player can pull that live outside the tile grid.
-        controller.setFundingLevel(0.5, for: .policeStation)
+        // Funding is moved off default on a service the fixture's *survival*
+        // doesn't depend on. Coverage is falloff × funding, so halving the
+        // police budget would drop this city's residential blocks below
+        // `CityHazards` crime threshold — and under `AlwaysZeroRNG` every
+        // hazard roll succeeds, so they would be permanently damaged and stop
+        // routing commutes. This test is about round-tripping a save, not
+        // about hazard coverage; using a service that isn't load-bearing here
+        // keeps it that way.
+        controller.setFundingLevel(0.5, for: .stadium)
         controller.setOrdinance(\.neighborhoodWatch, active: true)
         controller.taxRate = 1.25
         _ = controller.issueBond()

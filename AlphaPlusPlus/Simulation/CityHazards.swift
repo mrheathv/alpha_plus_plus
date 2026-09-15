@@ -117,7 +117,12 @@ enum CityHazards {
                 guard bestCoverage < risk.coverageThreshold else { continue }
                 let chance = risk.chancePerTick * ordinanceMultiplier(for: risk, in: map)
                 guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
-                for cell in footprint { next[cell].density = max(0, next[cell].density - risk.densityLoss) }
+                for cell in footprint {
+                    next[cell].density = max(0, next[cell].density - risk.densityLoss)
+                    // The block is now waiting on the very service whose
+                    // absence let this happen — see `Tile.damagedBy`.
+                    next[cell].damagedBy = risk.coveringService
+                }
                 strikes.append(Strike(position: tile.position, coveringService: risk.coveringService))
             }
         }
