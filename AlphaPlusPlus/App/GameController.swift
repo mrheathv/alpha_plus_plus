@@ -235,13 +235,20 @@ final class GameController: ObservableObject {
     /// passed, including the default) rather than typed `any
     /// RandomNumberGenerator` here — this is where the type erasure into
     /// `AnyRandomNumberGenerator` actually happens, once, at construction.
+    /// `peakPopulation` seeds the unlock ladder's high-water mark. It defaults
+    /// to 0 — a genuinely new city, which has earned only the starting tools.
+    /// Callers that want a city which has already grown up (the playtest
+    /// harness, and tests about placement rules rather than about unlocks) pass
+    /// `Unlocks.everythingUnlocked`.
     init<RNG: RandomNumberGenerator>(
         map: CityMap = CityMap(width: MapSize.small.dimension, height: MapSize.small.dimension),
-        rng: RNG = SystemRandomNumberGenerator()
+        rng: RNG = SystemRandomNumberGenerator(),
+        peakPopulation: Int = 0
     ) {
         self.map = map
         self.treasury = Self.startingTreasury
         self.rng = AnyRandomNumberGenerator(rng)
+        self.peakPopulation = peakPopulation
     }
 
     /// What happened when `place(at:)` was asked to apply a tool to a tile.
@@ -257,6 +264,8 @@ final class GameController: ObservableObject {
         case unchanged
         case insufficientFunds
         case blocked
+        /// The tool hasn't been earned yet — see `Unlocks`.
+        case locked
     }
 
     /// Apply `selectedTool` to the tile at `position`, which becomes that
@@ -285,6 +294,10 @@ final class GameController: ObservableObject {
     @discardableResult
     func place(at position: GridPosition) -> PlacementOutcome {
         guard map.contains(position) else { return .unchanged }
+        // Checked before anything else that could succeed: a locked tool must
+        // not charge the treasury or touch the map, however legal the
+        // placement would otherwise be.
+        guard isUnlocked(selectedTool) else { return .locked }
         guard !(map[position].zone == selectedTool && map[position].isBuildingAnchor) else { return .unchanged }
 
         let footprint = map.footprintCells(origin: position, size: selectedTool.footprintSize)
@@ -414,9 +427,34 @@ final class GameController: ObservableObject {
         taxRate = 1.0
         bondBalance = 0
         isRunning = false
+        peakPopulation = 0
+        newlyUnlockedZones = []
         history.removeAll()
         lastHazardStrikes = []
         isPowerOutageActive = false
+    }
+
+    // MARK: - Unlocks
+
+    /// The largest population this city has *ever* reached.
+    ///
+    /// A high-water mark rather than the current figure, because that is what
+    /// `Unlocks` reads: a city knocked back by fire, a bad tax rate or a
+    /// bulldozer keeps the tools it earned. Losing the fire station because
+    /// your city burned down would be exactly backwards.
+    @Published private(set) var peakPopulation: Int = 0
+
+    /// Zones earned on the most recent `advanceSimulation()` — empty on almost
+    /// every tick. `GameView` reads it to announce them.
+    @Published private(set) var newlyUnlockedZones: [ZoneType] = []
+
+    func isUnlocked(_ zone: ZoneType) -> Bool {
+        Unlocks.isUnlocked(zone, peakPopulation: peakPopulation)
+    }
+
+    /// How many residents `zone` still needs, or 0 if it is already earned.
+    func residentsNeeded(for zone: ZoneType) -> Int {
+        max(0, Unlocks.requiredPopulation(for: zone) - peakPopulation)
     }
 
     // MARK: - Save / load
@@ -448,7 +486,8 @@ final class GameController: ObservableObject {
             treasury: treasury,
             taxRate: taxRate,
             bondBalance: bondBalance,
-            history: history
+            history: history,
+            peakPopulation: peakPopulation
         )
     }
 
@@ -482,6 +521,11 @@ final class GameController: ObservableObject {
         taxRate = save.taxRate
         bondBalance = save.bondBalance
         history = save.history
+        // A save written before unlocks existed has no record of the mark, so
+        // fall back to what the city currently supports — which is the most
+        // generous reading that can't hand out tools the city never earned.
+        peakPopulation = save.peakPopulation ?? population
+        newlyUnlockedZones = []
 
         isRunning = false
         lastHazardStrikes = []
@@ -568,6 +612,8 @@ final class GameController: ObservableObject {
         lastHazardStrikes = strikes
         map = CitySimulator.advance(hazarded, using: &rng)
         treasury += netRevenue
+        newlyUnlockedZones = Unlocks.newlyUnlocked(crossing: population, from: peakPopulation)
+        peakPopulation = max(peakPopulation, population)
         recordHistorySnapshot()
     }
 

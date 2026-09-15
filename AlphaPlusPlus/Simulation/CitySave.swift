@@ -55,13 +55,22 @@ struct CitySave: Equatable, Codable, Sendable {
     let bondBalance: Int
     let history: [CityStatSnapshot]
 
+    /// The city's high-water population mark, which is what `Unlocks` reads.
+    ///
+    /// `Optional` so that saves written before unlocks existed still decode —
+    /// synthesised `init(from:)` uses `decodeIfPresent` for optionals — rather
+    /// than needing a `formatVersion` bump and a migration for one integer.
+    /// The same trick `Tile.damagedBy` uses.
+    let peakPopulation: Int?
+
     init(
         formatVersion: Int = CitySave.currentFormatVersion,
         map: CityMap,
         treasury: Int,
         taxRate: Double,
         bondBalance: Int,
-        history: [CityStatSnapshot]
+        history: [CityStatSnapshot],
+        peakPopulation: Int? = nil
     ) {
         self.formatVersion = formatVersion
         self.map = map
@@ -69,6 +78,7 @@ struct CitySave: Equatable, Codable, Sendable {
         self.taxRate = taxRate
         self.bondBalance = bondBalance
         self.history = history
+        self.peakPopulation = peakPopulation
     }
 }
 

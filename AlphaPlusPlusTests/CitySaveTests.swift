@@ -12,6 +12,20 @@ import XCTest
 @MainActor
 final class CitySaveTests: XCTestCase {
 
+    /// A controller whose city has already grown enough to have earned every
+    /// tool.
+    ///
+    /// These tests are about placement rules and the economy, not about the
+    /// unlock ladder (`UnlocksTests` covers that) — so they start from a
+    /// grown-up city rather than each one having to raise a population before
+    /// it is allowed to place a police station.
+    private func makeController<RNG: RandomNumberGenerator>(
+        map: CityMap = CityMap(width: MapSize.small.dimension, height: MapSize.small.dimension),
+        rng: RNG = SystemRandomNumberGenerator()
+    ) -> GameController {
+        GameController(map: map, rng: rng, peakPopulation: Unlocks.everythingUnlocked)
+    }
+
     // MARK: - Building a city worth saving
 
     /// A controller whose state is non-default in every dimension `CitySave`
@@ -23,7 +37,7 @@ final class CitySaveTests: XCTestCase {
         // AlwaysZeroRNG so growth and hazards are deterministic: these tests
         // assert on exact populations and treasuries after ticking, which a
         // system generator would make flaky.
-        let controller = GameController(
+        let controller = makeController(
             map: CityMap(width: MapSize.small.dimension, height: MapSize.small.dimension),
             rng: AlwaysZeroRNG()
         )
@@ -92,7 +106,7 @@ final class CitySaveTests: XCTestCase {
         let original = makeExercisedCity()
         let save = original.snapshot()
 
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
         try restored.restore(from: save)
 
         XCTAssertEqual(restored.map, original.map)
@@ -108,7 +122,7 @@ final class CitySaveTests: XCTestCase {
         let data = try JSONEncoder().encode(original.snapshot())
         let decoded = try JSONDecoder().decode(CitySave.self, from: data)
 
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
         try restored.restore(from: decoded)
 
         XCTAssertEqual(restored.map, original.map)
@@ -145,7 +159,7 @@ final class CitySaveTests: XCTestCase {
 
     func testRestoreLeavesTheSimulationPaused() throws {
         let original = makeExercisedCity()
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
         restored.isRunning = true
 
         try restored.restore(from: original.snapshot())
@@ -155,7 +169,7 @@ final class CitySaveTests: XCTestCase {
 
     func testRestoreClearsPerTickScratchStateRatherThanCarryingItIn() throws {
         let original = makeExercisedCity()
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
 
         try restored.restore(from: original.snapshot())
 
@@ -164,12 +178,12 @@ final class CitySaveTests: XCTestCase {
     }
 
     func testRestoreRealignsTheMapSizePickerToTheLoadedMap() throws {
-        let large = GameController(
+        let large = makeController(
             map: CityMap(width: MapSize.large.dimension, height: MapSize.large.dimension),
             rng: AlwaysZeroRNG()
         )
 
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
         restored.selectedMapSize = .small
         try restored.restore(from: large.snapshot())
 
@@ -180,9 +194,9 @@ final class CitySaveTests: XCTestCase {
     /// picker to some arbitrary nearby value — the map is authoritative, and
     /// `selectedMapSize` only ever describes what the *next* Reset builds.
     func testRestoreLeavesTheMapSizePickerAloneForAnUnrecognizedSize() throws {
-        let odd = GameController(map: CityMap(width: 37, height: 37), rng: AlwaysZeroRNG())
+        let odd = makeController(map: CityMap(width: 37, height: 37), rng: AlwaysZeroRNG())
 
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
         restored.selectedMapSize = .medium
         try restored.restore(from: odd.snapshot())
 
@@ -202,7 +216,7 @@ final class CitySaveTests: XCTestCase {
             history: []
         )
 
-        let controller = GameController(rng: AlwaysZeroRNG())
+        let controller = makeController(rng: AlwaysZeroRNG())
         XCTAssertThrowsError(try controller.restore(from: save)) { error in
             XCTAssertEqual(
                 error as? CitySave.LoadError,
@@ -244,7 +258,7 @@ final class CitySaveTests: XCTestCase {
             history: current.history
         )
 
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
         XCTAssertNoThrow(try restored.restore(from: older))
         XCTAssertEqual(restored.map, original.map)
     }
@@ -263,7 +277,7 @@ final class CitySaveTests: XCTestCase {
     func testARestoredCitySimulatesIdenticallyToTheOriginal() throws {
         let original = makeExercisedCity()
 
-        let restored = GameController(rng: AlwaysZeroRNG())
+        let restored = makeController(rng: AlwaysZeroRNG())
         try restored.restore(from: original.snapshot())
 
         for tick in 0..<20 {

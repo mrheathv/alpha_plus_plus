@@ -387,6 +387,43 @@ of them needed changing.** What was wrong was two tests.
 The lesson worth keeping: when a measurement changes, check whether the thing
 being measured moved or the yardstick did.
 
+### Unlocks: a ladder, not an ending
+
+An open-ended city builder has no win condition — the genre's answer to "why
+keep playing" is a progression of tools you earn, the way SimCity 2000 gates a
+library at 2,000 residents and a stadium at 90,000. Everything here was
+available from tick one, which cost two things: nothing to aim at, and no shape
+to the early game, since a new city could paint every tool it would ever have
+across the whole map immediately.
+
+`Unlocks` gates tools behind a population high-water mark:
+
+| unlocks at | tools |
+|---|---|
+| start | residential, commercial, industrial, road (and the bulldozer, always) |
+| 40 | police station, fire station |
+| 100 | water tower |
+| 200 | transit stop |
+| 300 | power plant |
+| 500 | highway |
+| 700 | subway |
+| 1,000 | stadium |
+
+Thresholds are shaped by the gates that already exist rather than picked
+freely. Water is needed to pass density 2, so the tower has to arrive while a
+city is still capped there; power gates density 4, so the plant lands just past
+where water-only growth tops out. The cheap/upgraded pairs keep their order.
+
+A **high-water mark**, not current population: a city knocked back by fire or a
+bad tax rate keeps what it earned. Losing the fire station because your city
+burned down would be exactly backwards. It rides in `CitySave` as an `Optional`,
+so saves written before unlocks still load.
+
+Locked tools are shown disabled with what they need, not hidden — the next rung
+has to be visible for it to be something to aim at. That also thins the zoning
+row from thirteen buttons to four for a new city, which is a UI problem
+`GameView`'s own doc comments had already flagged twice.
+
 ### Still open
 
 | finding | evidence |

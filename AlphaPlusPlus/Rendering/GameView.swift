@@ -127,10 +127,21 @@ struct GameView: View {
     private var zoningRow: some View {
         HStack {
             ForEach(ZoneType.allCases, id: \.self) { zone in
+                let unlocked = controller.isUnlocked(zone)
                 Button(toolLabel(for: zone)) {
                     controller.selectedTool = zone
                 }
                 .buttonStyle(RetroButtonStyle(accent: RetroUITheme.accent(for: zone), isSelected: controller.selectedTool == zone))
+                // Disabled and dimmed rather than hidden. A tool you can see
+                // but cannot use yet is the thing to aim at — hiding it would
+                // turn the ladder into a series of surprises, and a player
+                // would have no idea the stadium exists until it appears.
+                .disabled(!unlocked)
+                .opacity(unlocked ? 1 : 0.35)
+                .help(unlocked
+                      ? toolLabel(for: zone)
+                      : "\(toolLabel(for: zone)) — needs \(Unlocks.requiredPopulation(for: zone)) residents "
+                        + "(\(controller.residentsNeeded(for: zone)) to go)")
             }
             Spacer()
         }
@@ -371,7 +382,41 @@ struct GameView: View {
                 .help(budgetBreakdown)
             demandTile
             utilityTile
+            unlockTile
         }
+    }
+
+    /// What the city has just earned, or what it is working toward.
+    ///
+    /// The whole point of the ladder is having something to aim at, which only
+    /// works if the next rung is visible. Shows the newest unlock the moment it
+    /// lands, and otherwise the nearest one still out of reach.
+    private var unlockTile: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let earned = controller.newlyUnlockedZones.first {
+                Text("Unlocked: \(toolLabel(for: earned))")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(RetroUITheme.primaryAccent)
+            } else if let next = nextUnlock {
+                Text("Next: \(toolLabel(for: next)) at \(Unlocks.requiredPopulation(for: next))")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(RetroUITheme.textSecondary)
+            } else {
+                Text("All tools unlocked")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(RetroUITheme.textSecondary)
+            }
+        }
+    }
+
+    /// The cheapest still-locked tool, by the population it asks for.
+    private var nextUnlock: ZoneType? {
+        ZoneType.allCases
+            .filter { !controller.isUnlocked($0) }
+            .min { Unlocks.requiredPopulation(for: $0) < Unlocks.requiredPopulation(for: $1) }
     }
 
     /// Water and power draw against capacity.

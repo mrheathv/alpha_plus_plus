@@ -9,8 +9,22 @@ import XCTest
 @MainActor
 final class GameControllerTests: XCTestCase {
 
+    /// A controller whose city has already grown enough to have earned every
+    /// tool.
+    ///
+    /// These tests are about placement rules and the economy, not about the
+    /// unlock ladder (`UnlocksTests` covers that) — so they start from a
+    /// grown-up city rather than each one having to raise a population before
+    /// it is allowed to place a police station.
+    private func makeController<RNG: RandomNumberGenerator>(
+        map: CityMap = CityMap(width: MapSize.small.dimension, height: MapSize.small.dimension),
+        rng: RNG = SystemRandomNumberGenerator()
+    ) -> GameController {
+        GameController(map: map, rng: rng, peakPopulation: Unlocks.everythingUnlocked)
+    }
+
     func testPlaceChargesCostAndSetsZone() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         let startingTreasury = controller.treasury
 
@@ -23,7 +37,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testPlaceReturnsUnchangedWhenTileAlreadyHasThatZone() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.selectedTool = .residential
         controller.place(at: position)
@@ -38,7 +52,7 @@ final class GameControllerTests: XCTestCase {
     /// over one tile. Re-placing the same zone must be a free no-op, or
     /// holding the mouse still would drain the treasury every frame.
     func testPlacingTheSameZoneTwiceOnlyChargesOnce() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
 
         controller.selectedTool = .residential
@@ -51,7 +65,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testPlaceDoesNothingWhenTreasuryCannotCoverTheCost() {
-        let controller = GameController()
+        let controller = makeController()
         // Drain the treasury by placing roads ($50, the cheapest paid zone)
         // across distinct tiles — one per tile so the "same zone twice is
         // free" guard above never masks a real charge — until funds run out.
@@ -74,7 +88,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testBulldozeClearsAZoneForFree() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.selectedTool = .commercial
         controller.place(at: position)
@@ -87,7 +101,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testBulldozeResetsDensity() {
-        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees the growth tick below actually grows
+        let controller = makeController(rng: AlwaysZeroRNG()) // guarantees the growth tick below actually grows
         let position = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0) // outside residential's (0,0)-(1,1) footprint
         controller.selectedTool = .road
@@ -104,7 +118,7 @@ final class GameControllerTests: XCTestCase {
     /// Bulldozing any one cell of a multi-tile building clears the *whole*
     /// building, not just the cell that was clicked.
     func testBulldozingAnyCellOfAFootprintClearsTheWholeBuilding() {
-        let controller = GameController()
+        let controller = makeController()
         let origin = GridPosition(x: 0, y: 0)
         controller.selectedTool = .residential
         controller.place(at: origin) // covers (0,0)-(1,1)
@@ -121,7 +135,7 @@ final class GameControllerTests: XCTestCase {
     /// the same zone and the same `buildingOrigin`, and costs the treasury
     /// once for the whole building, not once per cell.
     func testPlacingAMultiTileBuildingStampsTheWholeFootprintForOneCost() {
-        let controller = GameController()
+        let controller = makeController()
         let origin = GridPosition(x: 0, y: 0)
         let startingTreasury = controller.treasury
         controller.selectedTool = .residential
@@ -140,7 +154,7 @@ final class GameControllerTests: XCTestCase {
     /// footprint mechanism itself doesn't care how big a zone is, only
     /// `ZoneType.footprintSize` does.
     func testPlacingAThreeByThreeBuildingStampsAllNineCells() {
-        let controller = GameController()
+        let controller = makeController()
         let origin = GridPosition(x: 0, y: 0)
         let startingTreasury = controller.treasury
         controller.selectedTool = .stadium
@@ -164,7 +178,7 @@ final class GameControllerTests: XCTestCase {
     /// established building mid-stroke). Nothing about the old building or
     /// the treasury changes.
     func testPlacingOverAnExistingMultiTileBuildingIsBlocked() {
-        let controller = GameController()
+        let controller = makeController()
         let origin = GridPosition(x: 0, y: 0)
         controller.selectedTool = .residential
         controller.place(at: origin) // covers (0,0)-(1,1)
@@ -183,7 +197,7 @@ final class GameControllerTests: XCTestCase {
     /// two, with the bulldoze being an explicit, deliberate step instead of
     /// an implicit side effect of the next zone tool you happen to pick.
     func testBulldozingThenPlacingReplacesABuilding() {
-        let controller = GameController()
+        let controller = makeController()
         let origin = GridPosition(x: 0, y: 0)
         controller.selectedTool = .residential
         controller.place(at: origin) // covers (0,0)-(1,1)
@@ -203,7 +217,7 @@ final class GameControllerTests: XCTestCase {
     /// they were, not half-cleared by a footprint that only clips a corner
     /// of each.
     func testPlacingOverlappingTwoDifferentBuildingsIsBlocked() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .residential
         controller.place(at: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         controller.selectedTool = .commercial
@@ -231,7 +245,7 @@ final class GameControllerTests: XCTestCase {
     /// single occupied cell anywhere in the new footprint is enough to
     /// refuse the whole placement, not just clear that one corner.
     func testPlacingA1x1ZoneOverPartOfABuildingIsBlocked() {
-        let controller = GameController()
+        let controller = makeController()
         let origin = GridPosition(x: 0, y: 0)
         controller.selectedTool = .residential
         controller.place(at: origin) // covers (0,0)-(1,1)
@@ -250,7 +264,7 @@ final class GameControllerTests: XCTestCase {
     /// drag-painting a long road across tiles that are already road never
     /// regresses into flashing "blocked" on every tile it re-crosses.
     func testRepaintingATileWithItsOwnZoneStaysUnchangedNotBlocked() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.selectedTool = .road
         controller.place(at: position)
@@ -261,7 +275,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testResetMapClearsTilesAndRestoresStartingTreasury() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .industrial
         controller.place(at: GridPosition(x: 1, y: 1))
 
@@ -274,7 +288,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testResetMapUsesTheSelectedMapSize() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedMapSize = .medium
 
         controller.resetMap()
@@ -286,7 +300,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - History
 
     func testAdvanceSimulationAppendsOneHistorySnapshotPerStep() {
-        let controller = GameController()
+        let controller = makeController()
 
         controller.advanceSimulation()
         controller.advanceSimulation()
@@ -300,7 +314,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testResetMapClearsHistory() {
-        let controller = GameController()
+        let controller = makeController()
         controller.advanceSimulation()
         controller.advanceSimulation()
         XCTAssertFalse(controller.history.isEmpty) // sanity check
@@ -313,7 +327,7 @@ final class GameControllerTests: XCTestCase {
     /// Mirrors `GameController`'s private `maxHistoryLength` (120) — update
     /// this literal if that constant changes.
     func testHistoryIsCappedRatherThanGrowingForever() {
-        let controller = GameController()
+        let controller = makeController()
         for _ in 0 ..< 125 {
             controller.advanceSimulation()
         }
@@ -329,7 +343,7 @@ final class GameControllerTests: XCTestCase {
     /// so these need non-overlapping origins — `(0,0)` and `(3,0)` leave a
     /// clear gap rather than the two footprints colliding.
     func testFreshlyPlacedZonesContributeNoPopulationOrJobsUntilDeveloped() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .residential
         controller.place(at: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         controller.selectedTool = .commercial
@@ -343,7 +357,7 @@ final class GameControllerTests: XCTestCase {
         // AlwaysZeroRNG guarantees the demand-gated growth roll clears --
         // safe here (unlike a multi-tick test) since hazards can't touch a
         // tile still at density 0 going into this one tick.
-        let controller = GameController(rng: AlwaysZeroRNG())
+        let controller = makeController(rng: AlwaysZeroRNG())
         let residentialOrigin = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0) // outside the (0,0)-(1,1) footprint, touching (1,0)
         controller.selectedTool = .road
@@ -359,7 +373,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testJobsCountBothCommercialAndIndustrialDensity() {
-        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
+        let controller = makeController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         let commercialOrigin = GridPosition(x: 0, y: 0) // covers (0,0)-(1,1)
         let roadPosition = GridPosition(x: 2, y: 0) // touches (1,0)
         let industrialOrigin = GridPosition(x: 3, y: 0) // covers (3,0)-(4,1), touches the road's other side
@@ -378,7 +392,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Tax revenue
 
     func testAdvanceSimulationCollectsTaxFromPopulation() {
-        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
+        let controller = makeController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         let residentialOrigin = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0)
         controller.selectedTool = .road
@@ -404,7 +418,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testAdvanceSimulationTaxesJobsAtAHigherRateThanPopulation() {
-        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
+        let controller = makeController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         let commercialOrigin = GridPosition(x: 0, y: 0)
         let roadPosition = GridPosition(x: 2, y: 0)
         controller.selectedTool = .road
@@ -443,7 +457,7 @@ final class GameControllerTests: XCTestCase {
     /// way — vanishingly unlikely to flip a 20-tick test from growing to
     /// not, the same bet the original hazard exposure already made.
     func testTreasuryGrowsOverTimeFromAGrowingCityRatherThanOnlyEverDraining() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .residential
@@ -458,7 +472,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Upkeep
 
     func testUpkeepCostIsZeroWithNoServiceBuildingsPlaced() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .residential
@@ -469,7 +483,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testUpkeepCostSumsEveryPlacedServiceBuildingOnce() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .policeStation
         controller.place(at: GridPosition(x: 0, y: 0))
         controller.selectedTool = .fireStation
@@ -481,7 +495,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testNetRevenueSubtractsUpkeepFromTaxRevenue() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .residential
@@ -496,7 +510,7 @@ final class GameControllerTests: XCTestCase {
     /// yet should show up as the treasury actually *shrinking* on advance,
     /// not just growing more slowly than before.
     func testAdvanceSimulationCanShrinkTreasuryWhenUpkeepExceedsTaxRevenue() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .policeStation
         controller.place(at: GridPosition(x: 0, y: 0))
         // No zoned land at all: taxRevenue is 0, upkeepCost is not.
@@ -510,7 +524,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Player-adjustable tax rate
 
     func testDefaultTaxRateReproducesTheOriginalTaxFormulaExactly() {
-        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
+        let controller = makeController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
@@ -523,7 +537,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testHalvingTheTaxRateHalvesTaxRevenue() {
-        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
+        let controller = makeController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
@@ -536,7 +550,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testRaisingTheTaxRateAboveOneIncreasesRevenue() {
-        let controller = GameController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
+        let controller = makeController(rng: AlwaysZeroRNG()) // guarantees this one growth tick clears
         controller.selectedTool = .road
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
@@ -549,7 +563,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testResetMapRestoresTheTaxRateToDefault() {
-        let controller = GameController()
+        let controller = makeController()
         controller.taxRate = 0.5
 
         controller.resetMap()
@@ -560,13 +574,13 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Per-service funding control
 
     func testFundingLevelDefaultsToFullForEveryService() {
-        let controller = GameController()
+        let controller = makeController()
         XCTAssertEqual(controller.fundingLevel(for: .policeStation), 1.0)
         XCTAssertEqual(controller.fundingLevel(for: .fireStation), 1.0)
     }
 
     func testSetFundingLevelIsReflectedByFundingLevel() {
-        let controller = GameController()
+        let controller = makeController()
         controller.setFundingLevel(0.5, for: .fireStation)
 
         XCTAssertEqual(controller.fundingLevel(for: .fireStation), 0.5)
@@ -577,7 +591,7 @@ final class GameControllerTests: XCTestCase {
     /// service must lower what it costs to run, not just weaken its
     /// coverage (that side is `LandValueTests`' job).
     func testUnderfundingAServiceLowersItsUpkeepCost() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .policeStation
         controller.place(at: GridPosition(x: 0, y: 0))
 
@@ -587,7 +601,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testOverfundingAServiceRaisesItsUpkeepCostAboveTheBaseline() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .fireStation
         controller.place(at: GridPosition(x: 0, y: 0))
 
@@ -599,7 +613,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Highway and subway placement
 
     func testPlacingAHighwayChargesItsOwnCostAndSetsTheZone() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         let startingTreasury = controller.treasury
         controller.selectedTool = .highway
@@ -624,7 +638,7 @@ final class GameControllerTests: XCTestCase {
     /// seven tiles keeps the expected total comfortably away from any
     /// rounding boundary.)
     func testRoadUpkeepCostScalesWithTileCount() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .road
         for x in 0 ..< 7 {
             controller.place(at: GridPosition(x: x, y: 0))
@@ -638,7 +652,7 @@ final class GameControllerTests: XCTestCase {
     /// `placementCost` already has with `.road`'s — not "free to run
     /// forever" the way it used to be modeled.
     func testHighwayUpkeepCostScalesWithTileCountAtAHigherRateThanRoad() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .highway
         for x in 0 ..< 7 {
             controller.place(at: GridPosition(x: x, y: 0))
@@ -654,7 +668,7 @@ final class GameControllerTests: XCTestCase {
     /// reads it. If these ever drift, the UI would be showing one rate while
     /// the city is simulated with another.
     func testTaxRateReadsAndWritesThroughToTheMap() {
-        let controller = GameController()
+        let controller = makeController()
         XCTAssertEqual(controller.taxRate, controller.map.taxRate)
 
         controller.taxRate = 1.75
@@ -668,7 +682,7 @@ final class GameControllerTests: XCTestCase {
     /// It no longer has its own `@Published` — the notification now comes from
     /// `map`, which it writes through to.
     func testChangingTheTaxRatePublishesAChange() {
-        let controller = GameController()
+        let controller = makeController()
         var notifications = 0
         let cancellable = controller.objectWillChange.sink { _ in notifications += 1 }
         defer { cancellable.cancel() }
@@ -682,7 +696,7 @@ final class GameControllerTests: XCTestCase {
     /// changes what the simulation does, rather than only what the treasury
     /// counts.
     func testRaisingTaxesSuppressesDemandTheSimulationReads() {
-        let controller = GameController(rng: AlwaysZeroRNG())
+        let controller = makeController(rng: AlwaysZeroRNG())
         for x in 0 ..< 12 {
             controller.selectedTool = .road
             controller.place(at: GridPosition(x: x, y: 4))
@@ -712,7 +726,7 @@ final class GameControllerTests: XCTestCase {
     /// per job, so with neither it must be exactly zero rather than some
     /// baseline a brand-new city starts in the hole against.
     func testCivicUpkeepIsZeroForACityWithNoPopulationOrJobs() {
-        let controller = GameController()
+        let controller = makeController()
         XCTAssertEqual(controller.population, 0)
         XCTAssertEqual(controller.jobs, 0)
         XCTAssertEqual(controller.civicUpkeep, 0)
@@ -724,7 +738,7 @@ final class GameControllerTests: XCTestCase {
     /// with placed infrastructure and therefore stops growing the moment a
     /// city is built out.
     func testCivicUpkeepScalesWithPopulationAndJobs() {
-        let controller = GameController(rng: AlwaysZeroRNG())
+        let controller = makeController(rng: AlwaysZeroRNG())
         XCTAssertEqual(controller.civicUpkeep, 0)
 
         // Grow a city the ordinary way, then check the cost followed.
@@ -773,7 +787,7 @@ final class GameControllerTests: XCTestCase {
     /// the tax rate — otherwise raising taxes would silently raise the bill
     /// it is meant to be paying.
     func testCivicUpkeepIgnoresTaxRate() {
-        let controller = GameController(rng: AlwaysZeroRNG())
+        let controller = makeController(rng: AlwaysZeroRNG())
         for x in 0 ..< 12 {
             controller.selectedTool = .road
             controller.place(at: GridPosition(x: x, y: 4))
@@ -790,7 +804,7 @@ final class GameControllerTests: XCTestCase {
 
     /// `netRevenue` has to actually subtract it, not just expose it.
     func testNetRevenueSubtractsCivicUpkeep() {
-        let controller = GameController(rng: AlwaysZeroRNG())
+        let controller = makeController(rng: AlwaysZeroRNG())
         for x in 0 ..< 12 {
             controller.selectedTool = .road
             controller.place(at: GridPosition(x: x, y: 4))
@@ -817,7 +831,7 @@ final class GameControllerTests: XCTestCase {
     /// should show up in upkeep, funded at the default 100% until told
     /// otherwise.
     func testSubwayContributesItsUpkeepCostAtDefaultFunding() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .subway
         controller.place(at: GridPosition(x: 0, y: 0))
 
@@ -827,7 +841,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Pipe (an underground layer, not a ZoneType — see `Tile.hasPipe`)
 
     func testLayingAPipeChargesItsOwnCostOnce() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         let startingTreasury = controller.treasury
 
@@ -841,7 +855,7 @@ final class GameControllerTests: XCTestCase {
     /// `GameScene` calls `layPipe` on every tile a drag stroke crosses —
     /// re-crossing already-piped ground shouldn't charge a second time.
     func testLayingAPipeOnATileThatAlreadyHasOneIsFreeAndUnchanged() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.layPipe(at: position)
         let treasuryAfterFirstPipe = controller.treasury
@@ -853,7 +867,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testRemovingAPipeIsFreeAndClearsIt() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.layPipe(at: position)
         let treasuryAfterPlacing = controller.treasury
@@ -869,7 +883,7 @@ final class GameControllerTests: XCTestCase {
     /// silently erase the pipe underneath it (`CityMap.placeBuilding`
     /// carries `hasPipe` forward instead of defaulting it away).
     func testPlacingAZoneOverAPipedTilePreservesThePipe() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.layPipe(at: position)
         controller.selectedTool = .road
@@ -883,7 +897,7 @@ final class GameControllerTests: XCTestCase {
     /// Same regression, the bulldoze path (`GameController.clearBuilding`
     /// carries `hasPipe` forward the same way).
     func testBulldozingAPipedTilePreservesThePipe() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.selectedTool = .road
         controller.place(at: position)
@@ -899,7 +913,7 @@ final class GameControllerTests: XCTestCase {
     /// should show up in upkeep, funded at the default 100% until told
     /// otherwise.
     func testWaterTowerContributesItsUpkeepCostAtDefaultFunding() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .waterTower
         controller.place(at: GridPosition(x: 0, y: 0))
 
@@ -909,7 +923,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Power line (an underground-style layer, not a ZoneType — see `Tile.hasPowerLine`)
 
     func testLayingAPowerLineChargesItsOwnCostOnce() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         let startingTreasury = controller.treasury
 
@@ -923,7 +937,7 @@ final class GameControllerTests: XCTestCase {
     /// `GameScene` calls `layPowerLine` on every tile a drag stroke crosses —
     /// re-crossing already-lined ground shouldn't charge a second time.
     func testLayingAPowerLineOnATileThatAlreadyHasOneIsFreeAndUnchanged() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.layPowerLine(at: position)
         let treasuryAfterFirstLine = controller.treasury
@@ -935,7 +949,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testRemovingAPowerLineIsFreeAndClearsIt() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.layPowerLine(at: position)
         let treasuryAfterPlacing = controller.treasury
@@ -951,7 +965,7 @@ final class GameControllerTests: XCTestCase {
     /// erase the line underneath it (`CityMap.placeBuilding` carries
     /// `hasPowerLine` forward instead of defaulting it away).
     func testPlacingAZoneOverAPowerLinedTilePreservesTheLine() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.layPowerLine(at: position)
         controller.selectedTool = .road
@@ -965,7 +979,7 @@ final class GameControllerTests: XCTestCase {
     /// Same regression, the bulldoze path (`GameController.clearBuilding`
     /// carries `hasPowerLine` forward the same way).
     func testBulldozingAPowerLinedTilePreservesTheLine() {
-        let controller = GameController()
+        let controller = makeController()
         let position = GridPosition(x: 0, y: 0)
         controller.selectedTool = .road
         controller.place(at: position)
@@ -980,7 +994,7 @@ final class GameControllerTests: XCTestCase {
     /// `.powerPlant` *is* a service (like Police/Fire) — placing one should
     /// show up in upkeep, funded at the default 100% until told otherwise.
     func testPowerPlantContributesItsUpkeepCostAtDefaultFunding() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .powerPlant
         controller.place(at: GridPosition(x: 0, y: 0))
 
@@ -991,7 +1005,7 @@ final class GameControllerTests: XCTestCase {
     /// outage roll to have happened — this pins the quiet default rather
     /// than leaving it unspecified.
     func testNoPowerOutageBeforeAnyTickHasRun() {
-        let controller = GameController()
+        let controller = makeController()
         XCTAssertFalse(controller.isPowerOutageActive)
     }
 
@@ -1001,7 +1015,7 @@ final class GameControllerTests: XCTestCase {
     /// rather than calling `PowerGrid` directly, since that's the path that
     /// actually updates `controller.map.powerSupply` in play.
     func testZeroFundedPowerPlantSuppliesNothingAfterATick() {
-        let controller = GameController()
+        let controller = makeController()
         controller.selectedTool = .powerPlant
         controller.place(at: GridPosition(x: 0, y: 0)) // covers (0,0)-(2,2)
         controller.setFundingLevel(0, for: .powerPlant)
@@ -1016,7 +1030,7 @@ final class GameControllerTests: XCTestCase {
     // MARK: - Bonds
 
     func testIssuingABondAddsToTreasuryAndBalance() {
-        let controller = GameController()
+        let controller = makeController()
         let startingTreasury = controller.treasury
 
         let outcome = controller.issueBond()
@@ -1033,7 +1047,7 @@ final class GameControllerTests: XCTestCase {
     /// `baseBondCap` portion specifically — `testMaxBondBalanceScalesWithPopulation`
     /// below covers the per-capita half.
     func testIssuingBondsBeyondTheCapIsANoOp() {
-        let controller = GameController()
+        let controller = makeController()
         while controller.issueBond() {} // borrow until the cap refuses
         let balanceAtCap = controller.bondBalance
         let treasuryAtCap = controller.treasury
@@ -1047,7 +1061,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testRepayingABondReducesBalanceAndTreasury() {
-        let controller = GameController()
+        let controller = makeController()
         controller.issueBond()
         let treasuryAfterIssuing = controller.treasury
 
@@ -1060,7 +1074,7 @@ final class GameControllerTests: XCTestCase {
     /// Repaying more than is actually owed clamps to the outstanding
     /// balance rather than taking `bondBalance` negative.
     func testRepayingMoreThanOwedClampsToTheOutstandingBalance() {
-        let controller = GameController()
+        let controller = makeController()
         controller.issueBond() // owes exactly one bond's worth
         let treasuryAfterIssuing = controller.treasury
 
@@ -1074,7 +1088,7 @@ final class GameControllerTests: XCTestCase {
     /// there instead of driving treasury deeper negative than the payment
     /// itself would already explain.
     func testRepayingMoreThanTreasuryCanAffordClampsToTreasury() {
-        let controller = GameController()
+        let controller = makeController()
         controller.issueBond()
         controller.issueBond()
         controller.issueBond() // owes 3 bonds' worth ($15,000), at the cap
@@ -1099,7 +1113,7 @@ final class GameControllerTests: XCTestCase {
     /// `netRevenue` folds bond interest in alongside tax and upkeep — a
     /// bond isn't a one-time fee, it's an ongoing drain every tick after.
     func testBondInterestReducesNetRevenue() {
-        let controller = GameController()
+        let controller = makeController()
         let netRevenueBeforeBond = controller.netRevenue
 
         controller.issueBond()
@@ -1109,7 +1123,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testResetMapClearsBondBalance() {
-        let controller = GameController()
+        let controller = makeController()
         controller.issueBond()
 
         controller.resetMap()
@@ -1124,7 +1138,7 @@ final class GameControllerTests: XCTestCase {
     /// before this existed" default every other lever in this project
     /// starts at.
     func testEveryOrdinanceStartsInactive() {
-        let controller = GameController()
+        let controller = makeController()
 
         XCTAssertFalse(controller.isOrdinanceActive(\.neighborhoodWatch))
         XCTAssertFalse(controller.isOrdinanceActive(\.fireInspections))
@@ -1132,7 +1146,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testSetOrdinanceTogglesItOnAndOff() {
-        let controller = GameController()
+        let controller = makeController()
 
         controller.setOrdinance(\.neighborhoodWatch, active: true)
         XCTAssertTrue(controller.isOrdinanceActive(\.neighborhoodWatch))
@@ -1144,7 +1158,7 @@ final class GameControllerTests: XCTestCase {
     /// Setting one ordinance doesn't touch the other two — each toggle
     /// reaches exactly the field its key path names.
     func testSettingOneOrdinanceDoesNotAffectTheOthers() {
-        let controller = GameController()
+        let controller = makeController()
 
         controller.setOrdinance(\.fireInspections, active: true)
 
@@ -1162,7 +1176,7 @@ final class GameControllerTests: XCTestCase {
     /// `testOrdinanceCostScalesWithPopulation` below covers the per-capita
     /// half.
     func testActiveOrdinancesReduceNetRevenue() {
-        let controller = GameController()
+        let controller = makeController()
         let netRevenueBeforeOrdinances = controller.netRevenue
 
         controller.setOrdinance(\.neighborhoodWatch, active: true)
@@ -1177,7 +1191,7 @@ final class GameControllerTests: XCTestCase {
     /// mature city should pay a meaningfully bigger bill for the same
     /// policy than a brand-new one does.
     func testOrdinanceCostScalesWithPopulation() {
-        let controller = GameController(map: {
+        let controller = makeController(map: {
             var map = CityMap(width: 10, height: 10)
             map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
             map[GridPosition(x: 0, y: 0)].density = 5 // 5 * 4 = 20 population
@@ -1196,7 +1210,7 @@ final class GameControllerTests: XCTestCase {
     /// tax revenue outgrows fast enough that maxing out bonds stops being
     /// a real decision.
     func testMaxBondBalanceScalesWithPopulation() {
-        let controller = GameController(map: {
+        let controller = makeController(map: {
             var map = CityMap(width: 10, height: 10)
             map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
             map[GridPosition(x: 0, y: 0)].density = 5 // 5 * 4 = 20 population
@@ -1208,7 +1222,7 @@ final class GameControllerTests: XCTestCase {
     }
 
     func testResetMapClearsAllOrdinances() {
-        let controller = GameController()
+        let controller = makeController()
         controller.setOrdinance(\.neighborhoodWatch, active: true)
         controller.setOrdinance(\.businessTaxBreak, active: true)
 
@@ -1225,7 +1239,7 @@ final class GameControllerTests: XCTestCase {
     /// gate are guaranteed to be reading the exact same number, not two
     /// copies that could drift.
     func testCityDemandReadsThroughToTheMapsCachedValue() {
-        let controller = GameController()
+        let controller = makeController()
 
         XCTAssertEqual(controller.cityDemand, controller.map.cityDemand)
     }
