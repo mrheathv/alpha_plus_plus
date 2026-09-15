@@ -26,6 +26,13 @@ final class CityDocument: ObservableObject {
     /// makes Save fall back to Save As the first time.
     @Published private(set) var currentURL: URL?
 
+    /// Whether the budget sheet is up.
+    ///
+    /// Lives on the document rather than as view state because the City menu
+    /// is what opens it, and menus are built above the view hierarchy with no
+    /// way to reach into it.
+    @Published var isShowingBudget = false
+
     /// Set when an open or save fails; `RootView` presents it and clears it.
     /// A published string rather than a thrown error because by the time it
     /// reaches here there is nothing left to do but tell the player.

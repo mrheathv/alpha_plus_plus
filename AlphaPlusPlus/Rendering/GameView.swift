@@ -79,6 +79,12 @@ struct GameView: View {
         .onChange(of: controller.overlayMode) {
             scene?.refreshAll()
         }
+        // The Simulation menu can't reach the scene, so it bumps a counter and
+        // this turns it into a real tick — which flashes hazards the way an
+        // automatic tick does, unlike calling `advanceSimulation()` directly.
+        .onChange(of: controller.manualAdvanceRequests) {
+            scene?.runSimulationTick()
+        }
         // The whole toolbar is hand-colored against a dark background
         // regardless of the system appearance — forcing dark here keeps
         // native chrome that leaks through anywhere (menus, tooltips)
@@ -105,10 +111,7 @@ struct GameView: View {
     private var toolbar: some View {
         VStack(spacing: 10) {
             zoningRow
-            simulationRow
-            viewAndStatsRow
-            budgetRow
-            ordinancesRow
+            statusRow
         }
         .padding(10)
         .background(RetroUITheme.background)
@@ -147,92 +150,24 @@ struct GameView: View {
         }
     }
 
-    private var simulationRow: some View {
-        HStack {
+    /// One row: Play/Pause, the editing hint for whichever overlay is up, and
+    /// the stats readout.
+    ///
+    /// Everything else that used to live here — speed, overlay picker, map
+    /// size, Reset, the whole budget row and the ordinance toggles — moved to
+    /// the Simulation, Overlay and City menus. The toolbar had grown to five
+    /// rows and this file's own doc comments had twice flagged the overflow
+    /// risk; adding the starter utilities to the zoning row is what finally
+    /// spent the last of the width. What stayed is what you click constantly:
+    /// the zoning tools, and Play.
+    private var statusRow: some View {
+        HStack(spacing: 16) {
             Button(controller.isRunning ? "Pause" : "Play") {
                 controller.isRunning.toggle()
             }
             .buttonStyle(RetroButtonStyle(accent: controller.isRunning ? .orange : .green, isSelected: true))
 
-            // Takes effect on the very next tick check, whether paused or
-            // running — no need to gate this behind `isRunning`.
-            RetroSegmentedPicker(options: SimulationSpeed.allCases, label: \.displayName, selection: $controller.simulationSpeed)
-
-            // Manual single-step, independent of Play/Pause — useful for
-            // watching one step at a time even while otherwise paused.
-            // Pressing it while playing just adds one extra step; harmless,
-            // so there's no need to disable it based on `isRunning`. Routes
-            // through the scene's `runSimulationTick()` — the same method
-            // the automatic clock calls — so a manual Advance flashes
-            // hazard strikes exactly like an automatic tick does.
-            Button("Advance") {
-                scene?.runSimulationTick()
-            }
-            .buttonStyle(RetroButtonStyle(accent: RetroUITheme.secondaryAccent))
-
-            Spacer()
-        }
-    }
-
-    private var viewAndStatsRow: some View {
-        HStack(spacing: 16) {
-            // The hint below is scoped to the same 320pt column the picker
-            // itself occupies (a `VStack`, not another item alongside it in
-            // this already-crowded `HStack`) specifically so it never
-            // widens this row — an earlier version put it inline here and
-            // squeezed `statsReadout` at the far end into an unreadable,
-            // character-wrapped column once the row ran out of width.
-            VStack(alignment: .leading, spacing: 2) {
-                RetroSegmentedPicker(options: OverlayMode.allCases, label: \.displayName, selection: $controller.overlayMode)
-                    .frame(width: 410, alignment: .leading) // 5 segments now that Power joined Normal/Land Value/Traffic/Water
-
-                // Pipes and power lines are edited here, not on the zoning
-                // toolbar — see `Tile.hasPipe`'s doc comment for why. This
-                // is the only hint a player gets that clicking now lays
-                // pipe/power line instead of whatever zone tool happens to
-                // be selected.
-                if controller.overlayMode == .water {
-                    Text("Click to lay pipe \u{00B7} Right-click to remove")
-                        .font(.caption)
-                        .foregroundStyle(RetroUITheme.textSecondary)
-                        .frame(width: 320, alignment: .leading)
-                } else if controller.overlayMode == .power {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Click to lay power line \u{00B7} Right-click to remove")
-                            .font(.caption)
-                            .foregroundStyle(RetroUITheme.textSecondary)
-                        if controller.isPowerOutageActive {
-                            Text("⚠ Outage in progress — grid unpowered this tick")
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                    .frame(width: 320, alignment: .leading)
-                }
-            }
-
-            HStack(spacing: 6) {
-                Text("New city size:").foregroundStyle(RetroUITheme.textSecondary)
-                RetroSegmentedPicker(options: MapSize.allCases, label: \.displayName, selection: $controller.selectedMapSize)
-            }
-            .font(.callout)
-
-            // Resize takes effect here, not when the picker above changes —
-            // `resetMap()` reads `selectedMapSize` at the moment it runs.
-            // Rebuilds the whole scene grid rather than `performFullMapChange`'s
-            // `refreshAll()`, since a size change means the tile *count*
-            // changed, not just tile contents (see `GameScene.rebuildEntireGrid()`).
-            Button("Reset") {
-                controller.resetMap()
-                scene?.rebuildEntireGrid()
-                // Explicit, and only here: a size change may have made the
-                // old camera position invalid, so this is the one place
-                // recentering actually belongs — see
-                // `GameScene.rebuildEntireGrid()`'s own doc comment for why
-                // it doesn't do this on its own any more.
-                scene?.centerCameraOnMap()
-            }
-            .buttonStyle(RetroButtonStyle(accent: .red))
+            overlayHint
 
             Spacer()
 
@@ -240,130 +175,41 @@ struct GameView: View {
         }
     }
 
-    /// The two levers `GameController` exposes for "how well-funded is the
-    /// city" — one city-wide tax rate, plus one funding level per fundable
-    /// service. Every other zone (`.residential`/`.commercial`/`.industrial`/
-    /// `.road`/`.empty`) has nothing to show here: `ServiceFunding.level(for:)`
-    /// always reports 1.0 for them because funding isn't a concept that
-    /// applies, so this row only ever lists the five that actually respond
-    /// to it — hard-coded rather than filtered from `ZoneType.allCases` at
-    /// view-build time, since the set of fundable zones is exactly as fixed
-    /// as `ServiceFunding`'s own five named fields.
-    private static let fundableZones: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .subway, .powerPlant, .stadium, .waterTower]
-
-    private var budgetRow: some View {
-        HStack(spacing: 16) {
-            HStack(spacing: 4) {
-                Text("Tax Rate").foregroundStyle(RetroUITheme.textSecondary)
-                // 0% is a real setting (a tax holiday), same reasoning as
-                // funding's floor below.
-                RetroStepper(value: $controller.taxRate, range: 0 ... 2.0, step: 0.25)
-            }
-
-            Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 16)
-
-            Text("Funding:").foregroundStyle(RetroUITheme.textSecondary)
-            ForEach(Self.fundableZones, id: \.self) { zone in
-                fundingControl(for: zone)
-            }
-
-            Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 16)
-
-            bondsControl
-
-            Spacer()
-        }
-        .font(.callout)
-    }
-
-    /// Borrowing against future tax revenue — see `GameController.issueBond()`'s
-    /// own doc comment for the mechanic. Shows the running balance and its
-    /// per-tick interest (the same "preview before it's charged" role
-    /// `taxRevenue`/`netRevenueLabel` play elsewhere), plus the two actions:
-    /// `+$5,000` deposits one bond's worth immediately (a no-op past
-    /// `maxBondBalance`); `-$5,000` pays that much back early, clamped to
-    /// whatever's actually outstanding and affordable. Both buttons stay
-    /// tappable rather than disabling at the limits — clicking either one
-    /// past its own guard is already a harmless no-op, the same shape
-    /// `layPipe`'s "already piped" guard has.
-    private var bondsControl: some View {
-        HStack(spacing: 4) {
-            Text("Bonds:").foregroundStyle(RetroUITheme.textSecondary)
-            Text("$\(controller.bondBalance) owed (-$\(controller.bondInterest)/tick)")
-                .foregroundStyle(RetroUITheme.textPrimary)
-                .lineLimit(1)
-            Button("+$\(GameController.bondIssueAmount)") {
-                controller.issueBond()
-            }
-            .buttonStyle(RetroButtonStyle(accent: .yellow, isSelected: false))
-            Button("-$\(GameController.bondIssueAmount)") {
-                controller.repayBond(GameController.bondIssueAmount)
-            }
-            .buttonStyle(RetroButtonStyle(accent: .yellow, isSelected: false))
-        }
-    }
-
-    /// City-wide policy toggles — see `Ordinances`' own doc comment for
-    /// what each one actually does. A plain toggle button per ordinance,
-    /// not a stepper: unlike tax rate or per-service funding, an ordinance
-    /// is binary in every reference game that has one, so there's no
-    /// in-between strength to dial. `isSelected` doubles as "currently
-    /// active," the same way `zoningRow`'s buttons highlight whichever
-    /// tool is selected right now.
-    private var ordinancesRow: some View {
-        HStack(spacing: 12) {
-            Text("Ordinances:").foregroundStyle(RetroUITheme.textSecondary)
-            ordinanceToggle(\.neighborhoodWatch, label: "Neighborhood Watch", accent: RetroUITheme.accent(for: .policeStation))
-            ordinanceToggle(\.fireInspections, label: "Fire Inspections", accent: RetroUITheme.accent(for: .fireStation))
-            ordinanceToggle(\.businessTaxBreak, label: "Business Tax Break", accent: RetroUITheme.accent(for: .commercial))
-            Text("(-$\(Ordinances.costPerOrdinance(population: controller.population))/tick each, while active)")
+    /// Pipes and power lines are edited through the overlays, not the zoning
+    /// toolbar (see `Tile.hasPipe`'s doc comment for why). This is the only
+    /// hint a player gets that clicking now lays pipe or power line rather
+    /// than applying whatever zone tool is selected — so it has to stay on
+    /// screen even though the overlay picker itself moved to a menu.
+    @ViewBuilder
+    private var overlayHint: some View {
+        switch controller.overlayMode {
+        case .water:
+            Text("Click to lay pipe \u{00B7} Right-click to remove")
                 .font(.caption)
                 .foregroundStyle(RetroUITheme.textSecondary)
                 .lineLimit(1)
-            Spacer()
-        }
-    }
-
-    /// One ordinance's toggle button, tinted with the same accent the
-    /// zone/service it affects already uses elsewhere (police blue for
-    /// Neighborhood Watch, fire red for Fire Inspections, commercial blue
-    /// for the tax break) — same "the control glows the color of the
-    /// thing it controls" idea `fundingControl(for:)` already uses.
-    /// `WritableKeyPath` rather than a named setter per ordinance, the
-    /// same reasoning `GameController.setOrdinance(_:active:)`'s own doc
-    /// comment gives.
-    private func ordinanceToggle(_ ordinance: WritableKeyPath<Ordinances, Bool>, label: String, accent: Color) -> some View {
-        let isActive = controller.isOrdinanceActive(ordinance)
-        return Button(label) {
-            controller.setOrdinance(ordinance, active: !isActive)
-        }
-        .buttonStyle(RetroButtonStyle(accent: accent, isSelected: isActive))
-    }
-
-    /// One `RetroStepper` per fundable service, each tinted with that
-    /// service's own `RetroUITheme.accent(for:)` — a Police funding
-    /// stepper glows the same blue the Police Station and its tool
-    /// button do, rather than every stepper sharing one neutral color.
-    /// Reads/writes through `GameController.fundingLevel(for:)`/
-    /// `setFundingLevel(_:for:)` rather than binding to a `@Published`
-    /// property directly — funding isn't one flat property on the
-    /// controller, it's per-zone state living on `CityMap.serviceFunding`
-    /// (see that type's own doc comment for why), so this small
-    /// hand-built `Binding` is the adapter between "SwiftUI wants a
-    /// single value to bind a control to" and "the real value is keyed
-    /// by which service this particular control is for."
-    private func fundingControl(for zone: ZoneType) -> some View {
-        let binding = Binding<Double>(
-            get: { controller.fundingLevel(for: zone) },
-            set: { controller.setFundingLevel($0, for: zone) }
-        )
-        return HStack(spacing: 4) {
-            Text(RenderPalette.displayName(for: zone)).foregroundStyle(RetroUITheme.textPrimary)
-            // 0% is a real, expected lever (genre convention: fully
-            // defund a service you can't afford right now, rather than
-            // bulldoze it and lose the building entirely) -- not just a
-            // "reduced" floor at 50%.
-            RetroStepper(value: binding, range: 0 ... 2.0, step: 0.25, accent: RetroUITheme.accent(for: zone))
+        case .power:
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Click to lay power line \u{00B7} Right-click to remove")
+                    .font(.caption)
+                    .foregroundStyle(RetroUITheme.textSecondary)
+                    .lineLimit(1)
+                if controller.isPowerOutageActive {
+                    Text("⚠ Outage — grid unpowered this tick")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(1)
+                }
+            }
+        default:
+            // Naming the active overlay, since the picker that used to show it
+            // is now behind a menu.
+            if controller.overlayMode != .none {
+                Text("Overlay: \(controller.overlayMode.displayName)")
+                    .font(.caption)
+                    .foregroundStyle(RetroUITheme.textSecondary)
+                    .lineLimit(1)
+            }
         }
     }
 

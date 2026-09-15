@@ -15,6 +15,15 @@ struct AlphaPlusPlusApp: App {
     /// reach. See `GameView.controller`'s own doc comment.
     @StateObject private var document = CityDocument()
 
+    /// A binding onto one ordinance, so the City menu can show it as a
+    /// checkmarked toggle.
+    private func ordinance(_ keyPath: WritableKeyPath<Ordinances, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { document.controller.isOrdinanceActive(keyPath) },
+            set: { document.controller.setOrdinance(keyPath, active: $0) }
+        )
+    }
+
     var body: some Scene {
         WindowGroup("Alpha++") {
             RootView(document: document)
@@ -39,6 +48,76 @@ struct AlphaPlusPlusApp: App {
                 Button("Save City As…") { document.saveAs() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
             }
+
+            // Everything below used to be toolbar rows. `GameView`'s own doc
+            // comments had flagged the overflow risk twice before it actually
+            // ran out of width; playing the game settled it. What moved is
+            // what you set occasionally rather than click constantly — the
+            // zoning tools stay on screen, since those *are* the game.
+            CommandMenu("Simulation") {
+                Button(document.controller.isRunning ? "Pause" : "Play") {
+                    document.controller.isRunning.toggle()
+                }
+                .keyboardShortcut(.space, modifiers: [])
+
+                Button("Advance One Step") { document.controller.requestManualAdvance() }
+                    .keyboardShortcut(.rightArrow, modifiers: .command)
+
+                Divider()
+
+                Picker("Speed", selection: Binding(
+                    get: { document.controller.simulationSpeed },
+                    set: { document.controller.simulationSpeed = $0 }
+                )) {
+                    ForEach(SimulationSpeed.allCases) { speed in
+                        Text(speed.displayName).tag(speed)
+                    }
+                }
+
+                Divider()
+
+                Menu("New City") {
+                    ForEach(MapSize.allCases) { size in
+                        Button(size.displayName) {
+                            document.controller.selectedMapSize = size
+                            document.controller.resetMap()
+                        }
+                    }
+                }
+            }
+
+            CommandMenu("Overlay") {
+                ForEach(Array(OverlayMode.allCases.enumerated()), id: \.element) { index, mode in
+                    Button(mode.displayName) { document.controller.overlayMode = mode }
+                        .keyboardShortcut(
+                            KeyEquivalent(Character("\(index)")),
+                            modifiers: .command
+                        )
+                }
+            }
+
+            CommandMenu("City") {
+                Button("Budget…") { document.isShowingBudget = true }
+                    .keyboardShortcut("b", modifiers: .command)
+
+                Divider()
+
+                Button("Issue Bond (+$\(GameController.bondIssueAmount))") {
+                    _ = document.controller.issueBond()
+                }
+                Button("Repay Bond (-$\(GameController.bondIssueAmount))") {
+                    document.controller.repayBond(GameController.bondIssueAmount)
+                }
+
+                Divider()
+
+                // Toggles rather than a submenu: an ordinance is binary, and a
+                // checkmark next to its name says its state without opening
+                // anything.
+                Toggle("Neighborhood Watch", isOn: ordinance(\.neighborhoodWatch))
+                Toggle("Fire Inspections", isOn: ordinance(\.fireInspections))
+                Toggle("Business Tax Break", isOn: ordinance(\.businessTaxBreak))
+            }
         }
     }
 }
@@ -56,6 +135,11 @@ struct RootView: View {
     var body: some View {
         GameView(controller: document.controller)
             .navigationTitle(document.displayName)
+            .sheet(isPresented: $document.isShowingBudget) {
+                BudgetPanel(controller: document.controller) {
+                    document.isShowingBudget = false
+                }
+            }
             .alert(
                 "Couldn't open that city",
                 isPresented: Binding(

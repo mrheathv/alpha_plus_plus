@@ -427,11 +427,31 @@ final class GameController: ObservableObject {
         taxRate = 1.0
         bondBalance = 0
         isRunning = false
+        // A reset changes the tile count exactly the way a load does, so it
+        // needs the same rebuild-and-recentre — see `cityGeneration`. Bumping
+        // it here means every caller gets that for free rather than each one
+        // remembering to ask the scene itself.
+        cityGeneration += 1
         peakPopulation = 0
         newlyUnlockedZones = []
         history.removeAll()
         lastHazardStrikes = []
         isPowerOutageActive = false
+    }
+
+    /// Bumped when something outside the view asks for a single simulation
+    /// step — the Simulation menu's Advance command.
+    ///
+    /// The menu cannot call `GameScene.runSimulationTick()` directly (the
+    /// scene is private to `GameView`, and menus are built above it), and
+    /// calling `advanceSimulation()` straight from the menu would skip the
+    /// hazard flashes the scene adds. So the menu bumps this and the view
+    /// turns it into a real tick, the same shape `cityGeneration` already uses
+    /// to get "the whole map changed" from the controller to the scene.
+    @Published private(set) var manualAdvanceRequests = 0
+
+    func requestManualAdvance() {
+        manualAdvanceRequests += 1
     }
 
     // MARK: - Unlocks
