@@ -412,11 +412,17 @@ final class CitySimulatorTests: XCTestCase {
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
     }
 
-    /// The flip side, and the whole reason `growthChance(for:)` has a
-    /// floor above 0: even at demand -1, growth isn't a hard freeze --
-    /// it's just unlikely. A generator that always rolls the lowest
-    /// possible value still clears that floor.
-    func testStronglyNegativeDemandStillAllowsATrickleOfGrowth() {
+    /// At the bottom of the demand range, growth stops outright -- even for a
+    /// generator that always rolls the lowest possible value, which clears
+    /// every other probability gate in this file.
+    ///
+    /// This used to assert the opposite, back when `minimumGrowthChance` was
+    /// 0.05 so that oversupply was a slowdown rather than a wall. A design
+    /// playtest showed what that trickle actually bought: zoning every lot
+    /// residential reached 5,152 population against a balanced city's 3,320,
+    /// because 5% per tick over hundreds of ticks is simply a slower route to
+    /// the same maximum. Oversupply now genuinely stops growth.
+    func testStronglyNegativeDemandStopsGrowthEntirely() {
         var map = CityMap(width: 3, height: 3)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 2, y: 0)].zone = .road
@@ -425,7 +431,58 @@ final class CitySimulatorTests: XCTestCase {
         var rng = AlwaysZeroRNG()
         let next = CitySimulator.advance(map, using: &rng)
 
-        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
+    }
+
+    /// Past `abandonmentDemand`, an oversupplied building doesn't just stall
+    /// -- it loses a level. This is what makes over-zoning a decision with a
+    /// cost rather than one that merely wastes time.
+    func testDeepOversupplyAbandonsAnExistingBuilding() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 3
+        }
+        map.cityDemand = CityDemand(residential: -1, commercial: 0, industrial: 0)
+
+        var rng = AlwaysZeroRNG() // always clears the abandonment roll
+        let next = CitySimulator.advance(map, using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2)
+    }
+
+    /// Abandonment must not fire on ordinary, transient imbalance -- the kind
+    /// a growing city passes through constantly. Demand just above the
+    /// threshold stalls growth without tearing anything down.
+    func testMildOversupplyStallsGrowthWithoutAbandonment() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 3
+        }
+        map.cityDemand = CityDemand(residential: -0.5, commercial: 0, industrial: 0)
+
+        var rng = AlwaysMaxRNG() // fails the growth roll, so only decay could move this
+        let next = CitySimulator.advance(map, using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 3)
+    }
+
+    /// An empty lot at deep oversupply has nothing to abandon, and must not
+    /// underflow past density 0.
+    func testAbandonmentNeverDrivesDensityBelowZero() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        map.cityDemand = CityDemand(residential: -1, commercial: 0, industrial: 0)
+
+        var rng = AlwaysZeroRNG()
+        var next = map
+        for _ in 0 ..< 5 { next = CitySimulator.advance(next, using: &rng) }
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
     }
 
     /// Strongly positive demand is a guaranteed grow, matching demand 0's

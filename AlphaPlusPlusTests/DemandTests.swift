@@ -129,4 +129,134 @@ final class DemandTests: XCTestCase {
 
         XCTAssertEqual(map.cityDemand, CityDemand())
     }
+
+    // MARK: - Tax rate as growth pressure
+
+    /// A perfectly balanced city at the default rate has no tax pressure at
+    /// all — the baseline every other balance number was tuned against has to
+    /// stay exactly where it was.
+    func testTheDefaultTaxRateAppliesNoPressure() {
+        var map = CityMap(width: 9, height: 9)
+        map.taxRate = 1.0
+
+        let demand = Demand.compute(for: map)
+
+        XCTAssertEqual(demand.residential, 0, accuracy: 0.0001)
+        XCTAssertEqual(demand.commercial, 0, accuracy: 0.0001)
+        XCTAssertEqual(demand.industrial, 0, accuracy: 0.0001)
+    }
+
+    /// A high rate makes the whole city less attractive to build in: all three
+    /// types drop, by the same amount.
+    func testAHighTaxRateSuppressesEveryTypeEqually() {
+        var map = CityMap(width: 9, height: 9)
+        map.taxRate = 2.0
+
+        let demand = Demand.compute(for: map)
+        let expected = -(2.0 - 1.0) * Demand.taxDemandSensitivity
+
+        XCTAssertEqual(demand.residential, expected, accuracy: 0.0001)
+        XCTAssertEqual(demand.commercial, expected, accuracy: 0.0001)
+        XCTAssertEqual(demand.industrial, expected, accuracy: 0.0001)
+    }
+
+    /// Cutting taxes below the default genuinely attracts growth, rather than
+    /// just forfeiting income — that is what makes the low end a strategy.
+    func testALowTaxRateRaisesDemand() {
+        var map = CityMap(width: 9, height: 9)
+        map.taxRate = 0.0
+
+        let demand = Demand.compute(for: map)
+
+        XCTAssertEqual(demand.residential, Demand.taxDemandSensitivity, accuracy: 0.0001)
+        XCTAssertGreaterThan(demand.residential, 0)
+    }
+
+    /// The bound that keeps the tax slider recoverable: even at the maximum
+    /// rate, tax pressure alone must not reach
+    /// `CitySimulator.abandonmentDemand`. Reaching that still requires real
+    /// oversupply on top. A first attempt at sensitivity 1.0 violated this and
+    /// wiped a 3,300-person city to zero, with no way back short of undoing
+    /// the slider.
+    func testMaximumTaxAloneCannotReachTheAbandonmentThreshold() {
+        let maximumRate = 2.0
+        let pressureAtMaximum = -(maximumRate - 1.0) * Demand.taxDemandSensitivity
+
+        XCTAssertGreaterThan(
+            pressureAtMaximum, CitySimulator.abandonmentDemand,
+            "tax alone can push a city into irreversible abandonment"
+        )
+    }
+
+    /// `businessTaxBreak` is what buys commercial an exemption from the
+    /// city-wide tax drag — which is exactly what an ordinance of that name
+    /// ought to do.
+    func testTheBusinessTaxBreakOffsetsTaxPressureForCommercialOnly() {
+        var map = CityMap(width: 9, height: 9)
+        map.taxRate = 1.5
+        map.ordinances.businessTaxBreak = true
+
+        let demand = Demand.compute(for: map)
+
+        XCTAssertGreaterThan(demand.commercial, demand.industrial)
+        XCTAssertEqual(
+            demand.commercial - demand.industrial,
+            Demand.businessTaxBreakBoost,
+            accuracy: 0.0001
+        )
+    }
+
+    // MARK: - Demand scales with the city
+
+    /// The same *proportional* imbalance must read as the same demand whether
+    /// the city is small or large.
+    ///
+    /// Demand used to be measured against a flat scale of 30, so any imbalance
+    /// past 30 people pinned it at ±1 — in a city of thousands it was a
+    /// boolean rather than a gradient, and anything nudging it by a fraction
+    /// of a point was swamped.
+    func testDemandIsProportionalRatherThanSaturatedInALargeCity() {
+        // A big city with a modest 10% surplus of jobs over people should read
+        // as mild positive residential demand, not a pinned +1.
+        // 15 residential lots at full density = 300 people; 22 commercial =
+        // 330 jobs. A 30-job surplus against a 630-strong city: ~10% out of
+        // balance, which under the old flat scale of 30 would have pinned
+        // demand at exactly +1.0.
+        var big = CityMap(width: 40, height: 40)
+        placeBalancedCity(in: &big, residentialLots: 15, commercialLots: 22)
+
+        let demand = Demand.compute(for: big)
+
+        XCTAssertGreaterThan(demand.residential, 0, "a job surplus should want more housing")
+        XCTAssertLessThan(
+            demand.residential, 1.0,
+            "demand is saturated at its maximum from an ordinary imbalance — it is a boolean, not a gradient"
+        )
+    }
+
+    /// Fills `map` with fully-grown lots along road rows, for demand fixtures
+    /// that need a city big enough for proportional scaling to matter.
+    private func placeBalancedCity(in map: inout CityMap, residentialLots: Int, commercialLots: Int) {
+        for x in 0 ..< map.width {
+            map.placeBuilding(zone: .road, origin: GridPosition(x: x, y: 0))
+        }
+        var placed = 0
+        var x = 0
+        var y = 1
+        func place(_ zone: ZoneType, count: Int) {
+            var remaining = count
+            while remaining > 0, y + 1 < map.height {
+                map.placeBuilding(zone: zone, origin: GridPosition(x: x, y: y))
+                for cell in map.footprintCells(origin: GridPosition(x: x, y: y), size: 2) {
+                    map[cell].density = 5
+                }
+                remaining -= 1
+                placed += 1
+                x += 2
+                if x + 1 >= map.width { x = 0; y += 3 }
+            }
+        }
+        place(.residential, count: residentialLots)
+        place(.commercial, count: commercialLots)
+    }
 }

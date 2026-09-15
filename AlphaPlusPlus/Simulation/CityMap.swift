@@ -78,6 +78,20 @@ struct CityMap: Equatable, Codable, Sendable {
     /// so a fresh `CityMap` behaves exactly as it did before this existed.
     var ordinances = Ordinances()
 
+    /// The player's tax rate, as a fraction of the default (1.0 = the rate
+    /// every balance number was tuned against).
+    ///
+    /// Lives here rather than on `GameController` for the same reason
+    /// `serviceFunding` and `ordinances` do: the simulation itself reads it.
+    /// `Demand.compute(for:)` turns it into growth pressure — a high rate
+    /// makes the city a less attractive place to build, which is the whole
+    /// point of having a rate at all. It was a pure `GameController` display
+    /// number until then, and a lever nothing downstream reads is not a lever.
+    ///
+    /// Defaults to 1.0, so a fresh `CityMap` behaves exactly as it did before
+    /// this moved.
+    var taxRate: Double = 1.0
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width

@@ -63,6 +63,20 @@ enum CitySimulator {
             let isConnected = footprint.contains { hasAccess(at: $0, in: map) }
 
             if isConnected {
+                let demand = map.cityDemand.value(for: tile.zone)
+
+                // Deep oversupply doesn't just stall growth, it reverses it.
+                // Checked before the growth path rather than after, because a
+                // building being abandoned this tick is not also a candidate
+                // to grow this tick — the same "grow-or-hold, never both"
+                // exclusivity the access branch below already keeps.
+                if demand <= Self.abandonmentDemand, tile.density > 0 {
+                    if Double.random(in: 0 ..< 1, using: &rng) < Self.abandonmentChancePerTick {
+                        for cell in footprint { next[cell].density = tile.density - 1 }
+                    }
+                    continue
+                }
+
                 let nextLevel = tile.density + 1
                 guard nextLevel <= tile.zone.maxDensity else { continue }
                 let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
@@ -73,7 +87,7 @@ enum CitySimulator {
                 if nextLevel >= Self.powerRequiredFromLevel {
                     guard footprint.contains(where: { PowerGrid.hasSupply(at: $0, in: map) }) else { continue }
                 }
-                let chance = growthChance(for: map.cityDemand.value(for: tile.zone))
+                let chance = growthChance(for: demand)
                 guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
                 for cell in footprint { next[cell].density = nextLevel }
             } else if tile.density > 0 {
@@ -160,13 +174,48 @@ enum CitySimulator {
     static let powerRequiredFromLevel = 4
 
     /// `growthChance(for:)`'s floor, at demand -1 (the city is drowning
-    /// in this type already). Deliberately not 0: a hard freeze reads as
-    /// a wall the player never saw coming — every qualifying zone in an
-    /// oversupplied city stopping on the exact same tick with no visible
-    /// cause. A small floor keeps it a slowdown instead, a real but rare
-    /// trickle of growth rather than a cliff. A first guess, same
-    /// "needs playtesting" status as every other number here.
-    private static let minimumGrowthChance = 0.05
+    /// in this type already).
+    ///
+    /// Was 0.05, on the reasoning that a hard freeze reads as a wall the
+    /// player never saw coming. That reasoning was sound about *feel* and
+    /// wrong about consequence: a design playtest found zoning every lot
+    /// residential produced 5,152 population with zero jobs, against 3,320
+    /// for a balanced city — the dominant strategy was to ignore the RCI
+    /// system entirely. A 5% trickle sounds negligible and is not; over the
+    /// hundreds of ticks a city runs it is simply a slower road to the same
+    /// maximum, so oversupply cost nothing but time.
+    ///
+    /// Now 0: at the very bottom of the demand range, growth genuinely stops.
+    /// The "no invisible wall" concern is answered by two things that did not
+    /// exist when this number was chosen — the RCI meter shows demand
+    /// directly, so the cause is on screen, and `abandonmentDemand` below
+    /// makes deep oversupply *visibly* start tearing buildings down rather
+    /// than silently freezing them.
+    private static let minimumGrowthChance = 0.0
+
+    /// Below this demand, buildings of that type stop merely failing to grow
+    /// and start being abandoned — one density level at a time, at
+    /// `abandonmentChancePerTick`.
+    ///
+    /// This is what gives over-zoning a real cost. Without it the worst an
+    /// oversupplied city suffered was stalled growth, so a player could zone
+    /// wrong, wait, and lose nothing but time; the RCI gate was advice rather
+    /// than a constraint. Abandonment turns it into a decision with a
+    /// downside, which is the whole difference between a lever and a
+    /// decoration.
+    ///
+    /// -0.75 rather than something closer to 0 so that ordinary, transient
+    /// imbalance — the kind a growing city passes through constantly as one
+    /// type outpaces another for a few ticks — never triggers it. It takes
+    /// sustained, serious oversupply, or a punishing tax rate, to reach.
+    static let abandonmentDemand = -0.75
+
+    /// How likely an abandonment-eligible building is to lose a level on any
+    /// given tick. Deliberately slow: a city should visibly decline over a
+    /// stretch of ticks the player has time to notice and respond to, not
+    /// collapse between glances. A first guess, same status as every other
+    /// number here.
+    static let abandonmentChancePerTick = 0.02
 
     /// How likely a zone that's already cleared every other gate (access,
     /// land value, water) is to actually grow *this* tick, given how

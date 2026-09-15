@@ -171,16 +171,20 @@ final class DesignPlaytestTests: XCTestCase {
         let spec = PlaytestHarness.CitySpec(size: size)
         let (_, result) = PlaytestHarness.runScenario(spec, ticks: 600, seed: 4242)
 
-        let finalPopulation = result.final.population
+        // Measured against the *peak*, not the final reading. Now that deep
+        // oversupply abandons buildings, a city can peak and then decline, and
+        // measuring against the final value would report "100% of final" on
+        // the way up and call a shrinking city plateaued.
+        let peakPopulation = result.ticks.map(\.population).max() ?? 0
         func firstTick(reaching fraction: Double) -> Int? {
-            result.ticks.first { Double($0.population) >= Double(finalPopulation) * fraction }?.tick
+            result.ticks.first { Double($0.population) >= Double(peakPopulation) * fraction }?.tick
         }
 
         print("\n=== Time to plateau (\(size)×\(size)) ===")
-        print("final population: \(finalPopulation)")
+        print("peak population: \(peakPopulation), final: \(result.final.population)")
         for fraction in [0.5, 0.9, 0.99, 1.0] {
             let tick = firstTick(reaching: fraction).map(String.init) ?? "never"
-            print(String(format: "%3.0f%% of final population at tick %@", fraction * 100, tick))
+            print(String(format: "%3.0f%% of peak population at tick %@", fraction * 100, tick))
         }
 
         // At normal speed one tick is one second.

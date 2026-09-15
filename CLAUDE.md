@@ -102,7 +102,11 @@ why, so I actually learn the stack rather than just accepting output.
 
 Requires **full Xcode 16 or newer** — Command Line Tools alone are not enough,
 because the project uses Xcode 16 file-system-synchronized groups. Verified
-working on Xcode 26.6.
+working on Xcode 26.6 and 27.0.
+
+Note that a major Xcode upgrade resets the license agreement, and until it is
+accepted *every* tool behind the shim fails — `git` and `python3` included, not
+just `xcodebuild`. The fix is the `sudo xcodebuild -license accept` below.
 
 ```sh
 xcodebuild -version
@@ -219,50 +223,49 @@ unbounded. Kept below 1.0 deliberately, so against `taxPerPopulation` of 1 and
 `taxPerJob` of 2 every resident and job stays net-positive and growth stays
 worth pursuing.
 
-## Is it a game yet? (measured, 2026-09-14)
+## Is it a game yet? (measured)
 
 `DesignPlaytestTests` runs the same map under different player strategies and
 prints the spread. It exists to keep "is this fun" honest: a city builder is
 only a game if the player's decisions move the outcome.
 
-Measured on a built-out 64×64 city over 1,500 ticks:
+The first run (2026-09-14) found almost nothing pushed back on the player. Tax
+rate had *zero* effect — 3,320 population at rates 0.0, 1.0 and 2.0 alike — and
+zoning every lot residential was dominant at 5,152 population with no jobs at
+all. Population spread between best and worst strategy was **2x**.
+
+Two changes fixed that (2026-09-15), and the spread is now **37x**:
+
+- **Tax rate suppresses growth**, via `Demand.taxDemandSensitivity`. Higher
+  rates cost population and buy treasury, monotonically: 3,348 / 3,156 / 2,720
+  people at rates 0.0 / 1.0 / 2.0, against -9.8M (bankrupt) / +2.6M / +14.0M
+  treasury. A real tradeoff rather than a free win.
+- **Oversupply bites.** `CitySimulator.minimumGrowthChance` went from 0.05 to
+  0, and past `abandonmentDemand` buildings now lose density instead of merely
+  stalling. All-residential collapsed from 5,152 population to 84, bankrupt.
+
+Both depended on a third fix underneath them: `Demand` measured imbalance
+against a flat scale of 30, so in a city of thousands demand was pinned at ±1
+essentially always — a boolean, not a gradient, which swamped anything trying
+to nudge it. It now scales with city size (`relativeScale`).
+
+### Still open
 
 | finding | evidence |
 |---|---|
-| **Tax rate does nothing** | population 3,320 at tax 0.0, 1.0 *and* 2.0 — identical. Only treasury moves. |
-| **All-residential is dominant** | 5,152 population with zero jobs, vs 3,320 balanced. |
-| **Services are a net loss** | adding them: population 2,564 → 2,188, treasury 3.69M → 709K. Doubling their density bankrupts the city. |
-| **Utilities genuinely work** | water + power together: population 2,188 → 3,320 (+52%). |
-| **Hazards are cosmetic** | all ordinances on halves strikes (1.73 → 0.86/tick) and changes final population by 4. |
-| **No pacing** | a fully zoned map hits 90% of final population in 12 ticks. |
-| **You can't lose** | every failure found required setting tax to 0, which no player does. |
+| **Services are a net loss** | adding them: population 2,532 → 2,056, treasury 3.66M → 675K. Doubling their density still bankrupts the city. |
+| **Hazards are cosmetic** | all ordinances on halves strikes (1.73 → 0.84/tick) and changes population by ~20. Damage regrows. |
+| **Money has nowhere to go** | a max-tax city banks $14M with nothing to spend it on. |
+| **No pacing** | a fully zoned map still hits 90% of peak population in ~7 ticks. |
 
-The through-line is that **almost nothing pushes back on the player**. Every
-SimCity mechanic that creates a decision is a constraint — high taxes drive
-residents out, pollution spoils land, crime empties neighbourhoods. Here the
-only constraint is money, and money is abundant, so the levers are either
-strictly dominant (max the tax), negligible (ordinances, hazards), or a
-punishment for engaging (services).
-
-In rough order of how much each would add:
-
-1. **Make tax rate suppress growth.** `GameController.taxRate`'s doc comment
-   already names this as deliberately unmodeled. It is the genre's central
-   risk/reward dial and its absence is why the budget row has no decisions.
-2. **Make RCI demand gate growth, not just weight a die roll.** Today
-   imbalance slows growth slightly; it should stall it, so zoning is a
-   balancing act rather than a paint job.
-3. **Make hazard damage persist.** Abandonment the player has to fix, rather
-   than density that grows straight back.
-4. **Slow growth down.** Zoning is currently rewarded almost instantly, which
-   leaves no window in which to react to anything.
-5. **Rebalance services** so coverage is worth more than the lot and upkeep it
-   costs.
+The remaining through-line is the same one: costs and consequences don't scale
+with what the player is doing. Next most valuable, in rough order: make hazard
+damage persist (so services have something to protect against), rebalance
+service coverage against its upkeep, and give growth a reason to take time.
 
 One caveat on the numbers: the harness zones a whole map at once, where a
-player zones incrementally. That makes "12 ticks to plateau" a statement about
-how fast zoned land fills in, not about session length — but the underlying
-point stands, that zoning meets no resistance over time.
+player zones incrementally. "7 ticks to plateau" describes how fast zoned land
+fills in, not session length.
 
 ## Save and load
 

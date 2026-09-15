@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -645,6 +646,64 @@ final class GameControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.upkeepCost, Int(7 * GameController.highwayUpkeepPerTile))
         XCTAssertGreaterThan(GameController.highwayUpkeepPerTile, GameController.roadUpkeepPerTile)
+    }
+
+    // MARK: - Tax rate reaches the simulation
+
+    /// `taxRate` is a passthrough to `map.taxRate` now that the simulation
+    /// reads it. If these ever drift, the UI would be showing one rate while
+    /// the city is simulated with another.
+    func testTaxRateReadsAndWritesThroughToTheMap() {
+        let controller = GameController()
+        XCTAssertEqual(controller.taxRate, controller.map.taxRate)
+
+        controller.taxRate = 1.75
+        XCTAssertEqual(controller.map.taxRate, 1.75)
+
+        controller.taxRate = 0.5
+        XCTAssertEqual(controller.map.taxRate, 0.5)
+    }
+
+    /// Writing the rate has to notify SwiftUI, or the toolbar stops updating.
+    /// It no longer has its own `@Published` — the notification now comes from
+    /// `map`, which it writes through to.
+    func testChangingTheTaxRatePublishesAChange() {
+        let controller = GameController()
+        var notifications = 0
+        let cancellable = controller.objectWillChange.sink { _ in notifications += 1 }
+        defer { cancellable.cancel() }
+
+        controller.taxRate = 1.5
+
+        XCTAssertGreaterThan(notifications, 0, "changing the tax rate no longer notifies SwiftUI")
+    }
+
+    /// The end-to-end point of the whole change: moving the slider actually
+    /// changes what the simulation does, rather than only what the treasury
+    /// counts.
+    func testRaisingTaxesSuppressesDemandTheSimulationReads() {
+        let controller = GameController(rng: AlwaysZeroRNG())
+        for x in 0 ..< 12 {
+            controller.selectedTool = .road
+            controller.place(at: GridPosition(x: x, y: 4))
+        }
+        controller.selectedTool = .residential
+        controller.place(at: GridPosition(x: 0, y: 2))
+        controller.selectedTool = .commercial
+        controller.place(at: GridPosition(x: 2, y: 2))
+
+        controller.taxRate = 1.0
+        controller.advanceSimulation()
+        let atDefaultRate = controller.cityDemand.residential
+
+        controller.taxRate = 2.0
+        controller.advanceSimulation()
+        let atHighRate = controller.cityDemand.residential
+
+        XCTAssertLessThan(
+            atHighRate, atDefaultRate,
+            "raising taxes did not reduce demand — the rate is still a display-only number"
+        )
     }
 
     // MARK: - Civic upkeep (the cost that scales with the city, not the build)

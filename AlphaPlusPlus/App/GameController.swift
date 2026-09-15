@@ -48,13 +48,26 @@ final class GameController: ObservableObject {
     /// A single city-wide rate rather than separate residential/commercial/
     /// industrial rates — matching SimCity Classic's original mechanic
     /// (later games split it further; this is the first rung of that
-    /// ladder, not the top of it). Real SimCity games also let a rate set
-    /// too high suppress growth or drive residents out — deliberately not
-    /// modeled yet, since that's a second mechanic (something like a
-    /// "happiness" feedback into `CitySimulator`) layered on top of "the
-    /// player can move this number," not a requirement for the lever to
-    /// exist at all.
-    @Published var taxRate: Double = 1.0
+    /// ladder, not the top of it).
+    ///
+    /// High rates now suppress growth, via `Demand.compute(for:)`. That used
+    /// to be listed here as deliberately unmodeled, and a design playtest
+    /// measured exactly what it cost: final population came out at *precisely*
+    /// 3,320 whether the rate was 0.0, 1.0 or 2.0, so maximising it was
+    /// strictly dominant and the slider was not a decision at all. See
+    /// `Demand.taxDemandSensitivity`.
+    ///
+    /// A computed passthrough to `map.taxRate` rather than its own stored
+    /// property, now that the simulation reads it — the same shape
+    /// `cityDemand` and `isOrdinanceActive(_:)` already have, and for the same
+    /// reason: one source of truth the simulation and the UI share, instead of
+    /// a controller copy that could drift from what the map is actually being
+    /// simulated with. Writes go through `map`, which is `@Published`, so
+    /// SwiftUI still sees the change.
+    var taxRate: Double {
+        get { map.taxRate }
+        set { map.taxRate = newValue }
+    }
 
     // MARK: - Bonds (borrowing against future tax revenue)
 
