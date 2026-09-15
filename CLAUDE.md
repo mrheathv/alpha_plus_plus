@@ -352,6 +352,93 @@ balance measurement taken before this carried that noise.
 |---|---|---|
 | all housing, no jobs | 100 | bankrupt |
 | balanced, no infrastructure | 1,640 | $2.1M |
+| + services | 1,740 | bankrupt |
+| + water & power | 3,320 | $0.9M |
+| industry zoned apart | **3,760** | **$1.5M** |
+| one tower + one plant | 1,716 | — |
+| all services unfunded | 1,268 | $1.4M |
+| all services double-funded | 4,404 | bankrupt |
+
+Best-to-worst spread is **33x**, and the levers are genuine tradeoffs rather
+than dominant strategies — double funding buys the most people and bankrupts
+you; maximum tax buys $13.9M and costs you residents; building services without
+the utilities to support the growth they enable also bankrupts you.
+
+The money sink works: a default city's treasury over 1,500 ticks fell from
+$3.1M to $0.9M once civic buildings existed to spend on, and net revenue from
++2,084/tick to +598.
+
+### Pollution: making *where* matter
+
+Until this, nothing in the game cared where you put things. A factory next to
+housing was identical to one across the map, so there was no reason not to zone
+one homogeneous blob — most of why it read as placing boxes.
+
+`Pollution` is an accumulating per-tile field (cached on `CityMap` like
+`trafficLoad`) that industry emits in proportion to density, and `LandValue`
+subtracts. Accumulating rather than nearest-only, because the point is that an
+industrial *district* is worse than a lone factory, and "distance to the nearest
+factory" cannot tell those apart. It has its own overlay.
+
+Two calibrations were needed, both found by measuring:
+
+- **Emission had to come down 3x.** At the first value a single fully-grown
+  factory pinned an entire radius-3 blob at the 1.0 cap — no gradient, so
+  stacking meant nothing and there was nothing to plan against.
+- **Sensitivity had to become zone-dependent**, and this one is the whole
+  mechanic. With every zone minding pollution equally, separating industry from
+  housing bought *nothing* (2,384 planned vs 2,436 mixed), because concentrating
+  industry concentrates the pollution onto the industry itself — whatever
+  housing gained, factories lost. Residents now mind most (1.0), shops somewhat
+  (0.6), factories barely (0.1). Planning then wins on both axes: 2,796 vs 2,576
+  population and $2.0M vs $1.66M.
+
+`DesignPlaytestTests.testAPlannedLayoutBeatsAHomogeneousBlob` is the standing
+acceptance test, and it compares layouts with *identical* zone composition — an
+earlier version also changed the R:C:I ratio and so compared two different
+cities rather than two arrangements.
+
+### Utility capacity: making *when* matter
+
+Water and power used to be pure connectivity — one tower and one plant served an
+infinite city, so growth created no new demands and you were finished with your
+infrastructure the moment it was first connected.
+
+Both now have capacity. Demand is the city's total density across growable
+zones; capacity is `Water.capacityPerTower` (200) or
+`PowerGrid.capacityPerPlant` (400) per building, scaled by funding — so the
+funding slider buys throughput, not just coverage. Over capacity the whole
+network drops, the same city-wide way a power outage already did. Growth stalls,
+the toolbar meter turns red, and one more plant fixes it.
+
+It is worth a lot: a 64×64 city on one tower and one plant reaches 1,976 people
+against 3,580 with enough utilities, and spends every tick overloaded.
+
+Finding it also turned up two bugs that had been quietly distorting everything.
+
+**The harness had never placed a single power plant.** A plant is 3×3 and the
+generated lot rows are two tiles deep, so the service rotation silently skipped
+it every time. Every city ever measured for this project ran with *zero* power,
+capped at density 3 by `powerRequiredFromLevel`, and nothing noticed until
+capacity reported a capacity of zero. Plants now get a reserved strip along the
+map edge. **Every population figure recorded before this is from a city that
+could not exceed density 3.**
+
+**`Traffic.computeLoad` was non-deterministic.** Route ties — two equally short
+paths, two equidistant frontage cells — were broken by `Set` iteration order,
+which is not stable between two sets holding the same elements, so consecutive
+calls on one unchanged map alternated between different answers. It needs a map
+complex enough to produce ties, so no hand-built fixture caught it; it surfaced
+as the harness failing its own reproducibility check. Fixed by sorting
+(`GridPosition.sortedByPosition()`) wherever order decides an outcome. Every
+balance measurement taken before this carried that noise.
+
+### Where the game stands (measured, 64×64, 1,500 ticks)
+
+| strategy | population | treasury |
+|---|---|---|
+| all housing, no jobs | 100 | bankrupt |
+| balanced, no infrastructure | 1,640 | $2.1M |
 | + services | 1,956 | bankrupt |
 | + water & power | 3,580 | $3.1M |
 | industry zoned apart | **3,984** | **$4.3M** |
@@ -475,10 +562,9 @@ its own.
 
 | finding | evidence |
 |---|---|
-| **Money still accumulates** | a default city banks $3.1M over 1,500 ticks, a max-tax one $17.5M. |
+| **Money still accumulates, more slowly** | a default city banks $0.9M over 1,500 ticks (down from $3.1M), a max-tax one $13.9M. Better, not solved. |
 | **No pacing** | a fully zoned map still fills in within a handful of ticks. |
 | **No goals** | no win condition, milestone or objective — nothing to aim at once the city runs itself. |
-| **No education/health** | the classic progression axis gating high-value industry is absent. |
 | **Testing gotcha** | `AlwaysZeroRNG` fires every hazard every tick, so fixtures without service coverage are levelled and never recover. See its doc comment. |
 
 One caveat on the numbers: the harness zones a whole map at once, where a
