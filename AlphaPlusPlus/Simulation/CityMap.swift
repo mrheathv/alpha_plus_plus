@@ -78,6 +78,14 @@ struct CityMap: Equatable, Codable, Sendable {
     /// so a fresh `CityMap` behaves exactly as it did before this existed.
     var ordinances = Ordinances()
 
+    /// How dirty each tile is, as of the last time `Pollution.compute(for:)`
+    /// ran and someone assigned the result here (`GameController
+    /// .advanceSimulation()` does, alongside `trafficLoad` and `waterSupply`).
+    /// Same "cache a whole-map computation rather than redo it per tile" shape
+    /// as those. Defaults to clean everywhere, so a fresh `CityMap` — or one
+    /// built directly in a test, never advanced — reads as unpolluted.
+    var pollution = PollutionMap()
+
     /// The player's tax rate, as a fraction of the default (1.0 = the rate
     /// every balance number was tuned against).
     ///

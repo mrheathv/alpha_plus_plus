@@ -759,6 +759,17 @@ final class GameScene: SKScene {
             tileRenderer.clearLaneLine(on: node)
             tileRenderer.clearUtilityWarning(on: node)
             tileRenderer.clearDamageMarker(on: node)
+        case .pollution:
+            node.color = RenderPalette.pollutionColor(for: map.pollution.level(at: position))
+            tileRenderer.clearPips(on: node)
+            tileRenderer.clearIcon(on: node)
+            tileRenderer.clearNetworkGlow(on: node)
+            tileRenderer.clearPipeMarker(on: node)
+            tileRenderer.clearPowerLineMarker(on: node)
+            tileRenderer.clearBuildingShadow(on: node)
+            tileRenderer.clearLaneLine(on: node)
+            tileRenderer.clearUtilityWarning(on: node)
+            tileRenderer.clearDamageMarker(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
             tileRenderer.clearPips(on: node)
@@ -1053,6 +1064,8 @@ final class GameScene: SKScene {
             return RenderPalette.color(for: tile.zone, density: tile.density)
         case .landValue:
             return RenderPalette.landValueColor(for: LandValue.value(at: position, in: map, using: overlayDistances))
+        case .pollution:
+            return RenderPalette.pollutionColor(for: map.pollution.level(at: position))
         case .traffic:
             return RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
         case .water:

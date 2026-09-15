@@ -24,6 +24,24 @@ enum RenderPalette {
     /// looks straight down instead of across a horizon.
     static let sunGlow = SKColor(srgbRed: 1.0, green: 0.58, blue: 0.16, alpha: 1.0)
 
+    /// Colour for the Pollution overlay: clean tiles stay near the night-sky
+    /// background and dirty ones climb toward a sickly industrial yellow-green.
+    ///
+    /// Deliberately not the neon magenta/cyan the rest of the palette runs on
+    /// — pollution is the one channel that should read as *wrong*, and the
+    /// synthwave palette has no unpleasant colour in it by design. Borrowing
+    /// industrial's own ember hue and souring it toward green keeps it in the
+    /// family while still reading as contamination.
+    static func pollutionColor(for level: Double) -> SKColor {
+        let clamped = max(0, min(1, level))
+        return SKColor(
+            srgbRed: 0.10 + 0.62 * clamped,
+            green: 0.05 + 0.72 * clamped,
+            blue: 0.16 + 0.06 * clamped,
+            alpha: 1.0
+        )
+    }
+
     /// Flash color for "you can't afford this" feedback, when `place(at:)`
     /// reports `.insufficientFunds`. Saturated red reads as an error against
     /// every zone color, including road's gray and residential's green.

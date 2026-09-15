@@ -96,6 +96,51 @@ enum LandValue {
     /// dealbreaker. A first guess, same as every other number in this file.
     static let powerPlantPenaltyStrength = 0.5
 
+    /// How much land value fully saturated pollution destroys.
+    ///
+    /// Sized against the thresholds it has to interact with. A tile with plain
+    /// road frontage and nothing else sits at 0.75, and
+    /// `CitySimulator.requiredLandValue` asks 0.65 for density 4 and 0.8 for
+    /// density 5. At 0.5, heavy neighbouring industry drags an ordinary
+    /// road-fronted lot down to roughly 0.25 — enough to cap it in the low
+    /// density tiers without making it completely unbuildable, so a polluted
+    /// block becomes *slums* rather than bare dirt. Moderate pollution costs
+    /// proportionally less, so the penalty is a gradient the player can plan
+    /// against rather than a cliff.
+    ///
+    /// A first guess like every other number in this file, but one aimed at a
+    /// specific target: that a planned city, which keeps its industry away
+    /// from its housing, should beat a homogeneous blob.
+    static let pollutionPenaltyStrength = 0.5
+
+    /// How much a given zone minds being polluted.
+    ///
+    /// **This asymmetry is the entire planning incentive**, and getting it
+    /// wrong made the mechanic worthless. The first version had every zone
+    /// suffer pollution equally, and a design playtest found that separating
+    /// industry from housing then bought *nothing* — 2,384 population planned
+    /// against 2,436 mixed. The reason is that concentrating industry
+    /// concentrates the pollution onto the industry itself, so whatever the
+    /// housing gained by moving away, the factories lost by bunching up. A
+    /// symmetric penalty makes segregation a wash by construction.
+    ///
+    /// Residents mind most, shops mind somewhat, and factories barely care
+    /// about being next to other factories — which is both how the reference
+    /// games model it and what makes "put the dirty thing over there" a
+    /// decision with an upside instead of a lateral move.
+    ///
+    /// Non-growable tiles (empty land, roads) are treated as fully sensitive,
+    /// so the land-value overlay keeps showing a polluted area as bad land to
+    /// build housing on rather than quietly reading as fine.
+    static func pollutionSensitivity(of zone: ZoneType) -> Double {
+        switch zone {
+        case .residential: return 1.0
+        case .commercial: return 0.6
+        case .industrial: return 0.1
+        default: return 1.0
+        }
+    }
+
     /// How much a jammed adjacent road cuts into that road's contribution
     /// to land value, at `Traffic.congestion == 1`: a 25% haircut. Only the
     /// road term is dampened — a station's protection doesn't get worse
@@ -152,7 +197,23 @@ enum LandValue {
         // "worthless" is as bad as this model represents, not "worse than
         // worthless."
         let powerPlantPenalty = falloffValue(nearestZone: .powerPlant, falloffDistance: powerPlantPenaltyDistance, at: position, in: map, using: field) * powerPlantPenaltyStrength
-        return max(0, positives - powerPlantPenalty)
+
+        // Industry's own penalty, read from the accumulated field rather than
+        // as a falloff from the nearest factory — see `Pollution` for why
+        // stacking is the point. Subtracted alongside the power plant's
+        // penalty rather than competing in the `max` above, for the same
+        // reason: it drags down whatever score the tile already has instead of
+        // trying to be the best thing about it.
+        // `map[position]` traps out of bounds, and `value(at:in:)` is
+        // legitimately asked about off-map positions — `LandValueTests` checks
+        // that a falloff reaches zero past the map edge. `contains` first, and
+        // treat anything outside as bare land.
+        let zoneHere = map.contains(position) ? map[position].zone : .empty
+        let pollutionPenalty = map.pollution.level(at: position)
+            * pollutionPenaltyStrength
+            * pollutionSensitivity(of: zoneHere)
+
+        return max(0, positives - powerPlantPenalty - pollutionPenalty)
     }
 
     /// Road frontage value, dampened by whichever adjacent road is most

@@ -117,6 +117,33 @@ final class DesignPlaytestTests: XCTestCase {
         )
     }
 
+    /// The acceptance test for `Pollution`: does *planning* a layout beat
+    /// zoning one homogeneous blob?
+    ///
+    /// Before pollution existed there was no answer to "why not put the
+    /// factory next to the houses," because there was no cost to it at all.
+    /// If these two come out level, pollution is not doing its job.
+    func testAPlannedLayoutBeatsAHomogeneousBlob() {
+        let size = PlaytestHarness.Profile.current.size
+        let ticks = PlaytestHarness.Profile.current.ticks
+
+        let mixed = PlaytestHarness.CitySpec(size: size)
+        let planned = PlaytestHarness.CitySpec(size: size, segregateIndustry: true)
+
+        let outcomes = [
+            run(Strategy(name: "mixed (factories by homes)", spec: mixed), ticks: ticks),
+            run(Strategy(name: "planned (industry apart)", spec: planned), ticks: ticks),
+        ]
+        print("\n=== Planning (\(size)×\(size), \(ticks) ticks) ===")
+        print(table(outcomes))
+        print("")
+
+        XCTAssertGreaterThan(
+            outcomes[1].population, outcomes[0].population,
+            "separating industry from housing bought nothing — pollution is not creating a planning problem"
+        )
+    }
+
     // MARK: - Do the budget dials matter?
 
     /// Tax rate, funding, ordinances, debt — everything the player sets

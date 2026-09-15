@@ -281,12 +281,43 @@ rebuild itself eventually, so an unprotected district settles around half-broken
 — visibly blighted, permanently worse off, but alive. Coverage still repairs on
 the next tick, roughly a hundred times faster.
 
+### Pollution: making *where* matter
+
+Until this, nothing in the game cared where you put things. A factory next to
+housing was identical to one across the map, so there was no reason not to zone
+one homogeneous blob — most of why it read as placing boxes.
+
+`Pollution` is an accumulating per-tile field (cached on `CityMap` like
+`trafficLoad`) that industry emits in proportion to density, and `LandValue`
+subtracts. Accumulating rather than nearest-only, because the point is that an
+industrial *district* is worse than a lone factory, and "distance to the nearest
+factory" cannot tell those apart. It has its own overlay.
+
+Two calibrations were needed, both found by measuring:
+
+- **Emission had to come down 3x.** At the first value a single fully-grown
+  factory pinned an entire radius-3 blob at the 1.0 cap — no gradient, so
+  stacking meant nothing and there was nothing to plan against.
+- **Sensitivity had to become zone-dependent**, and this one is the whole
+  mechanic. With every zone minding pollution equally, separating industry from
+  housing bought *nothing* (2,384 planned vs 2,436 mixed), because concentrating
+  industry concentrates the pollution onto the industry itself — whatever
+  housing gained, factories lost. Residents now mind most (1.0), shops somewhat
+  (0.6), factories barely (0.1). Planning then wins on both axes: 2,796 vs 2,576
+  population and $2.0M vs $1.66M.
+
+`DesignPlaytestTests.testAPlannedLayoutBeatsAHomogeneousBlob` is the standing
+acceptance test, and it compares layouts with *identical* zone composition — an
+earlier version also changed the R:C:I ratio and so compared two different
+cities rather than two arrangements.
+
 ### Still open
 
 | finding | evidence |
 |---|---|
 | **Money still accumulates** | a default city banks $1.65M over 1,500 ticks, a max-tax one $11M. Services are a sink now, but not a big enough one. |
 | **No pacing** | a fully zoned map still fills in within a handful of ticks. |
+| **Utilities have no capacity** | one water tower and one power plant serve an infinite city, so growth creates no new demands. The next-biggest genre gap. |
 | **Testing gotcha** | `AlwaysZeroRNG` fires every hazard every tick, so fixtures without service coverage are levelled and never recover. See its doc comment. |
 
 One caveat on the numbers: the harness zones a whole map at once, where a

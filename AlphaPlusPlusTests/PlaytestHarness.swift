@@ -146,6 +146,16 @@ enum PlaytestHarness {
         /// considers balanced. Override it to model a player who zones badly
         /// — all housing and no jobs, say.
         var zoneMix: [ZoneType] = [.residential, .residential, .commercial, .industrial]
+
+        /// Whether industry is banished to its own district instead of being
+        /// interleaved with housing.
+        ///
+        /// This is the knob that models *planning*. With it off, lots cycle
+        /// through `zoneMix` wherever they fall, so factories sit next door to
+        /// houses — which cost nothing at all until `Pollution` existed. With
+        /// it on, industry is confined to the bottom of the map and housing
+        /// and shops take the rest.
+        var segregateIndustry: Bool = false
     }
 
     /// Lays out a city according to `spec`.
@@ -187,7 +197,7 @@ enum PlaytestHarness {
                 let origin = GridPosition(x: x, y: y)
                 guard map[origin].zone == .empty else { continue }
 
-                let zone = placement(for: lotIndex, spec: spec)
+                let zone = placement(for: lotIndex, at: origin, spec: spec)
                 lotIndex += 1
 
                 guard map.footprintCells(origin: origin, size: zone.footprintSize).count
@@ -205,14 +215,30 @@ enum PlaytestHarness {
     /// Which zone lot number `index` gets: a service building at every
     /// `serviceSpacing`-th lot when services are enabled, otherwise the next
     /// entry in `spec.zoneMix`.
-    private static func placement(for index: Int, spec: CitySpec) -> ZoneType {
+    private static func placement(for index: Int, at origin: GridPosition, spec: CitySpec) -> ZoneType {
         if spec.includeServices, index % spec.serviceSpacing == 0 {
             // Rotate through the services so coverage is mixed rather than
             // every station being the same kind.
             let services: [ZoneType] = [.policeStation, .fireStation, .publicTransit, .waterTower, .powerPlant]
             return services[(index / spec.serviceSpacing) % services.count]
         }
-        return spec.zoneMix[index % spec.zoneMix.count]
+        guard spec.segregateIndustry else {
+            return spec.zoneMix[index % spec.zoneMix.count]
+        }
+
+        // Same *composition* as `zoneMix`, different *arrangement* — which is
+        // the only way this comparison measures planning rather than zone
+        // ratios. The default mix is 2 residential : 1 commercial : 1
+        // industrial, so industry takes the lowest quarter of the lot rows and
+        // the rest cycle 2:1 above it. An earlier version banished industry to
+        // the bottom fifth and rebalanced everything else, which changed the
+        // ratio as well as the layout and so compared two different cities.
+        let rows = Int((Double(spec.size - 2) / Double(spec.roadSpacing)).rounded(.up))
+        let industrialRows = max(1, rows / 4)
+        if origin.y < 1 + industrialRows * spec.roadSpacing {
+            return .industrial
+        }
+        return index % 3 == 2 ? .commercial : .residential
     }
 
     // MARK: - Running

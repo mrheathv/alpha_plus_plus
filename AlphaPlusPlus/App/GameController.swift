@@ -561,6 +561,9 @@ final class GameController: ObservableObject {
         map.waterSupply = Water.computeSupply(for: map)
         map.powerSupply = computePowerSupply()
         map.cityDemand = Demand.compute(for: map)
+        // Before hazards and growth, like every other whole-map value above:
+        // `LandValue` reads it, and both of those read land value.
+        map.pollution = Pollution.compute(for: map)
         let (hazarded, strikes) = CityHazards.apply(to: map, using: &rng)
         lastHazardStrikes = strikes
         map = CitySimulator.advance(hazarded, using: &rng)
