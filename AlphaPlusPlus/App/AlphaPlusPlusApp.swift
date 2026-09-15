@@ -29,14 +29,19 @@ struct AlphaPlusPlusApp: App {
             RootView(document: document)
         }
         .commands {
-            // A city builder is one document in one window for now. Dropping
-            // the "New Window" menu item avoids a player accidentally opening
-            // a second, unrelated city — still true now that save/load
-            // exists, since one window is a deliberate scope decision rather
-            // than something that was blocked on saving.
-            CommandGroup(replacing: .newItem) { }
-
-            CommandGroup(replacing: .saveItem) {
+            // The city commands *replace* the New-Window group rather than
+            // sitting in their own, which kills two birds: a city builder is
+            // one document in one window for now, so "New Window" would let a
+            // player open a second, unrelated city by accident.
+            //
+            // The obvious way to drop that item — `CommandGroup(replacing:
+            // .newItem) { }` with empty content, which is the documented idiom
+            // — turns out to corrupt the whole menu bar. With it present, the
+            // three `CommandMenu`s below silently never appeared; with it
+            // present and them removed, the File menu itself disappeared.
+            // Giving the group real content instead fixes both, and this is
+            // where these items belong anyway.
+            CommandGroup(replacing: .newItem) {
                 Button("Open City…") { document.open() }
                     .keyboardShortcut("o", modifiers: .command)
 

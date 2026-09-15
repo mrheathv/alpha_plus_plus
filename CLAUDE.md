@@ -450,6 +450,26 @@ One caveat on the numbers: the harness zones a whole map at once, where a
 player zones incrementally. "A handful of ticks to plateau" describes how fast
 zoned land fills in, not session length.
 
+## Menus, and one SwiftUI trap
+
+Simulation, Overlay and City menus hold everything you set occasionally; the
+toolbar keeps the zoning tools and Play. The budget (tax rate, the seven
+funding dials, a per-tick summary) is a sheet behind City ▸ Budget… (Cmd-B).
+
+**The trap, because it cost real time to find:** an *empty*
+`CommandGroup(replacing: .newItem) { }` — the documented idiom for removing a
+menu item, and what this app used from the scaffold onward to drop "New
+Window" — corrupts menu construction on macOS 27. With it present, three
+`CommandMenu`s declared right after it silently never appeared, with no error
+and no warning. With it present and those menus removed, the *File* menu itself
+vanished. Giving the group real content instead fixes both, so the city
+commands now live in that group rather than in a separate `.saveItem` one.
+
+Worth remembering generally: SwiftUI menu problems fail silently, so verify the
+menu bar visually (a screenshot works) rather than trusting that it compiled.
+Accessibility scripting against this app proved unreliable — System Events
+reported "no menu bar" for an app whose menu bar was plainly on screen.
+
 ## Save and load
 
 `Cmd-O` / `Cmd-S` / `Cmd-Shift-S`. Cities are JSON (`.alphacity`), written
