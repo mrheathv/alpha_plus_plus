@@ -983,6 +983,47 @@ Three decisions worth recording:
 rise above its top edge, and clamping the camera to include them would let the
 view drift off the map whenever a tall tower stood near an edge.
 
+### Phase 8 (done): the scene renderer, and the texture cache
+
+`IsoTileRenderer` is `TileRenderer`'s counterpart: one node per building
+anchor carrying its ground diamond, its light pool, its surveyed-lot marker and
+its building, with `zPosition` set from `Isometric.depth`. `IsometricCityTests`
+renders a whole city through it at every zoom — the isometric streetscape, and
+the acceptance test for everything a per-building sheet cannot show.
+
+**`BuildingTextureCache` is the answer to the node count**, and it is worth
+being honest about what it costs. An isometric building is ~55 `SKShapeNode`s,
+which do not batch, so a built-out 64×64 map would ask for tens of thousands of
+draw calls a frame. Buildings never change once placed, so that is paying
+repeatedly for an identical result. Rendered once to a texture, a building is
+one sprite.
+
+But a cache only helps if it *hits*, and every lot has a different seed — so
+caching per lot would store one texture per building and hit never. The seed is
+therefore **quantised**: a lot picks one of sixteen looks for its zone and tier
+rather than one of unboundedly many.
+
+That is a real reduction in variety. It is also exactly the target this file
+asks for ("ten or more distinct looks per zone per tier"), and what is lost is
+the difference between sixteen looks and thousands — imperceptible on a map
+showing a hundred lots at once, against a map that draws at all. The
+quantisation lives in the cache, not the generators, so `IndustrialMassing` and
+friends stay pure functions of a seed and the contact sheet keeps showing
+genuinely unbounded variety.
+
+Two consequences worth noting:
+
+- **The whole city renders in one scene with no effect node in it.** The
+  top-down streetscape had to composite in depth-sorted batches because a scene
+  silently stops servicing blur passes past a budget. With buildings
+  pre-rasterised there are none left to service — the blur happens once per
+  variant, inside the cache.
+- **Variant choice is mixed from the position, not taken modulo it.** Modulo
+  would march neighbouring lots through the variants in step and produce
+  visible diagonal stripes of identical buildings. It also avoids `hashValue`
+  for the reason `BuildingRandom` documents: Swift randomises it per process,
+  and a city must not reshuffle itself between launches.
+
 ### Rendering cost, measured at phase 2 rather than phase 11
 
 A building costs **~55 nodes in isometric against ~26 in elevation**, and the

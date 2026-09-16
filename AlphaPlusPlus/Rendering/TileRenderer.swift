@@ -326,6 +326,12 @@ struct TileRenderer {
     /// fraction of the cost: one extra cheap sprite draw per network tile,
     /// no per-frame filter evaluation, and SpriteKit batches plain textured
     /// sprites efficiently even by the hundreds.
+    /// Shared with `IsoTileRenderer`, which wants exactly the same soft
+    /// radial sprite for exactly the same reason — generating a second copy of
+    /// a texture this expensive to build, to draw the identical thing, would be
+    /// silly.
+    static var sharedGlowTexture: SKTexture { glowTexture }
+
     private static let glowTexture: SKTexture = {
         let diameter = 64
         let colorSpace = CGColorSpaceCreateDeviceRGB()
