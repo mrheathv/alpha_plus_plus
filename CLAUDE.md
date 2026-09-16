@@ -1149,6 +1149,36 @@ unreachable); and every entry's advertised cost is what it actually charges.
 They are immutable `Int`s — the isolation bought nothing and cost
 `ToolCategory` its independence from the controller.
 
+### Phase 3: the cockpit
+
+Tools live above the map, readouts below it. They were stacked together in one
+block, which is how a row carrying ten things ended up with no give left: tools
+and readouts competed for the same width and the readouts always lost, because
+the tools are what a player clicks. They are different kinds of thing — one is
+a verb, the other is the city answering back — so they get different edges of
+the screen.
+
+Three things this fixed that were not cosmetic:
+
+- **The tool row scrolls rather than overflows.** A squeezed `HStack` shrinks
+  the last things it lays out first, so the rightmost tools were the ones that
+  vanished — and those are the *locked* ones, which is to say the ones a player
+  most needs to see to know what they are working toward. `.fixedSize()` on the
+  chips stops them compressing; a horizontal `ScrollView` stops the row
+  clipping them.
+- **One alert was invisible.** The power-outage warning lived inside the
+  overlay hint, which only renders while the Power overlay is up — so a city
+  could be blacked out and never say so unless the player happened to be
+  looking at the right overlay. Alerts have their own panel now, always on
+  screen.
+- **The readouts have room.** Demand, utility load and treasury are the signals
+  the whole simulation exists to produce, and they had been squeezed into
+  whatever width was left over on a single row.
+
+`RetroUIContactSheetTests` renders the assembled cockpit as well as the parts,
+from the same components the live view uses — a picture of the real chrome
+rather than a mock of it.
+
 ### The UI gets a render, like the art does
 
 `RetroUIContactSheetTests` renders the components to a PNG through

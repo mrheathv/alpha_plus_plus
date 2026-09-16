@@ -51,7 +51,7 @@ struct GameView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
+            toolRail
             Group {
                 if let scene {
                     GameSpriteView(scene: scene)
@@ -59,8 +59,8 @@ struct GameView: View {
                     Color.clear
                 }
             }
-            .frame(minWidth: 760, minHeight: 520)
-            .ignoresSafeArea(edges: .bottom)
+            .frame(minWidth: 760, minHeight: 420)
+            dashboard
         }
         .onChange(of: controller.cityGeneration) {
             // A load can change the tile count, so the scene's sprites no
@@ -112,22 +112,121 @@ struct GameView: View {
     /// another budget lever), but that row is already tax rate plus seven
     /// funding steppers plus the bonds control — adding three more toggles
     /// there risks the exact overflow this reasoning already fixed once.
-    private var toolbar: some View {
-        VStack(spacing: 10) {
-            zoningRow
-            statusRow
+    /// Everything you *do*, above the map.
+    ///
+    /// Split from the readouts deliberately. The old toolbar stacked both in
+    /// one block above the map, which is how a row carrying ten things ended
+    /// up with no give left: tools and readouts were competing for the same
+    /// width, and the readouts always lost because the tools are what a player
+    /// clicks. They are different kinds of thing — one is a verb, the other is
+    /// the city answering back — so they get different edges of the screen.
+    private var toolRail: some View {
+        zoningRow
+            .padding(.horizontal, RetroMetrics.gutter)
+            .padding(.vertical, 8)
+            .background(RetroUITheme.background)
+            .overlay(alignment: .bottom) { neonSeam }
+    }
+
+    /// Everything the city tells *you*, below the map.
+    private var dashboard: some View {
+        HStack(alignment: .top, spacing: RetroMetrics.gutter) {
+            RetroPanel(title: "Simulation", accent: RetroUITheme.primaryAccent) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(controller.isRunning ? "Pause" : "Play") {
+                        controller.isRunning.toggle()
+                    }
+                    .buttonStyle(RetroButtonStyle(
+                        accent: controller.isRunning ? .orange : .green, isSelected: true
+                    ))
+                    RetroSegmentedPicker(
+                        options: OverlayMode.allCases,
+                        label: \.displayName,
+                        selection: $controller.overlayMode
+                    )
+                }
+            }
+
+            RetroPanel(title: "City", accent: RetroUITheme.primaryAccent) {
+                HStack(alignment: .top, spacing: 16) {
+                    statTile(label: "Population", value: "\(controller.population)",
+                             history: controller.history.map(\.population), color: .green)
+                    statTile(label: "Jobs", value: "\(controller.jobs)",
+                             history: controller.history.map(\.jobs), color: .cyan)
+                    statTile(label: "Treasury", value: "$\(controller.treasury)",
+                             detail: "\(netRevenueLabel)/tick",
+                             history: controller.history.map(\.treasury), color: .yellow)
+                        .help(budgetBreakdown)
+                }
+            }
+
+            RetroPanel(title: "Demand", accent: RetroUITheme.secondaryAccent) {
+                HStack(spacing: 8) {
+                    DemandBar(label: "R", value: controller.cityDemand.residential)
+                    DemandBar(label: "C", value: controller.cityDemand.commercial)
+                    DemandBar(label: "I", value: controller.cityDemand.industrial)
+                }
+            }
+
+            RetroPanel(title: "Utilities", accent: RetroUITheme.accent(for: .waterTower)) {
+                utilityTile
+            }
+
+            RetroPanel(title: "Alerts", accent: .orange) {
+                alerts
+            }
+
+            Spacer(minLength: 0)
         }
-        .padding(10)
+        .padding(RetroMetrics.gutter)
         .background(RetroUITheme.background)
-        .overlay(alignment: .bottom) {
-            // A thin glowing seam where the chrome ends and the map
-            // begins, echoing the neon outline every building on the map
-            // already has instead of a plain hairline divider.
-            LinearGradient(
-                colors: [RetroUITheme.primaryAccent.opacity(0.7), RetroUITheme.secondaryAccent.opacity(0.7)],
-                startPoint: .leading, endPoint: .trailing
-            )
-            .frame(height: 1.5)
+        .overlay(alignment: .top) { neonSeam }
+    }
+
+    /// A thin glowing seam where the chrome meets the map, echoing the neon
+    /// outline every building already has instead of a plain hairline.
+    private var neonSeam: some View {
+        LinearGradient(
+            colors: [RetroUITheme.primaryAccent.opacity(0.7), RetroUITheme.secondaryAccent.opacity(0.7)],
+            startPoint: .leading, endPoint: .trailing
+        )
+        .frame(height: 1.5)
+    }
+
+    /// What the city is shouting about.
+    ///
+    /// **Alerts had no home, and one of them was invisible.** The power-outage
+    /// warning lived inside the overlay hint, which only renders while the
+    /// Power overlay is up — so a city could be blacked out and never say so
+    /// unless the player happened to be looking at the right overlay. Anything
+    /// urgent belongs somewhere always on screen.
+    @ViewBuilder
+    private var alerts: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if controller.isPowerOutageActive {
+                RetroBadge(text: "⚠ Outage — grid unpowered", accent: .red, isUrgent: true)
+            }
+            if let earned = controller.newlyUnlockedZones.first {
+                RetroBadge(text: "Unlocked: \(RenderPalette.displayName(for: earned))", accent: .green)
+            } else if let next = nextUnlock {
+                RetroBadge(
+                    text: "Next: \(RenderPalette.displayName(for: next)) at \(Unlocks.requiredPopulation(for: next))",
+                    accent: RetroUITheme.primaryAccent
+                )
+            }
+            switch controller.overlayMode {
+            case .water:
+                RetroBadge(text: "Click to lay pipe · Right-click removes",
+                           accent: RetroUITheme.accent(for: .waterTower))
+            case .power:
+                RetroBadge(text: "Click to lay power line · Right-click removes",
+                           accent: RetroUITheme.accent(for: .powerPlant))
+            case .none:
+                EmptyView()
+            default:
+                RetroBadge(text: "Overlay: \(controller.overlayMode.displayName)",
+                           accent: RetroUITheme.textSecondary)
+            }
         }
     }
 
@@ -161,11 +260,21 @@ struct GameView: View {
 
             Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
 
-            ForEach(toolCategory.entries) { entry in
-                chip(for: entry)
+            // **Scrolls rather than overflows.** A squeezed `HStack` shrinks
+            // the last things it lays out first, so the row's rightmost tools
+            // were the ones that vanished — and they are the ones still
+            // locked, which is to say the ones a player most needs to see to
+            // know what they are working toward. `.fixedSize()` on the chips
+            // stops them compressing; this stops the row clipping them.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: RetroMetrics.gutter) {
+                    ForEach(toolCategory.entries) { entry in
+                        chip(for: entry)
+                    }
+                }
+                .padding(.vertical, 1)
             }
 
-            Spacer()
         }
         // Keep the picker honest when something else changes the tool — a
         // future keyboard shortcut, or restoring a save.
@@ -208,120 +317,6 @@ struct GameView: View {
                     controller.overlayMode = (controller.overlayMode == overlay) ? .none : overlay
                 }
             )
-        }
-    }
-
-    /// One row: Play/Pause, the editing hint for whichever overlay is up, and
-    /// the stats readout.
-    ///
-    /// Everything else that used to live here — speed, overlay picker, map
-    /// size, Reset, the whole budget row and the ordinance toggles — moved to
-    /// the Simulation, Overlay and City menus. The toolbar had grown to five
-    /// rows and this file's own doc comments had twice flagged the overflow
-    /// risk; adding the starter utilities to the zoning row is what finally
-    /// spent the last of the width. What stayed is what you click constantly:
-    /// the zoning tools, and Play.
-    private var statusRow: some View {
-        HStack(spacing: 16) {
-            Button(controller.isRunning ? "Pause" : "Play") {
-                controller.isRunning.toggle()
-            }
-            .buttonStyle(RetroButtonStyle(accent: controller.isRunning ? .orange : .green, isSelected: true))
-
-            RetroSegmentedPicker(
-                options: OverlayMode.allCases,
-                label: \.displayName,
-                selection: $controller.overlayMode
-            )
-
-            overlayHint
-
-            Spacer()
-
-            statsReadout
-        }
-    }
-
-    /// Pipes and power lines are edited through the overlays, not the zoning
-    /// toolbar (see `Tile.hasPipe`'s doc comment for why). This is the only
-    /// hint a player gets that clicking now lays pipe or power line rather
-    /// than applying whatever zone tool is selected — so it has to stay on
-    /// screen even though the overlay picker itself moved to a menu.
-    @ViewBuilder
-    private var overlayHint: some View {
-        switch controller.overlayMode {
-        case .water:
-            Text("Click to lay pipe \u{00B7} Right-click to remove")
-                .font(.caption)
-                .foregroundStyle(RetroUITheme.textSecondary)
-                .lineLimit(1)
-        case .power:
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Click to lay power line \u{00B7} Right-click to remove")
-                    .font(.caption)
-                    .foregroundStyle(RetroUITheme.textSecondary)
-                    .lineLimit(1)
-                if controller.isPowerOutageActive {
-                    Text("⚠ Outage — grid unpowered this tick")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .lineLimit(1)
-                }
-            }
-        default:
-            // Naming the active overlay, since the picker that used to show it
-            // is now behind a menu.
-            if controller.overlayMode != .none {
-                Text("Overlay: \(controller.overlayMode.displayName)")
-                    .font(.caption)
-                    .foregroundStyle(RetroUITheme.textSecondary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    private var statsReadout: some View {
-        HStack(spacing: 14) {
-            statTile(label: "Population", value: "\(controller.population)", history: controller.history.map(\.population), color: .green)
-            statTile(label: "Jobs", value: "\(controller.jobs)", history: controller.history.map(\.jobs), color: .cyan)
-            statTile(label: "Treasury", value: "$\(controller.treasury)", detail: "\(netRevenueLabel)/tick", history: controller.history.map(\.treasury), color: .yellow)
-                // A tooltip rather than another visible tile: `netRevenueLabel`
-                // is one number with five things behind it, and the one a
-                // player is least likely to guess at is `civicUpkeep` — it
-                // scales with population rather than with anything they
-                // placed, so without a breakdown it reads as money vanishing.
-                // A tooltip shows it on demand without spending the toolbar
-                // width this file's own doc comments already warn is scarce.
-                .help(budgetBreakdown)
-            demandTile
-            utilityTile
-            unlockTile
-        }
-    }
-
-    /// What the city has just earned, or what it is working toward.
-    ///
-    /// The whole point of the ladder is having something to aim at, which only
-    /// works if the next rung is visible. Shows the newest unlock the moment it
-    /// lands, and otherwise the nearest one still out of reach.
-    private var unlockTile: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let earned = controller.newlyUnlockedZones.first {
-                Text("Unlocked: \(toolLabel(for: earned))")
-                    .font(.caption)
-                    .lineLimit(1)
-                    .foregroundStyle(RetroUITheme.primaryAccent)
-            } else if let next = nextUnlock {
-                Text("Next: \(toolLabel(for: next)) at \(Unlocks.requiredPopulation(for: next))")
-                    .font(.caption)
-                    .lineLimit(1)
-                    .foregroundStyle(RetroUITheme.textSecondary)
-            } else {
-                Text("All tools unlocked")
-                    .font(.caption)
-                    .lineLimit(1)
-                    .foregroundStyle(RetroUITheme.textSecondary)
-            }
         }
     }
 
