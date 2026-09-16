@@ -138,6 +138,28 @@ enum ZoneIcon {
 
     // MARK: - Shared palette
 
+    /// The smallest a detail may be, in design-space points, if it is meant
+    /// to be *seen* rather than merely present.
+    ///
+    /// **The arithmetic, because it is the whole reason this constant
+    /// exists.** Icons are authored in a `designSize` (100) square, and
+    /// `TileRenderer.fitIconToTile` scales that to a lot. `GameScene` draws a
+    /// 32-point tile and its camera ranges from 0.5 to 3.0, so a 2×2 lot is
+    /// 126 screen points when a player zooms all the way in, 63 at rest, and
+    /// about 21 zoomed out — which makes one design point 1.26, 0.63 and 0.21
+    /// screen points respectively. A 5-point window is therefore 3 points of
+    /// screen at rest and one *pixel* zoomed out: not small, absent.
+    ///
+    /// The art was first drawn and reviewed at the zoomed-in end, which is
+    /// the rarest view, and it flattered everything. Judged at rest, the
+    /// window grids and mullions were a grey speckle that muted the neon
+    /// instead of detailing it. Nine points is about six of screen at rest —
+    /// small but still a shape — and the rule that follows is: if a mark
+    /// cannot be drawn at least this big, cut it rather than shrink it. A
+    /// building carried by four bold lit blocks reads at every zoom; the same
+    /// building carried by twenty faint ones reads at exactly one.
+    static let minimumDetailSize: CGFloat = 9
+
     /// Every building silhouette's fill — near-black, so a building reads
     /// as a shape cut out of the night, lit only by its own neon outline.
     /// Consistent across every zone: the *glow color*, not a different
@@ -166,10 +188,14 @@ enum ZoneIcon {
     /// color the way `litAccent`'s own doc comment intends; the mixed
     /// palette is additional texture for "many independent units of
     /// light," not a replacement for that rule.
+    /// Two hues, not three. A third, dimmer, desaturated "cool white" used to
+    /// sit here, and across a facade of small panes it averaged the whole grid
+    /// toward grey — the opposite of what a neon look wants. Cool and warm
+    /// alone still say "different tenants, different bulbs" while keeping
+    /// every pane fully saturated.
     static let windowPalette: [SKColor] = [
         litAccent,
-        SKColor(srgbRed: 1.0, green: 0.92, blue: 0.70, alpha: 0.95),  // warm incandescent
-        SKColor(srgbRed: 0.80, green: 0.92, blue: 1.0, alpha: 0.85),  // dimmer cool white
+        SKColor(srgbRed: 1.0, green: 0.86, blue: 0.48, alpha: 0.98),  // warm incandescent
     ]
 
     /// Which `windowPalette` color one cell of a `facadeGrid` should be —
@@ -222,8 +248,8 @@ enum ZoneIcon {
         let plaque = SKShapeNode(rect: rect)
         plaque.fillColor = color
         plaque.strokeColor = color
-        plaque.lineWidth = 1
-        return withGlow([plaque], color: color, blurRadius: 4)
+        plaque.lineWidth = 1.5
+        return withGlow([plaque], color: color, blurRadius: 5)
     }
 
     /// A shape filled `silhouetteFill` (or `fill`, for the rare shape that
@@ -232,7 +258,7 @@ enum ZoneIcon {
     /// duplicate behind it. Every primary body/roof/stack shape in this
     /// file is a `neonShape`; only small non-primary details (a door, a
     /// window) skip straight to `detail(rect:fill:)` with no stroke at all.
-    static func neonShape(_ path: CGPath, accent: SKColor, fill: SKColor = silhouetteFill, lineWidth: CGFloat = 2.5) -> SKShapeNode {
+    static func neonShape(_ path: CGPath, accent: SKColor, fill: SKColor = silhouetteFill, lineWidth: CGFloat = 3.5) -> SKShapeNode {
         let node = SKShapeNode(path: path)
         node.fillColor = fill
         node.strokeColor = accent
@@ -240,7 +266,7 @@ enum ZoneIcon {
         return node
     }
 
-    static func neonShape(rect: CGRect, accent: SKColor, fill: SKColor = silhouetteFill, lineWidth: CGFloat = 2.5) -> SKShapeNode {
+    static func neonShape(rect: CGRect, accent: SKColor, fill: SKColor = silhouetteFill, lineWidth: CGFloat = 3.5) -> SKShapeNode {
         neonShape(CGPath(rect: rect, transform: nil), accent: accent, fill: fill, lineWidth: lineWidth)
     }
 
@@ -400,7 +426,7 @@ enum ZoneIcon {
     /// shadow had — small details (a window, a door) don't get their own
     /// glow pass, since dozens of tiny blurred rects would read as noise,
     /// not light.
-    static func withGlow(_ shapes: [SKShapeNode], color: SKColor, blurRadius: CGFloat = 5) -> SKNode {
+    static func withGlow(_ shapes: [SKShapeNode], color: SKColor, blurRadius: CGFloat = 7) -> SKNode {
         let container = SKNode()
 
         let glowLayer = SKEffectNode()
@@ -413,8 +439,8 @@ enum ZoneIcon {
             let glowCopy = SKShapeNode(path: path)
             glowCopy.fillColor = color
             glowCopy.strokeColor = color
-            glowCopy.lineWidth = 4
-            glowCopy.alpha = 0.85
+            glowCopy.lineWidth = 7
+            glowCopy.alpha = 0.9
             glowLayer.addChild(glowCopy)
         }
         container.addChild(glowLayer) // added first -> renders behind everything after it

@@ -766,6 +766,60 @@ failed a test:
   plant box could be offset past its own parapet, where it read as a rectangle
   floating beside the building rather than as rooftop machinery.
 
+## Detail has a floor, and the theme has a budget
+
+The first generated buildings were reviewed on a contact sheet at 132 points a
+cell and on a streetscape at 128 points a lot — and both flattered the art
+badly, because **that is the rarest view the game ever shows**. `GameScene`
+draws a 32-point tile and its camera ranges 0.5–3.0, so a 2×2 lot is 126 screen
+points zoomed all the way in, 63 at rest, and about 21 zoomed out. One
+design-space point is therefore 1.26, 0.63 and 0.21 screen points. A 5-point
+window is three points of screen at rest and a single pixel zoomed out: not
+small, *absent*.
+
+Judged at rest, the window grids, mullions, railing posts and frame lines were
+a grey speckle. They did not add detail; they averaged the facade toward mud
+and muted the neon, which is the one thing this art direction cannot afford.
+
+`ZoneIcon.minimumDetailSize` (9 points, ~6 of screen at rest) makes the floor
+explicit, and the rule that follows is: **if a mark cannot be drawn at least
+this big, cut it rather than shrink it.** A building carried by four bold lit
+blocks reads at every zoom; the same building carried by twenty faint ones
+reads at exactly one.
+
+What that changed, and it is worth reading as a list of what *survives* a
+downsample versus what does not:
+
+| cut | kept, and made bolder |
+|---|---|
+| 1.4-point glazing mullions | the glazing band itself, 9–12 points thick |
+| 1.6-point shopfront door mullions | the shopfront as one unbroken slab of light |
+| 1.2-point balcony railing posts | the balcony band, 5 points and full width |
+| 3-point storey slab lines (near-black on near-black) | the setback, which already reads as the break |
+| window frames on grid panes | flat, fully saturated panes, ~1/3 as many and much larger |
+| unlit industrial bays painted near-black | only the lit bays, as real blocks of light |
+| a third, desaturated "cool white" window hue | two saturated hues, cool and warm |
+
+Two things got *more* weight rather than less, because they are what carries
+the theme at every zoom: the silhouette stroke (2.5 → 3.5) and its glow halo
+(line 4 → 7, blur 5 → 7). Neon is an edge and a bloom. Those survive being
+scaled to a fifth; a hairline does not.
+
+Two calibrations were needed after, both caught on the streetscape:
+
+- **Thickening a band and keeping it full-width swallows the building.**
+  Commercial towers became stacks of fat light bars with no facade between
+  them. The bands are inset 17% now; the dark margin either side is what makes
+  them read as glazing *in* a wall.
+- **Fewer cells means an independent per-window roll can turn them all off.**
+  A narrow house in a row gets a single column, and some came out with no light
+  in them at all. One window per volume is now always lit.
+
+**The process lesson, which is the general one:** art has to be reviewed at the
+size it is played at, not the size it is comfortable to draw at. The streetscape
+render now emits all three zoom levels in one image for exactly this reason —
+the earlier single-panel version is what let this ship.
+
 And one long-standing placement bug the new forms exposed. Icons are authored
 from a ground line at `y = -40` upward, so a tall tower's drawn frame happens to
 straddle its origin while a short one — a strip of shops, a row of houses, an

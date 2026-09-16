@@ -97,28 +97,27 @@ enum CommercialBuilding {
             // shops behind one frontage".
             let fasciaWidth = width * CGFloat(random.value(in: 0.62 ... 0.86))
             details.append(ZoneIcon.neonSignboard(
-                rect: CGRect(x: -fasciaWidth / 2, y: bandBottom, width: fasciaWidth, height: 7),
+                rect: CGRect(x: -fasciaWidth / 2, y: bandBottom, width: fasciaWidth, height: 10),
                 color: signColor
             ))
         } else {
             // A clerestory of small panes, with the sign moved up onto the
             // roof as a billboard instead.
-            let panes = random.int(in: 4 ... 6)
-            let bandWidth = width * 0.78
-            let paneWidth = bandWidth / CGFloat(panes) * 0.74
+            let panes = random.int(in: 3 ... 4)
+            let bandWidth = width * 0.8
+            let paneWidth = max(ZoneIcon.minimumDetailSize, bandWidth / CGFloat(panes) * 0.82)
             for index in 0 ..< panes {
                 let x = -bandWidth / 2 + bandWidth * (CGFloat(index) + 0.5) / CGFloat(panes)
+                guard random.chance(0.7) else { continue }
                 details.append(ZoneIcon.detail(
-                    rect: CGRect(x: x - paneWidth / 2, y: bandBottom, width: paneWidth, height: 6),
-                    fill: random.chance(0.55)
-                        ? ZoneIcon.windowColor(row: 0, column: index, salt: 3)
-                        : ZoneIcon.recessedAccent
+                    rect: CGRect(x: x - paneWidth / 2, y: bandBottom, width: paneWidth, height: 9),
+                    fill: ZoneIcon.windowColor(row: 0, column: index, salt: 3)
                 ))
             }
             let boardWidth = width * CGFloat(random.value(in: 0.3 ... 0.46))
             details.append(ZoneIcon.neonSignboard(
                 rect: CGRect(x: CGFloat(random.value(in: -0.14 ... 0.14)) * width - boardWidth / 2,
-                             y: body.maxY + 5, width: boardWidth, height: 8),
+                             y: body.maxY + 5, width: boardWidth, height: 10),
                 color: signColor
             ))
         }
@@ -175,7 +174,7 @@ enum CommercialBuilding {
         details.append(ZoneIcon.neonSignboard(
             rect: CGRect(x: towerX + side * (towerWidth / 2 + 1) - 3,
                          y: tower.minY + towerHeight * 0.25,
-                         width: 6, height: towerHeight * CGFloat(random.value(in: 0.4 ... 0.62))),
+                         width: 9, height: towerHeight * CGFloat(random.value(in: 0.4 ... 0.62))),
             color: ZoneIcon.signColor(for: seed)
         ))
 
@@ -243,34 +242,38 @@ enum CommercialBuilding {
 
     /// Unbroken horizontal ribbons — the mark that separates commerce from
     /// housing at a glance.
+    /// **Fewer, thicker ribbons, and no mullions.** These were four to six
+    /// points tall with 1.4-point verticals crossing them. At the size a lot
+    /// is played at the verticals were a third of a screen point — they never
+    /// drew as lines, only as a wash that dimmed every band they crossed — and
+    /// the bands themselves were thin enough to blur into the silhouette. A
+    /// band is now a real slab of light at `ZoneIcon.minimumDetailSize` or
+    /// more, and the mullions are gone. Losing them costs nothing that was
+    /// ever visible: what stops the facade reading as a striped box is the
+    /// dark band between ribbons and the podium below, not a hairline.
     private static func glazingBands(in rect: CGRect, random: inout BuildingRandom) -> [SKNode] {
-        guard rect.height > 8 else { return [] }
-        let bandHeight = CGFloat(random.value(in: 4 ... 6))
-        let gap = CGFloat(random.value(in: 4 ... 7))
-        let inset = rect.width * 0.1
+        let bandHeight = max(ZoneIcon.minimumDetailSize, CGFloat(random.value(in: 9 ... 12)))
+        let gap = CGFloat(random.value(in: 6 ... 9))
+        guard rect.height > bandHeight + gap else { return [] }
+        // Inset hard. Thickening the bands without narrowing them turned a
+        // tower into a stack of fat light bars with no building left between
+        // them — the dark margin either side is what keeps it reading as
+        // glazing *in* a facade rather than as the facade itself.
+        let inset = rect.width * 0.17
 
         var parts: [SKNode] = []
         var y = rect.minY + gap
         var index = 0
-        while y + bandHeight < rect.maxY - 2 {
+        while y + bandHeight < rect.maxY - 3 {
             // Occasionally a band is dark, so the tower isn't a perfect ladder.
-            let lit = random.chance(0.82)
-            parts.append(ZoneIcon.detail(
-                rect: CGRect(x: rect.minX + inset, y: y, width: rect.width - inset * 2, height: bandHeight),
-                fill: lit ? ZoneIcon.windowColor(row: index, column: 0, salt: 7) : ZoneIcon.recessedAccent
-            ))
+            if random.chance(0.84) {
+                parts.append(ZoneIcon.detail(
+                    rect: CGRect(x: rect.minX + inset, y: y, width: rect.width - inset * 2, height: bandHeight),
+                    fill: ZoneIcon.windowColor(row: index, column: 0, salt: 7)
+                ))
+            }
             y += bandHeight + gap
             index += 1
-        }
-        // Mullions: a few verticals crossing the bands, which is what stops
-        // the facade reading as a striped box.
-        let mullions = max(2, Int(rect.width / 16))
-        for column in 1 ..< mullions {
-            let x = rect.minX + rect.width * CGFloat(column) / CGFloat(mullions)
-            parts.append(ZoneIcon.detail(
-                rect: CGRect(x: x - 0.7, y: rect.minY + 2, width: 1.4, height: rect.height - 4),
-                fill: ZoneIcon.recessedAccent
-            ))
         }
         return parts
     }
@@ -283,29 +286,26 @@ enum CommercialBuilding {
         glassShare: ClosedRange<Double>,
         random: inout BuildingRandom
     ) -> (parts: [SKNode], glassTop: CGFloat) {
-        let glassHeight = podium.height * CGFloat(random.value(in: glassShare))
+        let glassHeight = max(ZoneIcon.minimumDetailSize,
+                              podium.height * CGFloat(random.value(in: glassShare)))
+        // One unbroken slab of light. The 1.6-point door mullions that used to
+        // divide it were well under `ZoneIcon.minimumDetailSize` and only
+        // dimmed the brightest, most zone-identifying mark commerce has.
+        let glassInset = max(6, podium.width * 0.09)
         var parts: [SKNode] = [ZoneIcon.detail(
             rect: CGRect(
-                x: podium.minX + 4, y: podium.minY + 4,
-                width: podium.width - 8, height: glassHeight
+                x: podium.minX + glassInset, y: podium.minY + 4,
+                width: podium.width - glassInset * 2, height: glassHeight
             ),
             fill: ZoneIcon.litAccent
         )]
-        // Door mullions across the shopfront.
-        let panels = max(3, Int(podium.width / 15))
-        for index in 1 ..< panels {
-            let x = podium.minX + 4 + (podium.width - 8) * CGFloat(index) / CGFloat(panels)
-            parts.append(ZoneIcon.detail(
-                rect: CGRect(x: x - 0.8, y: podium.minY + 4, width: 1.6, height: glassHeight),
-                fill: ZoneIcon.recessedAccent
-            ))
-        }
         if random.chance(0.6) {
-            // An awning over the glazing.
+            // An awning over the glazing — a dark bar, so it has to be thick
+            // enough to actually separate the glass from the wall above it.
             parts.append(ZoneIcon.detail(
                 rect: CGRect(
-                    x: podium.minX - 2, y: podium.minY + glassHeight + 5,
-                    width: podium.width + 4, height: 3
+                    x: podium.minX - 2, y: podium.minY + glassHeight + 6,
+                    width: podium.width + 4, height: 5
                 ),
                 fill: ZoneIcon.recessedAccent
             ))
@@ -331,9 +331,9 @@ enum CommercialBuilding {
             let height = tower.height * CGFloat(random.value(in: 0.35 ... 0.6))
             parts.append(ZoneIcon.neonSignboard(
                 rect: CGRect(
-                    x: side * (tower.width / 2 + 1) + tower.midX - 3,
+                    x: side * (tower.width / 2 + 1) + tower.midX - 4.5,
                     y: tower.minY + tower.height * 0.2,
-                    width: 6, height: height
+                    width: 9, height: height
                 ),
                 color: color
             ))
@@ -342,14 +342,14 @@ enum CommercialBuilding {
             let width = podium.width * CGFloat(random.value(in: 0.3 ... 0.48))
             let x = CGFloat(random.value(in: -0.18 ... 0.18)) * podium.width
             parts.append(ZoneIcon.neonSignboard(
-                rect: CGRect(x: x - width / 2, y: podium.maxY + 2, width: width, height: 7),
+                rect: CGRect(x: x - width / 2, y: podium.maxY + 2, width: width, height: 10),
                 color: color
             ))
         } else {
             // A fascia band across the podium itself, under the tower.
             let width = podium.width * CGFloat(random.value(in: 0.5 ... 0.78))
             parts.append(ZoneIcon.neonSignboard(
-                rect: CGRect(x: -width / 2, y: podium.maxY - 8, width: width, height: 6),
+                rect: CGRect(x: -width / 2, y: podium.maxY - 10, width: width, height: 9),
                 color: color
             ))
         }

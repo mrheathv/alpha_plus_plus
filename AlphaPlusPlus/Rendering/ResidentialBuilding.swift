@@ -137,12 +137,9 @@ enum ResidentialBuilding {
             if random.chance(index == 0 ? 0.45 : 0.7) {
                 details.append(contentsOf: balconyBand(on: rect, random: &random))
             }
-            // A slab line marking each storey break, so the steps read as
-            // structure rather than as stacked boxes.
-            details.append(ZoneIcon.detail(
-                rect: CGRect(x: rect.minX, y: rect.maxY - 3, width: rect.width, height: 3),
-                fill: ZoneIcon.recessedAccent
-            ))
+            // No storey line between volumes: three points of near-black on
+            // near-black is invisible at every zoom and only muddies the
+            // silhouette. The setback itself already reads as the break.
 
             y = rect.maxY
             width *= CGFloat(random.value(in: 0.72 ... 0.88))
@@ -158,21 +155,37 @@ enum ResidentialBuilding {
 
     // MARK: - Parts
 
-    /// Small separate windows, some lit and some dark. The irregular lighting
-    /// is what makes a block read as many households rather than one occupant.
+    /// Separate lit blocks, some on and some off. The irregular lighting is
+    /// what makes a block read as many households rather than one occupant.
+    ///
+    /// **Few and big, not many and small.** This drew a 5×4 grid of 8-point
+    /// panes with a frame around each. At the size a lot is actually played
+    /// at that was a grey speckle: the panes were three screen points across,
+    /// the frames ate most of what light was left, and the facade averaged out
+    /// to a muddy texture that fought the neon instead of adding to it. The
+    /// grid is now spaced on `ZoneIcon.minimumDetailSize`, the panes are flat
+    /// unframed light, and there are perhaps a third as many. Fewer, larger,
+    /// fully saturated windows survive every zoom the camera has.
     private static func windowGrid(
         in rect: CGRect,
         salt: Int,
         random: inout BuildingRandom
     ) -> [SKNode] {
-        let columns = max(2, Int((rect.width / 13).rounded(.down)))
-        let rows = max(1, Int((rect.height / 14).rounded(.down)))
-        guard columns > 0, rows > 0 else { return [] }
+        let spacing = ZoneIcon.minimumDetailSize * 2.2
+        let columns = max(1, Int((rect.width / spacing).rounded(.down)))
+        let rows = max(1, Int((rect.height / spacing).rounded(.down)))
 
         let cellWidth = rect.width / CGFloat(columns)
         let cellHeight = rect.height / CGFloat(rows)
-        let windowWidth = cellWidth * 0.52
-        let windowHeight = min(cellHeight * 0.46, 8)
+        let windowWidth = max(ZoneIcon.minimumDetailSize, cellWidth * 0.56)
+        let windowHeight = max(ZoneIcon.minimumDetailSize, min(cellHeight * 0.52, 13))
+        guard windowWidth < rect.width, windowHeight < rect.height else { return [] }
+
+        // One window is always lit. With few enough cells — a narrow house in
+        // a row gets a single column — an independent per-window roll can
+        // turn every one of them off, and a house with no light in it is not
+        // reading as low-density, it is reading as a bug.
+        let litIndex = random.int(in: 0 ... (rows * columns - 1))
 
         var parts: [SKNode] = []
         for row in 0 ..< rows {
@@ -180,39 +193,32 @@ enum ResidentialBuilding {
                 let x = rect.minX + cellWidth * (CGFloat(column) + 0.5) - windowWidth / 2
                 let y = rect.minY + cellHeight * (CGFloat(row) + 0.5) - windowHeight / 2
                 let frame = CGRect(x: x, y: y, width: windowWidth, height: windowHeight)
-                // Roughly a third of windows dark, so the facade has texture.
-                if random.chance(0.66) {
-                    parts.append(ZoneIcon.framedWindow(
-                        rect: frame,
-                        fill: ZoneIcon.windowColor(row: row, column: column, salt: salt)
-                    ))
-                } else {
-                    parts.append(ZoneIcon.detail(rect: frame, fill: ZoneIcon.recessedAccent))
-                }
+                // Roughly a quarter dark, so the facade still has texture.
+                guard row * columns + column == litIndex || random.chance(0.74) else { continue }
+                parts.append(ZoneIcon.detail(
+                    rect: frame,
+                    fill: ZoneIcon.windowColor(row: row, column: column, salt: salt)
+                ))
             }
         }
         return parts
     }
 
-    /// A projecting balcony line with railing ticks — a mark unique to housing
-    /// in this game's vocabulary.
+    /// A projecting balcony line — a mark unique to housing in this game's
+    /// vocabulary, and one that reads at any size because it is a single long
+    /// bright horizontal rather than a row of small things.
+    ///
+    /// It used to carry railing uprights at 1.2 points wide. Those are a
+    /// quarter of a screen point at rest and simply never rendered as
+    /// anything; all they did was chew the bright band into a dashed grey
+    /// line. The band is thicker now instead.
     private static func balconyBand(on rect: CGRect, random: inout BuildingRandom) -> [SKNode] {
         let y = rect.minY + rect.height * CGFloat(random.value(in: 0.3 ... 0.7))
-        let overhang: CGFloat = 3
-        var parts: [SKNode] = [ZoneIcon.detail(
-            rect: CGRect(x: rect.minX - overhang, y: y, width: rect.width + overhang * 2, height: 2.5),
+        let overhang: CGFloat = 4
+        return [ZoneIcon.detail(
+            rect: CGRect(x: rect.minX - overhang, y: y, width: rect.width + overhang * 2, height: 5),
             fill: ZoneIcon.litAccent
         )]
-        // Railing uprights.
-        let posts = max(3, Int(rect.width / 9))
-        for index in 0 ..< posts {
-            let x = rect.minX - overhang + (rect.width + overhang * 2) * CGFloat(index) / CGFloat(posts - 1)
-            parts.append(ZoneIcon.detail(
-                rect: CGRect(x: x - 0.6, y: y, width: 1.2, height: 4),
-                fill: ZoneIcon.recessedAccent
-            ))
-        }
-        return parts
     }
 
     /// Rooftop clutter rather than an illuminated crown: tanks, bulkheads,
@@ -282,26 +288,15 @@ enum ResidentialBuilding {
         width: CGFloat,
         random: inout BuildingRandom
     ) -> [SKNode] {
-        let doorWidth = min(CGFloat(random.value(in: 9 ... 13)), width * 0.5)
-        return [
-            ZoneIcon.detail(
-                rect: CGRect(x: x - doorWidth / 2, y: -40, width: doorWidth, height: 11),
-                fill: ZoneIcon.recessedAccent
-            ),
-            ZoneIcon.detail(
-                rect: CGRect(x: x - doorWidth / 2 + 1.5, y: -40, width: doorWidth - 3, height: 8),
-                fill: ZoneIcon.litAccent
-            ),
-            // The glowing walkway up to the door, carried over from the
-            // hand-drawn residential icons this generator replaces — it was
-            // pulled from a reference sprite and is worth keeping. Kept short
-            // and dim: the icons it came from were cropped by the tile, and
-            // once `fitIconToTile` started centring the whole silhouette this
-            // became a bright bar hanging off the bottom of every house.
-            ZoneIcon.detail(
-                rect: CGRect(x: x - 1.5, y: -45, width: 3, height: 5),
-                fill: ZoneIcon.litAccent.withAlphaComponent(0.6)
-            ),
-        ]
+        // One lit block, not a lit block inside a dark surround inside a
+        // walkway. The surround was 1.5 points of trim and the walkway 3
+        // points wide — both below `ZoneIcon.minimumDetailSize`, so all three
+        // marks resolved to a single smudge anyway. This is that smudge,
+        // drawn deliberately and at a size that reads.
+        let doorWidth = max(ZoneIcon.minimumDetailSize, min(CGFloat(random.value(in: 11 ... 15)), width * 0.5))
+        return [ZoneIcon.detail(
+            rect: CGRect(x: x - doorWidth / 2, y: -40, width: doorWidth, height: 14),
+            fill: ZoneIcon.litAccent
+        )]
     }
 }

@@ -82,7 +82,7 @@ enum IndustrialBuilding {
             container.addChild(warningTriangle(at: CGPoint(x: hallWidth / 2 - 12, y: -28)))
         }
         container.addChild(ZoneIcon.neonSignboard(
-            rect: CGRect(x: -hallWidth / 2 + 6, y: -36, width: 18, height: 6),
+            rect: CGRect(x: -hallWidth / 2 + 6, y: -37, width: 24, height: 9),
             color: ZoneIcon.signColor(for: seed)
         ))
         return container
@@ -140,31 +140,36 @@ enum IndustrialBuilding {
 
     /// Windows and louvres along the hall face. Industrial windows are wide
     /// bands rather than the tidy grids housing and offices use.
+    /// **Fewer, larger bays, and only the lit ones drawn.** This drew three
+    /// to five bays plus a 3-point course line, and painted the unlit bays in
+    /// `recessedAccent` — near-black on near-black, which at the size a lot is
+    /// played at is not a dark window, it is nothing. What actually reached
+    /// the screen was a row of faint smudges. Only the lit bays are drawn now,
+    /// there are fewer of them, and each is a real block of light; the unlit
+    /// ones are simply the hall's own silhouette, which is what they looked
+    /// like anyway.
     private static func facade(on hall: CGRect, tier: Int, random: inout BuildingRandom) -> [SKNode] {
         var parts: [SKNode] = []
-        parts.append(ZoneIcon.detail(
-            rect: CGRect(x: hall.minX, y: hall.minY + hall.height * 0.55, width: hall.width, height: 3),
-            fill: ZoneIcon.recessedAccent
-        ))
 
-        let bays = random.int(in: 3 ... 5)
+        let bays = random.int(in: 2 ... 3)
         let bayWidth = hall.width / CGFloat(bays)
-        let lit = random.int(in: 1 ... max(1, bays - 1))
-        for index in 0 ..< bays {
-            let x = hall.minX + CGFloat(index) * bayWidth + bayWidth * 0.18
-            let width = bayWidth * 0.64
-            let rect = CGRect(x: x, y: hall.minY + hall.height * 0.18, width: width, height: hall.height * 0.3)
-            if index < lit {
-                parts.append(ZoneIcon.framedWindow(rect: rect))
-            } else {
-                parts.append(ZoneIcon.detail(rect: rect, fill: ZoneIcon.recessedAccent))
-            }
+        let lit = random.int(in: 1 ... bays)
+        for index in 0 ..< lit {
+            let width = max(ZoneIcon.minimumDetailSize, bayWidth * 0.6)
+            let x = hall.minX + CGFloat(index) * bayWidth + (bayWidth - width) / 2
+            parts.append(ZoneIcon.detail(
+                rect: CGRect(x: x, y: hall.minY + hall.height * 0.2,
+                             width: width, height: max(ZoneIcon.minimumDetailSize, hall.height * 0.34)),
+                fill: ZoneIcon.windowColor(row: index, column: 0, salt: tier)
+            ))
         }
         if tier >= 2, random.chance(0.6) {
-            // A loading bay cut into the base.
-            let width = hall.width * CGFloat(random.value(in: 0.16 ... 0.24))
+            // A loading bay cut into the base — dark, so it only reads at all
+            // if it is wide enough to break the hall's outline.
+            let width = max(ZoneIcon.minimumDetailSize * 1.6,
+                            hall.width * CGFloat(random.value(in: 0.18 ... 0.26)))
             parts.append(ZoneIcon.detail(
-                rect: CGRect(x: -width / 2, y: hall.minY, width: width, height: hall.height * 0.3),
+                rect: CGRect(x: -width / 2, y: hall.minY, width: width, height: hall.height * 0.34),
                 fill: ZoneIcon.recessedAccent
             ))
         }
@@ -220,7 +225,7 @@ enum IndustrialBuilding {
     /// The hazard triangle, in `emberColor` — carried over from the
     /// hand-drawn tier-3 icons this generator replaces.
     private static func warningTriangle(at centre: CGPoint) -> SKNode {
-        let size: CGFloat = 16
+        let size: CGFloat = 20
         let path = CGMutablePath()
         path.move(to: CGPoint(x: centre.x, y: centre.y + size / 2))
         path.addLine(to: CGPoint(x: centre.x - size / 2, y: centre.y - size / 2))
@@ -236,7 +241,7 @@ enum IndustrialBuilding {
         let container = SKNode()
         container.addChild(triangle)
         container.addChild(ZoneIcon.detail(
-            rect: CGRect(x: centre.x - 1, y: centre.y - 3, width: 2, height: 6),
+            rect: CGRect(x: centre.x - 2, y: centre.y - 4, width: 4, height: 8),
             fill: ZoneIcon.emberColor
         ))
         return container
