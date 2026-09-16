@@ -36,7 +36,7 @@ final class CivicServicesTests: XCTestCase {
     func testWithoutASchoolAZoneStopsOneShortOfFullDensity() {
         var map = makeTopTierCity(school: false)
         var rng = AlwaysZeroRNG()
-        for _ in 0 ..< 5 { map = CitySimulator.advance(map, using: &rng) }
+        map = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(
             map[GridPosition(x: 0, y: 0)].density, 4,
@@ -47,7 +47,7 @@ final class CivicServicesTests: XCTestCase {
     func testASchoolInRangeUnlocksFullDensity() {
         var map = makeTopTierCity(school: true)
         var rng = AlwaysZeroRNG()
-        for _ in 0 ..< 5 { map = CitySimulator.advance(map, using: &rng) }
+        map = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(map[GridPosition(x: 0, y: 0)].density, ZoneType.residential.maxDensity)
     }
@@ -59,7 +59,7 @@ final class CivicServicesTests: XCTestCase {
         map.placeBuilding(zone: .school, origin: GridPosition(x: 18, y: 18))
 
         var rng = AlwaysZeroRNG()
-        for _ in 0 ..< 5 { map = CitySimulator.advance(map, using: &rng) }
+        map = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(map[GridPosition(x: 0, y: 0)].density, 4)
     }
@@ -78,7 +78,7 @@ final class CivicServicesTests: XCTestCase {
         map.serviceFunding.setLevel(0, for: .school)
 
         var rng = AlwaysZeroRNG()
-        for _ in 0 ..< 5 { map = CitySimulator.advance(map, using: &rng) }
+        map = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(
             map[GridPosition(x: 0, y: 0)].density, 4,
@@ -145,7 +145,7 @@ final class CivicServicesTests: XCTestCase {
         map.placeBuilding(zone: .hospital, origin: GridPosition(x: 0, y: 4))
 
         var rng = AlwaysMaxRNG() // fails the unassisted-repair roll
-        let next = CitySimulator.advance(map, using: &rng)
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertTrue(next[GridPosition(x: 0, y: 0)].isDamaged)
     }

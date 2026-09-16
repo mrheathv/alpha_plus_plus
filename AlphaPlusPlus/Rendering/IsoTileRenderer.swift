@@ -204,7 +204,8 @@ struct IsoTileRenderer {
     /// anything.
     func applyOverlay(on node: SKNode, buildings: OverlayBuildings, color: SKColor) {
         for name in [Self.markerNodeName, Self.laneNodeName,
-                     Self.warningNodeName, Self.damageNodeName] {
+                     Self.warningNodeName, Self.damageNodeName,
+                     Self.constructionNodeName] {
             node.childNode(withName: name)?.removeFromParent()
             // Invalidated, not just removed: the cache key is what decides
             // whether a decoration gets rebuilt, so leaving a stale key behind
@@ -243,6 +244,10 @@ struct IsoTileRenderer {
 
     private static let warningNodeName = "isoWarning"
     private static let damageNodeName = "isoDamage"
+    /// Not private, for the same reason `buildingNodeName` is not: a test has
+    /// to be able to ask whether a lot is showing a scaffold.
+    static let constructionNodeName = "isoConstruction"
+    static let constructionDeckName = "isoConstructionDeck"
     private static let pipeNodeName = "isoPipe"
     private static let powerNodeName = "isoPowerLine"
 
@@ -344,6 +349,118 @@ struct IsoTileRenderer {
         node.addChild(container)
     }
 
+    /// A lot with work going on: a wireframe of the building that is coming,
+    /// and a lit deck that climbs it as the work is done.
+    ///
+    /// Growth used to be instantaneous, so there was nothing to draw. Now a
+    /// lot spends `CitySimulator.constructionTicks(toReach:)` at its old
+    /// density before the new storey appears, and without this the player's
+    /// entire feedback for zoning is "nothing happened for a while" — which is
+    /// indistinguishable from "this lot cannot grow", the thing the utility
+    /// badge exists to say. A site that is visibly *building* is the payoff
+    /// for the delay, not a decoration on it.
+    ///
+    /// The wireframe is keyed on the target so it survives the whole build,
+    /// and only the deck moves each tick — a construction site is the one
+    /// decoration whose appearance changes every single tick, so rebuilding it
+    /// the way the damage badge is rebuilt would put the per-tick node churn
+    /// CLAUDE.md calls "why the map blinked" back on the busiest lots in the
+    /// city.
+    func syncConstructionSite(on node: SKNode, tile: Tile) {
+        let target = tile.density + 1
+        let total = CitySimulator.constructionTicks(toReach: target)
+        let key = tile.isUnderConstruction ? "\(tile.zone.rawValue)|\(target)" : "none"
+        let existing = node.childNode(withName: Self.constructionNodeName)
+
+        if !isUpToDate(node, Self.constructionNodeName, key) {
+            markUpToDate(node, Self.constructionNodeName, key)
+            existing?.removeFromParent()
+            guard tile.isUnderConstruction else { return }
+            node.addChild(makeConstructionSite(for: tile, target: target))
+        } else if !tile.isUnderConstruction {
+            return
+        }
+
+        // Fraction built: `constructionRemaining` counts *down*, so a site
+        // that has just been approved is at 0 and one finishing this tick is
+        // near 1.
+        let remaining = CGFloat(tile.constructionRemaining ?? 0)
+        let progress = total > 0 ? max(0, 1 - remaining / CGFloat(total)) : 1
+        let site = node.childNode(withName: Self.constructionNodeName)
+        let (base, top) = constructionSpan(of: tile, target: target)
+        // `project(0, 0, z)` is a pure vertical offset, so raising the deck is
+        // one assignment rather than a rebuilt path.
+        site?.childNode(withName: Self.constructionDeckName)?.position =
+            projection.project(0, 0, (top - base) * progress)
+    }
+
+    /// The slice of air a scaffold occupies: from the roof of what stands
+    /// there now up to the roof of what is coming.
+    ///
+    /// **Not from the ground up**, which is what the first version drew and
+    /// which the city render showed was wrong. On a lot that already holds a
+    /// tier-3 building, a deck starting at ground level spends most of the
+    /// build inside the building, invisible, while the cap ring floats
+    /// unattached in the sky above it — it read as a stray box hanging over
+    /// the block rather than as work being done on it. Growth adds storeys to
+    /// what is there, so the scaffold starts where the current roof is.
+    private func constructionSpan(of tile: Tile, target: Int) -> (base: CGFloat, top: CGFloat) {
+        let base = buildingTop(of: tile)
+        let top = buildingTop(zone: tile.zone, density: target, seed: tile.position)
+        return (base, max(top, base + 0.5))
+    }
+
+    private func makeConstructionSite(for tile: Tile, target: Int) -> SKNode {
+        let size = CGFloat(tile.zone.footprintSize)
+        let (base, top) = constructionSpan(of: tile, target: target)
+        let height = top - base
+        let inset: CGFloat = 0.14
+        let corners: [(CGFloat, CGFloat)] = [
+            (inset, inset), (size - inset, inset),
+            (size - inset, size - inset), (inset, size - inset),
+        ]
+
+        let container = SKNode()
+        container.name = Self.constructionNodeName
+        container.zPosition = 0.45
+        // Everything inside is drawn relative to the existing roofline, so the
+        // deck's own `position` stays a plain 0…height offset.
+        container.position = projection.project(0, 0, base)
+
+        // Corner posts and a cap ring: the volume the building will occupy,
+        // drawn faintly so it reads as an outline rather than as a building.
+        let frame = CGMutablePath()
+        for (cx, cy) in corners {
+            frame.move(to: projection.project(cx, cy, 0))
+            frame.addLine(to: projection.project(cx, cy, height))
+        }
+        frame.move(to: projection.project(corners[0].0, corners[0].1, height))
+        for (cx, cy) in corners.dropFirst() + [corners[0]] {
+            frame.addLine(to: projection.project(cx, cy, height))
+        }
+        let wireframe = SKShapeNode(path: frame)
+        wireframe.strokeColor = NeonStyle.scaffoldColor.withAlphaComponent(0.5)
+        wireframe.lineWidth = 1.5
+        container.addChild(wireframe)
+
+        // The deck: a bright closed ring at the height reached so far. This is
+        // the part that carries the information, so it is the part that glows
+        // — at a zoomed-out size the posts fade to nothing and this is still
+        // legibly a lit line rising out of a lot.
+        let deckPath = CGMutablePath()
+        deckPath.move(to: projection.project(corners[0].0, corners[0].1, 0))
+        for (cx, cy) in corners.dropFirst() + [corners[0]] {
+            deckPath.addLine(to: projection.project(cx, cy, 0))
+        }
+        let deck = SKShapeNode(path: deckPath)
+        deck.name = Self.constructionDeckName
+        deck.strokeColor = NeonStyle.scaffoldColor
+        deck.lineWidth = 2.5
+        deck.glowWidth = 2
+        container.addChild(deck)
+        return container
+    }
+
     /// Underground networks, drawn only in their own overlay — the one place a
     /// pipe or a power line is visible at all.
     func syncBuriedMarker(on node: SKNode, tile: Tile, present: Bool, isPipe: Bool) {
@@ -367,9 +484,20 @@ struct IsoTileRenderer {
     /// How tall the building on a tile stands, in tile units — needed to put
     /// anything *above* it.
     private func buildingTop(of tile: Tile) -> CGFloat {
+        buildingTop(zone: tile.zone, density: tile.density, seed: tile.position)
+    }
+
+    /// The same measurement for a building that does not exist yet, which is
+    /// what a construction site needs: the scaffold has to be the size of the
+    /// building that is *coming*, not the one standing there now.
+    ///
+    /// It asks `ZoneMassing` for the massing rather than measuring the
+    /// rasterised sprite, so the answer is available for a density the cache
+    /// has never been asked to draw.
+    private func buildingTop(zone: ZoneType, density: Int, seed: GridPosition) -> CGFloat {
         guard let massing = ZoneMassing.make(
-            for: tile.zone, density: tile.density,
-            seed: IsoTextureCache.canonicalSeed(for: IsoTextureCache.variant(for: tile.position))
+            for: zone, density: density,
+            seed: IsoTextureCache.canonicalSeed(for: IsoTextureCache.variant(for: seed))
         ) else { return 0 }
         return massing.solids.reduce(CGFloat(0)) { result, solid in
             switch solid.volume {

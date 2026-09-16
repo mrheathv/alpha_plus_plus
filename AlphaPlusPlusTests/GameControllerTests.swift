@@ -108,7 +108,7 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: roadPosition)
         controller.selectedTool = .residential
         controller.place(at: position)
-        controller.advanceSimulation() // grows density to 1
+        advanceThroughConstruction(controller) // approves, builds, and reaches density 1
 
         controller.bulldoze(at: position)
 
@@ -366,7 +366,7 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: residentialOrigin)
         XCTAssertEqual(controller.population, 0) // sanity check: not yet grown
 
-        controller.advanceSimulation()
+        advanceThroughConstruction(controller)
 
         XCTAssertEqual(controller.map[residentialOrigin].density, 1)
         XCTAssertEqual(controller.population, 4) // 1 density level * 4 people
@@ -384,7 +384,7 @@ final class GameControllerTests: XCTestCase {
         controller.selectedTool = .industrial
         controller.place(at: industrialOrigin)
 
-        controller.advanceSimulation()
+        advanceThroughConstruction(controller)
 
         XCTAssertEqual(controller.jobs, 6) // (1 + 1) density levels * 3 jobs
     }
@@ -399,6 +399,9 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: roadPosition)
         controller.selectedTool = .residential
         controller.place(at: residentialOrigin)
+        // Construction means the growth this taxes lands on the *last* of
+        // several ticks, so the treasury is snapshotted on its brink.
+        advanceToTheBrinkOfCompletion(controller)
         let treasuryBeforeAdvance = controller.treasury
 
         controller.advanceSimulation()
@@ -425,6 +428,7 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: roadPosition)
         controller.selectedTool = .commercial
         controller.place(at: commercialOrigin)
+        advanceToTheBrinkOfCompletion(controller)
         let treasuryBeforeAdvance = controller.treasury
 
         controller.advanceSimulation()
@@ -529,7 +533,7 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
         controller.place(at: GridPosition(x: 0, y: 0))
-        controller.advanceSimulation() // grows to density 1 -> 3 jobs
+        advanceThroughConstruction(controller) // approves, builds, reaches density 1 -> 3 jobs
 
         // Untouched, taxRate is 1.0: 3 jobs * $2 tax = $6, same as before
         // this lever existed.
@@ -542,7 +546,7 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
         controller.place(at: GridPosition(x: 0, y: 0))
-        controller.advanceSimulation() // 3 jobs, $6 at full rate
+        advanceThroughConstruction(controller) // 3 jobs, $6 at full rate
 
         controller.taxRate = 0.5
 
@@ -555,7 +559,7 @@ final class GameControllerTests: XCTestCase {
         controller.place(at: GridPosition(x: 2, y: 0))
         controller.selectedTool = .commercial
         controller.place(at: GridPosition(x: 0, y: 0))
-        controller.advanceSimulation() // 3 jobs, $6 at full rate
+        advanceThroughConstruction(controller) // 3 jobs, $6 at full rate
 
         controller.taxRate = 1.5
 

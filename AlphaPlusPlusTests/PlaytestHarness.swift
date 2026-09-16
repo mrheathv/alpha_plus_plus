@@ -94,10 +94,16 @@ enum PlaytestHarness {
             // everything beyond that is paying 25.8 ms/tick to re-measure the
             // same numbers. Trimming it is most of why the scenario suite
             // runs in about half the time it first did.
-            // 80 rather than 120, to pay for the larger quick map above: a
-            // 24×24 city plateaus well inside that, and the extra ticks were
-            // re-measuring a settled city at 2.6x the per-tick cost.
-            case .quick: return 80
+            // 320 rather than 80. Every number in this comment's history was
+            // chosen when growth was instantaneous and a city plateaued in
+            // sixteen ticks, so 80 was mostly re-measuring a settled city.
+            // Construction changed that: a lot now spends
+            // `CitySimulator.constructionTicks(toReach:)` building each level,
+            // up to 40 for the top tier, so a city needs a few hundred ticks
+            // to finish. At 80 these scenarios were all quietly measuring a
+            // half-built city — which is the sort of thing that looks like a
+            // balance regression and is not one.
+            case .quick: return 320
             case .full: return 1_500
             }
         }

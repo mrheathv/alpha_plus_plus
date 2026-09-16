@@ -274,8 +274,9 @@ final class CityHazardsTests: XCTestCase {
         XCTAssertFalse(repaired[GridPosition(x: 0, y: 0)].isDamaged, "coverage did not repair the block")
         XCTAssertEqual(repaired[GridPosition(x: 0, y: 0)].density, 1, "repair should not also grow in the same tick")
 
-        // Repair takes the tick; ordinary growth resumes on the next one.
-        let afterRepair = CitySimulator.advance(repaired, using: &rng)
+        // Repair takes the tick; ordinary growth resumes on the next one —
+        // and then takes as long as building a second storey takes.
+        let afterRepair = advanceOneLevel(repaired, at: GridPosition(x: 0, y: 0), using: &rng)
         XCTAssertEqual(afterRepair[GridPosition(x: 0, y: 0)].density, 2)
     }
 
@@ -292,7 +293,7 @@ final class CityHazardsTests: XCTestCase {
         map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 0, y: 3))
 
         var rng = AlwaysMaxRNG() // fails self-repair, isolating the coverage check
-        let next = CitySimulator.advance(map, using: &rng)
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertTrue(next[GridPosition(x: 0, y: 0)].isDamaged)
     }
@@ -314,7 +315,7 @@ final class CityHazardsTests: XCTestCase {
         }
 
         var rng = AlwaysZeroRNG() // clears the self-repair roll
-        let next = CitySimulator.advance(map, using: &rng)
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertFalse(
             next[GridPosition(x: 0, y: 0)].isDamaged,
@@ -357,7 +358,7 @@ final class CityHazardsTests: XCTestCase {
         map[GridPosition(x: 2, y: 0)].zone = .road
 
         var rng = AlwaysZeroRNG()
-        let next = CitySimulator.advance(map, using: &rng)
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
     }

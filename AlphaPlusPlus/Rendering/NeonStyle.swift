@@ -93,6 +93,12 @@ enum NeonStyle {
     /// colour rather than a zone accent.
     static let emberColor = SKColor(srgbRed: 1.0, green: 0.45, blue: 0.15, alpha: 0.95)
 
+    /// Sodium-lamp amber, for construction scaffolding and nothing else.
+    /// Warmer and dimmer than `emberColor` on purpose: a building site is a
+    /// "this is happening" mark, not a "something is wrong" one, and the two
+    /// have to be distinguishable at a glance from across the map.
+    static let scaffoldColor = SKColor(srgbRed: 1.0, green: 0.78, blue: 0.32, alpha: 0.95)
+
     /// The mixed-neon-signage look a dense night skyline has: plaques and
     /// marquees in a handful of hot colours, not one fixed hue the way every
     /// window already reads.

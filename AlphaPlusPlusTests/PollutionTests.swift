@@ -232,7 +232,9 @@ final class PollutionTests: XCTestCase {
 
             var rng = AlwaysZeroRNG()
             var next = map
-            for _ in 0 ..< 20 { next = CitySimulator.advance(next, using: &rng) }
+            for _ in 0 ..< ticksToBuild(toLevel: ZoneType.residential.maxDensity) {
+                next = CitySimulator.advance(next, using: &rng)
+            }
             return next[home].density
         }
 

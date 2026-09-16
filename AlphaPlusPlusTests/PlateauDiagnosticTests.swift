@@ -88,36 +88,76 @@ final class PlateauDiagnosticTests: XCTestCase {
     func testLosingPowerMakesACityDecline() {
         let spec = PlaytestHarness.spec()
         let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
-        for _ in 0 ..< 60 { controller.advanceSimulation() }
+        // Settled, measured rather than guessed. Sixty ticks was plenty when
+        // a lot reached full density in five; with construction it is not
+        // even enough for one lot to finish, and any fixed number picked
+        // instead would be a guess about a staggered, demand-gated city. A
+        // city still climbing goes on climbing after you take its power away,
+        // which is exactly how a working decline mechanic reads as a broken
+        // one: the first attempt here reported a 5% loss because growth was
+        // still cancelling most of the decline out.
+        let settleTicks = advanceUntilSettled(controller)
 
-        let settled = controller.population
+        // **Built stock, not population**, and this took a wrong answer to
+        // find. Population counts residents only, and the quick profile's
+        // settled city keeps its density where the *jobs* are: sixteen
+        // industrial lots sit at density 4 against six residential ones. So
+        // cutting the power — which caps every lot at
+        // `sustainableDensity(hasPower: false)`, i.e. 3 — knocks 14% off the
+        // city's total density while moving population by 3%. Reading
+        // population alone said "losing a utility costs nothing" about a
+        // mechanic that was working correctly the whole time.
+        func totalDensity() -> Int {
+            controller.map.tiles
+                .filter { $0.isBuildingAnchor && $0.zone.maxDensity > 0 }
+                .reduce(0) { $0 + $1.density }
+        }
+
+        let settled = totalDensity()
+        print("\nlosing power: city settled after \(settleTicks) ticks "
+              + "at density \(settled), population \(controller.population)")
+        for zone in [ZoneType.residential, .commercial, .industrial] {
+            var histogram = [Int](repeating: 0, count: 6)
+            for tile in controller.map.tiles where tile.isBuildingAnchor && tile.zone == zone {
+                histogram[min(5, tile.density)] += 1
+            }
+            print("  \(zone.rawValue) lots at density 0…5: \(histogram)")
+        }
         XCTAssertGreaterThan(settled, 100, "precondition: expected a real city to knock down")
 
-        // Demolish every power plant and generator, then walk away.
-        for y in 0 ..< controller.map.height {
-            for x in 0 ..< controller.map.width {
-                let position = GridPosition(x: x, y: y)
-                let zone = controller.map[position].zone
-                if zone == .powerPlant || zone == .generator {
-                    controller.bulldoze(at: position)
-                }
-            }
-        }
+        // Take the grid down by defunding it, and walk away.
+        //
+        // **Not by bulldozing the plants**, which is what this did first and
+        // which measured almost nothing: a power plant carries
+        // `LandValue.powerPlantPenaltyStrength` (0.5) over a radius of 8, so
+        // demolishing every plant on a 24×24 map lifts a land-value penalty
+        // across most of the city at the same moment it cuts the power. Every
+        // lot the old land value had capped below density 3 was then free to
+        // climb, and that backfill cancelled out almost all of the decline —
+        // 3% lost, which reads exactly like "decline does not work".
+        //
+        // Defunding is the clean instrument: `PowerGrid.computeSupply` returns
+        // an empty grid the moment the dial hits zero, the buildings stay
+        // where they are, and nothing else about the city moves. The general
+        // form of this is already in this file's own history — when a
+        // measurement changes, check whether the thing moved or the yardstick
+        // did.
+        controller.setFundingLevel(0, for: .powerPlant)
 
         var after10 = 0
         for tick in 1 ... 120 {
             controller.advanceSimulation()
-            if tick == 10 { after10 = controller.population }
+            if tick == 10 { after10 = totalDensity() }
         }
-        let after120 = controller.population
+        let after120 = totalDensity()
 
-        print(String(format: "\nlosing power: %d settled → %d after 10 ticks → %d after 120 (%.0f%% lost)",
+        print(String(format: "losing power: density %d settled → %d after 10 ticks → %d after 120 (%.0f%% lost)",
                      settled, after10, after120,
                      (1 - Double(after120) / Double(settled)) * 100))
 
         XCTAssertLessThan(
             after120, Int(Double(settled) * 0.9),
-            "a city stripped of power did not decline — losing a utility should cost something"
+            "a city stripped of power did not shed density — losing a utility should cost something"
         )
         XCTAssertGreaterThan(
             after10, Int(Double(settled) * 0.9),
@@ -174,12 +214,16 @@ final class PlateauDiagnosticTests: XCTestCase {
         )
     }
 
-    /// Prints the trajectory, and asserts the thing the rest of the plan has to
-    /// break: an unattended city does not meaningfully decline.
+    /// Prints the trajectory, and pins the shape the plan is aiming at: an
+    /// unattended city loses ground, but slowly enough to be rescued.
     ///
-    /// The assertion is deliberately written the way the game behaves *today*,
-    /// so it fails the moment decline mechanics land. That is the point — this
-    /// is a tripwire on the current behaviour, not a guarantee of it.
+    /// This started life as a tripwire on the *old* behaviour — `retained >
+    /// 0.9`, asserting that a city left alone never declined — written so it
+    /// would fail the moment decline landed. It has now done that job: the
+    /// same city retains 89% instead of 100%. The assertion is rewritten
+    /// rather than deleted, and it is now two-sided, because both ends matter.
+    /// A city that never slips has no reason for the player to stay; a city
+    /// that collapses while nobody is looking is a punishment, not a game.
     func testWhatChangesAfterThePlateau() {
         let size = PlaytestHarness.Profile.current.size
         let ticks = PlaytestHarness.Profile.current.ticks
@@ -232,10 +276,14 @@ final class PlateauDiagnosticTests: XCTestCase {
         print(String(format: "\nunattended decline: peak %d → final %d (%.0f%% retained)\n",
                      peak, final.population, retained * 100))
 
+        XCTAssertLessThan(
+            retained, 0.98,
+            "an unattended city held its peak — neglect is supposed to cost something"
+        )
         XCTAssertGreaterThan(
-            retained, 0.9,
-            "An unattended city now declines — which is the goal, so update this tripwire "
-            + "to the behaviour you intend rather than deleting it."
+            retained, 0.6,
+            "an unattended city fell apart — decline is meant to be recoverable, "
+            + "something a player who looks up in time can still fix"
         )
     }
 }

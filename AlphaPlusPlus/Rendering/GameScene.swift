@@ -839,6 +839,9 @@ final class GameScene: SKScene {
             // Damage is drawn on the anchor's node only, since that is the one
             // cell of a building that gets a node at all.
             tileRenderer.syncDamageMarker(on: node, tile: tile, damagedBy: tile.damagedBy)
+            // Same reasoning, and the same anchor-only placement: a scaffold
+            // belongs to a building, not to each of its cells.
+            tileRenderer.syncConstructionSite(on: node, tile: tile)
             // Normal view only — the Water/Power overlays already have their
             // own, bigger signal for this (the whole lot's colour), so a badge
             // on top of that would be redundant.

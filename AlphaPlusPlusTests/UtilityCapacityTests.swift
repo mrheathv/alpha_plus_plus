@@ -257,7 +257,7 @@ final class UtilityCapacityTests: XCTestCase {
 
         var rng = AlwaysZeroRNG()
         var sawOverload = false
-        for _ in 0 ..< 60 {
+        for _ in 0 ..< ticksToBuild(toLevel: ZoneType.residential.maxDensity) {
             // Both networks, not just water: density 4 needs power, so leaving
             // `powerSupply` uncomputed stalls growth at 3 and the city never
             // draws enough to test anything.

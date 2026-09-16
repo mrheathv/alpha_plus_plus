@@ -78,6 +78,26 @@ final class IsometricCityTests: XCTestCase {
         place(.waterTower, 0, at: GridPosition(x: 11, y: 11))
         place(.fireStation, 0, at: GridPosition(x: 6, y: 11))
         place(.school, 0, at: GridPosition(x: 1, y: 11))
+
+        // A handful of lots mid-build, at four different stages, so the
+        // renders below show what a scaffold looks like next to the finished
+        // buildings it will become — the one thing a screenshot of a settled
+        // city can never show, and the only way to check that a rising deck
+        // still reads as a rising deck when it is nine pixels tall.
+        var site = 0
+        for position in positions(of: map) where map[position].isBuildingAnchor
+            && map[position].zone.maxDensity > 0 {
+            site += 1
+            guard site % 5 == 0 else { continue }
+            let target = map[position].density + 1
+            guard target <= map[position].zone.maxDensity else { continue }
+            let total = CitySimulator.constructionTicks(toReach: target)
+            // 4/5, 3/5, 2/5, 1/5 built, cycling.
+            let remaining = total * (1 + site / 5 % 4) / 5
+            for cell in map.footprintCells(origin: position, size: map[position].zone.footprintSize) {
+                map[cell].constructionRemaining = remaining
+            }
+        }
         return map
     }
 
@@ -190,6 +210,68 @@ final class IsometricCityTests: XCTestCase {
 
         renderer.update(node, for: tile)
         XCTAssertTrue(hasBuilding(), "leaving the overlay did not bring the building back")
+    }
+
+    // MARK: - Construction sites
+
+    /// A site appears while work is going on, and goes away when it finishes.
+    ///
+    /// The "goes away" half is the one worth pinning. Every decoration here is
+    /// cached on a key, and a scaffold whose key never said "none" would stay
+    /// standing over a finished building forever — which is the failure mode
+    /// this renderer's cache has already produced once, for overlays.
+    func testAScaffoldStandsOnlyWhileALotIsBuilding() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        var tile = Tile(position: GridPosition(x: 1, y: 1), zone: .residential, density: 1)
+
+        let node = renderer.makeNode(for: tile)
+        func hasScaffold() -> Bool {
+            node.childNode(withName: IsoTileRenderer.constructionNodeName) != nil
+        }
+        renderer.syncConstructionSite(on: node, tile: tile)
+        XCTAssertFalse(hasScaffold(), "an idle lot is showing a construction site")
+
+        tile.constructionRemaining = CitySimulator.constructionTicks(toReach: 2)
+        renderer.syncConstructionSite(on: node, tile: tile)
+        XCTAssertTrue(hasScaffold(), "a lot under construction is showing nothing")
+
+        tile.constructionRemaining = nil
+        tile.density = 2
+        renderer.syncConstructionSite(on: node, tile: tile)
+        XCTAssertFalse(hasScaffold(), "the scaffold outlived the building work")
+    }
+
+    /// The deck climbs as the work is done — that is the entire signal, so it
+    /// is the thing to assert rather than the node merely existing.
+    func testTheConstructionDeckRisesWithProgress() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        var tile = Tile(position: GridPosition(x: 1, y: 1), zone: .residential, density: 1)
+        let total = CitySimulator.constructionTicks(toReach: 2)
+
+        let node = renderer.makeNode(for: tile)
+        func deckHeight() -> CGFloat {
+            node.childNode(withName: IsoTileRenderer.constructionNodeName)?
+                .childNode(withName: IsoTileRenderer.constructionDeckName)?.position.y ?? -1
+        }
+
+        tile.constructionRemaining = total
+        renderer.syncConstructionSite(on: node, tile: tile)
+        let atStart = deckHeight()
+        XCTAssertEqual(atStart, 0, accuracy: 0.001, "a freshly approved site started part-built")
+
+        tile.constructionRemaining = 1
+        renderer.syncConstructionSite(on: node, tile: tile)
+        let nearlyDone = deckHeight()
+        XCTAssertGreaterThan(nearlyDone, atStart, "the deck did not climb")
+
+        // And it is still the *same* node: a site that rebuilt itself every
+        // tick would be per-tick shape-node churn on the busiest lots in the
+        // city, which is what the key exists to prevent.
+        tile.constructionRemaining = 2
+        let before = node.childNode(withName: IsoTileRenderer.constructionNodeName)
+        renderer.syncConstructionSite(on: node, tile: tile)
+        XCTAssertTrue(before === node.childNode(withName: IsoTileRenderer.constructionNodeName),
+                      "the scaffold was rebuilt rather than raised")
     }
 
     /// What a fully built-out map actually costs the renderer.
@@ -355,6 +437,7 @@ final class IsometricCityTests: XCTestCase {
                 renderer.syncLaneLine(on: node, zone: tile.zone,
                                       connections: Traffic.roadConnections(at: position, in: map))
             }
+            renderer.syncConstructionSite(on: node, tile: tile)
             switch overlay {
             case .water:
                 renderer.applyOverlay(

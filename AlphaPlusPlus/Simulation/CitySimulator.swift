@@ -82,6 +82,18 @@ enum CitySimulator {
                     continue
                 }
 
+                // A lot already building finishes what it started. Placed
+                // after the damage branch on purpose: a burnt-out block should
+                // stop work until it is repaired, not quietly keep rising.
+                if let remaining = tile.constructionRemaining, remaining > 0 {
+                    let left = remaining - 1
+                    for cell in footprint {
+                        next[cell].constructionRemaining = left > 0 ? left : nil
+                        if left == 0 { next[cell].density = tile.density + 1 }
+                    }
+                    continue
+                }
+
                 let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
                 let demand = map.cityDemand.value(for: tile.zone)
 
@@ -138,10 +150,17 @@ enum CitySimulator {
                 }
                 let chance = growthChance(for: demand)
                 guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
-                for cell in footprint { next[cell].density = nextLevel }
+                // Approved, not built. The level arrives when the work does.
+                let duration = Self.constructionTicks(toReach: nextLevel)
+                for cell in footprint { next[cell].constructionRemaining = duration }
             } else if tile.density > 0 {
                 let previousLevel = tile.density - 1
-                for cell in footprint { next[cell].density = previousLevel }
+                for cell in footprint {
+                    next[cell].density = previousLevel
+                    // Work stops when the road does — a site nobody can reach
+                    // is not a site under construction.
+                    next[cell].constructionRemaining = nil
+                }
             }
         }
         return next
@@ -175,6 +194,27 @@ enum CitySimulator {
     /// to be. Level 2–4's thresholds are still a first guess, not a tuned
     /// balance — easy to revisit once growth-with-a-ceiling has been played
     /// with more.
+    /// How long a lot spends building its way to `level`.
+    ///
+    /// **Why growth is no longer instantaneous.** A lot used to gain a level
+    /// the moment its gates were satisfied, and the whole city finished in
+    /// sixteen ticks — 90% of final population by tick 7. Nothing was wrong
+    /// with the decisions in those sixteen ticks; there was simply no time in
+    /// which to watch them land, notice a mistake, or change your mind. A
+    /// simulation you cannot observe is a calculation, not a game.
+    ///
+    /// **Scaled by level, not flat.** A shopfront going up should feel
+    /// responsive and a tower should feel like an investment, so reaching
+    /// level 1 takes `baseConstructionTicks` and level 5 takes five times
+    /// that. A lot climbing from nothing to its maximum spends about 120
+    /// ticks doing it, against the 5 it used to.
+    static func constructionTicks(toReach level: Int) -> Int {
+        Swift.max(1, Self.baseConstructionTicks * level)
+    }
+
+    /// Ticks per density level of construction. See `constructionTicks`.
+    static let baseConstructionTicks = 8
+
     /// The demand a *particular lot* feels, which is not the same as the
     /// demand the city reports.
     ///

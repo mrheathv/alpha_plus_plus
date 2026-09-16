@@ -1,3 +1,4 @@
+@testable import AlphaPlusPlus
 import Foundation
 
 /// A `RandomNumberGenerator` that always returns the minimum possible
@@ -71,4 +72,107 @@ struct SeededRNG: RandomNumberGenerator {
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         return z ^ (z >> 31)
     }
+}
+
+// MARK: - Growth now takes time
+
+/// Advance far enough for the lot at `position` to finish exactly one level.
+///
+/// **Why almost every growth test needed this.** Growth used to complete in the
+/// tick it was approved, so a test could call `advance` once and assert the
+/// density went up. Since construction landed, approval and completion are
+/// different ticks: one tick starts the work, and
+/// `CitySimulator.constructionTicks(toReach:)` more finish it.
+///
+/// Deliberately the *exact* number of ticks rather than a generous margin.
+/// Most of these fixtures use `AlwaysZeroRNG`, which passes every probability
+/// gate, so running "plenty of ticks" would not settle at one level — it would
+/// keep climbing, and a test asserting a single step would silently become a
+/// test asserting five.
+func advanceOneLevel(
+    _ map: CityMap,
+    at position: GridPosition,
+    using rng: inout some RandomNumberGenerator,
+    levels: Int = 1
+) -> CityMap {
+    var current = map
+    for _ in 0 ..< levels {
+        let target = current[position].density + 1
+        // One tick to approve and start, then the build itself.
+        for _ in 0 ... CitySimulator.constructionTicks(toReach: target) {
+            current = CitySimulator.advance(current, using: &rng)
+        }
+    }
+    return current
+}
+
+/// `advanceOneLevel`, one layer up: ticks a whole `GameController` far enough
+/// for a lot to finish one level of construction.
+///
+/// It takes the target level rather than reading a position's density, because
+/// the controller tests that need it are asserting on the city's *aggregate*
+/// numbers — population, jobs, tax — not on one tile, and every lot in those
+/// fixtures is growing in lockstep anyway.
+@MainActor
+func advanceThroughConstruction(_ controller: GameController, toReach level: Int = 1) {
+    advanceToTheBrinkOfCompletion(controller, toReach: level)
+    controller.advanceSimulation()
+}
+
+/// Every tick of `advanceThroughConstruction` except the last one — so the
+/// caller can snapshot the treasury and then run the single tick on which the
+/// building completes, which is also the tick that first taxes it.
+///
+/// Splitting it this way keeps the money assertions saying what they used to
+/// say. "Growth happens before tax, so this taxes the *post-growth*
+/// population" is still the property under test; construction only moved which
+/// tick that is.
+@MainActor
+func advanceToTheBrinkOfCompletion(_ controller: GameController, toReach level: Int = 1) {
+    for _ in 0 ..< CitySimulator.constructionTicks(toReach: level) {
+        controller.advanceSimulation()
+    }
+}
+
+/// How many ticks one lot needs to climb from bare ground to `level`, with
+/// construction paid for at every step: one tick to approve each level, then
+/// `CitySimulator.constructionTicks(toReach:)` to build it.
+///
+/// For the "run it until it settles, then look" fixtures — the ones that are
+/// not asserting on a single step but on where a city ends up. They used to
+/// pick a round number like 20 or 60, which was generous when a level was
+/// free and is not any more. Deriving it means they stay right if
+/// `baseConstructionTicks` moves again.
+func ticksToBuild(toLevel level: Int) -> Int {
+    (1 ... level).reduce(0) { $0 + 1 + CitySimulator.constructionTicks(toReach: $1) }
+}
+
+/// Tick a controller until its city stops growing, and report how long that
+/// took.
+///
+/// For the fixtures whose subject is what happens *after* a city has settled —
+/// decline, neglect, losing a utility. A fixed tick count cannot serve them
+/// any more: `ticksToBuild` says how long one lot takes, but a whole city
+/// staggers its lots behind demand, land value and utility capacity, so the
+/// settling point is an emergent number rather than an arithmetic one. Running
+/// a "take the power away and watch" test on a city that is still climbing
+/// measures growth against decline and reports the difference, which is how a
+/// working decline mechanic can read as a broken one.
+///
+/// `cap` is a hang guard, not a target — a test that hits it is measuring
+/// something other than a settled city and should say so.
+@MainActor
+func advanceUntilSettled(_ controller: GameController, window: Int = 40, cap: Int = 2_000) -> Int {
+    var ticks = 0
+    var previous = -1
+    while ticks < cap {
+        for _ in 0 ..< window {
+            controller.advanceSimulation()
+            ticks += 1
+        }
+        let now = controller.population
+        if now <= previous { break }
+        previous = now
+    }
+    return ticks
 }

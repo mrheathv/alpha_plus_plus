@@ -1362,6 +1362,111 @@ get oversupplied, it dies — demand pins at the floor and every lot empties
 regardless of desirability. That is a collapse, not the uneven decline this
 phase is about, and the two are easy to confuse from a population number alone.
 
+### Phase 4 (done): growth takes time
+
+A zoned lot used to go from bare ground to a tower in five ticks — one level
+per tick, the moment each gate opened. That is most of why phase 1 measured a
+city reaching 90% of its peak population by **tick 7**: the map was not a city
+being managed, it was a puzzle that solved itself the instant you finished
+zoning.
+
+`Tile.constructionRemaining` puts the work back in. A lot that clears every
+growth gate is now *approved* rather than built: it records
+`CitySimulator.constructionTicks(toReach:)` ticks of work and the level arrives
+when the work does.
+
+```
+constructionTicks(toReach: level) = baseConstructionTicks * level   // 8 * level
+```
+
+**Scaled by level, not flat.** A shopfront going up is not the same job as a
+tower, and a flat cost would make the top tiers — the ones a player is
+deliberately steering toward — the cheapest part of the climb in wall-clock
+terms. As it stands one lot takes 8 ticks for its first level and 40 for its
+fifth, 125 ticks including approvals to climb from nothing to maximum, and a
+whole 24×24 city settles in about **160 ticks** rather than sixteen.
+
+Two placements in `advance` matter:
+
+- The construction block sits **after** the damage branch, so a burnt-out block
+  stops work until it is repaired rather than quietly continuing to rise.
+- Losing road access **clears** `constructionRemaining` along with a level. A
+  site nobody can reach is not a site under construction.
+
+It rides in `CitySave` as an `Optional` via `decodeIfPresent`, so saves written
+before this still load.
+
+#### The scaffold, and where it goes
+
+Construction is only a mechanic if you can see it; otherwise the player's
+feedback for zoning is "nothing happened for a while", which is
+indistinguishable from "this lot cannot grow" — the thing the utility badge
+exists to say. `IsoTileRenderer.syncConstructionSite` draws a faint amber
+wireframe of the volume that is coming, with a bright lit deck that climbs it
+as the work is done.
+
+**It spans the current roofline to the target one, not the ground to the
+target.** The first version started at ground level, and the city render showed
+why that is wrong: on a lot that already holds a tier-3 building the deck spent
+most of the build *inside* the building, invisible, while the cap ring floated
+unattached in the sky above it. Growth adds storeys to what is there.
+
+It is also the one decoration whose appearance changes every single tick, so it
+is cached on the *target* and only the deck's `position` moves — rebuilding it
+the way the damage badge is rebuilt would put the per-tick shape-node churn
+recorded above as "why the map blinked" back on the busiest lots in the city.
+
+#### What it did to the test suite, and what that was worth
+
+Thirty-eight tests failed, essentially all of them fixtures that ticked a fixed
+number of times and asserted on the result. Almost none were wrong about the
+game; they were written when a level was free. Three helpers in
+`DeterministicRNGs.swift` replaced the guessed numbers:
+
+- `advanceOneLevel` / `advanceThroughConstruction` — the *exact* ticks one
+  level takes, at the map and the controller layer. Exact rather than generous
+  on purpose: most of these fixtures use `AlwaysZeroRNG`, which passes every
+  probability gate, so "plenty of ticks" would not settle at one level, it
+  would keep climbing, and a test asserting a single step would silently become
+  a test asserting five.
+- `advanceToTheBrinkOfCompletion` — every tick but the last, so the money tests
+  can still snapshot the treasury and then measure the single tick on which the
+  building completes and is first taxed.
+- `ticksToBuild(toLevel:)` and `advanceUntilSettled` — for the fixtures whose
+  subject is what happens *after* a city settles. The first is arithmetic; the
+  second is not, because a whole city staggers its lots behind demand, land
+  value and capacity, so where it settles is emergent. `PlaytestHarness`'s quick
+  profile went from **80 ticks to 320** for the same reason: at 80 every
+  scenario was quietly measuring a half-built city.
+
+Two of the failures were worth more than the fix.
+
+**Bulldozing the power plants is not "losing power".**
+`testLosingPowerMakesACityDecline` demolished every plant and measured a 3%
+loss, which reads exactly like a broken decline mechanic. A power plant carries
+`LandValue.powerPlantPenaltyStrength` (0.5) over a radius of 8, so on a 24×24
+map demolishing them lifts a land-value penalty across most of the city at the
+same instant it cuts the power, and every lot that penalty had capped was free
+to climb. Defunding (`setFundingLevel(0, for: .powerPlant)`) is the clean
+instrument: the grid drops, the buildings stay, nothing else moves.
+
+**Population is the wrong readout for a utility.** With the confound removed the
+number did not budge — because population counts residents only, and the
+settled quick city keeps its density where the *jobs* are: sixteen industrial
+lots at density 4 against six residential. Cutting the power costs the city
+**12% of its total built density** while moving population by 3%. Measured on
+built stock the mechanic was working correctly the whole time; measured on
+population it looked dead. Same lesson as the re-tune above, third occurrence:
+when a measurement changes, check whether the thing moved or the yardstick did.
+
+**And one tripwire came due.** `testWhatChangesAfterThePlateau` asserted
+`retained > 0.9` — that an unattended city never declines — written so it would
+fail the moment decline landed. It has: the same city now retains **89%** of its
+peak. It is rewritten rather than deleted, and it is now two-sided (`< 0.98`
+and `> 0.6`), because both ends matter. A city that never slips gives the
+player no reason to stay; a city that collapses while nobody is looking is a
+punishment, not a game.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear

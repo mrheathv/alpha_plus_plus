@@ -93,9 +93,17 @@ final class CitySaveTests: XCTestCase {
         controller.taxRate = 1.25
         _ = controller.issueBond()
 
-        // A few ticks, so history and the cached whole-map computations
-        // (trafficLoad, waterSupply, powerSupply, demand) are all populated.
-        for _ in 0..<5 { controller.advanceSimulation() }
+        // Enough ticks for the zoned lots to actually finish building. Five
+        // used to do it, back when growth was instant; now a lot spends
+        // `CitySimulator.constructionTicks(toReach: 1)` under construction at
+        // density 0, and a city of density-0 lots has nobody to route, so
+        // `trafficLoad` came back empty and the fixture stopped being
+        // "exercised" in the one way its own assertions check for.
+        advanceThroughConstruction(controller)
+        // One more, because the whole-map caches are computed at the *start*
+        // of a tick: the tick that finishes construction still routed its
+        // commutes over a city of empty lots.
+        controller.advanceSimulation()
 
         return controller
     }

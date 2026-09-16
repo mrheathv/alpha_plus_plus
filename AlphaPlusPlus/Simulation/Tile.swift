@@ -104,6 +104,24 @@ struct Tile: Equatable, Codable, Sendable {
     /// Is this building currently waiting on repair?
     var isDamaged: Bool { damagedBy != nil }
 
+    /// Ticks left before this lot finishes the level it is building.
+    ///
+    /// **Why growth needed a duration at all.** A lot used to gain a density
+    /// level the instant its gates were satisfied, which is why a whole city
+    /// reached 90% of its final population by tick 7 and was finished by tick
+    /// 16. Nothing was wrong with the decisions the player made in those
+    /// sixteen ticks; there was simply no time in which to watch them happen,
+    /// or to change your mind.
+    ///
+    /// `Optional` for the same reason `damagedBy` is: the synthesised
+    /// `init(from:)` uses `decodeIfPresent` for optionals, so a city saved
+    /// before this field existed loads with nothing under construction rather
+    /// than failing outright.
+    var constructionRemaining: Int?
+
+    /// Is this lot part-way through building its next level?
+    var isUnderConstruction: Bool { (constructionRemaining ?? 0) > 0 }
+
     init(
         position: GridPosition,
         zone: ZoneType = .empty,
@@ -111,7 +129,8 @@ struct Tile: Equatable, Codable, Sendable {
         buildingOrigin: GridPosition? = nil,
         hasPipe: Bool = false,
         hasPowerLine: Bool = false,
-        damagedBy: ZoneType? = nil
+        damagedBy: ZoneType? = nil,
+        constructionRemaining: Int? = nil
     ) {
         self.position = position
         self.zone = zone
@@ -120,5 +139,6 @@ struct Tile: Equatable, Codable, Sendable {
         self.hasPipe = hasPipe
         self.hasPowerLine = hasPowerLine
         self.damagedBy = damagedBy
+        self.constructionRemaining = constructionRemaining
     }
 }
