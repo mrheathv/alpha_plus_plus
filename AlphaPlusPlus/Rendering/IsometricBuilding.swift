@@ -1,0 +1,155 @@
+import SpriteKit
+
+/// Draws a `BuildingMassing` in isometric.
+///
+/// This is the half of the split that knows about pixels. A generator decides
+/// what a building *is*; this decides what that looks like from the game's
+/// camera — which faces are visible, how each is lit, and what order they are
+/// painted in.
+enum IsometricBuilding {
+
+    /// How far a face is tinted from the silhouette's near-black toward the
+    /// zone's neon, at its darkest and its brightest.
+    ///
+    /// The range matters more than either end. Too narrow and a box reads as a
+    /// flat hexagon; too wide and the fills start competing with the neon
+    /// edges, which is the same mistake the flat tile palette made one level
+    /// up. Faces stay dark and the *creases* stay bright.
+    private static let minimumTint: CGFloat = 0.03
+    private static let maximumTint: CGFloat = 0.30
+
+    static func node(
+        for massing: BuildingMassing,
+        accent: SKColor,
+        tier: Int,
+        in projection: Isometric
+    ) -> SKNode {
+        let container = SKNode()
+
+        /// Solids and panels are sorted *together* rather than drawn in two
+        /// passes. Drawing every panel after every solid is the obvious
+        /// implementation and it is wrong: a window on a far building's wall
+        /// would paint over a near building standing in front of it.
+        enum Item {
+            case solid(Solid)
+            case panel(Panel)
+
+            var depth: (CGFloat, CGFloat) {
+                switch self {
+                case .solid(let solid): return solid.volume.depth
+                case .panel(let panel): return panel.depth
+                }
+            }
+        }
+
+        let items = Isometric.sorted(
+            massing.solids.map(Item.solid) + massing.panels.map(Item.panel),
+            depth: { $0.depth }
+        )
+
+        // One glow pass for the whole building, not one per volume. Every
+        // `withGlow` is an `SKEffectNode` running a Gaussian blur, and the
+        // contact sheet has already shown twice that a scene quietly stops
+        // servicing them past a budget — a building made of five boxes must
+        // not cost five of them.
+        var glowShapes: [SKShapeNode] = []
+        var content: [SKNode] = []
+
+        for item in items {
+            switch item {
+            case .solid(let solid):
+                let color: SKColor
+                let fillTint: (CGFloat) -> SKColor
+                switch solid.style {
+                case .structure:
+                    color = accent
+                    fillTint = { shade in
+                        let amount = minimumTint + (maximumTint - minimumTint) * shade
+                        return ZoneIcon.silhouetteFill.blended(withFraction: amount, of: accent)
+                            ?? ZoneIcon.silhouetteFill
+                    }
+                case .lit(let litColor):
+                    color = litColor
+                    // Dimmer than it wants to be. A lit solid's *top* face is a
+                    // full-footprint quad pointing straight at the camera, so
+                    // at anything near full opacity a crown band stops reading
+                    // as a glowing edge and becomes a bright plate sitting on
+                    // the tower. The glow pass is what should sell it.
+                    fillTint = { shade in litColor.withAlphaComponent(0.34 + 0.3 * shade) }
+                }
+
+                for face in solid.volume.faces where Isometric.isVisible(face) {
+                    let shape = SKShapeNode(path: projection.path(face.points))
+                    shape.fillColor = fillTint(Isometric.shade(face))
+                    shape.strokeColor = color
+                    shape.lineWidth = 2
+                    content.append(shape)
+
+                    let glowCopy = SKShapeNode(path: shape.path!)
+                    glowCopy.fillColor = color
+                    glowCopy.strokeColor = color
+                    glowShapes.append(glowCopy)
+                }
+
+            case .panel(let panel):
+                let shape = SKShapeNode(path: projection.path(panel.corners))
+                shape.fillColor = panel.color
+                shape.strokeColor = .clear
+                content.append(shape)
+            }
+        }
+
+        container.addChild(glowLayer(
+            glowShapes,
+            intensity: ZoneIcon.glowIntensity(forTier: tier)
+        ))
+        content.forEach(container.addChild)
+        massing.badges.forEach { container.addChild(node(for: $0, in: projection)) }
+        return container
+    }
+
+    /// A blurred copy of every visible face, behind everything.
+    ///
+    /// Deliberately not `ZoneIcon.withGlow`, which adds its glow and then its
+    /// shapes as one unit. Here the glow has to sit behind the *whole*
+    /// building while the faces themselves stay interleaved with the panels in
+    /// depth order, so the two have to be built separately.
+    private static func glowLayer(_ shapes: [SKShapeNode], intensity: CGFloat) -> SKNode {
+        let layer = SKEffectNode()
+        layer.shouldRasterize = true
+        let blur = CIFilter(name: "CIGaussianBlur")
+        blur?.setValue(7, forKey: "inputRadius")
+        layer.filter = blur
+        for shape in shapes {
+            shape.lineWidth = 6 * max(0.4, intensity)
+            shape.alpha = min(1, 0.85 * intensity)
+            layer.addChild(shape)
+        }
+        return layer
+    }
+
+    private static func node(for badge: Badge, in projection: Isometric) -> SKNode {
+        let centre = projection.project(badge.at)
+        let size = badge.size
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: centre.x, y: centre.y + size / 2))
+        path.addLine(to: CGPoint(x: centre.x - size / 2, y: centre.y - size / 2))
+        path.addLine(to: CGPoint(x: centre.x + size / 2, y: centre.y - size / 2))
+        path.closeSubpath()
+
+        let triangle = SKShapeNode(path: path)
+        triangle.fillColor = ZoneIcon.silhouetteFill
+        triangle.strokeColor = ZoneIcon.emberColor
+        triangle.lineWidth = 2
+        triangle.glowWidth = 1.5
+
+        let container = SKNode()
+        container.addChild(triangle)
+        container.addChild(ZoneIcon.detail(
+            rect: CGRect(x: centre.x - size * 0.09, y: centre.y - size * 0.2,
+                         width: size * 0.18, height: size * 0.36),
+            fill: ZoneIcon.emberColor
+        ))
+        return container
+    }
+}

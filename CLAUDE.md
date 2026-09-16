@@ -800,6 +800,46 @@ struct. That is true for *positioning* and nothing else:
 | Overlays, roads, lane lines, cars, placement preview | All tint or draw squares today. |
 | Both renders | The streetscape composites per lot into a tile rect, which isometric buildings break by overlapping. The spike shows the fix: depth-sorted batches composited back to front. |
 
+### Phase 1 (done): the description layer
+
+Three files, none of them wired into the running game yet:
+
+- **`Isometric`** — the projection. A struct, not an enum of constants, for the
+  same reason `GridLayout` is one: the render tools draw the same city at
+  several scales. Carries `groundPosition(for:)`, the click inverse, and
+  `sorted`, the painter's-algorithm ordering.
+- **`BuildingMassing`** — what a building *is*: `Box`, `Ridge` and `Cylinder`
+  volumes in tile units, lit `Panel`s on their faces, `Badge`s for signage.
+- **`IsometricBuilding`** — what that looks like from the camera.
+
+Four decisions in there are load-bearing:
+
+- **Every volume reduces to `Face3`.** Visibility and shading then have exactly
+  one implementation. The spike hardcoded "top, right, left" per volume, which
+  is correct for a box and wrong the moment anything slopes — see the gable test
+  below. `Cylinder` is an N-sided prism for the same reason: it gets per-face
+  shading for free instead of needing its own.
+- **Face normals are forced outward from the volume's centre.** Winding order
+  decides a normal, and getting it wrong on one face out of six produces no
+  compile error and no crash — the face just goes missing, or lights from the
+  wrong side. Since every volume knows its own centre, the sign is checked
+  rather than hand-verified, which deletes the whole bug class from the
+  generators still to come.
+- **Solids and panels sort together, not in two passes.** Drawing every panel
+  after every solid is the obvious implementation and it is wrong: a window on
+  a far building's wall would paint over a near building in front of it.
+- **One blur pass per building, not per volume.** `ZoneIconContactSheetTests`
+  has twice shown a scene silently dropping effect nodes past a budget, so a
+  five-box building costing five of them would fail quietly, by the map just
+  losing buildings. Pinned by a test.
+
+And one result worth keeping because the intuition is backwards: **from a
+bird's-eye camera a shallow roof shows both its slopes and a steep one hides
+the far slope behind the ridge**, the opposite of how a house looks from the
+street. The far slope's normal is proportional to `(0, rise, run)`, so it faces
+the camera only while `run > 1.018 × rise`. The test asserting this was first
+written the other way round and the code was right.
+
 ### What the spike already established
 
 - Volumes read, the three zones still separate, and lit panels projected onto
