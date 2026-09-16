@@ -18,6 +18,10 @@ enum ZoneMassing {
             let tier = RenderPalette.growthTier(for: density)
             guard tier > 0 else { return nil }
             return IndustrialMassing.make(tier: tier, seed: seed, footprint: footprint)
+        case .commercial:
+            let tier = RenderPalette.growthTier(for: density)
+            guard tier > 0 else { return nil }
+            return CommercialMassing.make(tier: tier, seed: seed, footprint: footprint)
         case .residential:
             let tier = RenderPalette.growthTier(for: density)
             guard tier > 0 else { return nil }

@@ -892,6 +892,28 @@ rather than the cost of it:
   it is now two slopes and a gable end, and how many of them you see depends on
   the pitch.
 
+### Phase 4 (done): commerce
+
+`CommercialMassing` keeps the split that matters — continuous glazing bands
+against housing's punched grid, a glazed podium, projecting signage, and an
+illuminated crown where housing puts machinery. Tier 1 still picks between a
+strip of shops, a corner unit, and a shop with a flat over it.
+
+Two things the projection adds here:
+
+- **Glazing bands wrap the corner.** In elevation a band was a horizontal on
+  one face; here it runs the full width of both visible walls and turns the
+  corner, which is what a continuous floor plate actually does and what makes
+  the contrast with housing's separate little windows unmistakable at any zoom.
+- **A blade sign is a volume standing off the wall.** In elevation a projecting
+  sign was a bright rectangle beside a silhouette, indistinguishable from one
+  painted *on* it; the only thing saying it projected was that it overlapped
+  the outline. Now it stands proud and throws its own glow into the air beside
+  the building. Same win as the balcony: the shape carries the meaning.
+
+That completes the three growable zones. `ZoneMassing` covers them and still
+returns `nil` for services, which is the next phase.
+
 ### Rendering cost, measured at phase 2 rather than phase 11
 
 A building costs **~55 nodes in isometric against ~26 in elevation**, and the
