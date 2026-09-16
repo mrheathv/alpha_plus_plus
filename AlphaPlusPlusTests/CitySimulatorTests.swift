@@ -47,7 +47,16 @@ final class CitySimulatorTests: XCTestCase {
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
     }
 
-    func testDensityStopsGrowingAtMaxDensity() {
+    /// Nothing ever climbs past `maxDensity`.
+    ///
+    /// Asserts a bound rather than equality, and the reason is worth keeping:
+    /// this fixture has no water and no power, so since decline landed it can
+    /// no longer *sustain* density 5 either — it falls back. That is correct
+    /// behaviour (see `testALotWithNoUtilitiesCannotSustainHighDensity`), and
+    /// it means equality here would be testing two things at once and failing
+    /// for the wrong reason. `testTileReachesMaxDensityWhenAlsoNearAService`
+    /// is the one that proves a properly-supplied lot *holds* its top tier.
+    func testDensityNeverExceedsMaxDensity() {
         var map = CityMap(width: 3, height: 3)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 0, y: 0)].density = ZoneType.residential.maxDensity
@@ -56,7 +65,7 @@ final class CitySimulatorTests: XCTestCase {
         var rng = AlwaysZeroRNG()
         let next = CitySimulator.advance(map, using: &rng)
 
-        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, ZoneType.residential.maxDensity)
+        XCTAssertLessThanOrEqual(next[GridPosition(x: 0, y: 0)].density, ZoneType.residential.maxDensity)
     }
 
     func testEmptyAndRoadTilesAreUntouchedByAdvance() {
@@ -135,11 +144,17 @@ final class CitySimulatorTests: XCTestCase {
 
     // MARK: - Land value gates the final growth step
 
-    /// A building touching exactly one road and nothing else sits at land
-    /// value 0.75, which clears every growth threshold except the last
-    /// (0.8) — so it should stall at density 4 despite still having road
-    /// access.
-    func testTileWithOnlyBareRoadAccessStallsBelowMaxDensity() {
+    /// A lot with neither water nor power cannot hold a density that needs
+    /// them, and falls back one level at a time.
+    ///
+    /// This fixture used to assert the opposite — that it *stalls* at 4 — and
+    /// that was right when utilities could only gate growth. `CitySimulator`'s
+    /// own comment said so: "losing water later doesn't cause decay, exactly
+    /// like insufficient land value doesn't". Phase 2 made insufficient land
+    /// value cause decay, and that consistency argument then cut the other way:
+    /// leaving utilities one-directional would have made the rule arbitrary
+    /// rather than principled.
+    func testALotWithNoUtilitiesCannotSustainHighDensity() {
         var map = CityMap(width: 5, height: 5)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 0, y: 0)].density = 4
@@ -148,7 +163,63 @@ final class CitySimulatorTests: XCTestCase {
         var rng = AlwaysZeroRNG()
         let next = CitySimulator.advance(map, using: &rng)
 
-        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 4)
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 3,
+                       "density 4 needs power, which this lot has none of — it should shed a level")
+    }
+
+    // MARK: - What a lot's surroundings can sustain
+
+    /// The land-value table, read downward.
+    func testSustainableDensityFollowsTheLandValueTable() {
+        func sustainable(_ landValue: Double) -> Int {
+            CitySimulator.sustainableDensity(landValue: landValue, hasWater: true, hasPower: true)
+        }
+        // Values chosen clear of the hysteresis band: sustaining level L needs
+        // `requiredLandValue(toReach: L) - declineMargin`, so 0.6 is exactly
+        // the boundary for level 4 and would be testing the margin, not the
+        // table. (It caught me — this assertion first read `sustainable(0.6)
+        // == 3`, and the code was right.)
+        XCTAssertEqual(sustainable(0.0), 1)
+        XCTAssertEqual(sustainable(0.4), 2)
+        XCTAssertEqual(sustainable(0.55), 3)
+        XCTAssertEqual(sustainable(0.7), 4)
+        XCTAssertEqual(sustainable(0.9), 5)
+    }
+
+    /// Utilities cap what a lot can hold, whatever its land value.
+    func testUtilitiesCapSustainableDensity() {
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(landValue: 1.0, hasWater: false, hasPower: false), 2,
+            "without water a lot cannot hold the tier that first requires it"
+        )
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(landValue: 1.0, hasWater: true, hasPower: false), 3,
+            "without power a lot cannot hold the tier that first requires it"
+        )
+    }
+
+    /// **Hysteresis.** A lot may sink `declineMargin` below a level's own
+    /// growth threshold before it starts losing that level — otherwise growth
+    /// and decline read the same number and a lot sitting exactly on a
+    /// boundary flickers between the two forever.
+    func testAlotOnAThresholdDoesNotFlicker() {
+        let threshold = 0.65  // the growth requirement for density 4
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(
+                landValue: threshold - CitySimulator.declineMargin / 2,
+                hasWater: true, hasPower: true
+            ),
+            4,
+            "a lot just below its growth threshold should keep the level, not immediately shed it"
+        )
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(
+                landValue: threshold - CitySimulator.declineMargin * 2,
+                hasWater: true, hasPower: true
+            ),
+            3,
+            "but a lot well below it should"
+        )
     }
 
     /// The same building, but also within reach of a Police Station: land

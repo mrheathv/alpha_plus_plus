@@ -1290,6 +1290,45 @@ The tripwire this leaves behind asserts that an unattended city retains >90% of
 peak population — that is, it asserts the *current* behaviour so it fails the
 moment decline lands. It is meant to be updated, not deleted.
 
+### Phase 2 (done): desirability drives decline
+
+Growth was gated by `bestLandValue >= requiredLandValue(toReach: nextLevel)` — a
+guard on the level a lot is *reaching*. Nothing ever asked whether it could
+still support the level it *had*. `CitySimulator.sustainableDensity` reads that
+same table downward, and a lot above it sheds one level at a time at
+`declineChancePerTick`.
+
+Two decisions:
+
+- **Hysteresis.** The threshold to *keep* a level sits `declineMargin` (0.05)
+  below the threshold to *reach* it. Without it growth and decline read the
+  same number and a lot on a boundary flickers between them forever. It caught
+  the author immediately: a unit test asserting `sustainableDensity(0.6) == 3`
+  failed, and the code was right — 0.6 is exactly the boundary for level 4.
+- **Utilities now cause decline too, reversing a prior decision.** This file's
+  own comment used to say "losing water later doesn't cause decay, exactly like
+  insufficient land value doesn't", and its reasoning was consistency with the
+  land-value gate. Once that gate became bidirectional the same argument
+  required utilities to follow, or the rule would have been arbitrary.
+
+**Measured: neglect now costs something.** Build a city, demolish every power
+plant, walk away — 3,348 → 3,308 after ten ticks (−1%) → 2,896 after 120
+(−14%). That is the recoverable shape: time to notice, and decline stops the
+moment the ground can support the density again.
+
+**And an expectation that was wrong, which is the useful part.** Phase 1 left a
+tripwire asserting an unattended city retains >90% of peak, on the reasoning
+that it would fail the moment decline landed. It did not fail: retention moved
+only 98% → 95%, and post-plateau population spread 72 → 200.
+
+That is correct behaviour, not a bug. Decline fires when a lot's *surroundings*
+degrade, and in a city nothing is changing, they do not. Phase 2 gives the city
+consequences; it does not give it weather. The stillness the diagnostic found is
+not fixed by making decline possible — it needs something that changes the
+surroundings over time, which is exactly what demand cycles (phase 5) and
+maintenance decay (phase 6) are for. Worth remembering before assuming a later
+phase has failed because the headline number barely moved.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear

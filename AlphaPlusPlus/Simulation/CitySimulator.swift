@@ -96,16 +96,29 @@ enum CitySimulator {
                     continue
                 }
 
+                let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
+                let hasWater = footprint.contains { Water.hasSupply(at: $0, in: map) }
+                let hasPower = footprint.contains { PowerGrid.hasSupply(at: $0, in: map) }
+
+                // A lot that has outgrown what its surroundings can sustain
+                // falls back toward what they can — one level at a time, the
+                // same way it climbed. Checked before growth for the same
+                // "grow-or-hold, never both" reason abandonment is.
+                let sustainable = Self.sustainableDensity(
+                    landValue: bestLandValue, hasWater: hasWater, hasPower: hasPower
+                )
+                if tile.density > sustainable {
+                    if Double.random(in: 0 ..< 1, using: &rng) < Self.declineChancePerTick {
+                        for cell in footprint { next[cell].density = tile.density - 1 }
+                    }
+                    continue
+                }
+
                 let nextLevel = tile.density + 1
                 guard nextLevel <= tile.zone.maxDensity else { continue }
-                let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
                 guard bestLandValue >= requiredLandValue(toReach: nextLevel) else { continue }
-                if nextLevel >= Self.waterRequiredFromLevel {
-                    guard footprint.contains(where: { Water.hasSupply(at: $0, in: map) }) else { continue }
-                }
-                if nextLevel >= Self.powerRequiredFromLevel {
-                    guard footprint.contains(where: { PowerGrid.hasSupply(at: $0, in: map) }) else { continue }
-                }
+                if nextLevel >= Self.waterRequiredFromLevel { guard hasWater else { continue } }
+                if nextLevel >= Self.powerRequiredFromLevel { guard hasPower else { continue } }
                 if nextLevel >= Self.educationRequiredFromLevel {
                     let schooled = footprint.contains { cell in
                         LandValue.falloffValue(
@@ -155,6 +168,51 @@ enum CitySimulator {
     /// to be. Level 2–4's thresholds are still a first guess, not a tuned
     /// balance — easy to revisit once growth-with-a-ceiling has been played
     /// with more.
+    /// The highest density a lot's *surroundings* can currently sustain.
+    ///
+    /// **The missing half of a check that already existed.** Growth is gated by
+    /// `bestLandValue >= requiredLandValue(toReach: nextLevel)` — a guard on the
+    /// level a lot is trying to reach. Nothing ever asked whether it could
+    /// still support the level it *had*. A tier-5 tower is already at maximum
+    /// density, so that guard never ran for it again, which meant pollution,
+    /// traffic and lost service coverage could only ever stall growth: you
+    /// could ruin a district completely and nothing moved out. Tax was the one
+    /// lever that felt like management, and the only reason is that it works
+    /// through city-wide demand, which *is* bidirectional.
+    ///
+    /// This reads the same table downward. A lot above what it returns falls
+    /// back one level at a time, at `declineChancePerTick`.
+    ///
+    /// **Hysteresis is deliberate.** The threshold to *keep* a level is
+    /// `declineMargin` below the threshold to *reach* it, so a lot sitting
+    /// exactly on a boundary does not flicker between growing and decaying
+    /// forever — which is what would happen with a single shared threshold,
+    /// since growth and decline read the same number.
+    static func sustainableDensity(landValue: Double, hasWater: Bool, hasPower: Bool) -> Int {
+        var sustainable = 0
+        for level in 1 ... 5 {
+            guard landValue >= requiredLandValue(toReach: level) - Self.declineMargin else { break }
+            if level >= Self.waterRequiredFromLevel, !hasWater { break }
+            if level >= Self.powerRequiredFromLevel, !hasPower { break }
+            sustainable = level
+        }
+        return sustainable
+    }
+
+    /// How far below a level's own threshold a lot may sink before it starts
+    /// losing that level. See `sustainableDensity` for why this is not zero.
+    static let declineMargin = 0.05
+
+    /// Per-tick chance that a lot above what it can sustain loses one level.
+    ///
+    /// Deliberately slow, and deliberately the same order as
+    /// `abandonmentChancePerTick`. At 0.02 a level takes about fifty ticks to
+    /// go, so a district visibly rots rather than collapsing, and a player who
+    /// notices has plenty of time to fix the cause — the decline stops the
+    /// moment the ground can support the density again. A city you manage
+    /// should punish neglect, not inattention.
+    static let declineChancePerTick = 0.02
+
     private static func requiredLandValue(toReach level: Int) -> Double {
         switch level {
         case ...1: return 0.0
@@ -171,10 +229,13 @@ enum CitySimulator {
     /// supply (`Water.hasSupply(at:in:)`), not just land value clearing
     /// the bar `requiredLandValue(toReach:)` already sets. Same "one more
     /// threshold, not a bolted-on second system" shape as the land-value
-    /// gate itself: losing water later doesn't cause decay, exactly like
-    /// insufficient land value doesn't — it just holds growth where it
-    /// is until the supply comes back. A first guess like every other
-    /// number in this file.
+    /// gate itself — and, since phase 2, in both directions: losing water
+    /// *does* now cause decay, exactly like insufficient land value does.
+    /// That comment used to say the opposite, and its reasoning was
+    /// consistency with the land-value gate; when that gate became
+    /// bidirectional the same argument required this one to follow, or the
+    /// rule would have been arbitrary rather than principled. A first guess
+    /// like every other number in this file.
     ///
     /// Not `private`: `IsoTileRenderer.syncUtilityWarning` (Rendering/) reads
     /// this too, so the on-map "you're missing water" badge lights up at

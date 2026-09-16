@@ -77,6 +77,54 @@ final class PlateauDiagnosticTests: XCTestCase {
         )
     }
 
+    /// **The phase-2 promise: neglect has consequences.**
+    ///
+    /// Build a working city, let it settle, then take its power away and stop
+    /// intervening. Before decline landed this did nothing at all — losing
+    /// power stalled growth in a city that had finished growing, which is no
+    /// consequence whatsoever. The city should now visibly shed density, and
+    /// it should do so *gradually*, because the whole point of choosing
+    /// recoverable over harsh is that a player who notices has time to act.
+    func testLosingPowerMakesACityDecline() {
+        let spec = PlaytestHarness.spec()
+        let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
+        for _ in 0 ..< 60 { controller.advanceSimulation() }
+
+        let settled = controller.population
+        XCTAssertGreaterThan(settled, 100, "precondition: expected a real city to knock down")
+
+        // Demolish every power plant and generator, then walk away.
+        for y in 0 ..< controller.map.height {
+            for x in 0 ..< controller.map.width {
+                let position = GridPosition(x: x, y: y)
+                let zone = controller.map[position].zone
+                if zone == .powerPlant || zone == .generator {
+                    controller.bulldoze(at: position)
+                }
+            }
+        }
+
+        var after10 = 0
+        for tick in 1 ... 120 {
+            controller.advanceSimulation()
+            if tick == 10 { after10 = controller.population }
+        }
+        let after120 = controller.population
+
+        print(String(format: "\nlosing power: %d settled → %d after 10 ticks → %d after 120 (%.0f%% lost)",
+                     settled, after10, after120,
+                     (1 - Double(after120) / Double(settled)) * 100))
+
+        XCTAssertLessThan(
+            after120, Int(Double(settled) * 0.9),
+            "a city stripped of power did not decline — losing a utility should cost something"
+        )
+        XCTAssertGreaterThan(
+            after10, Int(Double(settled) * 0.9),
+            "the city collapsed within ten ticks — decline should be gradual enough to notice and fix"
+        )
+    }
+
     /// Prints the trajectory, and asserts the thing the rest of the plan has to
     /// break: an unattended city does not meaningfully decline.
     ///
