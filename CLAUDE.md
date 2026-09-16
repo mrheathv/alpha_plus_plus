@@ -1243,6 +1243,53 @@ The rest:
   "POPULA…", "$1,48…". A readout that hides its own number is worse than no
   readout.
 
+## Making it a city you manage (in progress)
+
+The design playtest says the game is in good shape: a 33x population spread
+between strategies, real tradeoffs, reachable bankruptcy. It measures outcomes
+at the *end* of a run, so it cannot see what a play session makes obvious — the
+city reaches 90% of its final population by **tick 7** and 100% by **tick 16**,
+then sits still for the remaining 1,484. That is a puzzle you solve once, not a
+city you manage.
+
+### Phase 1 (done): where the stillness actually is
+
+Before adding pressure, `PlateauDiagnosticTests` asks what is *different* about
+a city at tick 20, 200 and 1500. Full profile, 64×64:
+
+| tick | pop | density | pollution | congestion | land value | damaged | demand R |
+|---|---|---|---|---|---|---|---|
+| 20 | 3384 | 1866 | 0.509 | 0.129 | 0.596 | 19 | −0.33 |
+| 200 | 3340 | 1793 | 0.492 | 0.129 | 0.601 | 80 | −0.50 |
+| 1500 | 3320 | 1767 | 0.486 | 0.120 | 0.604 | 81 | −0.55 |
+
+Post-plateau spread across 1,450 ticks: **population 72, pollution 0.016,
+congestion 0.011, land value 0.006**. The city is in a near-perfect steady
+state, and retains 98% of peak population with no player input at all.
+
+**Three findings that change the plan:**
+
+- **Pollution, traffic and crime cannot cause decline — only stall growth.**
+  Land value is checked as `bestLandValue >= requiredLandValue(toReach:
+  nextLevel)`, a guard on the *next* level. A tier-5 tower is already at max
+  density, so that check never runs again: you can ruin a district completely
+  and nothing moves out. Tax is the exception, because it works through
+  city-wide demand, which *is* bidirectional — which is exactly why tax is the
+  one lever that already feels like management.
+- **Demand is drifting toward abandonment and never arrives.** Residential
+  demand falls steadily from −0.22 to −0.55 over the run, and
+  `abandonmentDemand` is −0.75. The mechanism that would empty an oversupplied
+  city is real, wired up, and permanently just out of reach.
+- **About 17% of the city is rubble at all times, and it does not matter.**
+  Damaged lots climb from 6 to ~80 of roughly 460 and stabilise there — the
+  equilibrium between hazard strikes and `unassistedRepairChancePerTick`. A
+  sixth of the city is permanently broken, nothing gets worse, and the player
+  has no reason to notice.
+
+The tripwire this leaves behind asserts that an unattended city retains >90% of
+peak population — that is, it asserts the *current* behaviour so it fails the
+moment decline lands. It is meant to be updated, not deleted.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear
