@@ -66,7 +66,10 @@ struct TileRenderer {
     /// (or even the larger `MapSize` options) that it isn't worth the extra
     /// bookkeeping a real diff would need.
     func syncPips(on node: SKSpriteNode, count: Int) {
+        let key = "\(count)"
+        guard !isUpToDate(node, name: Self.pipNodeName, key: key) else { return }
         node.children.filter { $0.name == Self.pipNodeName }.forEach { $0.removeFromParent() }
+        markUpToDate(node, name: Self.pipNodeName, key: key)
         guard count > 0 else { return }
 
         let pipRadius = layout.spriteSize.width * 0.06
@@ -91,17 +94,48 @@ struct TileRenderer {
     /// count would just be visual noise on top of a different data channel.
     func clearPips(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.pipNodeName }.forEach { $0.removeFromParent() }
+        invalidate(node, name: Self.pipNodeName)
     }
 
     // MARK: - Zone icons
 
     private static let iconNodeName = "zoneIcon"
 
-    /// The (zone, density) a node's current icon was last built for,
-    /// stashed in `SKNode.userData` so `syncIcon` can tell "nothing
-    /// actually changed" apart from "this tile grew/decayed/re-zoned" —
-    /// see `syncIcon`'s own doc comment for why that distinction matters
-    /// enough to track.
+    /// Has the decoration named `name` already been built for `key`?
+    ///
+    /// **Every `sync…` in this file used to tear its nodes down and rebuild
+    /// them on every call**, and `GameScene.refreshAll()` calls them for every
+    /// tile on every simulation tick. On a built-out 64×64 map that meant
+    /// thousands of `SKShapeNode`s — several of them with `glowWidth`, which
+    /// forces its own render pass — being destroyed and recreated once a
+    /// second. It read to a player as the map blinking.
+    ///
+    /// `syncIcon` was given a cache key when exactly this was diagnosed for
+    /// building icons; the mistake was fixing the one symptom rather than the
+    /// pattern. Every decoration now caches on whatever actually determines
+    /// its appearance, so a tick that changes nothing touches nothing.
+    ///
+    /// Stashed in `SKNode.userData` rather than a dictionary on this renderer,
+    /// so the cache cannot outlive the node it describes.
+    private func isUpToDate(_ node: SKSpriteNode, name: String, key: String) -> Bool {
+        node.userData?[name] as? String == key
+    }
+
+    private func markUpToDate(_ node: SKSpriteNode, name: String, key: String) {
+        if node.userData == nil { node.userData = NSMutableDictionary() }
+        node.userData?[name] = key
+    }
+
+    /// Forgets the cached key, so the next `sync…` rebuilds from scratch.
+    /// Every `clear…` has to call this or a cleared decoration would never
+    /// come back — the cache would still claim it was up to date.
+    private func invalidate(_ node: SKSpriteNode, name: String) {
+        node.userData?.removeObject(forKey: name)
+    }
+
+    /// The (zone, density) a node's current icon was last built for — the
+    /// first of these caches, and the one the rest were modelled on. See
+    /// `syncIcon` for why that distinction matters enough to track.
     private static let iconCacheKey = "iconCacheKey"
 
     /// Rebuilds a tile's icon *only* when its (zone, density) actually
@@ -238,7 +272,10 @@ struct TileRenderer {
     /// glow. `syncPipeMarker` is their equivalent, drawn only in the
     /// Water overlay instead of always-on.
     func syncNetworkGlow(on node: SKSpriteNode, zone: ZoneType) {
+        let key = zone.rawValue
+        guard !isUpToDate(node, name: Self.glowNodeName, key: key) else { return }
         node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+        markUpToDate(node, name: Self.glowNodeName, key: key)
         guard zone == .road || zone == .highway else { return }
 
         let glow = SKSpriteNode(texture: Self.glowTexture)
@@ -257,6 +294,7 @@ struct TileRenderer {
     /// when `GameScene` draws an overlay instead of normal zone colors.
     func clearNetworkGlow(on node: SKSpriteNode) {
         node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+        invalidate(node, name: Self.glowNodeName)
     }
 
     // MARK: - Lane line (roads/highways, Normal view only)
@@ -289,7 +327,10 @@ struct TileRenderer {
     /// and passes it along instead of this file taking on a `Simulation/`
     /// dependency of its own.
     func syncLaneLine(on node: SKSpriteNode, zone: ZoneType, connections: Traffic.RoadConnections) {
+        let key = "\(zone.rawValue)|\(connections.north)\(connections.south)\(connections.east)\(connections.west)"
+        guard !isUpToDate(node, name: Self.laneLineNodeName, key: key) else { return }
         node.childNode(withName: Self.laneLineNodeName)?.removeFromParent()
+        markUpToDate(node, name: Self.laneLineNodeName, key: key)
         guard zone == .road || zone == .highway else { return }
 
         let thickness: CGFloat = zone == .highway ? 5 : 3
@@ -322,6 +363,7 @@ struct TileRenderer {
     /// a tile stops being a road/highway at all.
     func clearLaneLine(on node: SKSpriteNode) {
         node.childNode(withName: Self.laneLineNodeName)?.removeFromParent()
+        invalidate(node, name: Self.laneLineNodeName)
     }
 
     // MARK: - Pipe marker (Water overlay only)
@@ -338,7 +380,10 @@ struct TileRenderer {
     /// correct result for something buried underground, not just a
     /// rendering shortcut.
     func syncPipeMarker(on node: SKSpriteNode, hasPipe: Bool) {
+        let key = "\(hasPipe)"
+        guard !isUpToDate(node, name: Self.pipeMarkerNodeName, key: key) else { return }
         node.childNode(withName: Self.pipeMarkerNodeName)?.removeFromParent()
+        markUpToDate(node, name: Self.pipeMarkerNodeName, key: key)
         guard hasPipe else { return }
 
         let marker = SKShapeNode(rectOf: CGSize(width: layout.spriteSize.width * 0.3, height: layout.spriteSize.height * 0.3))
@@ -353,6 +398,7 @@ struct TileRenderer {
     /// `clearNetworkGlow` for every overlay except Water.
     func clearPipeMarker(on node: SKSpriteNode) {
         node.childNode(withName: Self.pipeMarkerNodeName)?.removeFromParent()
+        invalidate(node, name: Self.pipeMarkerNodeName)
     }
 
     // MARK: - Power line marker (Power overlay only)
@@ -366,7 +412,10 @@ struct TileRenderer {
     /// from one another if either overlay ever needed to show both at
     /// once, not just via color.
     func syncPowerLineMarker(on node: SKSpriteNode, hasPowerLine: Bool) {
+        let key = "\(hasPowerLine)"
+        guard !isUpToDate(node, name: Self.powerLineMarkerNodeName, key: key) else { return }
         node.childNode(withName: Self.powerLineMarkerNodeName)?.removeFromParent()
+        markUpToDate(node, name: Self.powerLineMarkerNodeName, key: key)
         guard hasPowerLine else { return }
 
         let side = layout.spriteSize.width * 0.22
@@ -390,6 +439,7 @@ struct TileRenderer {
     /// except Power.
     func clearPowerLineMarker(on node: SKSpriteNode) {
         node.childNode(withName: Self.powerLineMarkerNodeName)?.removeFromParent()
+        invalidate(node, name: Self.powerLineMarkerNodeName)
     }
 
     // MARK: - Utility warning (Normal view only)
@@ -413,7 +463,10 @@ struct TileRenderer {
     /// right to need water yet, so warning it here would be a false alarm
     /// for a building that isn't actually stuck on anything.
     func syncUtilityWarning(on node: SKSpriteNode, density: Int, hasWaterSupply: Bool, hasPowerSupply: Bool) {
+        let key = "\(density)|\(hasWaterSupply)|\(hasPowerSupply)"
+        guard !isUpToDate(node, name: Self.utilityWarningNodeName, key: key) else { return }
         node.children.filter { $0.name == Self.utilityWarningNodeName }.forEach { $0.removeFromParent() }
+        markUpToDate(node, name: Self.utilityWarningNodeName, key: key)
 
         let missingWater = density >= CitySimulator.waterRequiredFromLevel - 1 && !hasWaterSupply
         let missingPower = density >= CitySimulator.powerRequiredFromLevel - 1 && !hasPowerSupply
@@ -438,6 +491,7 @@ struct TileRenderer {
     /// small corner badge on top would just be redundant there.
     func clearUtilityWarning(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.utilityWarningNodeName }.forEach { $0.removeFromParent() }
+        invalidate(node, name: Self.utilityWarningNodeName)
     }
 
     /// One warning badge: a dark triangle outlined in `color`, with a
@@ -494,7 +548,10 @@ struct TileRenderer {
     /// on, so the marker also says *what to build*: a fire-red badge means put
     /// a fire station in reach, a police-blue one means a police station.
     func syncDamageMarker(on node: SKSpriteNode, damagedBy: ZoneType?) {
+        let key = damagedBy?.rawValue ?? "none"
+        guard !isUpToDate(node, name: Self.damageNodeName, key: key) else { return }
         node.children.filter { $0.name == Self.damageNodeName }.forEach { $0.removeFromParent() }
+        markUpToDate(node, name: Self.damageNodeName, key: key)
         guard let service = damagedBy else { return }
 
         let container = SKNode()
@@ -535,6 +592,7 @@ struct TileRenderer {
     /// `GameScene` draws an overlay instead of Normal view.
     func clearDamageMarker(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.damageNodeName }.forEach { $0.removeFromParent() }
+        invalidate(node, name: Self.damageNodeName)
     }
 
     private static let buildingShadowNodeName = "buildingShadow"
@@ -566,7 +624,10 @@ struct TileRenderer {
         let cacheKey = "\(zone.rawValue)-\(density)"
         if node.userData?[Self.shadowCacheKey] as? String == cacheKey { return }
 
+        let key = "\(zone.rawValue)|\(density)|\(footprintSize)|\(seed.x),\(seed.y)"
+        guard !isUpToDate(node, name: Self.buildingShadowNodeName, key: key) else { return }
         node.children.filter { $0.name == Self.buildingShadowNodeName }.forEach { $0.removeFromParent() }
+        markUpToDate(node, name: Self.buildingShadowNodeName, key: key)
         if let icon = ZoneIcon.makeNode(for: zone, density: density, seed: seed) {
             icon.name = Self.buildingShadowNodeName
             icon.alpha = Self.shadowAlpha
@@ -585,5 +646,6 @@ struct TileRenderer {
     func clearBuildingShadow(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.buildingShadowNodeName }.forEach { $0.removeFromParent() }
         node.userData?.removeObject(forKey: Self.shadowCacheKey)
+        invalidate(node, name: Self.buildingShadowNodeName)
     }
 }

@@ -173,6 +173,37 @@ TEST_RUNNER_PLAYTEST_FULL=1 xcodebuild -project AlphaPlusPlus.xcodeproj \
 `@testable import` requires it. `TEST_RUNNER_` is required because xcodebuild
 forwards only variables carrying that prefix, which it strips.
 
+### Rendering cost: why the map blinked
+
+Two separate causes, both "SpriteKit nodes rebuilt when nothing changed."
+
+**Every placement rebuilt the entire map.** Placing a multi-tile building
+called `rebuildEntireGrid()`, which tears down and recreates every sprite —
+measured at **202 ms** for a built-out 64×64 city in a Debug build, on the main
+thread, in response to one click. Every growable zone is 2×2, so that was every
+zone placement. `GameScene.rebuildRegion(around:)` does the same work over a
+±4-tile window instead: **4.9 ms**, a 40x cut.
+
+A full rebuild was used because a footprint placement changes which tiles are
+*anchors* — four single tiles becoming one 2×2 building means three sprites go
+and one appears, which a per-tile refresh cannot express. That is still true,
+but only locally, so a bounded window is both correct and cheap.
+`GameSceneRebuildTests` pins that by asserting a region rebuild leaves exactly
+the sprite set a full rebuild would, including the awkward case of a building
+whose anchor sits outside the footprint that was clicked.
+
+**Every decoration rebuilt on every tick.** `TileRenderer`'s `sync…` methods
+tore their nodes down and rebuilt them on every call, and `refreshAll()` calls
+them for every tile every tick — thousands of `SKShapeNode`s, several with
+`glowWidth`, destroyed and recreated once a second. `syncIcon` had been given a
+cache key when this was first diagnosed for building icons; the mistake was
+fixing the one symptom rather than the pattern. Every decoration now caches on
+whatever determines its appearance (`isUpToDate`/`markUpToDate`/`invalidate`),
+and every `clear…` invalidates.
+
+Worth keeping in mind for anything drawn per tile: the question is not "is this
+node cheap to make" but "how many times a second is it being made."
+
 ### Simulation cost, measured
 
 `HarnessTimingTests` (opt-in, same flag) measures per-tick cost on a fully

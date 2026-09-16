@@ -393,7 +393,7 @@ final class GameScene: SKScene {
             if map[position].zone.footprintSize > 1 {
                 guard lastPaintPosition == nil else { return }
                 controller.bulldoze(at: position)
-                rebuildEntireGrid()
+                rebuildRegion(around: position)
                 lastPaintPosition = position
                 return
             }
@@ -415,7 +415,7 @@ final class GameScene: SKScene {
         if involvesAFootprint(at: position, with: controller.selectedTool) {
             guard lastPaintPosition == nil else { return } // ignore drags past the initial click
             let outcome = controller.place(at: position)
-            rebuildEntireGrid()
+            rebuildRegion(around: position)
             if outcome == .insufficientFunds { flashInsufficientFunds(at: position) }
             if outcome == .blocked { flashBlockedPlacement(at: position) }
             lastPaintPosition = position
@@ -472,7 +472,7 @@ final class GameScene: SKScene {
             // per click rather than something to drag across.
             guard lastBulldozePosition == nil else { return }
             controller.bulldoze(at: position)
-            rebuildEntireGrid()
+            rebuildRegion(around: position)
             lastBulldozePosition = position
             return
         }
@@ -687,11 +687,66 @@ final class GameScene: SKScene {
     /// actually belongs, since `selectedMapSize` may have changed and the
     /// old camera position might not even be valid any more — calls
     /// `centerCameraOnMap()` itself, explicitly, right after this.
+    /// Read-only views of the scene's sprite bookkeeping, so
+    /// `GameSceneRebuildTests` can check that a bounded rebuild leaves exactly
+    /// the state a full one would. Exposed rather than made internal wholesale
+    /// so the mutable bookkeeping itself stays private.
+    var tileNodesForTesting: [GridPosition: SKSpriteNode] { tileNodes }
+    var tileLayerChildCountForTesting: Int { tileLayer.children.count }
+
     func rebuildEntireGrid() {
         tileLayer.removeAllChildren()
         tileNodes.removeAll()
         buildTileNodes()
         positionSunGlow()
+    }
+
+    /// How far around a placement `rebuildRegion(around:)` reaches.
+    ///
+    /// A placement can clear a building whose *anchor* sits outside the
+    /// footprint that was clicked — a 3×3 plant's anchor is up to two tiles
+    /// away in each axis from any cell it covers, and the new building can be
+    /// 3×3 as well. Four tiles covers both with a margin, and is still two
+    /// orders of magnitude fewer nodes than the whole map.
+    private static let rebuildRadius = 4
+
+    /// Rebuilds the sprites around `position` rather than the whole map.
+    ///
+    /// **This is the fix for the map visibly blinking on every click.**
+    /// Placing a multi-tile building used to call `rebuildEntireGrid()`, which
+    /// tears down and recreates every sprite on the map — measured at 202 ms
+    /// for a built-out 64×64 city in a Debug build, on the main thread, in
+    /// response to a single click. Every growable zone is 2×2, so that was
+    /// *every* zone placement.
+    ///
+    /// A full rebuild was used because a footprint placement changes which
+    /// tiles are anchors at all — four single tiles becoming one 2×2 building
+    /// means three sprites have to go and one has to appear, which a per-tile
+    /// `refresh` cannot express. That is still true, but it is only true
+    /// *locally*: nothing outside the clicked neighbourhood can change anchor
+    /// status, so the same work over a small window is correct and bounded.
+    func rebuildRegion(around position: GridPosition) {
+        let radius = Self.rebuildRadius
+        for dy in -radius ... radius {
+            for dx in -radius ... radius {
+                let cell = GridPosition(x: position.x + dx, y: position.y + dy)
+                guard map.contains(cell) else { continue }
+                if let existing = tileNodes.removeValue(forKey: cell) {
+                    existing.removeFromParent()
+                }
+            }
+        }
+        for dy in -radius ... radius {
+            for dx in -radius ... radius {
+                let cell = GridPosition(x: position.x + dx, y: position.y + dy)
+                guard map.contains(cell), map[cell].isBuildingAnchor else { continue }
+                let node = tileRenderer.makeNode(for: map[cell])
+                tileLayer.addChild(node)
+                tileNodes[cell] = node
+                syncTrafficAnimation(at: cell)
+                syncLaneLine(at: cell)
+            }
+        }
     }
 
     /// Point the camera at the middle of the map. The camera's position is
