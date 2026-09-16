@@ -9,6 +9,33 @@ import XCTest
 @MainActor
 final class GameSceneRebuildTests: XCTestCase {
 
+    /// A tile's node must sit exactly where the projection says that tile is.
+    ///
+    /// **Why this is worth a test of its own.** Clicks are converted with
+    /// `event.location(in: self)` — *scene* coordinates — and then handed to
+    /// `Isometric.position(for:in:)`, which assumes the projection's origin is
+    /// the scene's origin. That holds only because `tileLayer` and the effect
+    /// node above it both sit at zero. Give either one a position — to inset
+    /// the map, say, or to centre it — and every click silently lands on the
+    /// wrong tile while the map still looks perfect. Nothing else in the suite
+    /// would notice.
+    func testTileNodesSitWhereTheProjectionSaysTheyDo() {
+        let (scene, _) = makeScene()
+        let projection = Isometric()
+        var checked = 0
+
+        for (position, node) in scene.tileNodesForTesting {
+            // Where the node actually is, in scene coordinates.
+            let inScene = node.parent.map { $0.convert(node.position, to: scene) } ?? node.position
+            XCTAssertEqual(inScene.x, projection.project(CGFloat(position.x), CGFloat(position.y), 0).x,
+                           accuracy: 0.01, "tile (\(position.x), \(position.y)) is not where it is projected")
+            XCTAssertEqual(inScene.y, projection.project(CGFloat(position.x), CGFloat(position.y), 0).y,
+                           accuracy: 0.01, "tile (\(position.x), \(position.y)) is not where it is projected")
+            checked += 1
+        }
+        XCTAssertGreaterThan(checked, 20, "expected a populated scene to check against")
+    }
+
     private func makeScene(size: Int = 24) -> (GameScene, GameController) {
         let spec = PlaytestHarness.CitySpec(size: size)
         let controller = GameController(

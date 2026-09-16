@@ -127,6 +127,13 @@ struct GameView: View {
         zoningRow
             .padding(.horizontal, RetroMetrics.gutter)
             .padding(.vertical, 8)
+            // Span the window. Without this the row is only as wide as its
+            // contents, so its background stops where the last chip does and
+            // the window's own colour shows through either side — a white band
+            // in a game that is otherwise entirely night. The old row got this
+            // for free from a trailing `Spacer`, which went when the chips
+            // moved into `ViewThatFits`.
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(RetroUITheme.background)
             .overlay(alignment: .bottom) { neonSeam }
     }
@@ -286,19 +293,23 @@ struct GameView: View {
 
             Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
 
-            // **Scrolls rather than overflows.** A squeezed `HStack` shrinks
-            // the last things it lays out first, so the row's rightmost tools
-            // were the ones that vanished — and they are the ones still
-            // locked, which is to say the ones a player most needs to see to
-            // know what they are working toward. `.fixedSize()` on the chips
-            // stops them compressing; this stops the row clipping them.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: RetroMetrics.gutter) {
-                    ForEach(toolCategory.entries) { entry in
-                        chip(for: entry)
-                    }
-                }
-                .padding(.vertical, 1)
+            // **Lays out flat when it fits, scrolls when it does not.**
+            //
+            // A squeezed `HStack` shrinks the last things it lays out first, so
+            // the row's rightmost tools were the ones that vanished — and those
+            // are the *locked* ones, which is to say exactly the ones a player
+            // needs to see to know what they are working toward.
+            //
+            // A plain `ScrollView` fixes that and costs something that turned
+            // out to matter more: `ImageRenderer` cannot measure scrolling
+            // content, so the tool row — the most important row in the UI —
+            // rendered completely empty in its own contact sheet. `ViewThatFits`
+            // gets both: the flat row when there is room, which is the common
+            // case and the one that renders, and the scrolling row only when
+            // the window is genuinely too narrow.
+            ViewThatFits(in: .horizontal) {
+                toolChips
+                ScrollView(.horizontal, showsIndicators: false) { toolChips }
             }
 
         }
@@ -309,6 +320,15 @@ struct GameView: View {
                 toolCategory = category
             }
         }
+    }
+
+    private var toolChips: some View {
+        HStack(spacing: RetroMetrics.gutter) {
+            ForEach(toolCategory.entries) { entry in
+                chip(for: entry)
+            }
+        }
+        .padding(.vertical, 1)
     }
 
     /// One toolbar entry, whatever kind it is.
@@ -421,12 +441,6 @@ struct GameView: View {
     private func statTile(label: String, value: String, detail: String? = nil,
                           history: [Int], color: Color) -> some View {
         RetroStatTile(label: label, value: value, detail: detail, history: history, accent: color)
-    }
-
-    private func toolLabel(for zone: ZoneType) -> String {
-        let name = RenderPalette.displayName(for: zone)
-        guard zone.placementCost > 0 else { return name }
-        return "\(name) $\(zone.placementCost)"
     }
 
 }

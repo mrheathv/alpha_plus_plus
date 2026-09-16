@@ -21,107 +21,19 @@ final class RetroUIContactSheetTests: XCTestCase {
         try render(name: "retro-ui", content: componentSheet)
     }
 
-    /// The cockpit as the player sees it: tools above, dashboard below.
+    /// The **real** `GameView`, not a reconstruction of it.
     ///
-    /// Assembled from the same components the live view uses, so this is a
-    /// picture of the real chrome rather than a mock of it — which is what
-    /// makes it worth looking at before deciding anything.
-    func testRenderCockpit() throws {
-        let cockpit = VStack(spacing: 0) {
-            HStack(spacing: RetroMetrics.gutter) {
-                RetroToolChip(title: "Bulldoze", accent: .red, action: {})
-                Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
-                HStack(spacing: 4) {
-                    ForEach(ToolCategory.allCases) { category in
-                        RetroBadge(text: category.displayName,
-                                   accent: RetroUITheme.primaryAccent,
-                                   isUrgent: category == .utilities)
-                    }
-                }
-                Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
-                ForEach(ToolCategory.utilities.entries) { entry in
-                    RetroToolChip(title: entry.title, cost: entry.cost,
-                                  accent: RetroUITheme.accent(for: entry.accentZone),
-                                  isSelected: entry.zone == .waterPump,
-                                  lockedBy: entry.zone == .powerPlant ? "184 more residents" : nil,
-                                  action: {})
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, RetroMetrics.gutter)
-            .padding(.vertical, 8)
-
-            Rectangle().fill(RetroUITheme.panel).frame(height: 150)
-                .overlay(Text("— map —").foregroundStyle(RetroUITheme.textSecondary))
-                .overlay(alignment: .bottom) {
-                    LinearGradient(
-                        colors: [.clear, Color(nsColor: RenderPalette.sunGlow).opacity(0.16)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    .frame(height: 46)
-                }
-
-            HStack(alignment: .top, spacing: RetroMetrics.gutter) {
-                RetroPanel(title: "Simulation", accent: RetroUITheme.primaryAccent) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button("Pause") {}.buttonStyle(RetroButtonStyle(accent: .orange, isSelected: true))
-                        HStack(spacing: 4) {
-                            ForEach(["Normal", "Land Value", "Traffic"], id: \.self) {
-                                RetroBadge(text: $0, accent: RetroUITheme.primaryAccent, isUrgent: $0 == "Normal")
-                            }
-                        }
-                    }
-                }
-                RetroPanel(title: "City", accent: RetroUITheme.primaryAccent) {
-                    HStack(alignment: .top, spacing: 16) {
-                        RetroStatTile(label: "Population", value: "3,984",
-                                      history: [10, 220, 900, 2600, 3984], accent: .green)
-                        RetroStatTile(label: "Jobs", value: "2,140",
-                                      history: [4, 140, 700, 1800, 2140], accent: .cyan)
-                        RetroStatTile(label: "Treasury", value: "$1,482,910", detail: "+$1,798/tick",
-                                      history: [100, 900, 1400, 1300, 1482], accent: .yellow,
-                                      minimumWidth: 132)
-                    }
-                }
-                RetroPanel(title: "Utilities", accent: RetroUITheme.accent(for: .waterTower)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        RetroMeter(label: "Water", fill: 0.6, detail: "120/200",
-                                   accent: RetroUITheme.accent(for: .waterTower))
-                        RetroMeter(label: "Power", fill: 1.3, detail: "520/400",
-                                   accent: RetroUITheme.accent(for: .powerPlant))
-                    }
-                    .frame(width: 104)
-                }
-                RetroPanel(title: "Demand", accent: RetroUITheme.secondaryAccent) {
-                    HStack(spacing: 8) {
-                        DemandBar(label: "R", value: 0.8)
-                        DemandBar(label: "C", value: 0.2)
-                        DemandBar(label: "I", value: -0.6)
-                    }
-                }
-                RetroPanel(title: "Alerts", accent: .orange) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        RetroBadge(text: "⚠ Outage — grid unpowered", accent: .red, isUrgent: true)
-                        RetroBadge(text: "Next: Subway at 700", accent: RetroUITheme.primaryAccent)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(RetroMetrics.gutter)
-        }
-        .frame(width: 1180)
-        .background(RetroUITheme.background)
-
-        try render(name: "retro-cockpit", content: cockpit)
-    }
-
-    /// City Hall, rendered from the real panel with a real controller.
-    func testRenderCityPanel() throws {
+    /// The cockpit render assembles the same components in the same order, but
+    /// it is still a second copy of the layout — and a second copy can drift
+    /// from the first without either one failing. This renders the view the app
+    /// actually shows. The map itself comes out blank (an `NSViewRepresentable`
+    /// has no window here), which is fine: the map has its own renders, and
+    /// what this is checking is the chrome around it.
+    func testRenderLiveGameView() throws {
         let controller = GameController()
-        controller.taxRate = 1.25
-        _ = controller.issueBond()
-        controller.setOrdinance(\.fireInspections, active: true)
-        try render(name: "retro-city-hall", content: CityPanel(controller: controller) {})
+        controller.selectTool(.commercial)
+        try render(name: "retro-live", content:
+            GameView(controller: controller).frame(width: 1400, height: 760))
     }
 
     private var componentSheet: some View {

@@ -1243,6 +1243,35 @@ The rest:
   "POPULA…", "$1,48…". A readout that hides its own number is worse than no
   readout.
 
+### QA pass: what rendering the *real* view found
+
+The cockpit render assembled the same components in the same order as
+`GameView`, which is close but is still a second copy of the layout — and a
+second copy can drift from the first without either failing. Rendering the
+actual `GameView` found two bugs in a minute:
+
+- **The tool row was empty.** `ImageRenderer` cannot measure `ScrollView`
+  content — the same trap that had already blanked City Hall — so the most
+  important row in the UI rendered as nothing. `ViewThatFits` gets both
+  properties: the flat row when there is room, which is the common case and the
+  one that renders, and a scrolling row only when the window is genuinely too
+  narrow.
+- **White bands either side of the tool rail.** Moving the chips into
+  `ViewThatFits` dropped a trailing `Spacer`, so the row was only as wide as its
+  contents and its background stopped where the last chip did — the window's own
+  colour showing through, in a game that is otherwise entirely night.
+
+The mock cockpit render is gone; there is no reason to keep a reconstruction
+once the real thing can be rendered, and the reconstruction had already drifted
+(it ordered the dashboard's panels differently).
+
+Also pinned: **tile nodes sit exactly where the projection says they do**.
+Clicks convert through `event.location(in: self)` — *scene* coordinates — and
+`Isometric.position(for:in:)` assumes the projection's origin is the scene's
+origin. That holds only because `tileLayer` and the effect node above it both
+sit at zero. Give either a position, to inset or centre the map, and every click
+silently lands on the wrong tile while the map still looks perfect.
+
 ### The UI gets a render, like the art does
 
 `RetroUIContactSheetTests` renders the components to a PNG through
