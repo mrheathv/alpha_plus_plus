@@ -165,6 +165,18 @@ struct GameView: View {
                 toolButton(for: zone)
             }
 
+            // Pipes and power lines are not `ZoneType`s — they are separate
+            // underground/overhead layers (see `Tile.hasPipe`) edited by
+            // clicking while their overlay is up. That made them completely
+            // unreachable once the overlay picker moved to a menu: nothing on
+            // screen said they existed. Presenting them here as two more tools
+            // in the group they belong to is what a player expects, and
+            // selecting one just switches to the overlay that enables it.
+            if toolCategory == .utilities {
+                networkToolButton(label: "Pipe", overlay: .water)
+                networkToolButton(label: "Power Line", overlay: .power)
+            }
+
             Spacer()
         }
         // Keep the picker honest when something else changes the tool — a
@@ -176,12 +188,27 @@ struct GameView: View {
         }
     }
 
+    /// A pipe or power-line tool: selecting it switches to the overlay that
+    /// makes clicks lay that network, and highlights while that overlay is up.
+    private func networkToolButton(label: String, overlay: OverlayMode) -> some View {
+        Button(label) {
+            controller.overlayMode = (controller.overlayMode == overlay) ? .none : overlay
+        }
+        .buttonStyle(RetroButtonStyle(
+            accent: RetroUITheme.accent(for: overlay == .water ? .waterTower : .powerPlant),
+            isSelected: controller.overlayMode == overlay
+        ))
+        .help("\(label) — click the map to lay, right-click to remove")
+    }
+
     /// One tool button, disabled and dimmed with its requirement when the city
     /// has not earned it yet.
     private func toolButton(for zone: ZoneType) -> some View {
         let unlocked = controller.isUnlocked(zone)
         return Button(toolLabel(for: zone)) {
-            controller.selectedTool = zone
+            // `selectTool` rather than assigning directly: picking a zone also
+            // leaves a network overlay, so the two are mutually exclusive.
+            controller.selectTool(zone)
         }
         .buttonStyle(RetroButtonStyle(
             accent: RetroUITheme.accent(for: zone),
@@ -211,6 +238,12 @@ struct GameView: View {
                 controller.isRunning.toggle()
             }
             .buttonStyle(RetroButtonStyle(accent: controller.isRunning ? .orange : .green, isSelected: true))
+
+            RetroSegmentedPicker(
+                options: OverlayMode.allCases,
+                label: \.displayName,
+                selection: $controller.overlayMode
+            )
 
             overlayHint
 

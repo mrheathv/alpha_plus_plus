@@ -590,6 +590,18 @@ still did nothing, because `computeSupply` returns early when a city has no
 pipes *at all* — and that early return predates the radius. Direct coverage is
 now computed before every guard.
 
+**The toolbar does everything on its own.** Moving the settings to menus went
+too far: the overlay picker went with them, and pipes and power lines are laid
+by clicking while their overlay is up — so both became unreachable without the
+menu bar, with nothing on screen saying they existed. The overlay picker is back
+in the status row, and Pipe and Power Line now appear as tools in the Water &
+Power group, which is where a player looks for them anyway. The menus stay as a
+second route, not the only one.
+
+Picking a zone tool leaves a network overlay (`GameController.selectTool`), so
+the two are mutually exclusive — otherwise choosing Residential with the Water
+overlay up leaves you in an invisible mode where clicks lay pipe instead.
+
 **The tool row is grouped.** Seventeen tools in one row had stopped fitting;
 `ToolCategory` splits them into Zones, Transport, Water & Power and Services,
 with Bulldoze always visible outside the groups (needing to change category

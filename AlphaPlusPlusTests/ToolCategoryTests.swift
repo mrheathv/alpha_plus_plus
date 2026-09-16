@@ -59,3 +59,61 @@ final class ToolCategoryTests: XCTestCase {
         }
     }
 }
+
+/// The toolbar has to be able to do everything on its own — reaching for the
+/// menu bar to lay a pipe is not a workflow.
+@MainActor
+final class NetworkToolTests: XCTestCase {
+
+    /// Pipes and power lines are laid by clicking while their overlay is up,
+    /// so the overlay *is* the tool. Picking an ordinary zone has to leave it,
+    /// or the player is in an invisible mode where clicks do something other
+    /// than what the highlighted tool says.
+    func testPickingAZoneToolLeavesTheWaterOverlay() {
+        let controller = GameController()
+        controller.overlayMode = .water
+
+        controller.selectTool(.residential)
+
+        XCTAssertEqual(controller.selectedTool, .residential)
+        XCTAssertEqual(controller.overlayMode, OverlayMode.none)
+    }
+
+    func testPickingAZoneToolLeavesThePowerOverlay() {
+        let controller = GameController()
+        controller.overlayMode = .power
+
+        controller.selectTool(.road)
+
+        XCTAssertEqual(controller.overlayMode, OverlayMode.none)
+    }
+
+    /// A view-only overlay is not a mode that changes what a click does, so
+    /// picking a tool while it is up must leave it alone.
+    func testPickingAToolKeepsAViewOnlyOverlay() {
+        for overlay in [OverlayMode.landValue, .traffic, .pollution] {
+            let controller = GameController()
+            controller.overlayMode = overlay
+
+            controller.selectTool(.commercial)
+
+            XCTAssertEqual(
+                controller.overlayMode, overlay,
+                "\(overlay.displayName) is a view overlay and should survive picking a tool"
+            )
+        }
+    }
+
+    /// Every overlay the game has must be reachable from the in-game picker,
+    /// which renders `OverlayMode.allCases` — this guards against a new
+    /// overlay being added to the enum and shown only in the menu bar.
+    func testEveryOverlayIsOfferedInGame() {
+        XCTAssertTrue(OverlayMode.allCases.contains(.none))
+        XCTAssertTrue(OverlayMode.allCases.contains(.water))
+        XCTAssertTrue(OverlayMode.allCases.contains(.power))
+        XCTAssertGreaterThanOrEqual(OverlayMode.allCases.count, 6)
+        for mode in OverlayMode.allCases {
+            XCTAssertFalse(mode.displayName.isEmpty, "\(mode) has no label to show on a button")
+        }
+    }
+}

@@ -439,6 +439,25 @@ final class GameController: ObservableObject {
         isPowerOutageActive = false
     }
 
+    /// Picks a zoning tool, dropping out of a network overlay if one is up.
+    ///
+    /// Clicking the map lays pipe or power line whenever the Water or Power
+    /// overlay is showing, whatever `selectedTool` happens to be. So choosing
+    /// an ordinary zone while one of those is up would leave the player in an
+    /// invisible mode where their clicks did something other than what the
+    /// highlighted tool says. Leaving the overlay keeps "what does a click do"
+    /// answerable by looking at the toolbar.
+    ///
+    /// Lives here rather than in `GameView` because it is a rule about what
+    /// the game does, not about how the toolbar draws — and a rule in a view
+    /// is a rule no test can reach.
+    func selectTool(_ zone: ZoneType) {
+        selectedTool = zone
+        if overlayMode == .water || overlayMode == .power {
+            overlayMode = .none
+        }
+    }
+
     /// Bumped when something outside the view asks for a single simulation
     /// step — the Simulation menu's Advance command.
     ///
