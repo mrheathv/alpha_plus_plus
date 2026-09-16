@@ -109,6 +109,27 @@ final class ZoneStreetscapeTests: XCTestCase {
         return lots
     }
 
+    private static func roadPositions() -> [GridPosition] {
+        var positions: [GridPosition] = []
+        for y in 0 ..< tilesHigh {
+            for x in 0 ..< tilesWide where isRoad(x, y) {
+                positions.append(GridPosition(x: x, y: y))
+            }
+        }
+        return positions
+    }
+
+    /// The street grid the whole map is laid out on, as a `CityMap` — needed
+    /// because `Traffic.roadConnections(at:in:)` is what decides which way a
+    /// lane line runs, and a junction has to know it is a junction.
+    private static func roadMap() -> CityMap {
+        var map = CityMap(width: tilesWide, height: tilesHigh)
+        for position in roadPositions() {
+            map[position].zone = .road
+        }
+        return map
+    }
+
     // MARK: - The render
 
     func testRenderStreetscape() throws {
@@ -133,14 +154,27 @@ final class ZoneStreetscapeTests: XCTestCase {
             }
             lotCount = rendered.count
 
+            // Streets go through `TileRenderer` as well, for the same reason
+            // the lots do — and because they are half the picture. Painting
+            // them by hand meant the render showed flat asphalt while the game
+            // drew a glowing network, which is most of what the map's look
+            // actually is.
+            let roadBox = CGSize(width: level.tileSize, height: level.tileSize)
+            let roadView = SKView(frame: NSRect(origin: .zero, size: roadBox))
+            var roads: [(GridPosition, NSImage)] = []
+            for position in Self.roadPositions() {
+                roads.append((position, try renderRoad(at: position, size: roadBox, view: roadView, layout: layout)))
+            }
+
             let canvasSize = CGSize(
                 width: CGFloat(Self.tilesWide) * level.tileSize,
                 height: CGFloat(Self.tilesHigh) * level.tileSize
             )
-            panels.append((level.name, try XCTUnwrap(
-                Self.compose(lots: rendered, canvasSize: canvasSize, tileSize: level.tileSize),
+            let composed = try XCTUnwrap(
+                Self.compose(lots: rendered, roads: roads, canvasSize: canvasSize, tileSize: level.tileSize),
                 "failed to compose the \(level.name) panel"
-            )))
+            )
+            panels.append((level.name, try postProcess(composed, view: view)))
         }
 
         let sheet = try XCTUnwrap(Self.stack(panels: panels), "failed to stack the streetscape panels")
@@ -238,6 +272,17 @@ final class ZoneStreetscapeTests: XCTestCase {
 
     // MARK: - Plumbing
 
+    /// Renders one lot **through `TileRenderer.makeNode(for:)`** — the same
+    /// call `GameScene` makes — rather than assembling a plate and an icon by
+    /// hand.
+    ///
+    /// The hand-rolled version drew a flat zone-coloured rectangle with a
+    /// building on it, which was a faithful picture of the renderer right up
+    /// until the renderer changed. When the palette moved zone identity out of
+    /// the tile fill and into light, every mark that carries the new look —
+    /// the ground glow, the surveyed-lot outline — was invisible here, because
+    /// this file did not know they existed. A yardstick that reimplements the
+    /// thing it measures will eventually measure something else.
     private func renderLot(
         _ lot: Lot,
         size: CGSize,
@@ -245,19 +290,12 @@ final class ZoneStreetscapeTests: XCTestCase {
         layout: GridLayout
     ) throws -> NSImage {
         let scene = SKScene(size: size)
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        scene.backgroundColor = RenderPalette.background
 
-        let plate = SKSpriteNode(
-            color: RenderPalette.color(for: lot.zone, density: lot.density),
-            size: layout.spriteSize(forFootprint: 2)
-        )
-        plate.position = center
-        scene.addChild(plate)
-
-        if let icon = ZoneIcon.makeNode(for: lot.zone, density: lot.density, seed: lot.origin) {
-            TileRenderer.fitIconToTile(icon, footprintSize: 2, layout: layout, centeredAt: center)
-            scene.addChild(icon)
-        }
+        let tile = Tile(position: lot.origin, zone: lot.zone, density: lot.density)
+        let node = TileRenderer(layout: layout).makeNode(for: tile)
+        node.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        scene.addChild(node)
 
         view.presentScene(scene)
         let texture = try XCTUnwrap(
@@ -267,10 +305,83 @@ final class ZoneStreetscapeTests: XCTestCase {
         return NSImage(cgImage: texture.cgImage(), size: size)
     }
 
+    private func renderRoad(
+        at position: GridPosition,
+        size: CGSize,
+        view: SKView,
+        layout: GridLayout
+    ) throws -> NSImage {
+        let scene = SKScene(size: size)
+        scene.backgroundColor = RenderPalette.ground
+
+        let map = Self.roadMap()
+        let renderer = TileRenderer(layout: layout)
+        let node = renderer.makeNode(for: map[position])
+        node.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        renderer.syncLaneLine(
+            on: node,
+            zone: .road,
+            connections: Traffic.roadConnections(at: position, in: map)
+        )
+        scene.addChild(node)
+
+        view.presentScene(scene)
+        let texture = try XCTUnwrap(
+            view.texture(from: scene, crop: CGRect(origin: .zero, size: size)),
+            "road at (\(position.x), \(position.y)): SKView produced no texture"
+        )
+        return NSImage(cgImage: texture.cgImage(), size: size)
+    }
+
+    /// Runs the composed panel back through `RetroShader` — the same
+    /// full-scene pass `GameScene` puts every frame through.
+    ///
+    /// **Why the render has to include it.** The shader only ever multiplies
+    /// brightness *down*: scanlines take up to 11%, the vignette up to 35% at
+    /// the edges. Those values were chosen when every tile was a bright
+    /// saturated fill with plenty of headroom to lose. The ground rewrite took
+    /// that headroom away, so a render without the shader is a render of a
+    /// frame the game never actually draws — and the question "is the dark
+    /// palette still legible after the post-process crushes it" is exactly the
+    /// one a redesign like that has to answer.
+    ///
+    /// The panel stands in for a screenful, which is what the shader operates
+    /// on in game, so the vignette lands where it would in play.
+    private func postProcess(_ image: NSImage, view: SKView) throws -> NSImage {
+        let size = image.size
+        let scene = SKScene(size: size)
+        scene.backgroundColor = RenderPalette.background
+
+        let effect = SKEffectNode()
+        effect.shouldEnableEffects = true
+        let shader = RetroShader.make()
+        RetroShader.updateAspect(shader, size: size)
+        effect.shader = shader
+
+        let sprite = SKSpriteNode(texture: SKTexture(image: image))
+        sprite.size = size
+        sprite.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        effect.addChild(sprite)
+        scene.addChild(effect)
+
+        view.frame = NSRect(origin: .zero, size: size)
+        view.presentScene(scene)
+        let texture = try XCTUnwrap(
+            view.texture(from: scene, crop: CGRect(origin: .zero, size: size)),
+            "post-process pass produced no texture"
+        )
+        return NSImage(cgImage: texture.cgImage(), size: size)
+    }
+
     /// Core Graphics, like the contact sheet's composer and for the same
     /// reason: this stage only blits already-rasterized images, so none of
     /// SpriteKit's effect-node budget applies.
-    private static func compose(lots: [(Lot, NSImage)], canvasSize: CGSize, tileSize: CGFloat) -> NSImage? {
+    private static func compose(
+        lots: [(Lot, NSImage)],
+        roads: [(GridPosition, NSImage)],
+        canvasSize: CGSize,
+        tileSize: CGFloat
+    ) -> NSImage? {
         let scale: CGFloat = 2
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -290,36 +401,12 @@ final class ZoneStreetscapeTests: XCTestCase {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
 
-        RenderPalette.background.setFill()
+        RenderPalette.ground.setFill()
         NSRect(origin: .zero, size: canvasSize).fill()
 
-        // Roads first, so lots draw over the tile they occupy.
-        let asphalt = RenderPalette.color(for: .road, density: 0)
-        let laneLine = RenderPalette.networkAccentColor(for: .road)
-        for y in 0 ..< tilesHigh {
-            for x in 0 ..< tilesWide where isRoad(x, y) {
-                let tile = NSRect(x: CGFloat(x) * tileSize, y: CGFloat(y) * tileSize,
-                                  width: tileSize, height: tileSize)
-                asphalt.setFill()
-                tile.fill()
-
-                // A magenta centre line, so the grid reads as streets rather
-                // than as gutters between blocks. Deliberately a rough stand-in
-                // for `TileRenderer.syncLaneLine` rather than a reimplementation
-                // of it: the streets are here to give the buildings a context to
-                // be judged in, and copying renderer internals into a test is
-                // how the two quietly drift apart.
-                laneLine.withAlphaComponent(0.55).setFill()
-                let thickness: CGFloat = 2
-                if x % roadEvery == 0 {
-                    NSRect(x: tile.midX - thickness / 2, y: tile.minY,
-                           width: thickness, height: tileSize).fill()
-                }
-                if y % roadEvery == 0 {
-                    NSRect(x: tile.minX, y: tile.midY - thickness / 2,
-                           width: tileSize, height: thickness).fill()
-                }
-            }
+        for (position, image) in roads {
+            image.draw(in: NSRect(x: CGFloat(position.x) * tileSize, y: CGFloat(position.y) * tileSize,
+                                  width: tileSize, height: tileSize))
         }
 
         for (lot, image) in lots {

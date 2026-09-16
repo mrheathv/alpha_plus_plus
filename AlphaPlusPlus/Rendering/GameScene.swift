@@ -805,7 +805,8 @@ final class GameScene: SKScene {
             )
         case .landValue:
             node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map, using: overlayDistances))
-            tileRenderer.clearPips(on: node)
+            tileRenderer.clearGroundGlow(on: node)
+            tileRenderer.clearZoneMarker(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
@@ -816,7 +817,8 @@ final class GameScene: SKScene {
             tileRenderer.clearDamageMarker(on: node)
         case .pollution:
             node.color = RenderPalette.pollutionColor(for: map.pollution.level(at: position))
-            tileRenderer.clearPips(on: node)
+            tileRenderer.clearGroundGlow(on: node)
+            tileRenderer.clearZoneMarker(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
@@ -827,7 +829,8 @@ final class GameScene: SKScene {
             tileRenderer.clearDamageMarker(on: node)
         case .traffic:
             node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
-            tileRenderer.clearPips(on: node)
+            tileRenderer.clearGroundGlow(on: node)
+            tileRenderer.clearZoneMarker(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)
@@ -838,7 +841,8 @@ final class GameScene: SKScene {
             tileRenderer.clearDamageMarker(on: node)
         case .water:
             node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
-            tileRenderer.clearPips(on: node)
+            tileRenderer.clearGroundGlow(on: node)
+            tileRenderer.clearZoneMarker(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPowerLineMarker(on: node)
@@ -858,7 +862,8 @@ final class GameScene: SKScene {
             tileRenderer.syncBuildingShadow(on: node, zone: map[position].zone, density: map[position].density, footprintSize: map[position].zone.footprintSize, seed: position)
         case .power:
             node.color = RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
-            tileRenderer.clearPips(on: node)
+            tileRenderer.clearGroundGlow(on: node)
+            tileRenderer.clearZoneMarker(on: node)
             tileRenderer.clearIcon(on: node)
             tileRenderer.clearNetworkGlow(on: node)
             tileRenderer.clearPipeMarker(on: node)

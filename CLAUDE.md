@@ -766,6 +766,80 @@ failed a test:
   plant box could be offset past its own parapet, where it read as a rectangle
   floating beside the building rather than as rooftop machinery.
 
+## Ground and light: retiring the last of the grayboxing
+
+The buildings were never the thing holding the look back. The *ground* was.
+
+`RenderPalette` opened with the words "Graybox color palette", and its tile
+function was documented as "the graybox stand-in for a building appears and
+grows": every lot a big flat saturated rectangle keyed to what you had zoned
+it, brightening as it densified. That is the correct answer while you are
+proving mechanics against coloured squares, and it is a data visualisation, not
+a city. It survived the whole art pass because nothing ever forced the
+question — and it spent the screen's entire colour budget on a flat field,
+leaving the neon nothing to be brighter *than*.
+
+The palette now splits two ideas that had been one:
+
+- **Ground** is what a tile is made of — asphalt and earth at night, near-black,
+  carrying a ~8% tint of its zone's hue so a district has a *cast* rather than a
+  colour.
+- **Light** is what a zone emits — the neon a building is stroked in, its halo,
+  and `TileRenderer.syncGroundGlow`, a wide faint additive pool of the zone's
+  colour on the ground beneath it.
+
+Zone identity did not get weaker in the trade; it moved from a flat fill into
+light, which is both more legible against black and the only version of it that
+looks like night. It also survives distance better — when the camera is far
+enough out that a building is twenty points across and its silhouette has
+stopped resolving, the colour of the light it throws still reads. Analytical
+views that genuinely want a colour-coded field still have one: that is exactly
+what the overlays are for, and they override the tile fill wholesale, so none of
+this touched them.
+
+Three things fell out of it, all of which had been invisible while the tiles
+were bright:
+
+- **Asphalt was twice the brightness of bare ground.** Roads are about a third
+  of the tiles in a normal grid, so a pavement brighter than the land turned the
+  map into a lilac board with dark blocks sitting on it. Asphalt is now the
+  *darkest* surface in the game — what makes a road visible is the lane line
+  glowing on top of it, and that needs the darkest possible bed.
+- **The road network glow was tuned to fight bright tiles.** At its old alpha
+  its additive bleed lit the whole board. The brightest thing in frame should be
+  a building, not the pavement.
+- **The ground pool had to be wide and faint, not tight and bright.** A pool
+  sized close to the lot is just the flat colour field again with a gradient in
+  it. Spilling well past the footprint at low alpha lets neighbouring lots add
+  together instead, so a dense block haloes as a district and no tile edge ever
+  shows.
+
+The density pips went too. They existed because "the colour ramp shows growth as
+brightness, which is subtle" — graybox reasoning for a graybox problem. Growth
+now reads as the building's own tier: a different silhouette, a different hue, a
+brighter pool. The one thing genuinely lost is the exact density *number* within
+a tier, which no game in this genre puts on the map anyway.
+
+### The render has to include the post-process
+
+`RetroShader` only ever multiplies brightness down — scanlines up to 11%, the
+vignette up to 35% at the edges — and those values were picked when every tile
+was a saturated fill with headroom to lose. A render without it is a render of a
+frame the game never draws, and "is the dark palette still legible once the
+post-process crushes it" is precisely the question a change like this has to
+answer. `ZoneStreetscapeTests` runs each panel back through the real shader.
+
+### The yardstick must not reimplement the thing it measures
+
+The streetscape used to build each lot by hand: a flat zone-coloured plate with
+an icon on it. That was a faithful picture of the renderer right up until the
+renderer changed — every mark carrying the new look was invisible, because the
+test did not know those marks existed. It renders through
+`TileRenderer.makeNode(for:)` now, the same call `GameScene` makes, and streets
+go through it too rather than being painted by the composer. Streets are half
+the picture, and a render showing flat asphalt while the game drew a glowing
+network was measuring something else.
+
 ## Detail has a floor, and the theme has a budget
 
 The first generated buildings were reviewed on a contact sheet at 132 points a

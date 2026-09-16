@@ -25,7 +25,8 @@ struct TileRenderer {
         // Names are how we find nodes again later (and they show up in Xcode's
         // SpriteKit debugger, which is handy while grayboxing).
         node.name = Self.nodeName(for: tile.position)
-        syncPips(on: node, count: tile.density)
+        syncGroundGlow(on: node, zone: tile.zone, density: tile.density, footprintSize: footprintSize)
+        syncZoneMarker(on: node, zone: tile.zone, density: tile.density, footprintSize: footprintSize)
         syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: footprintSize, seed: tile.position)
         syncNetworkGlow(on: node, zone: tile.zone)
         return node
@@ -42,7 +43,8 @@ struct TileRenderer {
     /// ever get drawn.
     func update(_ node: SKSpriteNode, for tile: Tile) {
         node.color = RenderPalette.color(for: tile.zone, density: tile.density)
-        syncPips(on: node, count: tile.density)
+        syncGroundGlow(on: node, zone: tile.zone, density: tile.density, footprintSize: tile.zone.footprintSize)
+        syncZoneMarker(on: node, zone: tile.zone, density: tile.density, footprintSize: tile.zone.footprintSize)
         syncIcon(on: node, zone: tile.zone, density: tile.density, footprintSize: tile.zone.footprintSize, seed: tile.position)
         syncNetworkGlow(on: node, zone: tile.zone)
     }
@@ -51,50 +53,116 @@ struct TileRenderer {
         "tile-\(position.x)-\(position.y)"
     }
 
-    // MARK: - Density pips
+    // MARK: - Ground glow
 
-    /// The color ramp (`RenderPalette.color(for:density:)`) shows growth as
-    /// brightness, which is subtle tile-to-tile — these small dots put an
-    /// actual *count* on top of it, one per density level, so "how
-    /// developed is this?" reads at a glance instead of by comparing shades.
-    /// Still graybox: circles, not art, same spirit as everything else
-    /// `TileRenderer` draws.
-    private static let pipNodeName = "densityPip"
+    private static let groundGlowNodeName = "groundGlow"
+    private static let groundGlowCacheKey = "groundGlowCacheKey"
 
-    /// Removes and rebuilds a tile's pips from scratch every call, rather
-    /// than diffing old vs. new count. Simpler, and cheap enough at 20×20
-    /// (or even the larger `MapSize` options) that it isn't worth the extra
-    /// bookkeeping a real diff would need.
-    func syncPips(on node: SKSpriteNode, count: Int) {
-        let key = "\(count)"
-        guard !isUpToDate(node, name: Self.pipNodeName, key: key) else { return }
-        node.children.filter { $0.name == Self.pipNodeName }.forEach { $0.removeFromParent() }
-        markUpToDate(node, name: Self.pipNodeName, key: key)
-        guard count > 0 else { return }
+    /// The pool of light a building throws onto the ground it stands on.
+    ///
+    /// **Why this earns its draw call.** `RenderPalette` moved zone identity
+    /// out of a flat tile fill and into light, which only works if there is
+    /// actually light. A neon-stroked silhouette on near-black ground reads
+    /// as a sticker; the same silhouette sitting in a pool of its own colour
+    /// reads as a lit object standing on wet asphalt at night, which is the
+    /// entire retrowave reference. It is also what carries zone identity when
+    /// the camera is far enough out that the building is twenty points across
+    /// and its silhouette has stopped being legible — the colour survives long
+    /// after the shape does.
+    ///
+    /// Reuses `glowTexture` and the additive-blend trick `syncNetworkGlow`
+    /// documents rather than an `SKEffectNode`, for exactly the same reason:
+    /// one cheap tinted sprite per developed lot, batched by SpriteKit, with
+    /// no per-frame Core Image filter anywhere near it. Brightness climbs with
+    /// tier, so a district lights up as it densifies.
+    func syncGroundGlow(on node: SKSpriteNode, zone: ZoneType, density: Int, footprintSize: Int) {
+        let tier = RenderPalette.growthTier(for: density)
+        let key = "\(zone.rawValue)-\(tier)"
+        guard !isUpToDate(node, name: Self.groundGlowNodeName, key: Self.groundGlowCacheKey + key) else { return }
+        node.childNode(withName: Self.groundGlowNodeName)?.removeFromParent()
+        markUpToDate(node, name: Self.groundGlowNodeName, key: Self.groundGlowCacheKey + key)
 
-        let pipRadius = layout.spriteSize.width * 0.06
-        let spacing = pipRadius * 3
-        let totalWidth = CGFloat(count - 1) * spacing
-        let y = -layout.spriteSize.height * 0.32
+        // Roads have `syncNetworkGlow`, and bare or merely-zoned land has no
+        // building on it to be lit by.
+        guard zone != .empty, zone != .road, zone != .highway else { return }
+        guard zone.maxDensity == 0 || tier > 0 else { return }
 
-        for index in 0 ..< count {
-            let pip = SKShapeNode(circleOfRadius: pipRadius)
-            pip.name = Self.pipNodeName
-            pip.fillColor = .white
-            pip.strokeColor = .clear
-            pip.alpha = 0.8
-            pip.zPosition = 1
-            pip.position = CGPoint(x: -totalWidth / 2 + CGFloat(index) * spacing, y: y)
-            node.addChild(pip)
-        }
+        let color = zone.maxDensity > 0
+            ? RenderPalette.tierColor(for: zone, tier: tier)
+            : RenderPalette.fullColor(for: zone)
+
+        let glow = SKSpriteNode(texture: Self.glowTexture)
+        glow.name = Self.groundGlowNodeName
+        glow.color = color
+        glow.colorBlendFactor = 1
+        glow.blendMode = .add
+        // Wide and faint rather than tight and bright. A pool sized close to
+        // the lot reads as a glowing square — the flat colour field again, in
+        // gradient form. Spilling well past the footprint at low alpha lets
+        // neighbouring lots' light *add* together instead, so a dense block
+        // haloes as a district while a lone building stays a single point of
+        // light, and no individual tile edge ever shows.
+        glow.alpha = zone.maxDensity > 0 ? 0.10 + 0.04 * CGFloat(tier) : 0.24
+        let base = layout.spriteSize(forFootprint: footprintSize)
+        glow.size = CGSize(width: base.width * 1.8, height: base.height * 1.8)
+        // Under the building, over the flat ground fill.
+        glow.zPosition = 0.4
+        node.addChild(glow)
     }
 
-    /// Removes any pips a tile has — used when `GameScene` draws an overlay
-    /// (land value, traffic) instead of normal zone colors, where a density
-    /// count would just be visual noise on top of a different data channel.
-    func clearPips(on node: SKSpriteNode) {
-        node.children.filter { $0.name == Self.pipNodeName }.forEach { $0.removeFromParent() }
-        invalidate(node, name: Self.pipNodeName)
+    func clearGroundGlow(on node: SKSpriteNode) {
+        node.childNode(withName: Self.groundGlowNodeName)?.removeFromParent()
+        invalidate(node, name: Self.groundGlowNodeName)
+    }
+
+    // MARK: - Surveyed-lot marker
+
+    private static let zoneMarkerNodeName = "zoneMarker"
+
+    /// The outline on a lot you have zoned but which has not grown anything
+    /// yet.
+    ///
+    /// The flat-fill palette said "claimed but empty" with a washed-out
+    /// version of the zone colour, which the ground rewrite deliberately gave
+    /// up. This says it the way a surveyor's marks would instead — four
+    /// corner ticks in the zone's own neon — which is both more legible
+    /// against a dark ground and doesn't cost a flat colour field to say.
+    func syncZoneMarker(on node: SKSpriteNode, zone: ZoneType, density: Int, footprintSize: Int) {
+        let show = zone.maxDensity > 0 && RenderPalette.growthTier(for: density) == 0
+        let key = show ? zone.rawValue : "none"
+        guard !isUpToDate(node, name: Self.zoneMarkerNodeName, key: key) else { return }
+        node.childNode(withName: Self.zoneMarkerNodeName)?.removeFromParent()
+        markUpToDate(node, name: Self.zoneMarkerNodeName, key: key)
+        guard show else { return }
+
+        let size = layout.spriteSize(forFootprint: footprintSize)
+        let inset = min(size.width, size.height) * 0.16
+        let arm = min(size.width, size.height) * 0.2
+        let half = CGSize(width: size.width / 2 - inset, height: size.height / 2 - inset)
+
+        let path = CGMutablePath()
+        for sx in [CGFloat(-1), 1] {
+            for sy in [CGFloat(-1), 1] {
+                let corner = CGPoint(x: sx * half.width, y: sy * half.height)
+                path.move(to: CGPoint(x: corner.x - sx * arm, y: corner.y))
+                path.addLine(to: corner)
+                path.addLine(to: CGPoint(x: corner.x, y: corner.y - sy * arm))
+            }
+        }
+
+        let marker = SKShapeNode(path: path)
+        marker.name = Self.zoneMarkerNodeName
+        marker.strokeColor = RenderPalette.tierColor(for: zone, tier: 1)
+        marker.lineWidth = max(1.5, min(size.width, size.height) * 0.035)
+        marker.glowWidth = 1
+        marker.alpha = 0.85
+        marker.zPosition = 0.6
+        node.addChild(marker)
+    }
+
+    func clearZoneMarker(on node: SKSpriteNode) {
+        node.childNode(withName: Self.zoneMarkerNodeName)?.removeFromParent()
+        invalidate(node, name: Self.zoneMarkerNodeName)
     }
 
     // MARK: - Zone icons
@@ -233,7 +301,7 @@ struct TileRenderer {
         )
     }
 
-    /// Removes a tile's icon — used alongside `clearPips` when `GameScene`
+    /// Removes a tile's icon — used alongside `clearIcon` when `GameScene`
     /// draws an overlay instead of normal zone colors. Also clears the
     /// cache key `syncIcon` checks, so switching back out of an overlay
     /// always rebuilds the icon it just tore down rather than seeing an
@@ -308,14 +376,21 @@ struct TileRenderer {
         glow.color = RenderPalette.networkAccentColor(for: zone)
         glow.colorBlendFactor = 1
         glow.blendMode = .add
-        glow.alpha = zone == .highway ? 0.8 : 0.55
+        // Turned well down from where it started. These values were set when
+        // every tile was a bright saturated fill and the glow had to fight to
+        // be seen; against the dark ground that replaced them, roads are the
+        // most numerous thing on the map — a third of the tiles in a normal
+        // grid — and at the old alpha their additive bleed lit the entire
+        // board a flat lilac. The brightest thing in the frame should be a
+        // building, not the pavement.
+        glow.alpha = zone == .highway ? 0.42 : 0.24
         let base = layout.spriteSize(forFootprint: zone.footprintSize)
-        glow.size = CGSize(width: base.width * 1.4, height: base.height * 1.4)
+        glow.size = CGSize(width: base.width * 1.2, height: base.height * 1.2)
         glow.zPosition = 0.5
         node.addChild(glow)
     }
 
-    /// Removes a tile's network glow — used alongside `clearPips`/`clearIcon`
+    /// Removes a tile's network glow — used alongside `clearIcon`
     /// when `GameScene` draws an overlay instead of normal zone colors.
     func clearNetworkGlow(on node: SKSpriteNode) {
         node.childNode(withName: Self.glowNodeName)?.removeFromParent()
@@ -419,7 +494,7 @@ struct TileRenderer {
         node.addChild(marker)
     }
 
-    /// Removes a tile's pipe marker — used alongside `clearPips`/`clearIcon`/
+    /// Removes a tile's pipe marker — used alongside `clearIcon`/
     /// `clearNetworkGlow` for every overlay except Water.
     func clearPipeMarker(on node: SKSpriteNode) {
         node.childNode(withName: Self.pipeMarkerNodeName)?.removeFromParent()
@@ -459,7 +534,7 @@ struct TileRenderer {
         node.addChild(marker)
     }
 
-    /// Removes a tile's power line marker — used alongside `clearPips`/
+    /// Removes a tile's power line marker — used alongside
     /// `clearIcon`/`clearNetworkGlow`/`clearPipeMarker` for every overlay
     /// except Power.
     func clearPowerLineMarker(on node: SKSpriteNode) {
@@ -510,7 +585,7 @@ struct TileRenderer {
     }
 
     /// Removes a tile's utility warning badge(s) — used alongside
-    /// `clearPips`/`clearIcon` when `GameScene` draws an overlay instead of
+    /// `clearIcon` when `GameScene` draws an overlay instead of
     /// Normal view; the Water/Power overlays already have their own,
     /// bigger signal for this (the tile's own supply-state color), so a
     /// small corner badge on top would just be redundant there.
@@ -613,7 +688,7 @@ struct TileRenderer {
         node.addChild(container)
     }
 
-    /// Removes a damage marker — used alongside `clearPips`/`clearIcon` when
+    /// Removes a damage marker — used alongside `clearIcon` when
     /// `GameScene` draws an overlay instead of Normal view.
     func clearDamageMarker(on node: SKSpriteNode) {
         node.children.filter { $0.name == Self.damageNodeName }.forEach { $0.removeFromParent() }

@@ -1,11 +1,33 @@
 import SpriteKit
 
-/// Graybox color palette.
+/// The game's colour palette.
 ///
-/// This file is the *entire* answer to "what color is a residential zone?".
-/// Because `ZoneType` (in Simulation/) has no idea colors exist, restyling the
-/// whole game — or swapping colored squares for real sprites in Phase 3 — is a
-/// change to this file and `TileRenderer`, and nothing else.
+/// This file is the *entire* answer to "what colour is a residential zone?".
+/// Because `ZoneType` (in Simulation/) has no idea colours exist, restyling the
+/// whole game is a change to this file and `TileRenderer`, and nothing else.
+///
+/// **Ground and light are different things, and that distinction is the whole
+/// art direction.** This file started as a graybox palette, where a zone's
+/// colour *was* its tile: every lot a big flat saturated rectangle keyed to
+/// what you had zoned it. That is a data visualisation, and it is the right
+/// answer while you are proving mechanics against coloured squares. It is the
+/// wrong answer for a game someone buys, for two reasons — no city has ground
+/// that colour, and it spends the screen's entire colour budget on a flat
+/// field, leaving the neon nothing to be brighter *than*.
+///
+/// So the palette is split:
+///
+/// - `groundColor(for:density:)` is what a tile is *made of* — asphalt and
+///   earth at night, near-black, carrying only a whisper of its zone's hue so
+///   a district still has a cast.
+/// - `tierColor(for:tier:)` / `fullColor(for:)` are what a zone *emits* —
+///   the neon a building is stroked in, the halo around it, and the pool of
+///   light it throws on the ground beneath it (`TileRenderer.syncGroundGlow`).
+///
+/// Zone identity did not get weaker in the trade; it moved from a flat fill to
+/// light, which is both more legible against black and the only version of it
+/// that looks like night. Analytical views that genuinely want a colour-coded
+/// field still have one — that is exactly what the overlays are.
 ///
 /// `SKColor` is SpriteKit's cross-platform alias; on macOS it is `NSColor`.
 enum RenderPalette {
@@ -14,6 +36,24 @@ enum RenderPalette {
     /// reads as an object sitting on a surface. "Night sky," from the
     /// Retrowave SimCity reference palette.
     static let background = SKColor(srgbRed: 0.051, green: 0.008, blue: 0.129, alpha: 1.0)
+
+    /// Bare land: the colour of the map itself where nothing has been built.
+    /// Deliberately close to `background` but a step lighter, so the map still
+    /// reads as a surface sitting in the night rather than a hole in it.
+    static let ground = SKColor(srgbRed: 0.078, green: 0.043, blue: 0.157, alpha: 1.0)
+
+    /// How far a developed tile's ground is tinted toward its zone's own neon.
+    ///
+    /// Small on purpose, and smaller than it first looks like it should be.
+    /// This is the knob that decides whether the map reads as a city at night
+    /// or as a chart, and it has to be set *against* the ground glow rather
+    /// than on its own: the first pass used 0.26 here, which looked reasonable
+    /// alone but combined with `TileRenderer.syncGroundGlow` on top rebuilt
+    /// exactly the flat saturated colour field the split was meant to retire,
+    /// only with a gradient in it. The fill is the faint cast; the glow is the
+    /// light. Turning either one up far enough makes the other pointless.
+    private static let groundTintAtFullDensity: CGFloat = 0.08
+    private static let groundTintWhenZonedOnly: CGFloat = 0.06
 
     /// The warm glow `GameScene`'s ambient sun sprite tints — the
     /// retrowave "sun on the horizon" motif, sitting fixed in world space
@@ -112,10 +152,15 @@ enum RenderPalette {
         case .generator:
             return fullColor(for: .powerPlant)
         case .road, .highway:
-            // Dark asphalt-purple base — both read as the same paved
-            // surface now; what makes a highway a highway is its brighter
-            // `networkAccentColor(for:)` glow, not a different base fill.
-            return SKColor(srgbRed: 0.169, green: 0.063, blue: 0.333, alpha: 1.0)
+            // Asphalt: the *darkest* surface on the map, a shade under bare
+            // ground. It was twice `ground`'s brightness when every tile was
+            // a saturated fill and asphalt had to hold its own against them.
+            // Against a dark map that inverted the whole picture — roads are
+            // about a third of a normal grid's tiles, so a pavement brighter
+            // than the land read as a lilac board with dark blocks sitting on
+            // it. What makes a road visible is the lane line glowing on top of
+            // it, and that needs the darkest possible bed.
+            return SKColor(srgbRed: 0.063, green: 0.031, blue: 0.129, alpha: 1.0)
         case .policeStation:
             return SKColor(srgbRed: 0.35, green: 0.35, blue: 1.0, alpha: 1.0)  // neon indigo-blue, distinct from commercial's cyan family
         case .fireStation:
@@ -212,29 +257,36 @@ enum RenderPalette {
         }
     }
 
-    /// What color a tile should be drawn, given both its zone *and* how
-    /// developed it is.
+    /// What a tile is made of — the ground it is, not the zone it means.
     ///
-    /// For the three growable zones, this is the graybox stand-in for "a
-    /// building appears and grows": a freshly zoned tile (density 0) is a
-    /// dim, washed-out version of its tier-1 color — "claimed but nothing
-    /// built yet" — that brightens toward that tier's own color as density
-    /// climbs, then jumps to the *next* tier's color the moment density
-    /// actually crosses into it (`growthTier(for:)`), rather than
-    /// continuously blending across all 5 density levels toward one fixed
-    /// color the way this used to work. Every other zone (`.empty`/
-    /// `.road`/every service) has `maxDensity == 0` and skips straight to
-    /// its one fixed color, since there's no development state for them to
-    /// show.
+    /// Near-black for everything, tinted a little toward the zone's own neon
+    /// so a residential district has a violet cast and an industrial one an
+    /// amber cast without either becoming a block of flat colour. A zoned but
+    /// unbuilt lot is tinted less than a developed one, so "claimed" and
+    /// "built" still differ at a glance even before a building appears (and
+    /// `TileRenderer.syncZoneMarker` puts a surveyed outline on it besides).
+    ///
+    /// Roads and highways keep their own asphalt value rather than being
+    /// tinted from it: they are the one surface in the game that really is a
+    /// different material, and the glowing lane line drawn on top of them
+    /// needs a dark, neutral bed to read against.
     static func color(for zone: ZoneType, density: Int) -> SKColor {
-        guard zone.maxDensity > 0 else { return fullColor(for: zone) }
-
-        let tier = growthTier(for: density)
-        guard tier > 0 else {
-            let notYetBuilt = tierColor(for: zone, tier: 1)
-            return notYetBuilt.blended(withFraction: 0.7, of: background) ?? notYetBuilt
+        switch zone {
+        case .empty:
+            return ground
+        case .road, .highway:
+            return fullColor(for: zone)
+        default:
+            break
         }
-        return tierColor(for: zone, tier: tier)
+
+        let emitted = zone.maxDensity > 0
+            ? tierColor(for: zone, tier: max(1, growthTier(for: density)))
+            : fullColor(for: zone)
+        let tint = zone.maxDensity > 0 && growthTier(for: density) == 0
+            ? groundTintWhenZonedOnly
+            : groundTintAtFullDensity
+        return ground.blended(withFraction: tint, of: emitted) ?? ground
     }
 
     /// Low end of the land-value heatmap (worthless land, value 0).
