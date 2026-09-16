@@ -26,8 +26,8 @@ final class GameScene: SKScene {
 
     // MARK: - Rendering
 
-    private let layout: GridLayout
-    private let tileRenderer: TileRenderer
+    private let projection: Isometric
+    private let tileRenderer: IsoTileRenderer
 
     /// All tile sprites live under one parent node rather than directly on the
     /// scene. That gives us a single thing to move, scale, or hide, and keeps
@@ -100,7 +100,7 @@ final class GameScene: SKScene {
 
     /// Grid coordinate -> sprite, so updating one tile is O(1) instead of a
     /// scene-graph search.
-    private var tileNodes: [GridPosition: SKSpriteNode] = [:]
+    private var tileNodes: [GridPosition: SKNode] = [:]
 
     /// An `SKCameraNode` lets us pan and zoom by moving *one* node instead of
     /// repositioning thousands of tiles — see `scrollWheel(with:)` and
@@ -114,10 +114,10 @@ final class GameScene: SKScene {
 
     // MARK: - Init
 
-    init(controller: GameController, layout: GridLayout = GridLayout()) {
+    init(controller: GameController, projection: Isometric = Isometric()) {
         self.controller = controller
-        self.layout = layout
-        self.tileRenderer = TileRenderer(layout: layout)
+        self.projection = projection
+        self.tileRenderer = IsoTileRenderer(projection: projection)
 
         // Note: `layout` here is the *parameter*, not `self.layout`. Swift
         // forbids touching `self` before `super.init`, and the parameter
@@ -128,7 +128,7 @@ final class GameScene: SKScene {
         // The starting size barely matters because `.resizeFill` below makes the
         // scene adopt the view's size, so one scene point == one screen point
         // and nothing gets stretched.
-        super.init(size: layout.contentSize(of: controller.map))
+        super.init(size: projection.contentBounds(of: controller.map).size)
 
         scaleMode = .resizeFill
         backgroundColor = RenderPalette.background
@@ -525,7 +525,7 @@ final class GameScene: SKScene {
     }
 
     private func gridPosition(of event: NSEvent) -> GridPosition? {
-        layout.position(for: event.location(in: self), in: map)
+        projection.position(for: event.location(in: self), in: map)
     }
 
     // MARK: - Placement preview
@@ -560,9 +560,8 @@ final class GameScene: SKScene {
         if controller.overlayMode == .water || controller.overlayMode == .power {
             placementPreviewNode.fillColor = RenderPalette.placementPreviewClearFill
             placementPreviewNode.strokeColor = RenderPalette.placementPreviewClearStroke
-            let size = layout.spriteSize(forFootprint: 1)
-            placementPreviewNode.path = CGPath(rect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height), transform: nil)
-            placementPreviewNode.position = layout.centerPoint(ofFootprintOrigin: position, size: 1)
+            placementPreviewNode.path = projection.tileDiamond(x: 0, y: 0, size: 1, inset: 0.04)
+            placementPreviewNode.position = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
             placementPreviewNode.isHidden = false
             return
         }
@@ -581,9 +580,8 @@ final class GameScene: SKScene {
         placementPreviewNode.fillColor = wouldReplaceSomething ? RenderPalette.placementPreviewBlockedFill : RenderPalette.placementPreviewClearFill
         placementPreviewNode.strokeColor = wouldReplaceSomething ? RenderPalette.placementPreviewBlockedStroke : RenderPalette.placementPreviewClearStroke
 
-        let size = layout.spriteSize(forFootprint: footprintSize)
-        placementPreviewNode.path = CGPath(rect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height), transform: nil)
-        placementPreviewNode.position = layout.centerPoint(ofFootprintOrigin: position, size: footprintSize)
+        placementPreviewNode.path = projection.tileDiamond(x: 0, y: 0, size: CGFloat(footprintSize), inset: 0.04)
+        placementPreviewNode.position = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
         placementPreviewNode.isHidden = false
     }
 
@@ -601,11 +599,8 @@ final class GameScene: SKScene {
     /// whatever color the tile actually is, without touching any data.
     private func flashInsufficientFunds(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
-        let restoreColor = currentColor(at: position)
-        node.run(.sequence([
-            .colorize(with: RenderPalette.insufficientFundsFlash, colorBlendFactor: 1, duration: 0.05),
-            .colorize(with: restoreColor, colorBlendFactor: 1, duration: 0.2),
-        ]), withKey: "insufficientFundsFlash")
+        tileRenderer.flash(on: node, tile: map[position],
+                           color: RenderPalette.insufficientFundsFlash, duration: 0.35)
     }
 
     /// Briefly flash a tile to explain why a click did nothing: it's not
@@ -618,11 +613,8 @@ final class GameScene: SKScene {
     /// already warns with.
     private func flashBlockedPlacement(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
-        let restoreColor = currentColor(at: position)
-        node.run(.sequence([
-            .colorize(with: RenderPalette.blockedPlacementFlash, colorBlendFactor: 1, duration: 0.05),
-            .colorize(with: restoreColor, colorBlendFactor: 1, duration: 0.2),
-        ]), withKey: "blockedPlacementFlash")
+        tileRenderer.flash(on: node, tile: map[position],
+                           color: RenderPalette.blockedPlacementFlash, duration: 0.35)
     }
 
     /// Briefly flash a tile to make a `CityHazards.Strike` visible — without
@@ -633,18 +625,13 @@ final class GameScene: SKScene {
     /// way `flashInsufficientFunds` reuses `colorize` to animate out and
     /// back without touching any data.
     ///
-    /// Runs *after* `refreshAll()` in `runSimulationTick()`, so `currentColor(at:)`
-    /// (what it fades back to) already reflects this tick's new density —
-    /// a tile that lost density flashes and settles at its new, dimmer
-    /// color, not the one it had before the hazard struck.
+    /// A faded overlay rather than a colorized tile, so it needs no "fade
+    /// back to" colour at all — which also retired `currentColor(at:)`, a
+    /// whole switch over every overlay mode that existed only to answer that.
     private func flashHazard(at position: GridPosition, service: ZoneType) {
         guard let node = tileNodes[position] else { return }
-        let flashColor = service == .fireStation ? RenderPalette.fireHazardFlash : RenderPalette.crimeHazardFlash
-        let restoreColor = currentColor(at: position)
-        node.run(.sequence([
-            .colorize(with: flashColor, colorBlendFactor: 1, duration: 0.08),
-            .colorize(with: restoreColor, colorBlendFactor: 1, duration: 0.35),
-        ]), withKey: "hazardFlash")
+        let color = service == .fireStation ? RenderPalette.fireHazardFlash : RenderPalette.crimeHazardFlash
+        tileRenderer.flash(on: node, tile: map[position], color: color, duration: 0.55)
     }
 
     // MARK: - Building the grid
@@ -657,7 +644,7 @@ final class GameScene: SKScene {
     /// `CityHazards`), so it never needs a sprite of its own to represent.
     private func buildTileNodes() {
         for tile in map.tiles where tile.isBuildingAnchor {
-            let node = tileRenderer.makeNode(for: tile)
+            let node = tileRenderer.makeNode(for: tile, in: view)
             tileLayer.addChild(node)
             tileNodes[tile.position] = node
             syncTrafficAnimation(at: tile.position)
@@ -691,7 +678,7 @@ final class GameScene: SKScene {
     /// `GameSceneRebuildTests` can check that a bounded rebuild leaves exactly
     /// the state a full one would. Exposed rather than made internal wholesale
     /// so the mutable bookkeeping itself stays private.
-    var tileNodesForTesting: [GridPosition: SKSpriteNode] { tileNodes }
+    var tileNodesForTesting: [GridPosition: SKNode] { tileNodes }
     var tileLayerChildCountForTesting: Int { tileLayer.children.count }
 
     func rebuildEntireGrid() {
@@ -740,7 +727,7 @@ final class GameScene: SKScene {
             for dx in -radius ... radius {
                 let cell = GridPosition(x: position.x + dx, y: position.y + dy)
                 guard map.contains(cell), map[cell].isBuildingAnchor else { continue }
-                let node = tileRenderer.makeNode(for: map[cell])
+                let node = tileRenderer.makeNode(for: map[cell], in: view)
                 tileLayer.addChild(node)
                 tileNodes[cell] = node
                 syncTrafficAnimation(at: cell)
@@ -756,7 +743,7 @@ final class GameScene: SKScene {
     /// `rebuildEntireGrid()` itself any more; see that method's own doc
     /// comment for why.
     func centerCameraOnMap() {
-        cameraNode.position = layout.centerPoint(of: map)
+        cameraNode.position = projection.centerPoint(of: map)
     }
 
     /// Re-anchor `sunGlowNode` to the current map's size — called whenever
@@ -769,10 +756,10 @@ final class GameScene: SKScene {
     /// occlude it) — the rest sits in the empty space below the map,
     /// where it's actually visible.
     private func positionSunGlow() {
-        let content = layout.contentSize(of: map)
+        let content = projection.contentBounds(of: map)
         let diameter = max(content.width, content.height) * 1.6
         sunGlowNode.size = CGSize(width: diameter, height: diameter)
-        sunGlowNode.position = CGPoint(x: content.width / 2, y: -diameter * 0.4)
+        sunGlowNode.position = CGPoint(x: content.midX, y: content.minY - diameter * 0.35)
     }
 
     // MARK: - Refreshing from data
@@ -784,97 +771,54 @@ final class GameScene: SKScene {
     /// view. Never the reverse.
     func refresh(_ position: GridPosition) {
         guard let node = tileNodes[position] else { return }
+        let tile = map[position]
+
+        // **One overlay branch, not ten `clear…` calls each.** The top-down
+        // version repeated a block of ten in every branch, and every
+        // decoration added since had to be remembered in all five — the kind
+        // of repetition that goes stale silently, since a forgotten line
+        // leaves a stray building floating over a heatmap rather than failing
+        // anything. `applyOverlay` is the whole idea: hide what describes the
+        // building, tint the ground.
         switch controller.overlayMode {
         case .none:
-            tileRenderer.update(node, for: map[position])
-            tileRenderer.clearPipeMarker(on: node)
-            tileRenderer.clearPowerLineMarker(on: node)
-            tileRenderer.clearBuildingShadow(on: node)
+            tileRenderer.update(node, for: tile, in: view)
+            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: false, isPipe: true)
+            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: false, isPipe: false)
             syncLaneLine(at: position)
-            // Damage is drawn on the anchor's sprite only, since that's the
-            // one cell of a building that gets a sprite at all.
-            tileRenderer.syncDamageMarker(on: node, damagedBy: map[position].damagedBy)
-            // Normal view only — the Water/Power overlays already have
-            // their own, bigger signal for this (the tile's whole color),
-            // so a small corner badge on top of that would be redundant.
+            // Damage is drawn on the anchor's node only, since that is the one
+            // cell of a building that gets a node at all.
+            tileRenderer.syncDamageMarker(on: node, tile: tile, damagedBy: tile.damagedBy)
+            // Normal view only — the Water/Power overlays already have their
+            // own, bigger signal for this (the whole lot's colour), so a badge
+            // on top of that would be redundant.
             tileRenderer.syncUtilityWarning(
-                on: node,
-                density: map[position].density,
+                on: node, tile: tile,
                 hasWaterSupply: Water.hasSupply(at: position, in: map),
                 hasPowerSupply: PowerGrid.hasSupply(at: position, in: map)
             )
         case .landValue:
-            node.color = RenderPalette.landValueColor(for: LandValue.value(at: position, in: map, using: overlayDistances))
-            tileRenderer.clearGroundGlow(on: node)
-            tileRenderer.clearZoneMarker(on: node)
-            tileRenderer.clearIcon(on: node)
-            tileRenderer.clearNetworkGlow(on: node)
-            tileRenderer.clearPipeMarker(on: node)
-            tileRenderer.clearPowerLineMarker(on: node)
-            tileRenderer.clearBuildingShadow(on: node)
-            tileRenderer.clearLaneLine(on: node)
-            tileRenderer.clearUtilityWarning(on: node)
-            tileRenderer.clearDamageMarker(on: node)
+            tileRenderer.applyOverlay(on: node, color: RenderPalette.landValueColor(
+                for: LandValue.value(at: position, in: map, using: overlayDistances)))
         case .pollution:
-            node.color = RenderPalette.pollutionColor(for: map.pollution.level(at: position))
-            tileRenderer.clearGroundGlow(on: node)
-            tileRenderer.clearZoneMarker(on: node)
-            tileRenderer.clearIcon(on: node)
-            tileRenderer.clearNetworkGlow(on: node)
-            tileRenderer.clearPipeMarker(on: node)
-            tileRenderer.clearPowerLineMarker(on: node)
-            tileRenderer.clearBuildingShadow(on: node)
-            tileRenderer.clearLaneLine(on: node)
-            tileRenderer.clearUtilityWarning(on: node)
-            tileRenderer.clearDamageMarker(on: node)
+            tileRenderer.applyOverlay(on: node, color: RenderPalette.pollutionColor(
+                for: map.pollution.level(at: position)))
         case .traffic:
-            node.color = RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
-            tileRenderer.clearGroundGlow(on: node)
-            tileRenderer.clearZoneMarker(on: node)
-            tileRenderer.clearIcon(on: node)
-            tileRenderer.clearNetworkGlow(on: node)
-            tileRenderer.clearPipeMarker(on: node)
-            tileRenderer.clearPowerLineMarker(on: node)
-            tileRenderer.clearBuildingShadow(on: node)
-            tileRenderer.clearLaneLine(on: node)
-            tileRenderer.clearUtilityWarning(on: node)
-            tileRenderer.clearDamageMarker(on: node)
+            tileRenderer.applyOverlay(on: node, color: RenderPalette.trafficColor(
+                for: Traffic.congestion(at: position, in: map)))
         case .water:
-            node.color = RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
-            tileRenderer.clearGroundGlow(on: node)
-            tileRenderer.clearZoneMarker(on: node)
-            tileRenderer.clearIcon(on: node)
-            tileRenderer.clearNetworkGlow(on: node)
-            tileRenderer.clearPowerLineMarker(on: node)
-            tileRenderer.clearLaneLine(on: node)
-            tileRenderer.clearUtilityWarning(on: node)
-            tileRenderer.clearDamageMarker(on: node)
+            tileRenderer.applyOverlay(on: node, color: RenderPalette.waterColor(
+                for: Water.hasSupply(at: position, in: map)))
             // Reads `hasPipe` directly rather than the cached
-            // `map.waterSupply`, so a pipe you just laid shows up right
-            // away — the *supply* coloring above still only updates once
-            // the next simulation tick recomputes it, same as it already
-            // does for a newly-placed Water Tower.
-            tileRenderer.syncPipeMarker(on: node, hasPipe: map[position].hasPipe)
-            // The building-visibility fix: a dimmed copy of whatever's
-            // normally here, so you can still see which tiles you're
-            // routing pipe to/around instead of a featureless supply-color
-            // block. See `syncBuildingShadow`'s own doc comment.
-            tileRenderer.syncBuildingShadow(on: node, zone: map[position].zone, density: map[position].density, footprintSize: map[position].zone.footprintSize, seed: position)
+            // `map.waterSupply`, so a pipe you just laid shows up right away —
+            // the *supply* colouring above still only updates once the next
+            // tick recomputes it, same as for a newly-placed water tower.
+            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPipe, isPipe: true)
         case .power:
-            node.color = RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
-            tileRenderer.clearGroundGlow(on: node)
-            tileRenderer.clearZoneMarker(on: node)
-            tileRenderer.clearIcon(on: node)
-            tileRenderer.clearNetworkGlow(on: node)
-            tileRenderer.clearPipeMarker(on: node)
-            tileRenderer.clearLaneLine(on: node)
-            tileRenderer.clearUtilityWarning(on: node)
-            tileRenderer.clearDamageMarker(on: node)
-            // Same "read the layer directly, not the cached supply" reasoning
-            // `syncPipeMarker` documents just above, for the parallel layer.
-            tileRenderer.syncPowerLineMarker(on: node, hasPowerLine: map[position].hasPowerLine)
-            // Same building-visibility fix as Water, just above.
-            tileRenderer.syncBuildingShadow(on: node, zone: map[position].zone, density: map[position].density, footprintSize: map[position].zone.footprintSize, seed: position)
+            tileRenderer.applyOverlay(on: node, color: RenderPalette.powerColor(
+                for: PowerGrid.hasSupply(at: position, in: map)))
+            // Same "read the layer directly, not the cached supply" reasoning.
+            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPowerLine, isPipe: false)
         }
         syncTrafficAnimation(at: position)
     }
@@ -889,7 +833,7 @@ final class GameScene: SKScene {
         guard let node = tileNodes[position] else { return }
         let zone = map[position].zone
         guard zone == .road || zone == .highway else {
-            tileRenderer.clearLaneLine(on: node)
+            tileRenderer.syncLaneLine(on: node, zone: zone, connections: Traffic.roadConnections(at: position, in: map))
             return
         }
         tileRenderer.syncLaneLine(on: node, zone: zone, connections: Traffic.roadConnections(at: position, in: map))
@@ -967,7 +911,7 @@ final class GameScene: SKScene {
     /// along for free with whatever `SKAction` is already moving the car.
     private func makeSpeedTrail(zone: ZoneType, travelAngle: CGFloat, carLength: CGFloat, carThickness: CGFloat, speedFactor: CGFloat) -> SKSpriteNode {
         let trail = SKSpriteNode(texture: Self.speedTrailTexture)
-        let trailLength = layout.spriteSize.width * (0.3 + speedFactor * 1.4)
+        let trailLength = projection.tileWidth * (0.3 + speedFactor * 1.4)
         trail.size = CGSize(width: trailLength, height: carThickness * 0.7)
         trail.color = RenderPalette.networkAccentColor(for: zone)
         trail.colorBlendFactor = 1
@@ -1033,8 +977,15 @@ final class GameScene: SKScene {
         // Busier roads get slower-crossing cars too, not just more of them —
         // reads as "jammed," not just "popular."
         let crossingDuration = 1.2 + congestion * 1.8
-        let half = layout.spriteSize.width / 2 * 0.8
-        let laneSpacing = layout.spriteSize.width * 0.2
+        // **Lanes are in tile units and projected, not in screen axes.** A
+        // road running east-west is a horizontal line on a top-down map and a
+        // down-right diagonal in isometric, so laying cars out along screen x
+        // or y — which is what this did — would drive them off the road at
+        // forty-five degrees. Everything below is expressed in the lot's own
+        // coordinates and passed through the projection, which is also why the
+        // car's rotation now comes from the projected direction rather than a
+        // fixed angle per axis.
+        let laneOffset: CGFloat = 0.16
         // Real two-way roads never carry traffic down the center line —
         // every car this tile renders shares the same net flow direction
         // (`flowsPositive`), so they all belong in the one lane that
@@ -1049,23 +1000,29 @@ final class GameScene: SKScene {
         // with exactly one car — the common case at low congestion — sat
         // on by default, reading as straddling the center line rather
         // than driving in a lane.
-        let lane = flowsPositive ? laneSpacing : -laneSpacing
+        let lane = 0.5 + (flowsPositive ? laneOffset : -laneOffset)
+        let entry = horizontal ? projection.project(0, lane, 0) : projection.project(lane, 0, 0)
+        let exit = horizontal ? projection.project(1, lane, 0) : projection.project(lane, 1, 0)
         // How free-flowing this tile's traffic actually is, 1 (empty
         // road) down to 0 (gridlocked) — the same signal `crossingDuration`
         // above already reads off `congestion`, reused here so the speed
         // trail agrees with how fast the car it's attached to actually
         // looks like it's crossing the tile.
         let speedFactor = CGFloat(1 - congestion)
-        let travelAngle: CGFloat
-        if horizontal {
-            travelAngle = flowsPositive ? 0 : .pi
-        } else {
-            travelAngle = flowsPositive ? .pi / 2 : -.pi / 2
-        }
+        let lowEnd = entry, highEnd = exit
+        let heading = flowsPositive
+            ? CGPoint(x: highEnd.x - lowEnd.x, y: highEnd.y - lowEnd.y)
+            : CGPoint(x: lowEnd.x - highEnd.x, y: lowEnd.y - highEnd.y)
+        let travelAngle = atan2(heading.y, heading.x)
 
         for index in 0 ..< carCount {
-            let carSize = horizontal ? CGSize(width: 8, height: 5) : CGSize(width: 5, height: 8)
+            // One shape, rotated to the projected heading — there is no
+            // "horizontal car" and "vertical car" in isometric, only a car
+            // pointing down one of two diagonals.
+            let carSize = CGSize(width: max(6, projection.tileWidth * 0.24),
+                                 height: max(4, projection.tileWidth * 0.15))
             let car = SKShapeNode(rectOf: carSize, cornerRadius: 1.5)
+            car.zRotation = travelAngle
             car.name = Self.trafficCarNodeName
             car.fillColor = RenderPalette.trafficCarBody
             car.strokeColor = RenderPalette.trafficCarOutline
@@ -1074,13 +1031,11 @@ final class GameScene: SKScene {
             car.addChild(makeSpeedTrail(
                 zone: zone,
                 travelAngle: travelAngle,
-                carLength: horizontal ? carSize.width : carSize.height,
-                carThickness: horizontal ? carSize.height : carSize.width,
+                carLength: carSize.width,
+                carThickness: carSize.height,
                 speedFactor: speedFactor
             ))
 
-            let lowEnd = horizontal ? CGPoint(x: -half, y: lane) : CGPoint(x: lane, y: -half)
-            let highEnd = horizontal ? CGPoint(x: half, y: lane) : CGPoint(x: lane, y: half)
             let start = flowsPositive ? lowEnd : highEnd
             let end = flowsPositive ? highEnd : lowEnd
             car.position = start
@@ -1109,29 +1064,6 @@ final class GameScene: SKScene {
             car.run(.sequence([.wait(forDuration: stagger), loop]))
 
             node.addChild(car)
-        }
-    }
-
-    /// What color a tile is drawn right now — used only by
-    /// `flashInsufficientFunds` to know what to fade *back to* once the
-    /// flash ends. Mirrors the same overlay-or-zone choice `refresh(_:)`
-    /// makes, kept separate because that one needs to hand a plain
-    /// `SKColor` to an `SKAction`, not update a node directly.
-    private func currentColor(at position: GridPosition) -> SKColor {
-        switch controller.overlayMode {
-        case .none:
-            let tile = map[position]
-            return RenderPalette.color(for: tile.zone, density: tile.density)
-        case .landValue:
-            return RenderPalette.landValueColor(for: LandValue.value(at: position, in: map, using: overlayDistances))
-        case .pollution:
-            return RenderPalette.pollutionColor(for: map.pollution.level(at: position))
-        case .traffic:
-            return RenderPalette.trafficColor(for: Traffic.congestion(at: position, in: map))
-        case .water:
-            return RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
-        case .power:
-            return RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
         }
     }
 }

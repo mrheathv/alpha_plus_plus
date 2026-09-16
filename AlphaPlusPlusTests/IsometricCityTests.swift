@@ -144,6 +144,57 @@ final class IsometricCityTests: XCTestCase {
         }
     }
 
+    /// Re-syncing an unchanged tile must not rebuild anything.
+    ///
+    /// `GameScene.refreshAll()` runs every decoration for every tile on every
+    /// simulation tick. Without cache keys that tears down and rebuilds
+    /// thousands of shape nodes a second and re-hangs every building sprite —
+    /// which is exactly the churn CLAUDE.md records as "why the map blinked".
+    /// The top-down renderer grew its keys after a live playtest surfaced the
+    /// problem; this pins them for the isometric one before.
+    func testRefreshingAnUnchangedTileRebuildsNothing() {
+        let projection = Self.projection(tileWidth: 32)
+        let view = SKView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
+        let renderer = IsoTileRenderer(projection: projection)
+        var tile = Tile(position: GridPosition(x: 3, y: 4), zone: .residential, density: 4)
+
+        let node = renderer.makeNode(for: tile, in: view)
+        let before = node.children.map { ObjectIdentifier($0) }
+        renderer.update(node, for: tile, in: view)
+        XCTAssertEqual(node.children.map { ObjectIdentifier($0) }, before,
+                       "an unchanged tile replaced its own children")
+
+        tile.density = 5
+        renderer.update(node, for: tile, in: view)
+        XCTAssertNotEqual(node.children.map { ObjectIdentifier($0) }, before,
+                          "a tile that grew a tier kept its old building")
+    }
+
+    /// Switching to an overlay and back has to restore the building.
+    ///
+    /// The cache key is what decides whether a decoration is rebuilt, so an
+    /// overlay that removed nodes without invalidating their keys would leave
+    /// the map permanently blank once the player looked at land value — and it
+    /// would look exactly like the overlay working.
+    func testLeavingAnOverlayRestoresTheBuilding() {
+        let projection = Self.projection(tileWidth: 32)
+        let view = SKView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
+        let renderer = IsoTileRenderer(projection: projection)
+        let tile = Tile(position: GridPosition(x: 2, y: 2), zone: .commercial, density: 5)
+
+        let node = renderer.makeNode(for: tile, in: view)
+        func hasBuilding() -> Bool {
+            node.children.contains { ($0 as? SKSpriteNode)?.texture != nil && $0.name != nil }
+        }
+        XCTAssertTrue(hasBuilding())
+
+        renderer.applyOverlay(on: node, color: .green)
+        XCTAssertFalse(hasBuilding(), "the overlay left the building showing")
+
+        renderer.update(node, for: tile, in: view)
+        XCTAssertTrue(hasBuilding(), "leaving the overlay did not bring the building back")
+    }
+
     // MARK: - The render
 
     func testRenderIsometricCity() throws {

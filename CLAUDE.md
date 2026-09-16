@@ -1024,6 +1024,50 @@ Two consequences worth noting:
   for the reason `BuildingRandom` documents: Swift randomises it per process,
   and a city must not reshuffle itself between launches.
 
+### Phase 9 (done): the flip
+
+**`GameScene` is isometric.** It holds an `Isometric` and an `IsoTileRenderer`
+where it held a `GridLayout` and a `TileRenderer`; tile nodes carry a
+painter's-algorithm `zPosition`; clicks go through the ground-plane inverse;
+the camera and the sun glow are placed off the ground diamond's bounds.
+
+**Two bugs the compiler could not catch**, both of which would have shipped as
+silent losses of behaviour rather than crashes:
+
+- **`SKAction.colorize` does nothing on a plain `SKNode`.** All three feedback
+  flashes — insufficient funds, blocked placement, hazard struck — worked by
+  colorizing the tile's `SKSpriteNode` and animating back. An isometric tile
+  node is a plain node holding a ground shape, so they kept compiling and
+  stopped doing anything. They are a fading diamond now, which works on any
+  node, needs no restore colour, and cannot go quietly dead. That also retired
+  `currentColor(at:)` — a switch over every overlay mode that existed only to
+  answer "what do I fade back to".
+- **Cars drove along screen axes.** A road running east-west is a horizontal
+  line on a top-down map and a *down-right diagonal* in isometric, so laying
+  cars out along screen x or y sends them off the road at forty-five degrees.
+  Lanes are expressed in tile units and projected now, and a car's rotation
+  comes from the projected heading rather than a fixed angle per axis.
+
+**Cache keys went in before the blink, not after.** `refreshAll()` runs every
+decoration for every tile on every tick, so without them each tick rebuilds
+thousands of shape nodes and re-hangs every building sprite — exactly the churn
+recorded under "why the map blinked". The top-down renderer grew its keys after
+a live playtest surfaced the problem; this one has them from the start, plus a
+test that re-syncing an unchanged tile replaces none of its children.
+
+Related, and easy to get wrong: **an overlay has to invalidate the keys of what
+it hides**, not merely remove the nodes. The key is what decides whether a
+decoration is rebuilt, so a stale one would mean the map never came back after
+a player looked at land value — and it would look exactly like the overlay
+working.
+
+**Overlay handling collapsed from five branches of ten `clear…` calls to one.**
+Every decoration added since the overlays were written had to be remembered in
+all five, which is the kind of repetition that goes stale silently: a forgotten
+line leaves a stray building floating over a heatmap rather than failing
+anything. `applyOverlay` is the whole idea — hide what describes the building,
+tint the ground.
+
 ### Rendering cost, measured at phase 2 rather than phase 11
 
 A building costs **~55 nodes in isometric against ~26 in elevation**, and the

@@ -69,7 +69,7 @@ final class BuildingTextureCache {
     /// The canonical seed that stands for a variant. Spread apart so two
     /// variants are not near-neighbours in the generators' own seed space,
     /// which would make them near-identical buildings.
-    private static func canonicalSeed(for variant: Int) -> GridPosition {
+    static func canonicalSeed(for variant: Int) -> GridPosition {
         GridPosition(x: variant * 31, y: variant * 17)
     }
 
