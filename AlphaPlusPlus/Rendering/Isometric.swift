@@ -62,7 +62,8 @@ struct Face3 {
 /// to trace. In isometric the same box shows three faces and the creases
 /// between them.
 ///
-/// **A struct, not an enum of constants**, for the same reason `GridLayout` is:
+/// **A struct, not an enum of constants**, for the same reason the top-down
+/// layout it replaced was:
 /// the render tools want to draw the same city at several scales, and a global
 /// would make that a mutation.
 ///
@@ -182,7 +183,7 @@ struct Isometric {
 
     /// Centre of the ground a footprint-`size` building stands on, anchored at
     /// its minimum corner — the isometric counterpart of
-    /// `GridLayout.centerPoint(ofFootprintOrigin:size:)`.
+    /// the top-down layout's `centerPoint(ofFootprintOrigin:size:)`.
     func centerPoint(ofFootprintOrigin origin: GridPosition, size: Int) -> CGPoint {
         project(CGFloat(origin.x) + CGFloat(size) / 2, CGFloat(origin.y) + CGFloat(size) / 2, 0)
     }
@@ -256,7 +257,7 @@ struct Isometric {
     /// is `x + y`. Elevation breaks the tie, so a chimney standing on a hall
     /// draws after the hall it stands on rather than being swallowed by it.
     ///
-    /// This is one of the two things `GridLayout`'s doc comment misses when it
+    /// This is one of the two things the top-down layout's doc comment missed when it
     /// claims a switch to isometric changes one file; the other is the click
     /// inverse above.
     static func sorted<T>(_ items: [T], depth: (T) -> (CGFloat, CGFloat)) -> [T] {

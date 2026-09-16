@@ -19,7 +19,7 @@ final class IsometricTests: XCTestCase {
     /// ground plane, or click-to-place lands on the wrong tile.
     ///
     /// This is the piece a switch to isometric cannot skip: top-down,
-    /// `GridLayout.position(for:)` is an integer divide, because squares tile
+    /// the top-down layout's `position(for:)` was an integer divide, because squares tile
     /// trivially. Diamonds do not.
     func testGroundPositionInvertsProjection() {
         for x in stride(from: -8.0, through: 8.0, by: 0.5) {
@@ -319,7 +319,7 @@ final class IsometricTests: XCTestCase {
     // MARK: - Rendering
 
     /// One building must cost exactly one blur pass regardless of how many
-    /// volumes it is made of. `ZoneIconContactSheetTests` has twice shown that
+    /// volumes it is made of. The elevation contact sheet twice showed that
     /// a scene silently stops servicing effect nodes past a budget, so a
     /// five-box building costing five of them would not fail loudly — the map
     /// would just start dropping buildings.

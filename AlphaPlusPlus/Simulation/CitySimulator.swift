@@ -176,7 +176,7 @@ enum CitySimulator {
     /// is until the supply comes back. A first guess like every other
     /// number in this file.
     ///
-    /// Not `private`: `TileRenderer.syncUtilityWarning` (Rendering/) reads
+    /// Not `private`: `IsoTileRenderer.syncUtilityWarning` (Rendering/) reads
     /// this too, so the on-map "you're missing water" badge lights up at
     /// the exact same density this file actually starts caring about
     /// water, instead of a second, hand-copied threshold silently drifting

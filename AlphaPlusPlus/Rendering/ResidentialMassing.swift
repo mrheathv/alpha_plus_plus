@@ -183,7 +183,7 @@ enum ResidentialMassing {
                         u1: (CGFloat(column) + 0.74) / CGFloat(columns),
                         v0: (CGFloat(row) + 0.24) / CGFloat(rows),
                         v1: (CGFloat(row) + 0.7) / CGFloat(rows),
-                        color: ZoneIcon.windowColor(row: row, column: column, salt: salt)
+                        color: NeonStyle.windowColor(row: row, column: column, salt: salt)
                     ))
                 }
             }
@@ -198,7 +198,7 @@ enum ResidentialMassing {
             box: box, face: random.chance(0.5) ? .right : .left,
             u0: centre - 0.1, u1: centre + 0.1,
             v0: 0, v1: min(0.34, 0.26 / max(box.height, 0.3)),
-            color: ZoneIcon.litAccent
+            color: NeonStyle.litAccent
         ))
     }
 

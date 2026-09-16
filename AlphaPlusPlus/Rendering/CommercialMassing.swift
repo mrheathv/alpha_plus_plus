@@ -56,7 +56,7 @@ enum CommercialMassing {
 
         // The fascia: a long lit band across the upper face, the mark that says
         // "several shops behind one frontage".
-        let color = ZoneIcon.signColor(for: seed)
+        let color = NeonStyle.signColor(for: seed)
         for face in [Panel.Face.right, .left] {
             massing.panels.append(Panel(box: body, face: face, u0: 0.12, u1: 0.88,
                                         v0: 0.62, v1: 0.86, color: color))
@@ -91,7 +91,7 @@ enum CommercialMassing {
             : Box(x: margin, y: offset, z: base.height, width: base.width, depth: size, height: CGFloat(random.value(in: 0.7 ... 1.1)))
         massing.add(.box(tower))
         glazingBands(on: tower, into: &massing, random: &random)
-        bladeSign(on: tower, color: ZoneIcon.signColor(for: seed), footprint: footprint,
+        bladeSign(on: tower, color: NeonStyle.signColor(for: seed), footprint: footprint,
                   into: &massing, random: &random)
         crown(on: tower, tier: 1, seed: seed, into: &massing, random: &random)
     }
@@ -122,7 +122,7 @@ enum CommercialMassing {
                         width: footprint - inset * 2, depth: footprint - inset * 2, height: height)
         massing.add(.box(tower))
         glazingBands(on: tower, into: &massing, random: &random)
-        bladeSign(on: tower, color: ZoneIcon.signColor(for: seed), footprint: footprint,
+        bladeSign(on: tower, color: NeonStyle.signColor(for: seed), footprint: footprint,
                   into: &massing, random: &random)
 
         // Setbacks, so the skyline is not a row of identical slabs.
@@ -148,7 +148,7 @@ enum CommercialMassing {
         for face in [Panel.Face.right, .left] {
             massing.panels.append(Panel(box: box, face: face, u0: 0.06, u1: 0.94,
                                         v0: share.lowerBound, v1: share.upperBound,
-                                        color: ZoneIcon.litAccent))
+                                        color: NeonStyle.litAccent))
         }
     }
 
@@ -164,7 +164,7 @@ enum CommercialMassing {
                     box: box, face: face, u0: 0.1, u1: 0.9,
                     v0: (CGFloat(band) + 0.2) / CGFloat(bands),
                     v1: (CGFloat(band) + 0.68) / CGFloat(bands),
-                    color: ZoneIcon.windowColor(row: band, column: 0, salt: 7)
+                    color: NeonStyle.windowColor(row: band, column: 0, salt: 7)
                 ))
             }
         }
@@ -215,7 +215,7 @@ enum CommercialMassing {
         case .litBand:
             massing.add(.box(Box(x: tower.x - 0.03, y: tower.y - 0.03, z: top,
                                  width: tower.width + 0.06, depth: tower.depth + 0.06, height: 0.09)),
-                        .lit(ZoneIcon.signColor(for: seed, salt: 3)))
+                        .lit(NeonStyle.signColor(for: seed, salt: 3)))
         case .steppedCap:
             var box = tower
             var z = top

@@ -13,7 +13,7 @@ import SpriteKit
 /// lot's own origin.
 ///
 /// **One class of bug does not survive the move, and it is worth naming.** In
-/// elevation, `TileRenderer.fitIconToTile` scaled a building by its *measured*
+/// elevation, the renderer scaled a building by its *measured*
 /// frame, so bolting a tank onto the side of a hall silently shrank the entire
 /// works to fit — which is why `IndustrialBuilding` has to decide whether there
 /// are tanks *before* it sizes the hall. Here a building occupies real space in
@@ -129,7 +129,7 @@ enum IndustrialMassing {
             massing.add(.box(box))
             for face in [Panel.Face.right, .left] {
                 massing.panels.append(Panel(box: box, face: face, u0: 0.1, u1: 0.9, v0: 0.25, v1: 0.75,
-                                            color: ZoneIcon.litAccent))
+                                            color: NeonStyle.litAccent))
             }
         case .flat:
             // A parapet, plus rooftop plant. The quiet option should still not
@@ -175,7 +175,7 @@ enum IndustrialMassing {
                     u0: (CGFloat(index) + 0.18) / CGFloat(bays),
                     u1: (CGFloat(index) + 0.82) / CGFloat(bays),
                     v0: 0.28, v1: 0.66,
-                    color: ZoneIcon.windowColor(row: index, column: 0, salt: tier)
+                    color: NeonStyle.windowColor(row: index, column: 0, salt: tier)
                 ))
             }
             if tier >= 2, random.chance(0.6) {
@@ -184,14 +184,14 @@ enum IndustrialMassing {
                 massing.panels.append(Panel(
                     box: hall, face: face,
                     u0: centre - 0.13, u1: centre + 0.13, v0: 0, v1: 0.42,
-                    color: ZoneIcon.recessedAccent
+                    color: NeonStyle.recessedAccent
                 ))
             }
         }
         // One lit sign plaque, low on the near wall.
         massing.panels.append(Panel(
             box: hall, face: .left, u0: 0.08, u1: 0.34, v0: 0.7, v1: 0.92,
-            color: ZoneIcon.signColor(for: seed)
+            color: NeonStyle.signColor(for: seed)
         ))
     }
 

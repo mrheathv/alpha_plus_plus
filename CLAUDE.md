@@ -766,12 +766,12 @@ failed a test:
   plant box could be offset past its own parapet, where it read as a rectangle
   floating beside the building rather than as rooftop machinery.
 
-## Going isometric (decided; spiked, not migrated)
+## The isometric migration (done)
 
-**The decision is made: the game moves to an isometric projection.** Nothing in
-the running game uses it yet. `Isometric` holds the projection and
-`IsometricSpikeTests` renders a block with it, so the look could be judged
-before the codebase was committed.
+**The game is isometric.** It runs in eleven phases' worth of commits, and the
+short version is: buildings stopped being drawings and became descriptions, a
+projection turns those into pixels, and the top-down path was deleted once
+nothing needed it.
 
 **The problem it solves.** The game draws its ground from directly overhead
 and its buildings as front elevations, as if seen from the street. Those are
@@ -1067,6 +1067,36 @@ all five, which is the kind of repetition that goes stale silently: a forgotten
 line leaves a stray building floating over a heatmap rather than failing
 anything. `applyOverlay` is the whole idea — hide what describes the building,
 tint the ground.
+
+### Phases 10–11 (done): bounds, cost, and a large deletion
+
+**The camera is clamped to the map.** Panning was unbounded top-down and should
+not have been — a stray flick left you looking at empty background with no
+landmark to steer back by. Survivable when the map was a square filling the
+view; much worse now it is a diamond whose corners are the only thing near the
+screen edges. Clamped against the *ground* bounds, generously, so the point is
+keeping the map findable rather than fencing the player in.
+
+**What a built-out map costs, measured:** a 40×40 city of 832 buildings is
+**2,177 nodes — 2.6 per lot — and 48 textures**. Without the texture cache the
+same map is roughly 37,000 `SKShapeNode`s, which do not batch. Reported in the
+test log rather than only asserted, because a number in a build log is what
+makes a regression visible before it is a stutter.
+
+**The elevation path is gone: 3,743 lines deleted against 135 added.**
+`ZoneIcon`, `TileRenderer`, `GridLayout`, the three elevation building
+generators, and the two top-down render tests. What survived is
+`NeonStyle` — `ZoneIcon` with the icons taken out, and named for what it
+actually is: the palette and primitives that keep a lit window the same colour
+in a factory and a hospital, and stop the zones drifting into looking like
+three different games. That half was always the more durable one.
+
+The perf test that compared isometric against elevation went too. It was the
+right question while both existed — finding out isometric cost four times as
+much was worth doing at one zone ported rather than six — but with nothing to
+compare against it would only measure itself. It guards the absolute number
+now, which is what the texture cache has to rasterise and what would come
+straight back as draw calls if that cache were ever bypassed.
 
 ### Rendering cost, measured at phase 2 rather than phase 11
 

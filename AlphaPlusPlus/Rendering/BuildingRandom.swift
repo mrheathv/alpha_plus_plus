@@ -7,7 +7,7 @@ import Foundation
 /// every app launch, or the city visibly reshuffles itself while you watch. It
 /// also has to differ from its neighbour's, or a row of lots reads as
 /// wallpaper. Seeding from the lot's own position gives both — the same
-/// property `ZoneIcon.variant(for:optionCount:)` already relies on, and for
+/// property `NeonStyle.variant(for:optionCount:)` already relies on, and for
 /// the same reason it avoids `GridPosition.hashValue` (Swift randomises that
 /// per process, which is fine for dictionary buckets and wrong for "this lot
 /// always looks like this").

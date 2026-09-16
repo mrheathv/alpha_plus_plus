@@ -11,7 +11,7 @@ import SpriteKit
 /// is the one that stays.
 ///
 /// **Lots are placed at a fixed point in their cell rather than centred on the
-/// building.** `TileRenderer.fitIconToTile` had to centre and scale by the
+/// building.** The elevation renderer had to centre and scale by the
 /// drawn frame because an elevation has no real size. Massing does: a building
 /// occupies actual space in an actual lot. Anchoring the *lot* instead of the
 /// building keeps sizes honest across cells — a tier-1 shed should look small
@@ -146,39 +146,45 @@ final class IsometricContactSheetTests: XCTestCase {
         }
     }
 
-    /// **The perf question, answered early rather than at the end.** An
-    /// isometric building draws three faces per volume where an elevation drew
-    /// one flat silhouette, so the node count per building is the thing most
-    /// likely to make this migration a regression. Measuring it with one zone
-    /// ported is far cheaper than discovering it with six.
-    func testNodeCountIsComparableToElevation() {
-        var isometricTotal = 0
-        var elevationTotal = 0
+    /// Geometry creep, guarded.
+    ///
+    /// **This test used to compare against the elevation renderer**, which was
+    /// the right question while both existed — an isometric building is three
+    /// faces per volume where an elevation was one flat silhouette, and finding
+    /// out it cost four times as much was worth doing at one zone ported rather
+    /// than six. The elevation path is gone now, so there is nothing to compare
+    /// against and the comparison would only measure itself.
+    ///
+    /// What is still worth guarding is the *absolute* number, because it is
+    /// what the texture cache has to rasterise and what would come straight
+    /// back as draw calls if that cache were ever bypassed. A generator that
+    /// quietly grew to two hundred nodes a building would still look fine on a
+    /// contact sheet.
+    func testABuildingsGeometryStaysBounded() {
+        var worst = (label: "", count: 0)
+        var total = 0
         var buildings = 0
 
-        for tier in [1, 2, 3] {
-            let density = Self.tierDensities[tier]!
-            for seed in Self.seeds() {
-                guard let massing = ZoneMassing.make(for: .industrial, density: density, seed: seed) else { continue }
-                let iso = IsometricBuilding.node(
-                    for: massing, accent: .orange, tier: tier, in: Self.projection
-                )
-                let elevation = ZoneIcon.makeNode(for: .industrial, density: density, seed: seed)
-                isometricTotal += Self.nodeCount(iso)
-                elevationTotal += elevation.map(Self.nodeCount) ?? 0
-                buildings += 1
+        for entry in Self.catalog() {
+            guard let massing = ZoneMassing.make(for: entry.zone, density: entry.density, seed: entry.seed) else {
+                continue
             }
+            let node = IsometricBuilding.node(
+                for: massing,
+                accent: ZoneMassing.accent(for: entry.zone, density: entry.density),
+                tier: max(1, entry.tier),
+                in: Self.projection
+            )
+            let count = Self.nodeCount(node)
+            total += count
+            buildings += 1
+            if count > worst.count { worst = (entry.label, count) }
         }
 
-        let isoAverage = Double(isometricTotal) / Double(buildings)
-        let elevationAverage = Double(elevationTotal) / Double(buildings)
-        print("🧮 nodes per industrial building — isometric \(String(format: "%.1f", isoAverage)), elevation \(String(format: "%.1f", elevationAverage))")
-
-        XCTAssertLessThan(
-            isoAverage, elevationAverage * 2.5,
-            "isometric costs \(String(format: "%.1f", isoAverage / elevationAverage))x the nodes of an elevation — " +
-            "cheap to fix now with one zone ported, expensive with six"
-        )
+        let average = Double(total) / Double(max(buildings, 1))
+        print("🧮 nodes per building — average \(String(format: "%.1f", average)), worst \(worst.count) (\(worst.label))")
+        XCTAssertLessThan(average, 90, "average building geometry has grown")
+        XCTAssertLessThan(worst.count, 220, "\(worst.label) is far heavier than anything else")
     }
 
     private static func nodeCount(_ node: SKNode) -> Int {

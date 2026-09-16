@@ -10,7 +10,7 @@ import Foundation
 /// thing," and it needs the dirty thing to actually be bad to be near.
 ///
 /// The art has been promising this for a while: `RenderPalette` names
-/// industrial's top tier "Pollution Warning" and `ZoneIcon` draws a hazard
+/// industrial's top tier "Pollution Warning" and `IndustrialMassing` puts a hazard
 /// triangle on both of its tier-3 looks. This is the mechanic those were
 /// drawn for.
 ///

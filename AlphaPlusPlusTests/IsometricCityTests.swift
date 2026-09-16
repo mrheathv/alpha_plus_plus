@@ -195,6 +195,51 @@ final class IsometricCityTests: XCTestCase {
         XCTAssertTrue(hasBuilding(), "leaving the overlay did not bring the building back")
     }
 
+    /// What a fully built-out map actually costs the renderer.
+    ///
+    /// The number that matters is **nodes in the scene**, not nodes per
+    /// building: `SKShapeNode` does not batch, so the scene graph's size is
+    /// roughly the frame's draw-call count. Reported rather than merely
+    /// asserted, because a number in a build log is what makes a regression
+    /// visible before it is a stutter.
+    func testBuiltOutMapCost() throws {
+        var map = CityMap(width: 40, height: 40)
+        for y in 0 ..< map.height {
+            for x in 0 ..< map.width {
+                let position = GridPosition(x: x, y: y)
+                if x % 5 == 0 || y % 5 == 0 {
+                    map[position].zone = .road
+                } else {
+                    let anchor = GridPosition(x: x - (x % 5 - 1) % 2, y: y - (y % 5 - 1) % 2)
+                    map[position].zone = [.residential, .commercial, .industrial][(x / 5 + y / 5) % 3]
+                    map[position].density = 5
+                    map[position].buildingOrigin = anchor
+                }
+            }
+        }
+
+        let projection = Self.projection(tileWidth: 32)
+        let view = SKView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
+        let renderer = IsoTileRenderer(projection: projection)
+        let layer = SKNode()
+
+        var anchors = 0
+        for position in Self.positions(of: map) where map[position].isBuildingAnchor {
+            anchors += 1
+            layer.addChild(renderer.makeNode(for: map[position], in: view))
+        }
+        let nodes = Self.nodeCount(layer)
+        let perAnchor = Double(nodes) / Double(anchors)
+        print("🧮 built-out 40×40 — \(anchors) anchors, \(nodes) nodes (\(String(format: "%.1f", perAnchor))/anchor), \(renderer.textures.count) textures")
+
+        XCTAssertLessThan(perAnchor, 6, "a lot should cost a handful of nodes, not a building's worth of shapes")
+        XCTAssertLessThan(renderer.textures.count, 260, "the texture cache should be bounded by variants, not lots")
+    }
+
+    private static func nodeCount(_ node: SKNode) -> Int {
+        1 + node.children.reduce(0) { $0 + nodeCount($1) }
+    }
+
     // MARK: - The render
 
     func testRenderIsometricCity() throws {

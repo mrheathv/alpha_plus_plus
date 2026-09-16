@@ -4,7 +4,7 @@ import SpriteKit
 ///
 /// This file is the *entire* answer to "what colour is a residential zone?".
 /// Because `ZoneType` (in Simulation/) has no idea colours exist, restyling the
-/// whole game is a change to this file and `TileRenderer`, and nothing else.
+/// whole game is a change to this file and `IsoTileRenderer`, and nothing else.
 ///
 /// **Ground and light are different things, and that distinction is the whole
 /// art direction.** This file started as a graybox palette, where a zone's
@@ -22,7 +22,7 @@ import SpriteKit
 ///   a district still has a cast.
 /// - `tierColor(for:tier:)` / `fullColor(for:)` are what a zone *emits* —
 ///   the neon a building is stroked in, the halo around it, and the pool of
-///   light it throws on the ground beneath it (`TileRenderer.syncGroundGlow`).
+///   light it throws on the ground beneath it (`IsoTileRenderer.syncGroundGlow`).
 ///
 /// Zone identity did not get weaker in the trade; it moved from a flat fill to
 /// light, which is both more legible against black and the only version of it
@@ -48,7 +48,7 @@ enum RenderPalette {
     /// This is the knob that decides whether the map reads as a city at night
     /// or as a chart, and it has to be set *against* the ground glow rather
     /// than on its own: the first pass used 0.26 here, which looked reasonable
-    /// alone but combined with `TileRenderer.syncGroundGlow` on top rebuilt
+    /// alone but combined with `IsoTileRenderer.syncGroundGlow` on top rebuilt
     /// exactly the flat saturated colour field the split was meant to retire,
     /// only with a gradient in it. The fill is the faint cast; the glow is the
     /// light. Turning either one up far enough makes the other pointless.
@@ -120,7 +120,7 @@ enum RenderPalette {
     ///
     /// Retrowave palette: every hue below is a saturated neon rather than a
     /// realistic material color (asphalt gray, brick red, grass green).
-    /// `ZoneIcon` reads this same function for every *civic* building's own
+    /// `ServiceMassing` reads this same function for every civic building's own
     /// "accent" — the glow color for its silhouette's outline — so a
     /// service zone's tile color and the glow on the building standing on
     /// it are always the same color by construction, not two palettes that
@@ -186,7 +186,7 @@ enum RenderPalette {
 
     /// Which of 3 visual/color tiers a growable zone's density falls into —
     /// 0 (nothing built yet), 1 (small), 2 (medium), 3 (large/fully
-    /// developed). The same table `ZoneIcon` already picks a building's
+    /// developed). The same table the massing generators already pick a building's
     /// *shape* from, and now also which of `tierColor(for:tier:)`'s three
     /// named colors it's drawn in — a lot doesn't just get brighter as it
     /// grows any more, it changes hue at each tier the same way its
@@ -244,8 +244,8 @@ enum RenderPalette {
     }
 
     /// The bright accent a road or highway tile's network glow
-    /// (`TileRenderer.syncNetworkGlow`) and lane-line detail
-    /// (`TileRenderer.syncLaneLine`) are drawn in — separate from
+    /// (the road network glow) and lane-line detail
+    /// (`IsoTileRenderer.syncLaneLine`) are drawn in — separate from
     /// `fullColor(for:)`'s dark asphalt base now that the two are
     /// deliberately different values: a synthwave highway reads as a dark
     /// road with a *glowing line down the middle of it*, not a solid
@@ -264,7 +264,7 @@ enum RenderPalette {
     /// amber cast without either becoming a block of flat colour. A zoned but
     /// unbuilt lot is tinted less than a developed one, so "claimed" and
     /// "built" still differ at a glance even before a building appears (and
-    /// `TileRenderer.syncZoneMarker` puts a surveyed outline on it besides).
+    /// `IsoTileRenderer.syncZoneMarker` puts a surveyed outline on it besides).
     ///
     /// Roads and highways keep their own asphalt value rather than being
     /// tinted from it: they are the one surface in the game that really is a
@@ -339,7 +339,7 @@ enum RenderPalette {
     }
 
     /// Marker drawn on top of the Water overlay wherever `Tile.hasPipe` is
-    /// true (see `TileRenderer`'s pipe-marker sync) — pipes have no
+    /// true (see `IsoTileRenderer.syncBuriedMarker`) — pipes have no
     /// surface color of their own now that they're an underground layer
     /// rather than a `ZoneType`, so this is the one place a pipe is
     /// actually visible at all. A muted, desaturated version of

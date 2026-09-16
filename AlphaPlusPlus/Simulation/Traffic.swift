@@ -212,7 +212,7 @@ enum Traffic {
     /// The draw itself is `pseudoRandomUnitValue(for:)`, seeded from the
     /// home's own position rather than `GameController`'s shared RNG — the
     /// same "stable per-lot, not re-rolled every tick" shape
-    /// `ZoneIcon.variant(for:optionCount:)` already uses to pick a
+    /// `NeonStyle.variant(for:optionCount:)` already uses to pick a
     /// building's look. A home keeps commuting to the same job tick after
     /// tick unless the map itself changes (a road, a job filling up),
     /// rather than its ambient traffic car flickering to a new destination
@@ -231,7 +231,7 @@ enum Traffic {
     }
 
     /// A simple, stable mix of `x`/`y` into a value in `0..<1` — not a real
-    /// hash function (same disclaimer `ZoneIcon.variant(for:optionCount:)`
+    /// hash function (same disclaimer `NeonStyle.variant(for:optionCount:)`
     /// makes about its own position mix, and deliberately not
     /// `GridPosition`'s `Hashable` conformance, which Swift randomizes per
     /// process launch), just enough spread that different homes draw
@@ -369,7 +369,7 @@ enum Traffic {
     /// run, a turn, a T-junction, a 4-way crossroads, a dead end, or an
     /// isolated stub with no connections at all yet), not just the single
     /// "horizontal or vertical" axis `isHorizontallyOriented(at:in:)`
-    /// picks for orienting the ambient traffic animation. `TileRenderer`
+    /// picks for orienting the ambient traffic animation. The renderer
     /// reads this to draw the glowing lane line as that actual shape
     /// instead of always a straight line through the tile regardless of
     /// what's really connected to it.

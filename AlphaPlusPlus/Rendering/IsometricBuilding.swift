@@ -69,8 +69,8 @@ enum IsometricBuilding {
                     color = accent
                     fillTint = { shade in
                         let amount = minimumTint + (maximumTint - minimumTint) * shade
-                        return ZoneIcon.silhouetteFill.blended(withFraction: amount, of: accent)
-                            ?? ZoneIcon.silhouetteFill
+                        return NeonStyle.silhouetteFill.blended(withFraction: amount, of: accent)
+                            ?? NeonStyle.silhouetteFill
                     }
                 case .lit(let litColor):
                     color = litColor
@@ -112,7 +112,7 @@ enum IsometricBuilding {
 
         container.addChild(glowLayer(
             glowShapes,
-            intensity: ZoneIcon.glowIntensity(forTier: tier)
+            intensity: NeonStyle.glowIntensity(forTier: tier)
         ))
         content.forEach(container.addChild)
         massing.badges.forEach { container.addChild(node(for: $0, in: projection)) }
@@ -121,7 +121,7 @@ enum IsometricBuilding {
 
     /// A blurred copy of every visible face, behind everything.
     ///
-    /// Deliberately not `ZoneIcon.withGlow`, which adds its glow and then its
+    /// Deliberately not `NeonStyle.withGlow`, which adds its glow and then its
     /// shapes as one unit. Here the glow has to sit behind the *whole*
     /// building while the faces themselves stay interleaved with the panels in
     /// depth order, so the two have to be built separately.
@@ -149,17 +149,17 @@ enum IsometricBuilding {
         path.closeSubpath()
 
         let triangle = SKShapeNode(path: path)
-        triangle.fillColor = ZoneIcon.silhouetteFill
-        triangle.strokeColor = ZoneIcon.emberColor
+        triangle.fillColor = NeonStyle.silhouetteFill
+        triangle.strokeColor = NeonStyle.emberColor
         triangle.lineWidth = 2
         triangle.glowWidth = 1.5
 
         let container = SKNode()
         container.addChild(triangle)
-        container.addChild(ZoneIcon.detail(
+        container.addChild(NeonStyle.detail(
             rect: CGRect(x: centre.x - size * 0.09, y: centre.y - size * 0.2,
                          width: size * 0.18, height: size * 0.36),
-            fill: ZoneIcon.emberColor
+            fill: NeonStyle.emberColor
         ))
         return container
     }

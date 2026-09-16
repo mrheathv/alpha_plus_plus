@@ -198,7 +198,7 @@ struct Cylinder {
     /// default zoom, where the difference between ten sides and sixteen is
     /// invisible and the difference in cost is not: every side is a face, and
     /// every visible face is a node that has to be drawn. This is
-    /// `ZoneIcon.minimumDetailSize`'s rule applied to geometry rather than to
+    /// `NeonStyle.minimumDetailSize`'s rule applied to geometry rather than to
     /// marks — detail below the size it can be seen at is not detail.
     var sides: Int = 10
 

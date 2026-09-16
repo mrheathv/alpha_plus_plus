@@ -4,7 +4,7 @@ import AppKit
 /// The SpriteKit scene that draws the city.
 ///
 /// Key idea: the scene *owns no rules*. It reads a `CityMap` (data) through
-/// the shared `GameController`, asks `TileRenderer` to turn each tile into a
+/// the shared `GameController`, asks `IsoTileRenderer` to turn each tile into a
 /// node, and keeps a lookup table so it can update individual tiles later
 /// without rebuilding the world. When Phase 2 adds a simulation tick, it will
 /// hand this scene new data and the scene will re-sync — it will never
@@ -75,7 +75,7 @@ final class GameScene: SKScene {
     /// A radial gradient, white fading to transparent, tinted by
     /// `sunGlowNode.color` — the same "cache one shared gradient texture,
     /// tint and additively blend it per use" technique
-    /// `TileRenderer.glowTexture` uses for road/highway network glow,
+    /// `NeonStyle.glowTexture` uses for road/highway network glow,
     /// just larger (this gets stretched across a much bigger sprite) and
     /// generated here rather than there since it's a scene-level backdrop
     /// element, not a per-tile one.
@@ -225,6 +225,28 @@ final class GameScene: SKScene {
     func pan(deltaX: CGFloat, deltaY: CGFloat) {
         cameraNode.position.x -= deltaX
         cameraNode.position.y += deltaY
+        clampCameraToMap()
+    }
+
+    /// Keep the camera over the map.
+    ///
+    /// **This never existed top-down and it should have.** Panning was
+    /// unbounded, so a stray two-finger flick left you looking at empty
+    /// background with no landmark to steer back by — survivable when the map
+    /// was a big square filling most of the view, and much worse now that it is
+    /// a diamond whose corners are the only thing near the edges of the screen.
+    ///
+    /// Clamped against the *ground* bounds rather than everything drawn:
+    /// buildings rise above the diamond's top edge, and including them would
+    /// let the view drift off the map whenever a tall tower stood near a
+    /// corner. The margin is generous on purpose — the point is to keep the map
+    /// findable, not to fence the player in.
+    private func clampCameraToMap() {
+        let bounds = projection.contentBounds(of: map).insetBy(
+            dx: -projection.tileWidth * 2, dy: -projection.tileHeight * 2
+        )
+        cameraNode.position.x = min(max(cameraNode.position.x, bounds.minX), bounds.maxX)
+        cameraNode.position.y = min(max(cameraNode.position.y, bounds.minY), bounds.maxY)
     }
 
     /// Zoom the camera by one trackpad pinch gesture's magnification delta.
@@ -239,6 +261,7 @@ final class GameScene: SKScene {
     func zoom(byMagnification magnification: CGFloat) {
         let requestedScale = cameraNode.xScale * (1 - magnification)
         cameraNode.setScale(min(max(requestedScale, minimumZoomScale), maximumZoomScale))
+        clampCameraToMap()
     }
 
     // MARK: - Simulation clock
@@ -315,7 +338,7 @@ final class GameScene: SKScene {
     /// gestures — `SKScene` sits inside an `SKView`, which is an `NSView`.
     /// `event.location(in: self)` converts the click from window coordinates
     /// into this scene's coordinate space, already accounting for the
-    /// camera, so it lines up with what `GridLayout` expects.
+    /// camera, so it lines up with what `Isometric` expects.
     ///
     /// Left button paints the selected tool; `mouseDragged` fires
     /// continuously while the button stays down, so holding and moving
@@ -532,7 +555,7 @@ final class GameScene: SKScene {
 
     /// Called by `GameSKView.mouseMoved`. Shows a footprint-sized outline
     /// at whatever grid cell the cursor is over — sized and positioned
-    /// with the exact same `GridLayout` math a real placement uses
+    /// with the exact same `Isometric` math a real placement uses
     /// (`spriteSize(forFootprint:)`/`centerPoint(ofFootprintOrigin:size:)`),
     /// so the outline always shows precisely what a click right now would
     /// cover. Green while every cell it would cover is `.empty`; red if any
@@ -543,7 +566,7 @@ final class GameScene: SKScene {
     /// about a silent auto-replace the way it used to.
     ///
     /// A click's grid tile is the footprint's minimum-x/minimum-y corner
-    /// (`GridLayout.centerPoint(ofFootprintOrigin:size:)`'s own doc
+    /// (`Isometric.project`'s own doc
     /// comment), so a multi-tile building extends up and to the right
     /// from wherever you click, not centered on it and not extending some
     /// other direction — exactly what this outline now shows up front.
@@ -594,7 +617,7 @@ final class GameScene: SKScene {
 
     /// Briefly flash a tile red to explain why a click did nothing: the
     /// treasury can't cover it. `SKAction.colorize` animates a sprite's
-    /// `color` over time — the same property `TileRenderer` sets directly —
+    /// `color` over time — the property the old sprite-based renderer set —
     /// so this just animates out to the zone flash color and back to
     /// whatever color the tile actually is, without touching any data.
     private func flashInsufficientFunds(at position: GridPosition) {
@@ -825,10 +848,10 @@ final class GameScene: SKScene {
 
     /// Adds (or removes) a road/highway tile's glowing lane-line detail,
     /// shaped to match what's actually connected to it
-    /// (`Traffic.roadConnections(at:in:)`) — see `TileRenderer.syncLaneLine`'s
+    /// (`Traffic.roadConnections(at:in:)`) — see `IsoTileRenderer.syncLaneLine`'s
     /// own doc comment for why that connectivity answer has to be computed
     /// here, with the full `map`, and passed down rather than computed
-    /// inside `TileRenderer` itself.
+    /// inside `IsoTileRenderer` itself.
     private func syncLaneLine(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let zone = map[position].zone
@@ -872,7 +895,7 @@ final class GameScene: SKScene {
     /// A horizontal gradient, transparent at its left edge fading to
     /// near-opaque at its right — the raw material for each car's speed
     /// trail below. Same "cache one shared gradient texture, tint and
-    /// additively blend it per use" technique `TileRenderer.glowTexture`
+    /// additively blend it per use" technique `NeonStyle.glowTexture`
     /// and `GameScene`'s own sun glow use, just linear instead of radial:
     /// a streak of light has a direction, a glow doesn't.
     private static let speedTrailTexture: SKTexture = {

@@ -2,7 +2,8 @@ import SpriteKit
 
 /// The service and civic buildings, described as volumes.
 ///
-/// **One generator per service, not two hand-picked looks.** `ZoneIcon` draws
+/// **One generator per service, not two hand-picked looks.** The elevation
+/// renderer this replaced drew
 /// exactly two variants of each service, because hand-writing a third was
 /// unaffordable — the file says as much ("these don't grow, so a second variant
 /// is the only way two of the same service ever look different"). Massing has
@@ -53,7 +54,7 @@ enum ServiceMassing {
                         u1: (CGFloat(column) + 0.76) / CGFloat(columns),
                         v0: (CGFloat(row) + 0.24) / CGFloat(rows),
                         v1: (CGFloat(row) + 0.7) / CGFloat(rows),
-                        color: ZoneIcon.windowColor(row: row, column: column)
+                        color: NeonStyle.windowColor(row: row, column: column)
                     ))
                 }
             }
@@ -63,7 +64,7 @@ enum ServiceMassing {
     private static func doorway(on box: Box, width: CGFloat, _ massing: inout BuildingMassing) {
         massing.panels.append(Panel(
             box: box, face: .left, u0: 0.5 - width / 2, u1: 0.5 + width / 2,
-            v0: 0, v1: min(0.4, 0.3 / max(box.height, 0.3)), color: ZoneIcon.litAccent
+            v0: 0, v1: min(0.4, 0.3 / max(box.height, 0.3)), color: NeonStyle.litAccent
         ))
     }
 
@@ -88,7 +89,7 @@ enum ServiceMassing {
                              width: 0.2, depth: 0.2, height: 0.16)))
         massing.add(.box(Box(x: centre - 0.08, y: centre - 0.08, z: body.height + 0.24,
                              width: 0.16, depth: 0.16, height: 0.1)),
-                    .lit(ZoneIcon.signColor(for: seed)))
+                    .lit(NeonStyle.signColor(for: seed)))
     }
 
     /// A firehouse: a squat station body with the tall, narrow hose-drying
@@ -111,7 +112,7 @@ enum ServiceMassing {
                 massing.panels.append(Panel(
                     box: body, face: face,
                     u0: 0.14 + CGFloat(bay) * 0.42, u1: 0.44 + CGFloat(bay) * 0.42,
-                    v0: 0, v1: 0.62, color: ZoneIcon.recessedAccent
+                    v0: 0, v1: 0.62, color: NeonStyle.recessedAccent
                 ))
             }
         }
@@ -135,7 +136,7 @@ enum ServiceMassing {
                              width: towerSize + 0.06, depth: towerSize + 0.06, height: 0.07)))
         massing.add(.box(Box(x: tower.x + towerSize / 2 - 0.06, y: tower.y + towerSize / 2 - 0.06,
                              z: tower.height + 0.07, width: 0.12, depth: 0.12, height: 0.1)),
-                    .lit(ZoneIcon.emberColor))
+                    .lit(NeonStyle.emberColor))
     }
 
     /// A shelter: a canopy on posts over a lit bench. One tile, so it says one
@@ -157,7 +158,7 @@ enum ServiceMassing {
                              width: width + 0.12, depth: width + 0.12, height: 0.07)))
         massing.add(.box(Box(x: margin + 0.1, y: margin + 0.1, z: 0.04,
                              width: width - 0.2, depth: width - 0.2, height: 0.09)),
-                    .lit(ZoneIcon.litAccent))
+                    .lit(NeonStyle.litAccent))
     }
 
     /// A station entrance: a headhouse with a lit mouth and a canopy over it.
@@ -171,7 +172,7 @@ enum ServiceMassing {
         massing.add(.box(box))
         for face in [Panel.Face.right, .left] {
             massing.panels.append(Panel(box: box, face: face, u0: 0.18, u1: 0.82,
-                                        v0: 0, v1: 0.72, color: ZoneIcon.litAccent))
+                                        v0: 0, v1: 0.72, color: NeonStyle.litAccent))
         }
         massing.add(.box(Box(x: box.x - 0.08, y: box.y - 0.08, z: box.height,
                              width: box.width + 0.16, depth: box.depth + 0.16, height: 0.06)))
@@ -274,7 +275,7 @@ enum ServiceMassing {
         massing.add(.box(tower))
         for face in [Panel.Face.right, .left] {
             massing.panels.append(Panel(box: tower, face: face, u0: 0.2, u1: 0.8,
-                                        v0: 0.45, v1: 0.85, color: ZoneIcon.litAccent))
+                                        v0: 0.45, v1: 0.85, color: NeonStyle.litAccent))
         }
     }
 
@@ -306,9 +307,9 @@ enum ServiceMassing {
         // cross collapsed into a single bar. A hair of separation makes the
         // ordering deterministic and the plus always read as a plus.
         massing.add(.box(Box(x: centre - arm / 2, y: centre - bar / 2, z: z,
-                             width: arm, depth: bar, height: 0.1)), .lit(ZoneIcon.litAccent))
+                             width: arm, depth: bar, height: 0.1)), .lit(NeonStyle.litAccent))
         massing.add(.box(Box(x: centre - bar / 2, y: centre - arm / 2, z: z,
-                             width: bar, depth: arm, height: 0.115)), .lit(ZoneIcon.litAccent))
+                             width: bar, depth: arm, height: 0.115)), .lit(NeonStyle.litAccent))
     }
 
     /// Cooling towers over a base building.
@@ -328,7 +329,7 @@ enum ServiceMassing {
         windows(on: hall, rows: 1, columns: 4, chance: 0.6, &massing, &random)
         // The hazard stripe.
         massing.panels.append(Panel(box: hall, face: .left, u0: 0.1, u1: 0.9,
-                                    v0: 0.68, v1: 0.88, color: ZoneIcon.emberColor))
+                                    v0: 0.68, v1: 0.88, color: NeonStyle.emberColor))
 
         let towers = random.int(in: 1 ... 2)
         for index in 0 ..< towers {
@@ -368,7 +369,7 @@ enum ServiceMassing {
         // The pitch, glowing.
         massing.add(.box(Box(x: margin + stand, y: margin + stand, z: 0,
                              width: outer - stand * 2, depth: outer - stand * 2, height: 0.06)),
-                    .lit(ZoneIcon.litAccent))
+                    .lit(NeonStyle.litAccent))
 
         for corner in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
             let x = margin + CGFloat(corner.0) * outer
@@ -377,7 +378,7 @@ enum ServiceMassing {
                                            height: CGFloat(random.value(in: 0.5 ... 0.72)))))
             massing.add(.box(Box(x: x - 0.11, y: y - 0.11, z: height + 0.5,
                                  width: 0.22, depth: 0.22, height: 0.1)),
-                        .lit(ZoneIcon.litAccent))
+                        .lit(NeonStyle.litAccent))
         }
     }
 }

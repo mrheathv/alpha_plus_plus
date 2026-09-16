@@ -1,7 +1,6 @@
 import SpriteKit
 
-/// Turns `Tile` data into isometric nodes — the counterpart of `TileRenderer`,
-/// and eventually its replacement.
+/// Turns `Tile` data into isometric nodes.
 ///
 /// One node per building anchor, carrying its ground, its light and its
 /// building, with a `zPosition` that puts it in the painter's-algorithm order
@@ -64,7 +63,8 @@ struct IsoTileRenderer {
     }
 
     /// Re-sync an existing node to current tile data, mutating rather than
-    /// rebuilding — the same reasoning `TileRenderer.update` documents.
+    /// rebuilding: no allocation, no scene-graph churn, and it scales to a
+    /// full-map refresh every simulation tick.
     func update(_ node: SKNode, for tile: Tile, in view: SKView?) {
         syncGround(on: node, tile: tile)
         syncGroundGlow(on: node, tile: tile)
@@ -107,7 +107,7 @@ struct IsoTileRenderer {
         guard tile.zone != .empty, tile.zone != .road, tile.zone != .highway else { return }
         guard tile.zone.maxDensity == 0 || tier > 0 else { return }
 
-        let glow = SKSpriteNode(texture: TileRenderer.sharedGlowTexture)
+        let glow = SKSpriteNode(texture: NeonStyle.glowTexture)
         glow.name = Self.glowNodeName
         glow.color = ZoneMassing.accent(for: tile.zone, density: tile.density)
         glow.colorBlendFactor = 1
@@ -234,12 +234,12 @@ struct IsoTileRenderer {
         for (x, color) in badges {
             let disc = SKShapeNode(circleOfRadius: radius)
             disc.position = CGPoint(x: x, y: 0)
-            disc.fillColor = ZoneIcon.silhouetteFill
+            disc.fillColor = NeonStyle.silhouetteFill
             disc.strokeColor = color
             disc.lineWidth = 2
             disc.glowWidth = 2
             container.addChild(disc)
-            container.addChild(ZoneIcon.detail(
+            container.addChild(NeonStyle.detail(
                 rect: CGRect(x: x - radius * 0.13, y: -radius * 0.45,
                              width: radius * 0.26, height: radius * 0.9),
                 fill: color

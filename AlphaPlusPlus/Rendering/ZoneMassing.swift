@@ -1,10 +1,10 @@
 import SpriteKit
 
 /// What building stands on a lot, as massing — the isometric counterpart of
-/// `ZoneIcon.makeNode(for:density:seed:)`, and eventually its replacement.
+/// `NeonStyle.makeNode(for:density:seed:)`, and eventually its replacement.
 ///
 /// **Returns `nil` for zones not yet ported.** The migration runs zone by zone,
-/// and the running game keeps using `ZoneIcon`'s elevations throughout; this
+/// and the running game kept using the elevation renderer throughout; this
 /// grows one generator at a time until it covers everything, at which point the
 /// projection flips in a single change and the elevation files are deleted.
 /// Until then, `nil` means "no isometric version yet", which is what lets the

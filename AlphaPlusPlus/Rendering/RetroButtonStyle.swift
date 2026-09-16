@@ -3,7 +3,7 @@ import SwiftUI
 /// The toolbar's primary button chrome: a dark fill with a neon outline
 /// in the button's own accent color, brightening to a solid fill of that
 /// color when selected/active — the same "dark silhouette, neon glow"
-/// language `ZoneIcon` already uses for every building, just applied to
+/// language `NeonStyle` already gives every building, just applied to
 /// the button that places it rather than the building itself.
 struct RetroButtonStyle: ButtonStyle {
     var accent: Color = RetroUITheme.primaryAccent
