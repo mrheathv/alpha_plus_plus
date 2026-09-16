@@ -1243,6 +1243,32 @@ The rest:
   "POPULA…", "$1,48…". A readout that hides its own number is worse than no
   readout.
 
+### Utilities looked broken, and were
+
+Two bugs, reported from play as "when you lay down a power line it is not clear
+the building gets power".
+
+**Supply was only recomputed inside `advanceSimulation()`.** The game starts
+paused, so a player could lay an entire network and watch the overlay stay
+stubbornly dark — the pipe and power-line *markers* appeared, because those read
+`Tile.hasPipe` directly, but the supply *colouring* did not, because it reads a
+cached field nobody had recomputed. `recomputeUtilitySupply()` now runs whenever
+anything that changes connectivity does: laying or removing a pipe or line,
+placing or bulldozing a utility, and changing funding, which buys capacity.
+Supply is a pure function of the map — one flood fill per network, not a
+simulation step — so recomputing it the moment the map changes is both correct
+and cheap.
+
+**And a ground tint was answering the wrong question.** What a player wants to
+know in these overlays is "is *that building* on my network?", and the overlay
+was answering it by tinting the ground underneath. Buildings are now lit when
+supplied and dark when not, so connecting one visibly turns it on. Lit means
+supplied.
+
+Worth noting how this survived: the mechanic was correct the whole time — every
+`hasSupply` test passed, because they all ran a tick first. The regression tests
+added here deliberately never tick, which is the entire point.
+
 ### QA pass: what rendering the *real* view found
 
 The cockpit render assembled the same components in the same order as

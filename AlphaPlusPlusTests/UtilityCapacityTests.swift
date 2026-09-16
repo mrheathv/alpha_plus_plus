@@ -7,6 +7,61 @@ import XCTest
 @MainActor
 final class UtilityCapacityTests: XCTestCase {
 
+    /// Laying a power line changes what is supplied *immediately*, not on the
+    /// next tick.
+    ///
+    /// **The bug this pins.** Supply was recomputed only inside
+    /// `advanceSimulation()`, and the game starts paused — so a player could
+    /// lay an entire network, watch the Power overlay stay stubbornly dark, and
+    /// reasonably conclude the mechanic was broken. The markers appeared,
+    /// because those read `Tile.hasPowerLine` directly; the supply colouring
+    /// did not, because it reads a cached field nobody had recomputed.
+    ///
+    /// Nothing ticks in this test on purpose. That is the whole point.
+    @MainActor
+    func testLayingAPowerLineSuppliesImmediatelyWithoutATick() {
+        let controller = GameController(peakPopulation: Unlocks.everythingUnlocked)
+        let plant = GridPosition(x: 2, y: 2)
+        controller.selectTool(.generator)
+        _ = controller.place(at: plant)
+
+        // Far enough away to be outside the direct-supply radius.
+        let far = GridPosition(x: 12, y: 2)
+        XCTAssertFalse(PowerGrid.hasSupply(at: far, in: controller.map),
+                       "precondition: the far tile should start unpowered")
+
+        for x in 3 ... 12 {
+            _ = controller.layPowerLine(at: GridPosition(x: x, y: 2))
+        }
+        XCTAssertTrue(
+            PowerGrid.hasSupply(at: far, in: controller.map),
+            "a completed power line did not supply anything until a tick ran — this is what made the overlay look broken"
+        )
+
+        controller.removePowerLine(at: GridPosition(x: 8, y: 2))
+        XCTAssertFalse(
+            PowerGrid.hasSupply(at: far, in: controller.map),
+            "cutting the line did not disconnect anything until a tick ran"
+        )
+    }
+
+    /// The same for water, which is a separate network with the same shape.
+    @MainActor
+    func testLayingPipeSuppliesImmediatelyWithoutATick() {
+        let controller = GameController(peakPopulation: Unlocks.everythingUnlocked)
+        controller.selectTool(.waterPump)
+        _ = controller.place(at: GridPosition(x: 2, y: 6))
+
+        let far = GridPosition(x: 12, y: 6)
+        XCTAssertFalse(Water.hasSupply(at: far, in: controller.map))
+        for x in 3 ... 12 {
+            _ = controller.layPipe(at: GridPosition(x: x, y: 6))
+        }
+        XCTAssertTrue(Water.hasSupply(at: far, in: controller.map),
+                      "a completed pipe run did not supply anything until a tick ran")
+    }
+
+
     /// A map with `towers` water towers, `plants` power plants and `lots`
     /// residential buildings at `density`.
     ///

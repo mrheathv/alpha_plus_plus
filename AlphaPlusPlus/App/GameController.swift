@@ -318,6 +318,9 @@ final class GameController: ObservableObject {
 
         treasury -= cost
         map.placeBuilding(zone: selectedTool, origin: position)
+        // A tower or a plant changes what is supplied the instant it lands,
+        // not on the next tick.
+        recomputeUtilitySupply()
         return .placed
     }
 
@@ -332,6 +335,7 @@ final class GameController: ObservableObject {
     func bulldoze(at position: GridPosition) {
         guard map.contains(position) else { return }
         clearBuilding(at: map[position].buildingOrigin)
+        recomputeUtilitySupply()
     }
 
     /// Clears every cell of the building anchored at `origin` back to
@@ -380,6 +384,7 @@ final class GameController: ObservableObject {
         guard treasury >= Self.pipePlacementCost else { return .insufficientFunds }
         treasury -= Self.pipePlacementCost
         map[position].hasPipe = true
+        recomputeUtilitySupply()
         return .placed
     }
 
@@ -388,6 +393,7 @@ final class GameController: ObservableObject {
     func removePipe(at position: GridPosition) {
         guard map.contains(position) else { return }
         map[position].hasPipe = false
+        recomputeUtilitySupply()
     }
 
     // MARK: - Power lines (an overhead layer, edited via the Power overlay)
@@ -408,6 +414,7 @@ final class GameController: ObservableObject {
         guard treasury >= Self.powerLinePlacementCost else { return .insufficientFunds }
         treasury -= Self.powerLinePlacementCost
         map[position].hasPowerLine = true
+        recomputeUtilitySupply()
         return .placed
     }
 
@@ -415,6 +422,7 @@ final class GameController: ObservableObject {
     func removePowerLine(at position: GridPosition) {
         guard map.contains(position) else { return }
         map[position].hasPowerLine = false
+        recomputeUtilitySupply()
     }
 
     /// Wipe the city and restore the starting budget, at `selectedMapSize`
@@ -643,6 +651,28 @@ final class GameController: ObservableObject {
     /// tick at a density before either risk considers it. Taxing after
     /// growth (and after hazards) means the treasury reflects the city this
     /// step is actually leaving you with.
+    /// Recompute what the utility networks currently supply.
+    ///
+    /// **Why this is not only called from `advanceSimulation`.** It used to be,
+    /// and the effect was that laying pipe or power line changed nothing you
+    /// could see until the next tick — and the game starts *paused*, so a
+    /// player could build an entire network, watch the Water overlay stay
+    /// stubbornly dry, and reasonably conclude the mechanic was broken. The
+    /// pipe markers appeared, because those read `Tile.hasPipe` directly; the
+    /// supply colouring did not, because that reads a cached field nobody had
+    /// recomputed.
+    ///
+    /// Supply is a pure function of the map, so recomputing it the moment the
+    /// map changes is both correct and cheap — it is one flood fill per
+    /// network, not a simulation step. Anything that can change what is
+    /// connected calls this: laying or removing a pipe or line, placing or
+    /// bulldozing a utility building, and changing funding, which buys
+    /// capacity.
+    func recomputeUtilitySupply() {
+        map.waterSupply = Water.computeSupply(for: map)
+        map.powerSupply = computePowerSupply()
+    }
+
     func advanceSimulation() {
         // Routed commute load first, before hazards/growth run — both read
         // it (via `LandValue`'s road-frontage dampening), and they should
@@ -770,6 +800,10 @@ final class GameController: ObservableObject {
     /// `ServiceFunding.setLevel(_:for:)`.
     func setFundingLevel(_ level: Double, for zone: ZoneType) {
         map.serviceFunding.setLevel(level, for: zone)
+        // Funding buys capacity, so halving the water budget can take a
+        // network over its limit — which the overlay should show at once,
+        // since the whole point of the dial is watching what it does.
+        recomputeUtilitySupply()
     }
 
     /// Per-tick cost of running the city itself, per resident and per job —

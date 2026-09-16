@@ -179,9 +179,14 @@ struct IsoTileRenderer {
         /// picture, and buildings on top of it are clutter.
         case hidden
         /// Water and power. You are routing a network around a city, so you
-        /// need to see the city: buildings stay, dimmed enough that the supply
-        /// colour still reads underneath them.
-        case dimmed
+        /// need to see the city — and *how brightly* a building is drawn is
+        /// what says whether it is connected.
+        ///
+        /// A ground tint alone did not answer the question a player is
+        /// actually asking in these overlays, which is "is that building on my
+        /// network?" Lighting the connected ones and darkening the rest makes
+        /// the answer literal: lit means supplied.
+        case dimmed(Double)
         /// The utilities that feed the network you are looking at — a water
         /// tower in the water overlay, a power plant in the power overlay.
         /// These are the things the player is hunting for, so they stay at full
@@ -213,8 +218,8 @@ struct IsoTileRenderer {
             node.childNode(withName: Self.glowNodeName)?.removeFromParent()
             invalidate(node, Self.buildingNodeName)
             invalidate(node, Self.glowNodeName)
-        case .dimmed:
-            node.childNode(withName: Self.buildingNodeName)?.alpha = 0.4
+        case .dimmed(let alpha):
+            node.childNode(withName: Self.buildingNodeName)?.alpha = alpha
             node.childNode(withName: Self.glowNodeName)?.removeFromParent()
             invalidate(node, Self.glowNodeName)
         case .highlighted:

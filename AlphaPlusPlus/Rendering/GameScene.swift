@@ -806,6 +806,18 @@ final class GameScene: SKScene {
         zone == .powerPlant || zone == .generator
     }
 
+    /// How brightly a building is drawn in a utility overlay — which is the
+    /// overlay's real answer to "is this on my network?".
+    ///
+    /// The source of the network stays at full brightness, because that is the
+    /// thing the player is hunting for. Everything else is lit if it is
+    /// supplied and dark if it is not, so connecting a building visibly turns
+    /// it on.
+    private static func overlayBuildings(isSource: Bool, isSupplied: Bool) -> IsoTileRenderer.OverlayBuildings {
+        if isSource { return .highlighted }
+        return .dimmed(isSupplied ? 0.85 : 0.22)
+    }
+
     func refresh(_ position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let tile = map[position]
@@ -853,7 +865,10 @@ final class GameScene: SKScene {
             // actually are.
             tileRenderer.applyOverlay(
                 on: node,
-                buildings: Self.suppliesWater(tile.zone) ? .highlighted : .dimmed,
+                buildings: Self.overlayBuildings(
+                    isSource: Self.suppliesWater(tile.zone),
+                    isSupplied: Water.hasSupply(at: position, in: map)
+                ),
                 color: RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
             )
             // Reads `hasPipe` directly rather than the cached
@@ -864,7 +879,10 @@ final class GameScene: SKScene {
         case .power:
             tileRenderer.applyOverlay(
                 on: node,
-                buildings: Self.suppliesPower(tile.zone) ? .highlighted : .dimmed,
+                buildings: Self.overlayBuildings(
+                    isSource: Self.suppliesPower(tile.zone),
+                    isSupplied: PowerGrid.hasSupply(at: position, in: map)
+                ),
                 color: RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
             )
             // Same "read the layer directly, not the cached supply" reasoning.

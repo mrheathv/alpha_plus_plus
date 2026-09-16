@@ -359,13 +359,17 @@ final class IsometricCityTests: XCTestCase {
             case .water:
                 renderer.applyOverlay(
                     on: node,
-                    buildings: [.waterTower, .waterPump].contains(tile.zone) ? .highlighted : .dimmed,
+                    buildings: [.waterTower, .waterPump].contains(tile.zone)
+                        ? .highlighted
+                        : .dimmed(Water.hasSupply(at: position, in: map) ? 0.85 : 0.22),
                     color: RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
                 )
             case .power:
                 renderer.applyOverlay(
                     on: node,
-                    buildings: [.powerPlant, .generator].contains(tile.zone) ? .highlighted : .dimmed,
+                    buildings: [.powerPlant, .generator].contains(tile.zone)
+                        ? .highlighted
+                        : .dimmed(PowerGrid.hasSupply(at: position, in: map) ? 0.85 : 0.22),
                     color: RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
                 )
             default:
