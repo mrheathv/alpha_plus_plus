@@ -1,6 +1,6 @@
 import SpriteKit
 
-/// Rasterises each distinct building once and hands out sprites of it.
+/// Rasterises each distinct *repeated* thing once and hands out sprites of it.
 ///
 /// **Why this exists.** An isometric building is about fifty `SKShapeNode`s —
 /// three faces per volume plus lit panels — against an elevation's twenty-six.
@@ -24,15 +24,30 @@ import SpriteKit
 /// draws at all. The quantisation lives here rather than in the generators, so
 /// `IndustrialMassing` and friends stay pure functions of a seed and the
 /// contact sheet keeps showing genuinely unbounded variety.
-final class BuildingTextureCache {
+final class IsoTextureCache {
 
     /// How many distinct looks a zone and tier gets.
     static let variantCount = 16
 
+    /// **Why this grew past buildings.** `SKShapeNode` does not batch — every
+    /// one is its own draw call — and `glowWidth` on a shape is more expensive
+    /// still, because SpriteKit has to render the stroke more than once to get
+    /// it. A built-out map was drawing a shape node per lot for its ground and
+    /// a *glowing* shape node per road tile for its lane line, every frame,
+    /// forever, to produce pictures that never change.
+    ///
+    /// Everything here is discrete and repeats: a lot's ground is one of a
+    /// handful of colours, a road's lane line is one of sixteen connection
+    /// masks, a car points one of two ways. Rendered once each, they become
+    /// sprites, and sprites batch. The glow comes along inside the texture, so
+    /// the retrowave bloom on the road grid costs nothing per tile at all.
     private struct Key: Hashable {
+        enum Kind: Hashable { case building, ground, lane, car }
+        var kind: Kind = .building
         let zone: ZoneType
-        let tier: Int
-        let variant: Int
+        var tier: Int = 0
+        var variant: Int = 0
+        var footprint: Int = 1
     }
 
     /// A rasterised building, and where its centre sits relative to the lot's
@@ -92,7 +107,7 @@ final class BuildingTextureCache {
 
     func rendered(for zone: ZoneType, density: Int, seed: GridPosition) -> Rendered? {
         let tier = RenderPalette.growthTier(for: density)
-        let key = Key(zone: zone, tier: tier, variant: Self.variant(for: seed))
+        let key = Key(kind: .building, zone: zone, tier: tier, variant: Self.variant(for: seed))
         if let hit = cache[key] { return hit }
 
         let canonical = Self.canonicalSeed(for: key.variant)
@@ -137,6 +152,121 @@ final class BuildingTextureCache {
         let sprite = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         sprite.position = CGPoint(x: origin.x + rendered.offset.x, y: origin.y + rendered.offset.y)
         return sprite
+    }
+
+    // MARK: - Ground, lane lines and cars
+
+    /// Renders `node` once and remembers it, keyed however the caller says.
+    private func rendered(_ key: Key, _ build: () -> SKNode) -> Rendered? {
+        if let hit = cache[key] { return hit }
+        let node = build()
+        let frame = node.calculateAccumulatedFrame()
+        guard frame.width > 1, frame.height > 1 else { return nil }
+
+        let scene = SKScene(size: frame.size)
+        scene.backgroundColor = .clear
+        node.position = CGPoint(x: -frame.minX, y: -frame.minY)
+        scene.addChild(node)
+        renderView.frame = NSRect(origin: .zero, size: frame.size)
+        renderView.allowsTransparency = true
+        renderView.presentScene(scene)
+        guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: frame.size)) else {
+            return nil
+        }
+        let result = Rendered(texture: texture,
+                              offset: CGPoint(x: frame.midX, y: frame.midY),
+                              size: frame.size)
+        cache[key] = result
+        return result
+    }
+
+    /// The lot a building stands on.
+    func ground(for zone: ZoneType, density: Int, footprint: Int) -> Rendered? {
+        let tier = RenderPalette.growthTier(for: density)
+        return rendered(Key(kind: .ground, zone: zone, tier: tier, footprint: footprint)) {
+            let shape = SKShapeNode(path: projection.tileDiamond(
+                x: 0, y: 0, size: CGFloat(footprint), inset: 0.02
+            ))
+            shape.fillColor = RenderPalette.color(for: zone, density: density)
+            shape.strokeColor = RenderPalette.ground.blended(withFraction: 0.28, of: .white) ?? .clear
+            shape.lineWidth = 0.7
+            return shape
+        }
+    }
+
+    /// A road's glowing centre line, baked with its bloom.
+    ///
+    /// Keyed on the connection mask, of which there are sixteen — so a city of
+    /// a thousand road tiles draws from at most thirty-two textures, and the
+    /// glow that makes the street grid read as neon is paid for once each
+    /// rather than per tile per frame.
+    func lane(for zone: ZoneType, mask: Int) -> Rendered? {
+        rendered(Key(kind: .lane, zone: zone, variant: mask)) {
+            let path = CGMutablePath()
+            let centre = projection.project(0.5, 0.5, 0)
+            var drew = false
+            func arm(_ x: CGFloat, _ y: CGFloat) {
+                path.move(to: centre)
+                path.addLine(to: projection.project(x, y, 0))
+                drew = true
+            }
+            if mask & 1 != 0 { arm(1, 0.5) }
+            if mask & 2 != 0 { arm(0, 0.5) }
+            if mask & 4 != 0 { arm(0.5, 1) }
+            if mask & 8 != 0 { arm(0.5, 0) }
+            // An isolated stub still needs a mark, or a lone road tile is
+            // invisible.
+            if !drew { arm(1, 0.5); arm(0, 0.5) }
+
+            let lane = SKShapeNode(path: path)
+            lane.strokeColor = RenderPalette.networkAccentColor(for: zone)
+            lane.lineWidth = zone == .highway ? 3 : 2
+            lane.glowWidth = zone == .highway ? 5 : 4
+            lane.lineCap = .round
+            return lane
+        }
+    }
+
+    /// A car, pointing down one of the two road diagonals.
+    func car(alongX: Bool) -> Rendered? {
+        rendered(Key(kind: .car, zone: .road, variant: alongX ? 0 : 1)) {
+            let length: CGFloat = 0.34, width: CGFloat = 0.2, height: CGFloat = 0.15
+            let box = alongX
+                ? Box(x: -length / 2, y: -width / 2, z: 0, width: length, depth: width, height: height)
+                : Box(x: -width / 2, y: -length / 2, z: 0, width: width, depth: length, height: height)
+
+            let car = SKNode()
+            for face in box.faces where Isometric.isVisible(face) {
+                let shape = SKShapeNode(path: projection.path(face.points))
+                shape.fillColor = RenderPalette.trafficCarBody.blended(
+                    withFraction: 0.2 + 0.5 * Isometric.shade(face), of: .white
+                ) ?? RenderPalette.trafficCarBody
+                shape.strokeColor = RenderPalette.trafficCarOutline
+                shape.lineWidth = 1
+                car.addChild(shape)
+            }
+            // Headlights and tail lights, which is most of what makes traffic
+            // read as traffic at night — and the most retrowave thing on the
+            // map after the road grid itself.
+            let nose = alongX
+                ? projection.project(length / 2, 0, height * 0.6)
+                : projection.project(0, length / 2, height * 0.6)
+            let tail = alongX
+                ? projection.project(-length / 2, 0, height * 0.6)
+                : projection.project(0, -length / 2, height * 0.6)
+            car.addChild(lamp(at: nose, color: NeonStyle.litAccent))
+            car.addChild(lamp(at: tail, color: RenderPalette.networkAccentColor(for: .road)))
+            return car
+        }
+    }
+
+    private func lamp(at point: CGPoint, color: SKColor) -> SKShapeNode {
+        let lamp = SKShapeNode(circleOfRadius: max(1.2, projection.tileWidth * 0.022))
+        lamp.position = point
+        lamp.fillColor = color
+        lamp.strokeColor = color
+        lamp.glowWidth = 2.5
+        return lamp
     }
 
     var count: Int { cache.count }

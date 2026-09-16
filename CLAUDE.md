@@ -1098,6 +1098,34 @@ compare against it would only measure itself. It guards the absolute number
 now, which is what the texture cache has to rasterise and what would come
 straight back as draw calls if that cache were ever bypassed.
 
+### Smooth like butter: everything repeated is a texture
+
+The measured result: a built-out 40×40 city is **2,177 nodes and zero
+`SKShapeNode`s**.
+
+`SKShapeNode` does not batch — every one is its own draw call — and `glowWidth`
+on a shape costs more still, because SpriteKit renders the stroke more than
+once to get it. After the isometric port a built-out map was drawing a shape
+node per lot for its ground, a *glowing* shape node per road tile for its lane
+line, and three more per moving car, every frame, forever, to produce pictures
+that never change.
+
+Everything in that list is discrete and repeats: a lot's ground is one of a
+handful of colours, a road's lane line is one of **sixteen** connection masks, a
+car points one of two ways. `IsoTextureCache` (formerly
+`BuildingTextureCache` — it outgrew the name) renders each once. A thousand-tile
+road network draws from at most thirty-two textures.
+
+**The glow comes along inside the texture**, which is the part worth noticing:
+the retrowave bloom on the street grid is now free per tile, where before it was
+the single most expensive thing on the map. Lane sprites blend additively, so a
+straight run brightens where tiles meet and reads as one continuous neon tube
+rather than a chain of separately-lit squares — and cars gained headlights and
+tail lights, which is most of what makes traffic read as traffic at night.
+
+The guard against regressing this is a test that counts shape nodes per lot
+rather than total nodes, because total nodes was never the number that mattered.
+
 ### Four things a play session found that no render did
 
 All four were introduced by the isometric port, and all four are the same shape

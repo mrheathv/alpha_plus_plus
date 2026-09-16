@@ -108,7 +108,7 @@ final class IsometricCityTests: XCTestCase {
         }
         XCTAssertGreaterThan(buildings, 20, "expected a built-out city")
         XCTAssertLessThanOrEqual(
-            renderer.textures.count, BuildingTextureCache.variantCount * 12,
+            renderer.textures.count, IsoTextureCache.variantCount * 12,
             "the cache should be bounded by variants, not by lots — \(anchors) anchors produced \(renderer.textures.count) textures"
         )
     }
@@ -119,14 +119,14 @@ final class IsometricCityTests: XCTestCase {
     func testVariantChoiceIsStable() {
         for index in 0 ..< 200 {
             let seed = GridPosition(x: index % 17, y: index / 17)
-            let first = BuildingTextureCache.variant(for: seed)
-            XCTAssertEqual(first, BuildingTextureCache.variant(for: seed))
-            XCTAssertTrue((0 ..< BuildingTextureCache.variantCount).contains(first))
+            let first = IsoTextureCache.variant(for: seed)
+            XCTAssertEqual(first, IsoTextureCache.variant(for: seed))
+            XCTAssertTrue((0 ..< IsoTextureCache.variantCount).contains(first))
         }
         // And it must actually spread: all one variant would be a cache that
         // hits perfectly and renders one building everywhere.
-        let spread = Set((0 ..< 120).map { BuildingTextureCache.variant(for: GridPosition(x: $0 % 11, y: $0 / 11)) })
-        XCTAssertGreaterThan(spread.count, BuildingTextureCache.variantCount / 2)
+        let spread = Set((0 ..< 120).map { IsoTextureCache.variant(for: GridPosition(x: $0 % 11, y: $0 / 11)) })
+        XCTAssertGreaterThan(spread.count, IsoTextureCache.variantCount / 2)
     }
 
     /// Multi-tile buildings must sort in front of the tiles they cover, or a
@@ -181,7 +181,7 @@ final class IsometricCityTests: XCTestCase {
 
         let node = renderer.makeNode(for: tile)
         func hasBuilding() -> Bool {
-            node.children.contains { ($0 as? SKSpriteNode)?.texture != nil && $0.name != nil }
+            node.childNode(withName: IsoTileRenderer.buildingNodeName) != nil
         }
         XCTAssertTrue(hasBuilding())
 
@@ -228,8 +228,22 @@ final class IsometricCityTests: XCTestCase {
         let perAnchor = Double(nodes) / Double(anchors)
         print("🧮 built-out 40×40 — \(anchors) anchors, \(nodes) nodes (\(String(format: "%.1f", perAnchor))/anchor), \(renderer.textures.count) textures")
 
+        // Shape nodes are the number that matters: they do not batch, so each
+        // is its own draw call, and `glowWidth` on one costs more still. Ground,
+        // lane lines, cars and buildings are all rasterised now, so a
+        // built-out map should be very nearly all sprites.
+        let shapes = Self.shapeNodeCount(layer)
+        print("🧮 built-out 40×40 — \(shapes) shape nodes of \(nodes) total")
         XCTAssertLessThan(perAnchor, 6, "a lot should cost a handful of nodes, not a building's worth of shapes")
+        XCTAssertLessThan(
+            Double(shapes) / Double(anchors), 0.2,
+            "shape nodes per lot has crept up — something stopped being rasterised"
+        )
         XCTAssertLessThan(renderer.textures.count, 260, "the texture cache should be bounded by variants, not lots")
+    }
+
+    private static func shapeNodeCount(_ node: SKNode) -> Int {
+        (node is SKShapeNode ? 1 : 0) + node.children.reduce(0) { $0 + shapeNodeCount($1) }
     }
 
     private static func nodeCount(_ node: SKNode) -> Int {
@@ -238,7 +252,7 @@ final class IsometricCityTests: XCTestCase {
 
     /// Rasterising a building must not disturb whatever is on screen.
     ///
-    /// **The regression this exists for.** `BuildingTextureCache` renders a
+    /// **The regression this exists for.** `IsoTextureCache` renders a
     /// building by presenting a scratch scene on an `SKView` — and the first
     /// version took the view as a parameter, so `GameScene` passed its own.
     /// `presentScene` replaces what a view shows, so the first building a

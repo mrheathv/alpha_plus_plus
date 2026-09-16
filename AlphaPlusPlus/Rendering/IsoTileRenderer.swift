@@ -10,12 +10,15 @@ import SpriteKit
 struct IsoTileRenderer {
 
     let projection: Isometric
-    let textures: BuildingTextureCache
+    let textures: IsoTextureCache
 
     private static let groundNodeName = "isoGround"
     private static let glowNodeName = "isoGroundGlow"
     private static let markerNodeName = "isoZoneMarker"
-    private static let buildingNodeName = "isoBuilding"
+    /// Not private: tests need to ask whether *the building* is showing, and
+    /// now that ground and lane lines are rasterised too, "is there a textured
+    /// sprite here" no longer answers that question.
+    static let buildingNodeName = "isoBuilding"
     private static let laneNodeName = "isoLane"
 
     /// Whether a decoration is already showing what the data says, keyed on
@@ -41,9 +44,9 @@ struct IsoTileRenderer {
         node.userData?.removeObject(forKey: name)
     }
 
-    init(projection: Isometric, textures: BuildingTextureCache? = nil) {
+    init(projection: Isometric, textures: IsoTextureCache? = nil) {
         self.projection = projection
-        self.textures = textures ?? BuildingTextureCache(projection: projection)
+        self.textures = textures ?? IsoTextureCache(projection: projection)
     }
 
     /// The node for one building anchor, covering its whole footprint.
@@ -84,12 +87,13 @@ struct IsoTileRenderer {
         guard !isUpToDate(node, Self.groundNodeName, key) else { return }
         markUpToDate(node, Self.groundNodeName, key)
         node.childNode(withName: Self.groundNodeName)?.removeFromParent()
-        let size = CGFloat(tile.zone.footprintSize)
-        let ground = SKShapeNode(path: projection.tileDiamond(x: 0, y: 0, size: size, inset: 0.02))
+
+        guard let rendered = textures.ground(
+            for: tile.zone, density: tile.density, footprint: tile.zone.footprintSize
+        ) else { return }
+        let ground = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         ground.name = Self.groundNodeName
-        ground.fillColor = RenderPalette.color(for: tile.zone, density: tile.density)
-        ground.strokeColor = RenderPalette.ground.blended(withFraction: 0.28, of: .white) ?? .clear
-        ground.lineWidth = 0.7
+        ground.position = rendered.offset
         ground.zPosition = 0
         node.addChild(ground)
     }
@@ -360,7 +364,7 @@ struct IsoTileRenderer {
     private func buildingTop(of tile: Tile) -> CGFloat {
         guard let massing = ZoneMassing.make(
             for: tile.zone, density: tile.density,
-            seed: BuildingTextureCache.canonicalSeed(for: BuildingTextureCache.variant(for: tile.position))
+            seed: IsoTextureCache.canonicalSeed(for: IsoTextureCache.variant(for: tile.position))
         ) else { return 0 }
         return massing.solids.reduce(CGFloat(0)) { result, solid in
             switch solid.volume {
@@ -415,6 +419,19 @@ struct IsoTileRenderer {
 
     private static let flashNodeName = "isoFlash"
 
+    /// A car sprite, from the cache.
+    ///
+    /// Cars were three shape nodes and a trail each. A busy city has hundreds
+    /// of them moving at once, which is the worst possible thing to be drawing
+    /// with shape nodes — so they are rasterised like everything else that
+    /// repeats, and there are exactly two of them: one per road diagonal.
+    func carSprite(alongX: Bool) -> SKNode {
+        guard let rendered = textures.car(alongX: alongX) else { return SKNode() }
+        let sprite = SKSpriteNode(texture: rendered.texture, size: rendered.size)
+        sprite.position = rendered.offset
+        return sprite
+    }
+
     // MARK: - Roads
 
     /// A glowing centre line along each direction a road connects in.
@@ -423,33 +440,23 @@ struct IsoTileRenderer {
     /// edge, so a straight run joins seamlessly and a junction reads as a
     /// junction without any tile needing to know more than its own neighbours.
     func syncLaneLine(on node: SKNode, zone: ZoneType, connections: Traffic.RoadConnections) {
-        let key = "\(zone.rawValue)|\(connections.north)\(connections.south)\(connections.east)\(connections.west)"
+        let mask = (connections.east ? 1 : 0) | (connections.west ? 2 : 0)
+            | (connections.north ? 4 : 0) | (connections.south ? 8 : 0)
+        let key = "\(zone.rawValue)|\(mask)"
         guard !isUpToDate(node, Self.laneNodeName, key) else { return }
         markUpToDate(node, Self.laneNodeName, key)
         node.childNode(withName: Self.laneNodeName)?.removeFromParent()
         guard zone == .road || zone == .highway else { return }
 
-        let path = CGMutablePath()
-        let centre = projection.project(0.5, 0.5, 0)
-        var drew = false
-        func arm(_ x: CGFloat, _ y: CGFloat) {
-            path.move(to: centre)
-            path.addLine(to: projection.project(x, y, 0))
-            drew = true
-        }
-        if connections.east { arm(1, 0.5) }
-        if connections.west { arm(0, 0.5) }
-        if connections.north { arm(0.5, 1) }
-        if connections.south { arm(0.5, 0) }
-        // An isolated stub still needs a mark, or a lone road tile is invisible.
-        if !drew { arm(1, 0.5); arm(0, 0.5) }
-
-        let lane = SKShapeNode(path: path)
+        guard let rendered = textures.lane(for: zone, mask: mask) else { return }
+        let lane = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         lane.name = Self.laneNodeName
-        lane.strokeColor = RenderPalette.networkAccentColor(for: zone)
-        lane.lineWidth = zone == .highway ? 3 : 2
-        lane.glowWidth = zone == .highway ? 3 : 2
-        lane.alpha = 0.9
+        lane.position = rendered.offset
+        // Additive, so a straight run of road brightens where tiles meet and
+        // reads as one continuous glowing seam rather than a chain of
+        // separately-lit squares — the thing that makes the street grid look
+        // like neon tube and not like painted markings.
+        lane.blendMode = .add
         lane.zPosition = 0.25
         node.addChild(lane)
     }

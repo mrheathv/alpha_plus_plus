@@ -957,36 +957,6 @@ final class GameScene: SKScene {
     /// `RenderPalette.networkAccentColor` the road's own lane line and
     /// glow already use, so a trail reads as light spilling from the same
     /// source as the street it's on, not a color competing with it.
-    /// A car, as a little isometric box rather than a rotated rectangle.
-    ///
-    /// **A flat rect does not survive the projection.** Top-down, a car was a
-    /// rounded rectangle pointing along the road and that was exactly right.
-    /// Rotated to a projected heading it becomes a thin sliver lying on the
-    /// ground — the one thing on an isometric map with no thickness at all,
-    /// surrounded by buildings that are nothing but thickness. It read as a
-    /// smear rather than a vehicle.
-    ///
-    /// Built from the same `Box` and face-shading the buildings use, so a car
-    /// catches the light from the same direction they do.
-    private func makeCar(alongX: Bool) -> SKNode {
-        let length: CGFloat = 0.34, width: CGFloat = 0.2, height: CGFloat = 0.15
-        let box = alongX
-            ? Box(x: -length / 2, y: -width / 2, z: 0.02, width: length, depth: width, height: height)
-            : Box(x: -width / 2, y: -length / 2, z: 0.02, width: width, depth: length, height: height)
-
-        let car = SKNode()
-        for face in box.faces where Isometric.isVisible(face) {
-            let shape = SKShapeNode(path: projection.path(face.points))
-            shape.fillColor = RenderPalette.trafficCarBody.blended(
-                withFraction: 0.2 + 0.5 * Isometric.shade(face), of: .white
-            ) ?? RenderPalette.trafficCarBody
-            shape.strokeColor = RenderPalette.trafficCarOutline
-            shape.lineWidth = 1
-            car.addChild(shape)
-        }
-        return car
-    }
-
     /// Parented to `car` itself (not animated separately) so it rides
     /// along for free with whatever `SKAction` is already moving the car.
     private func makeSpeedTrail(zone: ZoneType, travelAngle: CGFloat, carLength: CGFloat, carThickness: CGFloat, speedFactor: CGFloat) -> SKSpriteNode {
@@ -1101,7 +1071,7 @@ final class GameScene: SKScene {
             // pointing down one of two diagonals.
             let carSize = CGSize(width: max(6, projection.tileWidth * 0.26),
                                  height: max(4, projection.tileWidth * 0.16))
-            let car = makeCar(alongX: horizontal)
+            let car = tileRenderer.carSprite(alongX: horizontal)
             car.name = Self.trafficCarNodeName
             car.zPosition = 2
             car.addChild(makeSpeedTrail(
