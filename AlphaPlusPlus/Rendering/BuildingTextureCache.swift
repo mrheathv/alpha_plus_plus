@@ -47,6 +47,23 @@ final class BuildingTextureCache {
     private var cache: [Key: Rendered] = [:]
     private let projection: Isometric
 
+    /// A private offscreen view, used only to rasterise buildings.
+    ///
+    /// **This must never be the game's own view, and once was.** Rendering a
+    /// node to a texture means `SKView.texture(from:)`, which needs a scene
+    /// presented on a view — so the first version took the view as a parameter
+    /// and `GameScene` passed its own. `presentScene` *replaces* what a view is
+    /// showing, so the first building a player placed swapped the live game out
+    /// for a hundred-pixel scratch scene: the map froze, clicks stopped
+    /// landing, and the simulation stopped ticking, because none of those
+    /// things were on screen any more.
+    ///
+    /// Nothing failed. Nothing logged. Every test passed, because tests hand
+    /// this a scratch view of their own and never notice that the view they
+    /// passed got hijacked — the bug was only reachable when the view being
+    /// borrowed was one somebody was looking at.
+    private let renderView = SKView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+
     init(projection: Isometric) {
         self.projection = projection
     }
@@ -73,7 +90,7 @@ final class BuildingTextureCache {
         GridPosition(x: variant * 31, y: variant * 17)
     }
 
-    func rendered(for zone: ZoneType, density: Int, seed: GridPosition, in view: SKView) -> Rendered? {
+    func rendered(for zone: ZoneType, density: Int, seed: GridPosition) -> Rendered? {
         let tier = RenderPalette.growthTier(for: density)
         let key = Key(zone: zone, tier: tier, variant: Self.variant(for: seed))
         if let hit = cache[key] { return hit }
@@ -97,9 +114,10 @@ final class BuildingTextureCache {
         scene.backgroundColor = .clear
         node.position = CGPoint(x: -frame.minX, y: -frame.minY)
         scene.addChild(node)
-        view.allowsTransparency = true
-        view.presentScene(scene)
-        guard let texture = view.texture(from: scene, crop: CGRect(origin: .zero, size: frame.size)) else {
+        renderView.frame = NSRect(origin: .zero, size: frame.size)
+        renderView.allowsTransparency = true
+        renderView.presentScene(scene)
+        guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: frame.size)) else {
             return nil
         }
 
@@ -114,8 +132,8 @@ final class BuildingTextureCache {
 
     /// A sprite of the cached building, positioned so its lot lands at
     /// `origin`.
-    func sprite(for zone: ZoneType, density: Int, seed: GridPosition, at origin: CGPoint, in view: SKView) -> SKSpriteNode? {
-        guard let rendered = rendered(for: zone, density: density, seed: seed, in: view) else { return nil }
+    func sprite(for zone: ZoneType, density: Int, seed: GridPosition, at origin: CGPoint) -> SKSpriteNode? {
+        guard let rendered = rendered(for: zone, density: density, seed: seed) else { return nil }
         let sprite = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         sprite.position = CGPoint(x: origin.x + rendered.offset.x, y: origin.y + rendered.offset.y)
         return sprite

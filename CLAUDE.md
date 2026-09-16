@@ -1098,6 +1098,38 @@ compare against it would only measure itself. It guards the absolute number
 now, which is what the texture cache has to rasterise and what would come
 straight back as draw calls if that cache were ever bypassed.
 
+### The bug that froze the game, and why no test caught it
+
+`BuildingTextureCache` rasterises a building by presenting a scratch scene on
+an `SKView` and calling `texture(from:)`. The first version took that view as a
+*parameter*, and `GameScene` passed its own.
+
+`presentScene` **replaces** what a view is showing. So the first time a lot
+actually grew a building, the live game was swapped out for a one-pixel scratch
+scene: the map froze, clicks stopped landing, the simulation stopped ticking.
+Nothing crashed. Nothing logged.
+
+The symptom ordering is the tell, and it is worth recognising again: placing
+zones worked fine, and everything died the moment you pressed play. A zone sits
+at density 0 until a tick grows it, and density 0 needs no texture — so the
+cache never missed until the simulation started.
+
+**Why the whole suite passed.** Every test handed the cache a scratch `SKView`
+of its own and never looked at it again, so the hijack was invisible: the bug
+was only reachable when the borrowed view was one somebody was watching. The
+tests asserted the cache produced correct sprites, which it did.
+
+Two lessons worth keeping:
+
+- **Do not borrow a shared resource to do private work.** The cache needs *an*
+  SKView, not *the* SKView; it owns a private offscreen one now. Anything that
+  takes a shared object as a parameter in order to mutate its state is worth a
+  second look.
+- **A test that supplies the collaborator cannot detect misuse of it.** The
+  regression test does not check the sprite at all — it presents a scene on a
+  view the renderer was never given, renders some buildings, and asserts that
+  view is still showing what it was.
+
 ### Rendering cost, measured at phase 2 rather than phase 11
 
 A building costs **~55 nodes in isometric against ~26 in elevation**, and the

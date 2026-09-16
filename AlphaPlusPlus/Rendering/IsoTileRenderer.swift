@@ -52,24 +52,24 @@ struct IsoTileRenderer {
     /// parent's children: `GameScene.rebuildRegion` adds and removes nodes in a
     /// small window without touching the rest, and re-sorting a whole tile
     /// layer per placement would undo the saving that exists for.
-    func makeNode(for tile: Tile, in view: SKView?) -> SKNode {
+    func makeNode(for tile: Tile) -> SKNode {
         let footprint = tile.zone.footprintSize
         let node = SKNode()
         node.name = Self.nodeName(for: tile.position)
         node.position = projection.project(CGFloat(tile.position.x), CGFloat(tile.position.y), 0)
         node.zPosition = Isometric.depth(of: tile.position, footprint: footprint)
-        update(node, for: tile, in: view)
+        update(node, for: tile)
         return node
     }
 
     /// Re-sync an existing node to current tile data, mutating rather than
     /// rebuilding: no allocation, no scene-graph churn, and it scales to a
     /// full-map refresh every simulation tick.
-    func update(_ node: SKNode, for tile: Tile, in view: SKView?) {
+    func update(_ node: SKNode, for tile: Tile) {
         syncGround(on: node, tile: tile)
         syncGroundGlow(on: node, tile: tile)
         syncZoneMarker(on: node, tile: tile)
-        syncBuilding(on: node, tile: tile, in: view)
+        syncBuilding(on: node, tile: tile)
     }
 
     static func nodeName(for position: GridPosition) -> String { "iso-\(position.x)-\(position.y)" }
@@ -154,14 +154,13 @@ struct IsoTileRenderer {
 
     // MARK: - Building
 
-    private func syncBuilding(on node: SKNode, tile: Tile, in view: SKView?) {
+    private func syncBuilding(on node: SKNode, tile: Tile) {
         let key = "\(tile.zone.rawValue)|\(tile.density)"
         guard !isUpToDate(node, Self.buildingNodeName, key) else { return }
         markUpToDate(node, Self.buildingNodeName, key)
         node.childNode(withName: Self.buildingNodeName)?.removeFromParent()
-        guard let view else { return }
         guard let sprite = textures.sprite(
-            for: tile.zone, density: tile.density, seed: tile.position, at: .zero, in: view
+            for: tile.zone, density: tile.density, seed: tile.position, at: .zero
         ) else { return }
         sprite.name = Self.buildingNodeName
         sprite.zPosition = 0.3

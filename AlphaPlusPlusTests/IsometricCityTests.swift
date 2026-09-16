@@ -92,14 +92,13 @@ final class IsometricCityTests: XCTestCase {
     func testACityCostsOneSpritePerBuilding() throws {
         let map = Self.city()
         let projection = Self.projection(tileWidth: 32)
-        let view = SKView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
         let renderer = IsoTileRenderer(projection: projection)
 
         var anchors = 0
         var buildings = 0
         for position in Self.positions(of: map) where map[position].isBuildingAnchor {
             anchors += 1
-            let node = renderer.makeNode(for: map[position], in: view)
+            let node = renderer.makeNode(for: map[position])
             let sprites = node.children.compactMap { $0 as? SKSpriteNode }
             buildings += sprites.contains { $0.texture != nil && $0.size.width > 8 } ? 1 : 0
             XCTAssertTrue(
@@ -154,18 +153,17 @@ final class IsometricCityTests: XCTestCase {
     /// problem; this pins them for the isometric one before.
     func testRefreshingAnUnchangedTileRebuildsNothing() {
         let projection = Self.projection(tileWidth: 32)
-        let view = SKView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
         let renderer = IsoTileRenderer(projection: projection)
         var tile = Tile(position: GridPosition(x: 3, y: 4), zone: .residential, density: 4)
 
-        let node = renderer.makeNode(for: tile, in: view)
+        let node = renderer.makeNode(for: tile)
         let before = node.children.map { ObjectIdentifier($0) }
-        renderer.update(node, for: tile, in: view)
+        renderer.update(node, for: tile)
         XCTAssertEqual(node.children.map { ObjectIdentifier($0) }, before,
                        "an unchanged tile replaced its own children")
 
         tile.density = 5
-        renderer.update(node, for: tile, in: view)
+        renderer.update(node, for: tile)
         XCTAssertNotEqual(node.children.map { ObjectIdentifier($0) }, before,
                           "a tile that grew a tier kept its old building")
     }
@@ -178,11 +176,10 @@ final class IsometricCityTests: XCTestCase {
     /// would look exactly like the overlay working.
     func testLeavingAnOverlayRestoresTheBuilding() {
         let projection = Self.projection(tileWidth: 32)
-        let view = SKView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
         let renderer = IsoTileRenderer(projection: projection)
         let tile = Tile(position: GridPosition(x: 2, y: 2), zone: .commercial, density: 5)
 
-        let node = renderer.makeNode(for: tile, in: view)
+        let node = renderer.makeNode(for: tile)
         func hasBuilding() -> Bool {
             node.children.contains { ($0 as? SKSpriteNode)?.texture != nil && $0.name != nil }
         }
@@ -191,7 +188,7 @@ final class IsometricCityTests: XCTestCase {
         renderer.applyOverlay(on: node, color: .green)
         XCTAssertFalse(hasBuilding(), "the overlay left the building showing")
 
-        renderer.update(node, for: tile, in: view)
+        renderer.update(node, for: tile)
         XCTAssertTrue(hasBuilding(), "leaving the overlay did not bring the building back")
     }
 
@@ -219,14 +216,13 @@ final class IsometricCityTests: XCTestCase {
         }
 
         let projection = Self.projection(tileWidth: 32)
-        let view = SKView(frame: NSRect(x: 0, y: 0, width: 64, height: 64))
         let renderer = IsoTileRenderer(projection: projection)
         let layer = SKNode()
 
         var anchors = 0
         for position in Self.positions(of: map) where map[position].isBuildingAnchor {
             anchors += 1
-            layer.addChild(renderer.makeNode(for: map[position], in: view))
+            layer.addChild(renderer.makeNode(for: map[position]))
         }
         let nodes = Self.nodeCount(layer)
         let perAnchor = Double(nodes) / Double(anchors)
@@ -238,6 +234,38 @@ final class IsometricCityTests: XCTestCase {
 
     private static func nodeCount(_ node: SKNode) -> Int {
         1 + node.children.reduce(0) { $0 + nodeCount($1) }
+    }
+
+    /// Rasterising a building must not disturb whatever is on screen.
+    ///
+    /// **The regression this exists for.** `BuildingTextureCache` renders a
+    /// building by presenting a scratch scene on an `SKView` — and the first
+    /// version took the view as a parameter, so `GameScene` passed its own.
+    /// `presentScene` replaces what a view shows, so the first building a
+    /// player placed swapped the live game out for a hundred-pixel scratch
+    /// scene: the map froze, clicks stopped landing, the simulation stopped
+    /// ticking. Nothing crashed and nothing logged.
+    ///
+    /// Every test passed, too, because a test hands the cache a scratch view of
+    /// its own and never looks at it again — the bug was only reachable when
+    /// the borrowed view was one somebody was watching. So this asserts the
+    /// property that actually matters: a view the renderer was never given
+    /// keeps showing what it was showing.
+    func testRasterisingABuildingLeavesOtherScenesAlone() {
+        let view = SKView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let gameScene = SKScene(size: CGSize(width: 200, height: 200))
+        view.presentScene(gameScene)
+        XCTAssertIdentical(view.scene, gameScene)
+
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        for density in [1, 3, 5] {
+            _ = renderer.makeNode(for: Tile(position: GridPosition(x: density, y: 2),
+                                            zone: .commercial, density: density))
+        }
+        XCTAssertIdentical(
+            view.scene, gameScene,
+            "rasterising a building replaced what a view was showing — this is what froze the game"
+        )
     }
 
     // MARK: - The render
@@ -282,7 +310,7 @@ final class IsometricCityTests: XCTestCase {
         world.position = origin
         for position in Self.positions(of: map) where map[position].isBuildingAnchor {
             let tile = map[position]
-            let node = renderer.makeNode(for: tile, in: view)
+            let node = renderer.makeNode(for: tile)
             if tile.zone == ZoneType.road || tile.zone == ZoneType.highway {
                 renderer.syncLaneLine(on: node, zone: tile.zone,
                                       connections: Traffic.roadConnections(at: position, in: map))

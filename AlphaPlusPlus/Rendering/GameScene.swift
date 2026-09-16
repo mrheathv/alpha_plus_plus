@@ -667,7 +667,7 @@ final class GameScene: SKScene {
     /// `CityHazards`), so it never needs a sprite of its own to represent.
     private func buildTileNodes() {
         for tile in map.tiles where tile.isBuildingAnchor {
-            let node = tileRenderer.makeNode(for: tile, in: view)
+            let node = tileRenderer.makeNode(for: tile)
             tileLayer.addChild(node)
             tileNodes[tile.position] = node
             syncTrafficAnimation(at: tile.position)
@@ -750,7 +750,7 @@ final class GameScene: SKScene {
             for dx in -radius ... radius {
                 let cell = GridPosition(x: position.x + dx, y: position.y + dy)
                 guard map.contains(cell), map[cell].isBuildingAnchor else { continue }
-                let node = tileRenderer.makeNode(for: map[cell], in: view)
+                let node = tileRenderer.makeNode(for: map[cell])
                 tileLayer.addChild(node)
                 tileNodes[cell] = node
                 syncTrafficAnimation(at: cell)
@@ -805,7 +805,7 @@ final class GameScene: SKScene {
         // building, tint the ground.
         switch controller.overlayMode {
         case .none:
-            tileRenderer.update(node, for: tile, in: view)
+            tileRenderer.update(node, for: tile)
             tileRenderer.syncBuriedMarker(on: node, tile: tile, present: false, isPipe: true)
             tileRenderer.syncBuriedMarker(on: node, tile: tile, present: false, isPipe: false)
             syncLaneLine(at: position)
