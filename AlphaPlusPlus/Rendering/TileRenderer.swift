@@ -102,7 +102,7 @@ struct TileRenderer {
         // neighbouring lots' light *add* together instead, so a dense block
         // haloes as a district while a lone building stays a single point of
         // light, and no individual tile edge ever shows.
-        glow.alpha = zone.maxDensity > 0 ? 0.10 + 0.04 * CGFloat(tier) : 0.24
+        glow.alpha = zone.maxDensity > 0 ? 0.13 + 0.05 * CGFloat(tier) : 0.28
         let base = layout.spriteSize(forFootprint: footprintSize)
         glow.size = CGSize(width: base.width * 1.8, height: base.height * 1.8)
         // Under the building, over the flat ground fill.

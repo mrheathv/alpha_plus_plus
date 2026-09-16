@@ -77,8 +77,14 @@ final class ZoneStreetscapeTests: XCTestCase {
         let zone: ZoneType = [.residential, .commercial, .industrial][(bx + by) % 3]
         let blocksWide = (tilesWide - 1) / roadEvery
         let blocksHigh = (tilesHigh - 1) / roadEvery
+        // Density 0 is in the list on purpose: a lot you have zoned and which
+        // has not grown anything yet is the very first thing a new player
+        // sees, and it is drawn by a completely different path (no building at
+        // all — `TileRenderer.syncZoneMarker`'s surveyed outline, on ground
+        // tinted less than a developed lot's). Every lot here used to be
+        // built, so that state appeared in no render anywhere.
         let distance = abs(bx - (blocksWide - 1) / 2) + abs(by - (blocksHigh - 1) / 2)
-        let density = [5, 3, 1][min(distance, 2)]
+        let density = [5, 3, 1, 0][min(distance, 3)]
         return (zone, density)
     }
 
@@ -233,14 +239,28 @@ final class ZoneStreetscapeTests: XCTestCase {
     /// Every lot has to draw *something*. A blank lot in the middle of a
     /// street is the failure this catches — the same class of silent nil the
     /// contact sheet guards, but at the footprint the game really uses.
+    ///
+    /// An unbuilt lot is the one case where "nothing" is the correct building:
+    /// what it owes the player is the surveyed outline instead, so that is
+    /// what gets asserted there.
     func testEveryLotDrawsSomething() {
+        let layout = GridLayout(tileSize: Self.zoomLevels[0].tileSize,
+                                gap: Self.gap(forTileSize: Self.zoomLevels[0].tileSize))
+        let renderer = TileRenderer(layout: layout)
+
         for lot in Self.lots() {
+            let label = "lot at (\(lot.origin.x), \(lot.origin.y)) — \(lot.zone.rawValue) density \(lot.density)"
+            guard RenderPalette.growthTier(for: lot.density) > 0 else {
+                let node = renderer.makeNode(for: Tile(position: lot.origin, zone: lot.zone, density: lot.density))
+                XCTAssertGreaterThan(
+                    node.calculateAccumulatedFrame().width, 0,
+                    "\(label): a zoned but unbuilt lot draws nothing at all — no surveyed marker"
+                )
+                continue
+            }
             let node = ZoneIcon.makeNode(for: lot.zone, density: lot.density, seed: lot.origin)
             let frame = node?.calculateAccumulatedFrame() ?? .zero
-            XCTAssertGreaterThan(
-                frame.width * frame.height, 0,
-                "lot at (\(lot.origin.x), \(lot.origin.y)) — \(lot.zone.rawValue) density \(lot.density) — draws nothing"
-            )
+            XCTAssertGreaterThan(frame.width * frame.height, 0, "\(label): draws nothing")
         }
     }
 
@@ -253,7 +273,7 @@ final class ZoneStreetscapeTests: XCTestCase {
                                 gap: Self.gap(forTileSize: Self.zoomLevels[0].tileSize))
         for lot in Self.lots() {
             guard let icon = ZoneIcon.makeNode(for: lot.zone, density: lot.density, seed: lot.origin) else {
-                continue
+                continue  // an unbuilt lot has no building to keep inside anything
             }
             let footprint = lot.zone.footprintSize
             let sprite = layout.spriteSize(forFootprint: footprint)

@@ -820,6 +820,29 @@ now reads as the building's own tier: a different silhouette, a different hue, a
 brighter pool. The one thing genuinely lost is the exact density *number* within
 a tier, which no game in this genre puts on the map anyway.
 
+### Brightness is a channel, not a constant
+
+Every building used to glow exactly as hard as every other, so a two-storey
+house and a tier-3 tower carried identical visual weight: the map read as
+uniformly busy rather than as a place with a centre. `ZoneIcon.glowIntensity`
+ties halo weight to growth tier (0.55 / 0.78 / 1.15), with a small per-building
+`liveliness` wobble on top so a row of same-tier lots is not a row of identical
+lamps. Density is now legible from further out than the silhouette survives,
+and the eye has somewhere to land.
+
+One experiment from that pass is worth recording as a *failure*, because it
+looked obviously right on paper. Lit windows were given SpriteKit's built-in
+`glowWidth` halo, on the reasoning that a window should read as a light source
+rather than a patch of paint, and that `glowWidth` costs nothing extra because
+it is a property of a node already being drawn. It made everything worse: the
+halo is far more aggressive than it sounds, at 2.5 on a nine-point pane it
+roughly doubles the pane, and a facade of them became overlapping blurry
+lozenges with the dark silhouette between them washed out. Halving it did not
+save it — the whole point of `minimumDetailSize` is crisp marks with black
+between them, and bloom on small shapes is the same mistake as detail on small
+shapes wearing a different hat. Reverted; the glow belongs on the silhouette
+stroke, where the shape is big enough to carry it.
+
 ### The render has to include the post-process
 
 `RetroShader` only ever multiplies brightness down — scanlines up to 11%, the
@@ -952,7 +975,11 @@ its own footprint once scaled and placed.
 
 It is hand-authored rather than grown by `CitySimulator` on purpose: the point
 is to guarantee that every tier of every zone appears, and appears next to the
-others. A grown city shows whatever it happened to grow.
+others. A grown city shows whatever it happened to grow. Density 0 is in that
+rotation deliberately: a lot you have zoned and which has not grown anything
+yet is the first thing a new player ever sees, it is drawn by a completely
+different path (no building at all — a surveyed outline on less-tinted ground),
+and every lot in the render used to be built, so that state appeared nowhere.
 
 The app ships an icon (`Assets.xcassets/AppIcon.appiconset`, wired up via
 `ASSETCATALOG_COMPILER_APPICON_NAME`). It predates the retirement of the

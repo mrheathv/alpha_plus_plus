@@ -41,6 +41,7 @@ enum CommercialBuilding {
 
     static func make(tier: Int, accent: SKColor, seed: GridPosition) -> SKNode {
         var random = BuildingRandom(seed: seed, salt: 200 + tier)
+        let liveliness = CGFloat(random.value(in: 0.72 ... 1.2))
         let form: Form = tier >= 2
             ? .podiumTower
             : random.pick([.strip, .shopAndFlat, .cornerUnit])
@@ -59,7 +60,10 @@ enum CommercialBuilding {
                         outline: &outline, details: &details, random: &random)
         }
 
-        container.addChild(ZoneIcon.withGlow(outline, color: accent))
+        container.addChild(ZoneIcon.withGlow(
+            outline, color: accent,
+            intensity: ZoneIcon.glowIntensity(forTier: tier, liveliness: liveliness)
+        ))
         details.forEach(container.addChild)
         return container
     }

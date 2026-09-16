@@ -35,6 +35,11 @@ enum ResidentialBuilding {
         var outline: [SKShapeNode] = []
         var details: [SKNode] = []
 
+        // Drawn before the form picks anything, so the same lot keeps the same
+        // brightness whichever branch it takes. A district of identical-tier
+        // lots should still have bright and quiet buildings in it.
+        let liveliness = CGFloat(random.value(in: 0.72 ... 1.2))
+
         if tier == 1, random.chance(0.5) {
             houseRow(accent: accent, seed: seed, outline: &outline, details: &details, random: &random)
         } else {
@@ -42,7 +47,10 @@ enum ResidentialBuilding {
                   outline: &outline, details: &details, random: &random)
         }
 
-        container.addChild(ZoneIcon.withGlow(outline, color: accent))
+        container.addChild(ZoneIcon.withGlow(
+            outline, color: accent,
+            intensity: ZoneIcon.glowIntensity(forTier: tier, liveliness: liveliness)
+        ))
         details.forEach(container.addChild)
         return container
     }

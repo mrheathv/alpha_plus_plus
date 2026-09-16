@@ -22,6 +22,7 @@ enum IndustrialBuilding {
     /// A building for `tier` (1...3), drawn deterministically from `seed`.
     static func make(tier: Int, accent: SKColor, seed: GridPosition) -> SKNode {
         var random = BuildingRandom(seed: seed, salt: tier)
+        let liveliness = CGFloat(random.value(in: 0.72 ... 1.2))
 
         let container = SKNode()
         var outline: [SKShapeNode] = []
@@ -73,7 +74,10 @@ enum IndustrialBuilding {
             ))
         }
 
-        container.addChild(ZoneIcon.withGlow(outline, color: accent))
+        container.addChild(ZoneIcon.withGlow(
+            outline, color: accent,
+            intensity: ZoneIcon.glowIntensity(forTier: tier, liveliness: liveliness)
+        ))
         details.forEach(container.addChild)
 
         // The hazard triangle the tier's own name ("Pollution Warning") has

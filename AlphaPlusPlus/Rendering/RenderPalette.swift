@@ -52,8 +52,8 @@ enum RenderPalette {
     /// exactly the flat saturated colour field the split was meant to retire,
     /// only with a gradient in it. The fill is the faint cast; the glow is the
     /// light. Turning either one up far enough makes the other pointless.
-    private static let groundTintAtFullDensity: CGFloat = 0.08
-    private static let groundTintWhenZonedOnly: CGFloat = 0.06
+    private static let groundTintAtFullDensity: CGFloat = 0.035
+    private static let groundTintWhenZonedOnly: CGFloat = 0.025
 
     /// The warm glow `GameScene`'s ambient sun sprite tints — the
     /// retrowave "sun on the horizon" motif, sitting fixed in world space

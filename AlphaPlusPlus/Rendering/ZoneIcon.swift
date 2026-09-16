@@ -160,6 +160,18 @@ enum ZoneIcon {
     /// building carried by twenty faint ones reads at exactly one.
     static let minimumDetailSize: CGFloat = 9
 
+    /// How hard a growable building's neon burns, by growth tier.
+    ///
+    /// Shared by all three generators so a tier-2 shop and a tier-2 factory
+    /// carry the same weight as each other and less than any tier-3 — the
+    /// hierarchy has to be about *density*, not about which zone happened to
+    /// pick a brighter number. `liveliness` is a small per-building wobble on
+    /// top, so a row of same-tier lots is not a row of identical lamps.
+    static func glowIntensity(forTier tier: Int, liveliness: CGFloat = 1) -> CGFloat {
+        let base: CGFloat = [0.55, 0.78, 1.15][max(0, min(2, tier - 1))]
+        return base * liveliness
+    }
+
     /// Every building silhouette's fill — near-black, so a building reads
     /// as a shape cut out of the night, lit only by its own neon outline.
     /// Consistent across every zone: the *glow color*, not a different
@@ -426,7 +438,24 @@ enum ZoneIcon {
     /// shadow had — small details (a window, a door) don't get their own
     /// glow pass, since dozens of tiny blurred rects would read as noise,
     /// not light.
-    static func withGlow(_ shapes: [SKShapeNode], color: SKColor, blurRadius: CGFloat = 7) -> SKNode {
+    /// `intensity` scales the halo's weight and opacity — 1 is the baseline a
+    /// service building draws at.
+    ///
+    /// **Why brightness is a channel and not a constant.** Every building used
+    /// to glow exactly as hard as every other, so a two-storey house and a
+    /// tier-3 tower carried identical visual weight and a district had no
+    /// focal hierarchy at all: the map read as uniformly busy rather than as a
+    /// place with a centre. A night skyline is mostly dim with a few things
+    /// blazing, and that contrast is most of what makes it look like night.
+    /// Tying intensity to growth tier means density is legible from across the
+    /// map — from further out than the silhouette survives — and gives the eye
+    /// somewhere to land.
+    static func withGlow(
+        _ shapes: [SKShapeNode],
+        color: SKColor,
+        blurRadius: CGFloat = 7,
+        intensity: CGFloat = 1
+    ) -> SKNode {
         let container = SKNode()
 
         let glowLayer = SKEffectNode()
@@ -439,8 +468,8 @@ enum ZoneIcon {
             let glowCopy = SKShapeNode(path: path)
             glowCopy.fillColor = color
             glowCopy.strokeColor = color
-            glowCopy.lineWidth = 7
-            glowCopy.alpha = 0.9
+            glowCopy.lineWidth = 7 * max(0.4, intensity)
+            glowCopy.alpha = min(1, 0.9 * intensity)
             glowLayer.addChild(glowCopy)
         }
         container.addChild(glowLayer) // added first -> renders behind everything after it
