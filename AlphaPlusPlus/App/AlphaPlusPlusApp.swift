@@ -102,7 +102,7 @@ struct AlphaPlusPlusApp: App {
             }
 
             CommandMenu("City") {
-                Button("Budget…") { document.isShowingBudget = true }
+                Button("City Hall…") { document.controller.isShowingCityPanel = true }
                     .keyboardShortcut("b", modifiers: .command)
 
                 Divider()
@@ -140,11 +140,6 @@ struct RootView: View {
     var body: some View {
         GameView(controller: document.controller)
             .navigationTitle(document.displayName)
-            .sheet(isPresented: $document.isShowingBudget) {
-                BudgetPanel(controller: document.controller) {
-                    document.isShowingBudget = false
-                }
-            }
             .alert(
                 "Couldn't open that city",
                 isPresented: Binding(

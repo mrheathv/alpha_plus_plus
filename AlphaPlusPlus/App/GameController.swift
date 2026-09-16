@@ -78,6 +78,14 @@ final class GameController: ObservableObject {
     /// zero consequence beyond "placement stops working," not a deliberate
     /// borrowing tool. `issueBond()`/`repayBond(_:)` are the only ways this
     /// changes.
+    /// Whether City Hall is open.
+    ///
+    /// On the controller rather than the document because there are two routes
+    /// to it — the City menu and the cockpit's own button — and the sheet has
+    /// one owner. The document's copy of this predated the cockpit, when the
+    /// menu bar was the only way in.
+    @Published var isShowingCityPanel = false
+
     @Published private(set) var bondBalance = 0
 
     /// How much one bond adds to `treasury` immediately.

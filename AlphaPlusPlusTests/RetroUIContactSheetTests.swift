@@ -100,6 +100,15 @@ final class RetroUIContactSheetTests: XCTestCase {
         try render(name: "retro-cockpit", content: cockpit)
     }
 
+    /// City Hall, rendered from the real panel with a real controller.
+    func testRenderCityPanel() throws {
+        let controller = GameController()
+        controller.taxRate = 1.25
+        _ = controller.issueBond()
+        controller.setOrdinance(\.fireInspections, active: true)
+        try render(name: "retro-city-hall", content: CityPanel(controller: controller) {})
+    }
+
     private var componentSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("RETRO UI — COCKPIT PARTS")

@@ -1179,6 +1179,36 @@ Three things this fixed that were not cosmetic:
 from the same components the live view uses — a picture of the real chrome
 rather than a mock of it.
 
+### Phase 4: City Hall
+
+`BudgetPanel` became `CityPanel`, and ordinances and debt moved into it.
+
+They had lived only in the City menu, on the reasoning that a toggle and an
+action translate to menu items cleanly. They do — but **a menu shows a
+control, not a state**, and both of these are mostly state: an ordinance's
+upkeep scales with population, so its cost is a number that changes under you,
+and a bond is a debt with a cap and a per-tick interest charge that nothing on
+screen mentioned at all. A player could be paying interest every tick with no
+way to see the balance, short of opening a menu that does not show it either.
+
+The panel is also reachable from the cockpit now, not just the menu bar. Tax,
+funding, ordinances and debt were *all* menu-only, which made the entire
+economic half of the game invisible to anyone who did not go looking in a menu
+for it. `isShowingCityPanel` moved to the controller, since there are now two
+routes in and a sheet needs one owner.
+
+Two things the render caught that the app would have hidden:
+
+- **`ImageRenderer` cannot measure scrolling content**, so a `ScrollView` added
+  to keep the taller panel usable made the whole body vanish from the contact
+  sheet. That was worth more than the scroll view: a panel nobody can look at
+  is how the truncated treasury readout survived. Two columns halve the height
+  honestly instead.
+- **A native `Toggle` was the last piece of stock AppKit chrome** in a panel
+  that is otherwise entirely hand-drawn neon — and it does not render either,
+  so the one control whose *state* is the whole point was the one control
+  nobody could see. Ordinances are chips now, the same ones the toolbar uses.
+
 ### The UI gets a render, like the art does
 
 `RetroUIContactSheetTests` renders the components to a PNG through

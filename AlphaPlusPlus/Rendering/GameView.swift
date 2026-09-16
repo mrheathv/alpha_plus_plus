@@ -94,6 +94,9 @@ struct GameView: View {
         // native chrome that leaks through anywhere (menus, tooltips)
         // from clashing with it, and means the retrowave look doesn't
         // depend on the player's own Light/Dark Mode setting.
+        .sheet(isPresented: $controller.isShowingCityPanel) {
+            CityPanel(controller: controller) { controller.isShowingCityPanel = false }
+        }
         .preferredColorScheme(.dark)
     }
 
@@ -144,6 +147,12 @@ struct GameView: View {
                         label: \.displayName,
                         selection: $controller.overlayMode
                     )
+                    // Reachable without the menu bar. Tax, funding, ordinances
+                    // and debt were all menu-only, which made the whole
+                    // economic half of the game invisible to anyone who did
+                    // not go looking in a menu for it.
+                    Button("City Hall…") { controller.isShowingCityPanel = true }
+                        .buttonStyle(RetroButtonStyle(accent: RetroUITheme.secondaryAccent))
                 }
             }
 
