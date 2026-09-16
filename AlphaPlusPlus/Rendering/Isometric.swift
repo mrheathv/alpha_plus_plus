@@ -156,6 +156,31 @@ struct Isometric {
         ])
     }
 
+    /// The cursor shown under a tool: the footprint's ground diamond plus a
+    /// short riser at each corner.
+    ///
+    /// **A flat outline is not enough in isometric.** Top-down, the preview was
+    /// a square filling the tile and impossible to miss. The same idea drawn as
+    /// a diamond lying on the ground disappears into a city of glowing
+    /// diagonals — every edge on the map is already at one of its two angles.
+    /// The corner risers give it the one thing nothing else on the ground
+    /// has — vertical lines — so it reads as a volume about to be placed
+    /// rather than as another line on the floor.
+    func footprintCursor(size: CGFloat, riser: CGFloat = 0.35) -> CGPath {
+        let path = CGMutablePath()
+        let corners: [(CGFloat, CGFloat)] = [(0, 0), (size, 0), (size, size), (0, size)]
+        path.move(to: project(corners[0].0, corners[0].1, 0))
+        for corner in corners.dropFirst() {
+            path.addLine(to: project(corner.0, corner.1, 0))
+        }
+        path.closeSubpath()
+        for corner in corners {
+            path.move(to: project(corner.0, corner.1, 0))
+            path.addLine(to: project(corner.0, corner.1, riser))
+        }
+        return path
+    }
+
     // MARK: - Visibility and shading
 
     /// Whether a face points anywhere toward the camera.

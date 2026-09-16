@@ -185,7 +185,7 @@ final class IsometricCityTests: XCTestCase {
         }
         XCTAssertTrue(hasBuilding())
 
-        renderer.applyOverlay(on: node, color: .green)
+        renderer.applyOverlay(on: node, buildings: .hidden, color: .green)
         XCTAssertFalse(hasBuilding(), "the overlay left the building showing")
 
         renderer.update(node, for: tile)
@@ -289,7 +289,33 @@ final class IsometricCityTests: XCTestCase {
         XCTAssertGreaterThan(sheet.count, 0)
     }
 
-    private func render(_ map: CityMap, tileWidth: CGFloat) throws -> NSImage {
+    /// The same city in Normal, Water and Power, side by side.
+    ///
+    /// **A render nobody had.** The overlays were ported with the rest of the
+    /// scene and never looked at, and the port had quietly dropped the top-down
+    /// renderer's dimmed-building pass — so Water and Power became flat
+    /// supply-coloured fields with no way to see where the water tower you were
+    /// routing from actually stood. Nothing failed; there was simply no picture
+    /// of it anywhere. There is one now.
+    func testRenderOverlays() throws {
+        let map = Self.city()
+        var panels: [(String, NSImage)] = []
+        for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power)] {
+            panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
+        }
+        let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the overlay panels")
+        let destination = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/ContactSheet/isometric-overlays.png")
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try sheet.write(to: destination)
+        print("🗺  Isometric overlays: \(destination.path)")
+        XCTAssertGreaterThan(sheet.count, 0)
+    }
+
+    private func render(_ map: CityMap, tileWidth: CGFloat, overlay: OverlayMode = .none) throws -> NSImage {
         let projection = Self.projection(tileWidth: tileWidth)
         let bounds = projection.contentBounds(of: map)
         let margin: CGFloat = 24
@@ -314,6 +340,22 @@ final class IsometricCityTests: XCTestCase {
             if tile.zone == ZoneType.road || tile.zone == ZoneType.highway {
                 renderer.syncLaneLine(on: node, zone: tile.zone,
                                       connections: Traffic.roadConnections(at: position, in: map))
+            }
+            switch overlay {
+            case .water:
+                renderer.applyOverlay(
+                    on: node,
+                    buildings: [.waterTower, .waterPump].contains(tile.zone) ? .highlighted : .dimmed,
+                    color: RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
+                )
+            case .power:
+                renderer.applyOverlay(
+                    on: node,
+                    buildings: [.powerPlant, .generator].contains(tile.zone) ? .highlighted : .dimmed,
+                    color: RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
+                )
+            default:
+                break
             }
             world.addChild(node)
         }

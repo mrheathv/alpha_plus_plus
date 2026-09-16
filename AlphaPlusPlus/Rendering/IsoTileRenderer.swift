@@ -169,28 +169,65 @@ struct IsoTileRenderer {
 
     // MARK: - Overlays
 
+    /// How an overlay treats the buildings it is drawn over.
+    enum OverlayBuildings {
+        /// Heatmaps — land value, pollution, traffic. The data *is* the
+        /// picture, and buildings on top of it are clutter.
+        case hidden
+        /// Water and power. You are routing a network around a city, so you
+        /// need to see the city: buildings stay, dimmed enough that the supply
+        /// colour still reads underneath them.
+        case dimmed
+        /// The utilities that feed the network you are looking at — a water
+        /// tower in the water overlay, a power plant in the power overlay.
+        /// These are the things the player is hunting for, so they stay at full
+        /// brightness and keep their light pool.
+        case highlighted
+    }
+
     /// Paint a tile as a flat data channel instead of as a building.
     ///
-    /// **One call, not ten.** `GameScene`'s top-down overlay handling repeats a
-    /// block of ten `clear…` calls in each of five branches, and every
-    /// decoration added since has had to be remembered in all five — which is
-    /// exactly the kind of repetition that goes stale silently, because a
-    /// forgotten line leaves a stray building icon floating over a heatmap
-    /// rather than failing anything. An overlay is one idea: hide everything
-    /// that describes the *building* and tint the ground.
-    func applyOverlay(on node: SKNode, color: SKColor) {
-        for name in [Self.glowNodeName, Self.markerNodeName, Self.buildingNodeName,
-                     Self.laneNodeName, Self.warningNodeName, Self.damageNodeName] {
+    /// **One call, not ten.** `GameScene`'s top-down overlay handling repeated
+    /// a block of ten `clear…` calls in each of five branches, and every
+    /// decoration added since had to be remembered in all five — exactly the
+    /// kind of repetition that goes stale silently, because a forgotten line
+    /// leaves a stray building floating over a heatmap rather than failing
+    /// anything.
+    func applyOverlay(on node: SKNode, buildings: OverlayBuildings, color: SKColor) {
+        for name in [Self.markerNodeName, Self.laneNodeName,
+                     Self.warningNodeName, Self.damageNodeName] {
             node.childNode(withName: name)?.removeFromParent()
             // Invalidated, not just removed: the cache key is what decides
             // whether a decoration gets rebuilt, so leaving a stale key behind
             // would mean switching back to Normal view restored nothing.
             invalidate(node, name)
         }
+
+        switch buildings {
+        case .hidden:
+            node.childNode(withName: Self.buildingNodeName)?.removeFromParent()
+            node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+            invalidate(node, Self.buildingNodeName)
+            invalidate(node, Self.glowNodeName)
+        case .dimmed:
+            node.childNode(withName: Self.buildingNodeName)?.alpha = 0.4
+            node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+            invalidate(node, Self.glowNodeName)
+        case .highlighted:
+            node.childNode(withName: Self.buildingNodeName)?.alpha = 1
+        }
+
         // The ground is recoloured rather than rebuilt, so its own key has to
         // go too or the tint would survive leaving the overlay.
         invalidate(node, Self.groundNodeName)
         (node.childNode(withName: Self.groundNodeName) as? SKShapeNode)?.fillColor = color
+    }
+
+    /// Undo an overlay's alpha changes when returning to Normal view. The
+    /// building node itself is cached, so it is dimmed in place rather than
+    /// rebuilt — which means something has to put it back.
+    func restoreFromOverlay(on node: SKNode) {
+        node.childNode(withName: Self.buildingNodeName)?.alpha = 1
     }
 
     // MARK: - Markers

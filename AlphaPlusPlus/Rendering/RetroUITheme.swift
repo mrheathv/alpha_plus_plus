@@ -25,6 +25,21 @@ enum RetroUITheme {
         // gets an action's colour: the same red the game already uses to mean
         // "this destroys or refuses something."
         guard zone != .empty else { return .red }
+        // Roads and highways are the same case, and they became one the moment
+        // the palette split ground from light: asphalt is now the *darkest*
+        // surface in the game deliberately, because a glowing lane line needs
+        // the darkest possible bed. That is right on the map and wrong in a
+        // toolbar, where it renders Road and Highway as black-on-black — the
+        // identical failure the `.empty` guard above already documents, which
+        // is a fair warning that reaching for a *ground* colour to label a
+        // *tool* was the mistake both times.
+        //
+        // A tool button wants what the zone emits, not what it is made of. For
+        // a road that is its lane-line glow, which is also exactly what the
+        // player sees on the map when they place one.
+        if zone == .road || zone == .highway {
+            return Color(nsColor: RenderPalette.networkAccentColor(for: zone))
+        }
         return Color(nsColor: RenderPalette.fullColor(for: zone))
     }
 

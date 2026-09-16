@@ -1098,6 +1098,44 @@ compare against it would only measure itself. It guards the absolute number
 now, which is what the texture cache has to rasterise and what would come
 straight back as draw calls if that cache were ever bypassed.
 
+### Four things a play session found that no render did
+
+All four were introduced by the isometric port, and all four are the same shape
+of mistake: a decision that was right top-down and silently wrong once the
+projection changed.
+
+- **The Road button went black-on-black.** `RetroUITheme.accent(for:)` labels a
+  tool with `RenderPalette.fullColor(for:)`, and the ground/light split made
+  asphalt the *darkest* surface in the game on purpose. Right on the map, wrong
+  in a toolbar. The `.empty` guard sitting directly above already documented
+  this exact failure for the bulldozer, which is a fair warning that reaching
+  for a *ground* colour to label a *tool* was the mistake both times. A tool
+  button wants what the zone emits — for a road, its lane-line glow, which is
+  also what the player sees when they place one.
+- **Water and Power hid the utilities.** The port dropped the top-down
+  renderer's dimmed-building pass, so both overlays became flat supply-coloured
+  fields with no way to see where the water tower you were routing from stood.
+  Buildings are dimmed rather than hidden now, and the utilities that *feed*
+  the network being shown stay at full brightness, because those are the things
+  the player is hunting for.
+- **The placement cursor vanished into the city.** Top-down it was a square
+  filling the tile and impossible to miss; the same idea as a diamond lying on
+  the ground disappears into a map where every edge is already at one of its
+  two angles. It has corner risers now — vertical lines, the one thing nothing
+  else on the ground has — so it reads as a volume about to be placed. Its
+  `zPosition` was also 5, against tile nodes whose depth key now runs to the
+  map's width plus height.
+- **Cars became slivers.** A rounded rectangle pointing along the road is
+  exactly right top-down. Rotated to a projected heading it is the only thing
+  on an isometric map with no thickness, surrounded by buildings that are
+  nothing but thickness. They are little boxes built from the same `Box` and
+  face-shading as the buildings, so they catch the light from the same
+  direction.
+
+The overlays now have a render of their own (`isometric-overlays.png`). They
+had been ported and never looked at — nothing failed, there was simply no
+picture of them anywhere.
+
 ### The bug that froze the game, and why no test caught it
 
 `BuildingTextureCache` rasterises a building by presenting a scratch scene on
