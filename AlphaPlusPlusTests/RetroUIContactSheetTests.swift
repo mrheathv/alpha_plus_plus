@@ -53,6 +53,13 @@ final class RetroUIContactSheetTests: XCTestCase {
 
             Rectangle().fill(RetroUITheme.panel).frame(height: 150)
                 .overlay(Text("— map —").foregroundStyle(RetroUITheme.textSecondary))
+                .overlay(alignment: .bottom) {
+                    LinearGradient(
+                        colors: [.clear, Color(nsColor: RenderPalette.sunGlow).opacity(0.16)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: 46)
+                }
 
             HStack(alignment: .top, spacing: RetroMetrics.gutter) {
                 RetroPanel(title: "Simulation", accent: RetroUITheme.primaryAccent) {
@@ -72,7 +79,8 @@ final class RetroUIContactSheetTests: XCTestCase {
                         RetroStatTile(label: "Jobs", value: "2,140",
                                       history: [4, 140, 700, 1800, 2140], accent: .cyan)
                         RetroStatTile(label: "Treasury", value: "$1,482,910", detail: "+$1,798/tick",
-                                      history: [100, 900, 1400, 1300, 1482], accent: .yellow)
+                                      history: [100, 900, 1400, 1300, 1482], accent: .yellow,
+                                      minimumWidth: 132)
                     }
                 }
                 RetroPanel(title: "Utilities", accent: RetroUITheme.accent(for: .waterTower)) {
@@ -83,6 +91,13 @@ final class RetroUIContactSheetTests: XCTestCase {
                                    accent: RetroUITheme.accent(for: .powerPlant))
                     }
                     .frame(width: 104)
+                }
+                RetroPanel(title: "Demand", accent: RetroUITheme.secondaryAccent) {
+                    HStack(spacing: 8) {
+                        DemandBar(label: "R", value: 0.8)
+                        DemandBar(label: "C", value: 0.2)
+                        DemandBar(label: "I", value: -0.6)
+                    }
                 }
                 RetroPanel(title: "Alerts", accent: .orange) {
                     VStack(alignment: .leading, spacing: 5) {
@@ -144,7 +159,8 @@ final class RetroUIContactSheetTests: XCTestCase {
                         RetroStatTile(label: "Population", value: "3,984",
                                       history: [10, 220, 900, 2600, 3984], accent: .green)
                         RetroStatTile(label: "Treasury", value: "$1,482,910", detail: "+$1,798/tick",
-                                      history: [100, 900, 1400, 1300, 1482], accent: .yellow)
+                                      history: [100, 900, 1400, 1300, 1482], accent: .yellow,
+                                      minimumWidth: 132)
                     }
                 }
                 RetroPanel(title: "Alerts", accent: .orange) {

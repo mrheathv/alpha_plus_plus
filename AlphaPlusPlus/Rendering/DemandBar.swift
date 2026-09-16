@@ -25,15 +25,22 @@ struct DemandBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             Text(label)
-                .font(.caption.monospaced())
+                .font(.system(size: 10, weight: .bold).monospaced())
                 .foregroundStyle(RetroUITheme.textSecondary)
-            HStack(spacing: 1.5) {
+            // Square segments with an accent-tinted track and a glow on the
+            // lit ones — the same language `RetroMeter` uses for utility load.
+            // These were rounded rectangles on a grey track, which is the only
+            // place in the cockpit that still looked like a progress bar
+            // rather than an instrument.
+            HStack(spacing: 2) {
                 ForEach(0 ..< Self.segmentCount, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(index < filledSegments ? fillColor : Color.gray.opacity(0.25))
-                        .frame(width: 5, height: 10)
+                    let lit = index < filledSegments
+                    Rectangle()
+                        .fill(lit ? fillColor : fillColor.opacity(0.14))
+                        .frame(width: 5, height: 11)
+                        .shadow(color: lit ? fillColor.opacity(0.8) : .clear, radius: 2)
                 }
             }
         }

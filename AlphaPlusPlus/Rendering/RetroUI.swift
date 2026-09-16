@@ -77,11 +77,38 @@ struct RetroPanel<Content: View>: View {
         .background(
             ChamferedRectangle()
                 .fill(RetroUITheme.panel.opacity(0.55))
+                .overlay(Scanlines().clipShape(ChamferedRectangle()))
         )
         .overlay(
             ChamferedRectangle()
                 .stroke(accent.opacity(0.35), lineWidth: 1)
         )
+    }
+}
+
+/// Faint horizontal lines, the way a CRT has them.
+///
+/// The map already runs through `RetroShader`, which scanlines the whole
+/// scene; the chrome around it did not, so the panels read as flat modern
+/// surfaces bolted onto a city that visibly lives on a cathode-ray tube.
+/// Deliberately very low contrast — at any strength you actually notice, it
+/// stops being texture and starts being stripes.
+struct Scanlines: View {
+    var spacing: CGFloat = 3
+    var opacity: Double = 0.16
+
+    var body: some View {
+        Canvas { context, size in
+            var y: CGFloat = 0
+            while y < size.height {
+                context.fill(
+                    Path(CGRect(x: 0, y: y, width: size.width, height: 1)),
+                    with: .color(.black.opacity(opacity))
+                )
+                y += spacing
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -202,6 +229,15 @@ struct RetroStatTile: View {
     var history: [Int] = []
     var accent: Color = RetroUITheme.primaryAccent
 
+    /// Wide enough for the label and the number it carries.
+    ///
+    /// Without a floor these compress before anything else in the dashboard
+    /// does, and because the label and value must not wrap (see below) they
+    /// truncate instead — "POPULA…", "$1,48…". A readout that hides its own
+    /// number is worse than no readout, so the tile keeps its width and the
+    /// row gives up its slack elsewhere.
+    var minimumWidth: CGFloat = 104
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             RetroSectionLabel(text: label)
@@ -225,8 +261,9 @@ struct RetroStatTile: View {
             }
             if !history.isEmpty {
                 Sparkline(values: history, color: accent)
-                    .frame(width: 70, height: 14)
+                    .frame(height: 14)
             }
         }
+        .frame(minWidth: minimumWidth, alignment: .leading)
     }
 }

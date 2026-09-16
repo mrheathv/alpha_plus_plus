@@ -1209,6 +1209,40 @@ Two things the render caught that the app would have hidden:
   so the one control whose *state* is the whole point was the one control
   nobody could see. Ordinances are chips now, the same ones the toolbar uses.
 
+### Phase 5: polish, and the two components that predated the language
+
+The cockpit is done. What this pass added is mostly texture — scanlines on
+panels, hover on buttons, a warm bleed at the seam — but two of the changes are
+about consistency rather than decoration, and those are the ones that were
+actually wrong:
+
+- **`DemandBar` was the last progress bar.** Rounded segments on a grey track,
+  where everything else in the cockpit is square segments on an accent-tinted
+  track with a glow on the lit ones. It was the only thing left that looked
+  like a loading indicator rather than an instrument.
+- **`Sparkline` was the one graph that did not glow.** A single hairline, in a
+  cockpit where every other lit thing draws a crisp stroke over a blurred copy
+  of itself. It has a bloom pass now, the same two-pass trick the buildings use.
+
+The rest:
+
+- **Panels are scanlined.** The map runs through `RetroShader`, which scanlines
+  the whole scene; the chrome did not, so the panels read as flat modern
+  surfaces bolted onto a city that visibly lives on a cathode-ray tube. Kept
+  very low contrast — at any strength you actually notice, it stops being
+  texture and starts being stripes.
+- **Buttons answer the cursor.** A `ButtonStyle` cannot hold `@State`, so the
+  hover lives in a small view of its own; a neon sign that does not respond
+  reads as a picture of a control.
+- **A sun bleeds up out of the dashboard.** The map parks a sun in world space
+  below its own bottom edge, and the dashboard sits exactly there on screen, so
+  a warm glow along its top edge reads as that sun continuing behind the chrome
+  rather than the city ending at a hard line.
+- **Stat tiles have a minimum width.** Adding the Demand panel squeezed them,
+  and because their label and value must not wrap they truncated instead —
+  "POPULA…", "$1,48…". A readout that hides its own number is worse than no
+  readout.
+
 ### The UI gets a render, like the art does
 
 `RetroUIContactSheetTests` renders the components to a PNG through

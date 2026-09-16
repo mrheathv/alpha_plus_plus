@@ -189,6 +189,7 @@ struct GameView: View {
         }
         .padding(RetroMetrics.gutter)
         .background(RetroUITheme.background)
+        .overlay(alignment: .top) { sunBleed }
         .overlay(alignment: .top) { neonSeam }
     }
 
@@ -200,6 +201,22 @@ struct GameView: View {
             startPoint: .leading, endPoint: .trailing
         )
         .frame(height: 1.5)
+    }
+
+    /// Warm light bleeding up out of the dashboard.
+    ///
+    /// The map keeps a sun parked in world space below its own bottom edge —
+    /// the retrowave "sun behind the skyline" the whole palette is built on.
+    /// The dashboard sits exactly there on screen, so a warm glow along its top
+    /// edge reads as that same sun continuing behind the chrome, rather than
+    /// the city ending at a hard line and a control panel starting.
+    private var sunBleed: some View {
+        LinearGradient(
+            colors: [Color(nsColor: RenderPalette.sunGlow).opacity(0.16), .clear],
+            startPoint: .top, endPoint: .bottom
+        )
+        .frame(height: 46)
+        .allowsHitTesting(false)
     }
 
     /// What the city is shouting about.

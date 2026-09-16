@@ -37,6 +37,13 @@ struct Sparkline: View {
 
             var path = Path()
             path.addLines(points)
+            // Two passes: a wide faint one that reads as bloom, then the crisp
+            // line over it. The same "a stroke over a blurred copy of itself"
+            // that makes every building on the map read as neon rather than as
+            // a coloured outline — a single hairline was the one graph in the
+            // cockpit that did not glow.
+            context.stroke(path, with: .color(color.opacity(0.35)),
+                           style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
             context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
         }
     }
