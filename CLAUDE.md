@@ -707,15 +707,28 @@ zones are moving to parametric generators instead: a building is *composed*
 from parts against a seed, and the number of distinct results is the product of
 those choices rather than the number of functions anyone typed.
 
-`IndustrialBuilding` is the first, and industry went first for a reason the
+`IndustrialBuilding` was the first, and industry went first for a reason the
 contact sheet made obvious: all three growable zones drew the same silhouette,
 a tall rectangle with a window grid, and differed only in hue. With the colour
 stripped you could not tell a factory from a tower block. Industry now draws
 wide and low, with sawtooth or monitor rooflines, one to three chimneys,
 storage tanks and loading bays — a vocabulary nothing else in the game uses.
-Residential and commercial follow, each with their own.
+`ResidentialBuilding` answers it with stepped massing, punched window grids,
+balcony bands and rooftop tanks; `CommercialBuilding` with continuous glazing
+bands, glazed podiums, projecting signage and lit crowns. Those three
+vocabularies are chosen to stay apart in greyscale, not just in hue.
 
-Two rules this establishes:
+Three rules this establishes:
+
+- **Varying numbers is not variety; varying the building is.** The first
+  residential and commercial passes varied only dimensions, and the contact
+  sheet showed the cost at once: every tier-1 commercial lot was the same
+  drawing at slightly different widths, because at tier 1 each random branch
+  was either disabled by a `tier >= 2` guard or forced to one value. Both
+  generators now pick a *form* first — a strip of shops, a corner unit, a shop
+  with a flat over it; a row of separate houses or one stacked block — and only
+  then size it. Low density is where most of a city's map area sits, so it is
+  the tier that can least afford to be one drawing.
 
 - **A lot's look is stable, its neighbour's is different.** `BuildingRandom`
   seeds from the lot's own position, so a building draws identically on every
@@ -732,6 +745,26 @@ asserts they produce at least seven structurally distinct buildings. A
 generator that technically produces thousands of identical-looking buildings is
 no better than the two hand-drawn ones it replaced, and that is the failure the
 count is there to catch.
+
+One caveat when reading the sheet: ten seeds is a small sample, and a fair
+coin-flip branch really can come up two-out-of-ten on it. Before "re-balancing"
+a probability because the sheet looks lopsided, count the branch over a whole
+map's worth of positions — the residential house-row branch reads 2/10 on the
+sheet's seeds and 2020/4096 across a 64×64 map. Tuning the generator to flatter
+ten particular seeds is fitting the art to the yardstick.
+
+Two composition traps this pass hit, both worth remembering because neither
+failed a test:
+
+- **Stack details from measured geometry, not guessed offsets.** A clerestory
+  window band placed at `body.maxY - 20` landed *inside* the shopfront glazing,
+  because the glazing's height is itself random. Having `shopfront` return
+  where its glass actually ends fixed it — and revealed that a 36-point block
+  has no room for both a sign band and a window band anyway, so the strip form
+  now carries one or the other, which gave it two looks instead of one.
+- **Clamp anything placed relative to a random width.** An unclamped rooftop
+  plant box could be offset past its own parapet, where it read as a rectangle
+  floating beside the building rather than as rooftop machinery.
 
 ## Looking at the art without playing to it
 

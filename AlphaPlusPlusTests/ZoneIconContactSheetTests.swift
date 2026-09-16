@@ -58,7 +58,7 @@ final class ZoneIconContactSheetTests: XCTestCase {
     private static let generatedVariantCount = 10
 
     /// Zones drawn by a parametric generator rather than fixed functions.
-    private static let generatedZones: Set<ZoneType> = [.industrial]
+    private static let generatedZones: Set<ZoneType> = [.residential, .commercial, .industrial]
 
     /// Lot positions to draw a generated zone at. Spread apart rather than
     /// consecutive, so neighbouring seeds cannot flatter the result by
