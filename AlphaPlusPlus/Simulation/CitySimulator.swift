@@ -82,6 +82,7 @@ enum CitySimulator {
                     continue
                 }
 
+                let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
                 let demand = map.cityDemand.value(for: tile.zone)
 
                 // Deep oversupply doesn't just stall growth, it reverses it.
@@ -89,14 +90,20 @@ enum CitySimulator {
                 // building being abandoned this tick is not also a candidate
                 // to grow this tick — the same "grow-or-hold, never both"
                 // exclusivity the access branch below already keeps.
-                if demand <= Self.abandonmentDemand, tile.density > 0 {
+                // Desirability shifts *which* lots give way, not whether the
+                // city wants more. Deliberately scoped to abandonment and not
+                // to the growth chance below, which keeps reading the city's
+                // own number: a prime lot should resist oversupply, but it
+                // should not grow in a city that needs nothing more — demand
+                // −1 has to keep meaning "nothing grows anywhere".
+                let feltDemand = Self.localDemand(cityDemand: demand, landValue: bestLandValue)
+                if feltDemand <= Self.abandonmentDemand, tile.density > 0 {
                     if Double.random(in: 0 ..< 1, using: &rng) < Self.abandonmentChancePerTick {
                         for cell in footprint { next[cell].density = tile.density - 1 }
                     }
                     continue
                 }
 
-                let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
                 let hasWater = footprint.contains { Water.hasSupply(at: $0, in: map) }
                 let hasPower = footprint.contains { PowerGrid.hasSupply(at: $0, in: map) }
 
@@ -168,6 +175,41 @@ enum CitySimulator {
     /// to be. Level 2–4's thresholds are still a first guess, not a tuned
     /// balance — easy to revisit once growth-with-a-ceiling has been played
     /// with more.
+    /// The demand a *particular lot* feels, which is not the same as the
+    /// demand the city reports.
+    ///
+    /// **Why oversupply had to stop being city-wide.** Abandonment read
+    /// `map.cityDemand.value(for:)` — one number for the whole city — so
+    /// over-zoning housing emptied every residential lot equally, the
+    /// waterfront tower and the lot wedged between two factories alike. There
+    /// was no such thing as a bad neighbourhood: the city was uniformly in
+    /// demand or uniformly not.
+    ///
+    /// Shifting that number by the lot's own desirability makes oversupply
+    /// bite where it should. When a city has too much housing, the marginal
+    /// lots empty first and the desirable ones hold — which is what makes
+    /// *where* you built something matter long after you built it, and what
+    /// turns "the city is declining" into "that district is declining".
+    ///
+    /// It also connects a finding to a consequence. Residential demand drifts
+    /// steadily toward `abandonmentDemand` over a long run and never arrives —
+    /// measured at −0.55 against a −0.75 threshold. With a local offset the
+    /// city's worst lots cross it while its average does not, so that drift
+    /// finally does something.
+    static func localDemand(cityDemand: Double, landValue: Double) -> Double {
+        cityDemand + (landValue - Self.localDemandReference) * Self.localDemandSensitivity
+    }
+
+    /// The land value at which a lot feels exactly the city's own demand.
+    /// Above it a lot is insulated from oversupply, below it exposed.
+    static let localDemandReference = 0.5
+
+    /// How far desirability can shift the demand a lot feels, per unit of land
+    /// value. At 0.6 a truly bad lot sits about 0.3 below the city average and
+    /// a prime one about 0.3 above — enough for the worst to cross the
+    /// abandonment threshold while the city as a whole is merely oversupplied.
+    static let localDemandSensitivity = 0.6
+
     /// The highest density a lot's *surroundings* can currently sustain.
     ///
     /// **The missing half of a check that already existed.** Growth is gated by

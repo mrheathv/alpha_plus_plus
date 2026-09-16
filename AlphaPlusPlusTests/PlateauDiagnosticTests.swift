@@ -125,6 +125,55 @@ final class PlateauDiagnosticTests: XCTestCase {
         )
     }
 
+    /// **The phase-3 promise: oversupply empties the worst lots first.**
+    ///
+    /// Over-zone a city and let it settle, then compare what survived in the
+    /// least desirable quarter of its lots against the most desirable quarter.
+    /// City-wide demand alone thins a city evenly — every residential lot
+    /// feels the same number, so the waterfront tower and the lot wedged
+    /// between two factories empty at the same rate, and there is no such
+    /// thing as a bad neighbourhood.
+    func testOversupplyHitsTheWorstNeighbourhoodsHardest() {
+        var spec = PlaytestHarness.spec()
+        // Housing everywhere: the classic over-zoning mistake, and the one the
+        // design playtest already measures as a losing strategy.
+        // 4:1:1 rather than all-housing. A city with *no* jobs does not get
+        // oversupplied, it dies — demand pins at the floor and every lot
+        // empties regardless of desirability, which is a collapse rather than
+        // the uneven decline this is about.
+        spec.zoneMix = [.residential, .residential, .residential, .residential, .commercial, .industrial]
+        let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
+        for _ in 0 ..< 200 { controller.advanceSimulation() }
+
+        let map = controller.map
+        let distances = ZoneDistanceField.compute(for: map)
+        var lots: [(landValue: Double, density: Int)] = []
+        for y in 0 ..< map.height {
+            for x in 0 ..< map.width {
+                let position = GridPosition(x: x, y: y)
+                let tile = map[position]
+                guard tile.isBuildingAnchor, tile.zone.maxDensity > 0 else { continue }
+                lots.append((LandValue.value(at: position, in: map, using: distances), tile.density))
+            }
+        }
+        XCTAssertGreaterThan(lots.count, 20, "precondition: expected a real city")
+
+        let sorted = lots.sorted { $0.landValue < $1.landValue }
+        let quarter = max(1, sorted.count / 4)
+        func meanDensity(_ slice: ArraySlice<(landValue: Double, density: Int)>) -> Double {
+            slice.reduce(0.0) { $0 + Double($1.density) } / Double(slice.count)
+        }
+        let worst = meanDensity(sorted.prefix(quarter))
+        let best = meanDensity(sorted.suffix(quarter))
+
+        print(String(format: "\noversupplied city: worst quarter mean density %.2f, best quarter %.2f", worst, best))
+
+        XCTAssertGreaterThan(
+            best, worst + 0.5,
+            "an oversupplied city thinned evenly — the worst neighbourhoods should empty first"
+        )
+    }
+
     /// Prints the trajectory, and asserts the thing the rest of the plan has to
     /// break: an unattended city does not meaningfully decline.
     ///

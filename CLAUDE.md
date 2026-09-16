@@ -1329,6 +1329,39 @@ surroundings over time, which is exactly what demand cycles (phase 5) and
 maintenance decay (phase 6) are for. Worth remembering before assuming a later
 phase has failed because the headline number barely moved.
 
+### Phase 3 (done): oversupply empties the worst lots first
+
+Abandonment read `map.cityDemand.value(for:)` — one number for the whole city —
+so over-zoning housing emptied every residential lot equally, the waterfront
+tower and the lot wedged between two factories alike. There was no such thing
+as a bad neighbourhood: the city was uniformly in demand or uniformly not.
+
+`localDemand(cityDemand:landValue:)` shifts that number by the lot's own
+desirability, so marginal lots give way while desirable ones hold.
+
+**Scoped to abandonment, not to growth**, and the first attempt got this wrong.
+Applying the local offset to the shared `demand` variable also moved the growth
+*probability*, which let a prime lot grow in a city at demand −1 — and demand
+−1 has to keep meaning "nothing grows anywhere". Two existing tests caught it
+immediately. Desirability decides *which* lots give way under oversupply; it
+does not decide whether the city wants more.
+
+It also connects a finding to a consequence. Phase 1 measured residential demand
+drifting to −0.55 against a −0.75 threshold and never arriving; with a local
+offset the worst lots cross it while the city average does not, so that drift
+finally does something.
+
+**Measured**, on a deliberately over-zoned city (4 residential : 1 commercial :
+1 industrial) after 200 ticks: **mean density 0.88 in the least desirable
+quarter of lots against 3.88 in the most desirable**. The bad neighbourhoods
+emptied; the good ones held near maximum.
+
+One thing worth recording about the fixture. The obvious test was an
+all-residential city, and it measured nothing: a city with *no* jobs does not
+get oversupplied, it dies — demand pins at the floor and every lot empties
+regardless of desirability. That is a collapse, not the uneven decline this
+phase is about, and the two are easy to confuse from a population number alone.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear

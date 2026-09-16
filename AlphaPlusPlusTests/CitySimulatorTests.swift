@@ -167,6 +167,41 @@ final class CitySimulatorTests: XCTestCase {
                        "density 4 needs power, which this lot has none of — it should shed a level")
     }
 
+    // MARK: - Oversupply empties the worst lots first
+
+    /// A desirable lot feels more demand than the city reports, and a bad one
+    /// feels less.
+    func testLocalDemandShiftsWithDesirability() {
+        let city = -0.5
+        XCTAssertEqual(CitySimulator.localDemand(cityDemand: city, landValue: 0.5), city, accuracy: 0.0001,
+                       "a lot at the reference desirability should feel exactly the city's demand")
+        XCTAssertGreaterThan(CitySimulator.localDemand(cityDemand: city, landValue: 0.9), city,
+                             "a prime lot should be insulated from oversupply")
+        XCTAssertLessThan(CitySimulator.localDemand(cityDemand: city, landValue: 0.1), city,
+                          "a marginal lot should be exposed to it")
+    }
+
+    /// **The point of making demand local.** In an oversupplied city the worst
+    /// lots cross the abandonment threshold while the best do not — so a
+    /// district empties rather than the whole city thinning evenly.
+    ///
+    /// The numbers are the ones the diagnostic measured: residential demand
+    /// drifts to about −0.55 over a long run against a −0.75 threshold, which
+    /// city-wide is never reached at all.
+    func testOversupplyEmptiesTheWorstLotsFirst() {
+        let drifted = -0.55
+        XCTAssertGreaterThan(
+            CitySimulator.localDemand(cityDemand: drifted, landValue: 0.8),
+            CitySimulator.abandonmentDemand,
+            "a desirable lot should hold through ordinary oversupply"
+        )
+        XCTAssertLessThanOrEqual(
+            CitySimulator.localDemand(cityDemand: drifted, landValue: 0.1),
+            CitySimulator.abandonmentDemand,
+            "a marginal lot should give way — otherwise city-wide demand drifts forever with no consequence"
+        )
+    }
+
     // MARK: - What a lot's surroundings can sustain
 
     /// The land-value table, read downward.
