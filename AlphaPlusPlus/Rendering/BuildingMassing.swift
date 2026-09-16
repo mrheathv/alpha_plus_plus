@@ -193,7 +193,14 @@ struct Cylinder {
     var z: CGFloat
     var radius: CGFloat
     var height: CGFloat
-    var sides: Int = 16
+
+    /// Ten, not sixteen. A chimney is about six points across on screen at
+    /// default zoom, where the difference between ten sides and sixteen is
+    /// invisible and the difference in cost is not: every side is a face, and
+    /// every visible face is a node that has to be drawn. This is
+    /// `ZoneIcon.minimumDetailSize`'s rule applied to geometry rather than to
+    /// marks — detail below the size it can be seen at is not detail.
+    var sides: Int = 10
 
     var centre: Point3 { Point3(x: x, y: y, z: z + height / 2) }
 

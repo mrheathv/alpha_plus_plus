@@ -81,16 +81,26 @@ struct Isometric {
     /// tile's own squash makes every building squat, because a storey is not
     /// as tall as a lot is wide. This is the single knob that decides whether
     /// the city reads as a model village or a skyline.
-    var heightUnit: CGFloat = 30
+    var heightUnit: CGFloat = 32
 
     var tileHeight: CGFloat { tileWidth / 2 }
 
     /// Direction from the scene toward the camera.
     ///
     /// Plan angle is 45° by construction — that is what isometric *is* — and
-    /// the elevation is about 35°, which is what a 2:1 tile implies. Used to
-    /// decide which faces of a volume are visible at all.
-    static let toCamera = Point3(x: -0.58, y: -0.58, z: 0.57).normalized
+    /// the elevation is about 35°, which is what a 2:1 tile implies.
+    ///
+    /// **Positive in x and y, which is easy to get backwards.** `project` sends
+    /// increasing `x` *and* increasing `y` down the screen, and down the screen
+    /// is nearer the viewer, so the camera sits at large x, large y, large z.
+    /// This was first written negative, which culled exactly the three faces
+    /// that point at the camera and drew the three that point away. Nothing
+    /// crashed and the face *count* was still three, so
+    /// `testBoxShowsThreeFaces` passed — the symptom was that lit panels on the
+    /// near walls appeared to float in mid-air, because the walls they sat on
+    /// were the ones being discarded. `testBoxShowsItsNearWallsAndTop` now
+    /// asserts *which* faces, not how many.
+    static let toCamera = Point3(x: 0.58, y: 0.58, z: 0.57).normalized
 
     /// Direction the key light comes *from*. Deliberately not the camera
     /// direction: lighting a face by how much it faces the viewer flattens
@@ -98,7 +108,7 @@ struct Isometric {
     /// you. Offsetting the light gives the two visible side faces genuinely
     /// different values, which is what makes a box read as solid rather than
     /// as three panels that happen to meet.
-    static let keyLight = Point3(x: -0.35, y: -0.8, z: 0.49).normalized
+    static let keyLight = Point3(x: 0.62, y: 0.12, z: 0.78).normalized
 
     // MARK: - Projection
 
@@ -160,7 +170,7 @@ struct Isometric {
 
     /// 0 (facing fully away from the key light) to 1 (facing straight into it).
     static func shade(_ face: Face3) -> CGFloat {
-        max(0, min(1, (face.normal.dot(keyLight) + 0.25) / 1.25))
+        max(0, min(1, (face.normal.dot(keyLight) + 0.35) / 1.35))
     }
 
     // MARK: - Ordering

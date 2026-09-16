@@ -15,8 +15,12 @@ enum IsometricBuilding {
     /// flat hexagon; too wide and the fills start competing with the neon
     /// edges, which is the same mistake the flat tile palette made one level
     /// up. Faces stay dark and the *creases* stay bright.
-    private static let minimumTint: CGFloat = 0.03
-    private static let maximumTint: CGFloat = 0.30
+    /// Projected area, in square points, below which a face is not worth
+    /// giving its own blurred copy in the glow pass.
+    private static let glowAreaFloor: CGFloat = 40
+
+    private static let minimumTint: CGFloat = 0.07
+    private static let maximumTint: CGFloat = 0.34
 
     static func node(
         for massing: BuildingMassing,
@@ -85,10 +89,17 @@ enum IsometricBuilding {
                     shape.lineWidth = 2
                     content.append(shape)
 
-                    let glowCopy = SKShapeNode(path: shape.path!)
-                    glowCopy.fillColor = color
-                    glowCopy.strokeColor = color
-                    glowShapes.append(glowCopy)
+                    // Only faces big enough to matter contribute to the halo.
+                    // A cylinder is a ten-sided prism, so a chimney alone would
+                    // otherwise add six blurred slivers a couple of points wide
+                    // — invisible after a 7-point blur, and each one a node.
+                    let bounds = shape.path!.boundingBox
+                    if bounds.width * bounds.height > glowAreaFloor {
+                        let glowCopy = SKShapeNode(path: shape.path!)
+                        glowCopy.fillColor = color
+                        glowCopy.strokeColor = color
+                        glowShapes.append(glowCopy)
+                    }
                 }
 
             case .panel(let panel):

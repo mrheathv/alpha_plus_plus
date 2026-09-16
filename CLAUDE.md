@@ -840,6 +840,60 @@ street. The far slope's normal is proportional to `(0, rise, run)`, so it faces
 the camera only while `run > 1.018 × rise`. The test asserting this was first
 written the other way round and the code was right.
 
+### Phase 2 (done): industry, and three things it taught
+
+`IndustrialMassing` ports the whole vocabulary — wide low hall, sawtooth or
+monitor or flat roofline, chimneys, tanks beside the hall, lit bays, loading
+dock, hazard badge. `ZoneMassing` dispatches to it and returns `nil` for every
+zone not yet ported, which is what lets `IsometricContactSheetTests` render
+exactly what exists. The running game is untouched and still on elevations.
+
+**`Isometric.toCamera` was inverted, and a passing test hid it.** `project`
+sends increasing `x` *and* increasing `y` down the screen, and down the screen
+is nearer the viewer, so the camera sits at positive x, y and z. Written
+negative, it culled exactly the three faces pointing at the camera and drew the
+three pointing away. Nothing crashed; the face *count* was still three, so
+`testBoxShowsThreeFaces` passed. The visible symptom was lit panels apparently
+floating in mid-air — they were correctly placed on the near walls, and those
+walls were the ones being discarded. The test now asserts *which* faces are
+visible rather than how many, which is the general lesson: a count is not an
+identity.
+
+**Height had to be calibrated against the lot, not guessed.** A tile reads as
+roughly eight metres, so a 2×2 lot is a sixteen-metre frontage and one tall
+factory storey is about one tile unit. The first pass used 0.4, which is a
+two-metre shed: the halls came out as plates with walls too short to hold a
+window. Height is the one dimension isometric adds, and under-using it throws
+away the reason for the projection.
+
+**A flat roof is the quiet option, not a blank one.** In elevation a flat roof
+was a single line at the top of a silhouette. Isometric shows the whole roof
+plane, so an empty one is the biggest surface on the building saying nothing;
+flat-roofed halls get rooftop plant instead.
+
+### Rendering cost, measured at phase 2 rather than phase 11
+
+A building costs **~55 nodes in isometric against ~26 in elevation**, and the
+first measurement was 104 — caught by a test written deliberately early, when
+one zone was ported rather than six.
+
+What brought it down was `ZoneIcon.minimumDetailSize`'s rule applied to
+geometry: a cylinder had sixteen sides for a chimney six points wide (now ten),
+and chimney caps and tank bands were whole extra volumes for a stripe under two
+points tall (now gone — in isometric a tank already reads as a drum because its
+top is a real ellipse catching light). Faces too small to survive a 7-point blur
+no longer get a glow copy either.
+
+**The real answer is deferred on purpose.** 55 nodes × 560 lots is far more
+`SKShapeNode` than a 64×64 map should be drawing, and the fix is not to keep
+shaving geometry: it is to rasterise each distinct building once and draw it as
+one `SKSpriteNode`, cached by zone, tier and variant. Buildings are static for
+their whole lifetime, so this is free. It needs a live `SKView` to render into,
+which is why it belongs to the scene phase — and it is what `TileRenderer`'s own
+doc comment has predicted all along ("the body of `makeNode` becomes
+`SKSpriteNode(texture:)`"). Until then the node count is a number to watch, not
+a number to panic about.
+
 ### What the spike already established
 
 - Volumes read, the three zones still separate, and lit panels projected onto

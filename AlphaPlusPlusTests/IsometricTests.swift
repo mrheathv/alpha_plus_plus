@@ -63,11 +63,42 @@ final class IsometricTests: XCTestCase {
         }
     }
 
-    /// A box shows exactly three faces: its top and the two walls facing the
-    /// camera. Fewer means something is being culled that should not be.
-    func testBoxShowsThreeFaces() {
+    /// A box shows its top and the two walls at maximum x and y — *which*
+    /// faces, not how many.
+    ///
+    /// Counting was not enough. `Isometric.toCamera` was first written pointing
+    /// the wrong way, which culls exactly the three faces that point at the
+    /// camera and draws the three that point away. The count is three either
+    /// way, so a count assertion passed happily while every building was drawn
+    /// inside out — the visible symptom being lit panels floating beside walls
+    /// that were never drawn.
+    func testBoxShowsItsNearWallsAndTop() {
         let box = Box(x: 0, y: 0, z: 0, width: 2, depth: 2, height: 1)
-        XCTAssertEqual(box.faces.filter(Isometric.isVisible).count, 3)
+        let visible = box.faces.filter(Isometric.isVisible)
+        XCTAssertEqual(visible.count, 3)
+
+        let normals = visible.map(\.normal)
+        XCTAssertTrue(normals.contains { $0.z > 0.9 }, "the top face should be visible")
+        XCTAssertTrue(normals.contains { $0.x > 0.9 }, "the +x wall faces the camera and should be visible")
+        XCTAssertTrue(normals.contains { $0.y > 0.9 }, "the +y wall faces the camera and should be visible")
+        XCTAssertFalse(normals.contains { $0.z < -0.9 }, "the underside must never be drawn")
+    }
+
+    /// The two visible walls must not come out the same value, or a box reads
+    /// as a flat hexagon rather than a solid. This is what the key light is
+    /// for, and it is why the light is not simply the camera direction: lighting
+    /// a face by how much it faces the viewer gives every visible face the same
+    /// answer.
+    func testTheTwoVisibleWallsAreLitDifferently() {
+        let box = Box(x: 0, y: 0, z: 0, width: 2, depth: 2, height: 1)
+        let visible = box.faces.filter(Isometric.isVisible)
+        let top = visible.first { $0.normal.z > 0.9 }!
+        let xWall = visible.first { $0.normal.x > 0.9 }!
+        let yWall = visible.first { $0.normal.y > 0.9 }!
+
+        XCTAssertGreaterThan(Isometric.shade(top), Isometric.shade(xWall), "the roof should catch the most light")
+        XCTAssertGreaterThan(Isometric.shade(xWall), Isometric.shade(yWall), "the two walls should differ")
+        XCTAssertGreaterThan(Isometric.shade(yWall), 0.05, "no visible wall may be pure black — a lit panel needs a surface to sit on")
     }
 
     /// **The case a hardcoded face list cannot express.** Whether the far slope
@@ -152,6 +183,56 @@ final class IsometricTests: XCTestCase {
 
         let nearer = Box(x: 3, y: 3, z: 0, width: 1, depth: 1, height: 1)
         XCTAssertLessThan(panel.depth.0, Volume.box(nearer).depth.0)
+    }
+
+    /// Every corner of a panel must lie exactly on the wall it claims to be
+    /// on. A panel that drifts off its face does not fail anything — it just
+    /// renders as a lit rectangle floating in the air beside the building,
+    /// which is easy to mistake for a lighting effect when glancing at a
+    /// contact sheet.
+    func testPanelCornersLieOnTheirBoxFace() {
+        let box = Box(x: 0.3, y: 0.7, z: 0, width: 1.4, depth: 1.1, height: 0.9)
+        for face in [Panel.Face.right, .left] {
+            let panel = Panel(box: box, face: face, u0: 0.2, u1: 0.8, v0: 0.1, v1: 0.9, color: .white)
+            for corner in panel.corners {
+                switch face {
+                case .right:
+                    XCTAssertEqual(corner.x, box.x + box.width, accuracy: 0.0001, "right panel left its wall")
+                    XCTAssertGreaterThanOrEqual(corner.y, box.y)
+                    XCTAssertLessThanOrEqual(corner.y, box.y + box.depth)
+                case .left:
+                    XCTAssertEqual(corner.y, box.y + box.depth, accuracy: 0.0001, "left panel left its wall")
+                    XCTAssertGreaterThanOrEqual(corner.x, box.x)
+                    XCTAssertLessThanOrEqual(corner.x, box.x + box.width)
+                }
+                XCTAssertGreaterThanOrEqual(corner.z, box.z - 0.0001)
+                XCTAssertLessThanOrEqual(corner.z, box.z + box.height + 0.0001)
+            }
+        }
+    }
+
+    /// The same, for every panel a real generator emits — which is where a
+    /// panel attached to the wrong volume would actually show up.
+    func testGeneratedPanelsSitOnAVolumeTheyBelongTo() {
+        for tier in [1, 2, 3] {
+            for index in 0 ..< 8 {
+                let seed = GridPosition(x: index * 7, y: index * 3)
+                let massing = IndustrialMassing.make(tier: tier, seed: seed)
+                for panel in massing.panels {
+                    let matches = massing.solids.contains { solid in
+                        guard case .box(let box) = solid.volume else { return false }
+                        return abs(box.x - panel.box.x) < 0.0001
+                            && abs(box.y - panel.box.y) < 0.0001
+                            && abs(box.z - panel.box.z) < 0.0001
+                            && abs(box.height - panel.box.height) < 0.0001
+                    }
+                    XCTAssertTrue(
+                        matches,
+                        "tier \(tier) seed \(index): a panel is attached to a box that is not in the massing"
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Rendering
