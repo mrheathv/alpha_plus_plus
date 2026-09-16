@@ -13,32 +13,34 @@ struct RetroButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(isSelected ? Color.black : accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, RetroMetrics.chipPaddingH)
+            .padding(.vertical, RetroMetrics.chipPaddingV)
             .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isSelected ? accent : Color.black.opacity(0.4))
+                // Chamfered, not rounded. A cut corner is the 80s tech-panel
+                // corner, and it is the single cheapest thing that stops this
+                // chrome reading as a dark-mode macOS button.
+                ChamferedRectangle()
+                    .fill(isSelected ? accent : Color.black.opacity(0.45))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
+                ChamferedRectangle()
                     .stroke(accent, lineWidth: 1.4)
             )
-            .shadow(color: accent.opacity(isSelected ? 0.85 : 0.3), radius: isSelected ? 5 : 2)
+            // Two shadows: a tight one that reads as the tube's own edge, and
+            // a wide faint one that reads as light spilling onto the panel
+            // behind it. One shadow can be either a glow or a bloom; neon is
+            // both at once, which is why the buildings on the map draw a
+            // crisp stroke over a blurred copy of themselves.
+            .shadow(color: accent.opacity(isSelected ? 0.9 : 0.35), radius: isSelected ? 4 : 2)
+            .shadow(color: accent.opacity(isSelected ? 0.5 : 0.12), radius: isSelected ? 12 : 7)
             .opacity(configuration.isPressed ? 0.75 : 1.0)
-            // The native `.pickerStyle(.segmented)`/`Stepper` this and
-            // `RetroSegmentedPicker` replace both got an explicit `.frame`
-            // width from their call site, which kept them a fixed size
-            // regardless of how crowded the row around them got. A plain
-            // `Button` has no such floor — once `zoningRow` (13 zone
-            // buttons plus Play/Speed/Advance) needs more width than the
-            // window has, a squeezed HStack shrinks the *last* things it
-            // lays out first, and without this a control here could
-            // compress toward zero width with its label silently clipped
-            // to nothing rather than just wrapping or staying readable.
-            // `.fixedSize()` refuses that: the button keeps its natural
-            // size and the row overflows the window's edge instead,
-            // which at least stays visibly readable rather than quietly
-            // disappearing.
+            // The native controls this replaced got an explicit `.frame` width
+            // from their call site, which kept them a fixed size however
+            // crowded the row got. A plain `Button` has no such floor: a
+            // squeezed `HStack` shrinks the last things it lays out first, and
+            // without this a control could compress toward zero width with its
+            // label silently clipped to nothing. `.fixedSize()` refuses that —
+            // the row overflows visibly instead of quietly disappearing.
             .fixedSize()
     }
 }

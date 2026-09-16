@@ -1098,6 +1098,47 @@ compare against it would only measure itself. It guards the absolute number
 now, which is what the texture cache has to rasterise and what would come
 straight back as draw calls if that cache were ever bypassed.
 
+## The cockpit (in progress)
+
+The chrome is being rebuilt as a dashboard rather than two rows of buttons.
+`GameView` had grown to four hundred lines of hand-rolled `HStack`s, so adding
+anything meant editing one of them — which is how the toolbar overflowed twice
+and how ordinances and bonds ended up with no home in the UI at all.
+
+Phase 1 is the parts: `RetroUI` holds the tokens and the components
+(`RetroPanel`, `RetroToolChip`, `RetroMeter`, `RetroBadge`, `RetroStatTile`,
+`ChamferedRectangle`), so a new control becomes a line of data rather than a
+line of layout.
+
+Three decisions worth recording:
+
+- **A fraction is a number; a meter is a status.** Utility load read
+  `Water: 0/0`, and capacity is the one mechanic where "how close am I to the
+  ceiling" *is* the question — it is what makes growth create new demands
+  rather than being finished the moment it is first connected. A bar that fills
+  and turns red answers that at a glance.
+- **Locked tools show the gate, not a disabled button.** `Unlocks` already
+  knows the population each tool needs; expressing that as `.disabled` plus 35%
+  opacity reads as "broken" rather than "not yet". A locked chip carries a
+  padlock and the shortfall, which turns a dead button into the thing it was
+  meant to be — something to aim at.
+- **Corners are cut, not rounded.** A 45° chamfer is the cheapest single thing
+  that stops this chrome reading as a dark-mode macOS button.
+
+### The UI gets a render, like the art does
+
+`RetroUIContactSheetTests` renders the components to a PNG through
+`ImageRenderer`, with no window involved.
+
+Every art decision in this project is reviewed on a render rather than argued
+about, and it has caught something every time. The chrome had no such render —
+it was only ever checked by running the app, which on this machine means a
+remote desktop session that does not reliably hand back a screenshot. It found
+its first bug immediately: the treasury tile read
+`$1,482,910 +$1,798/tick` as one string, and since these numbers grow without
+bound and the line must not wrap, it truncated to `$1,482,910 +$…` — silently
+dropping the rate, which is the half a player actually steers by.
+
 ### Smooth like butter: everything repeated is a texture
 
 The measured result: a built-out 40×40 city is **2,177 nodes and zero

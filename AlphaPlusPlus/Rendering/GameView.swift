@@ -205,21 +205,16 @@ struct GameView: View {
     /// has not earned it yet.
     private func toolButton(for zone: ZoneType) -> some View {
         let unlocked = controller.isUnlocked(zone)
-        return Button(toolLabel(for: zone)) {
+        return RetroToolChip(
+            title: RenderPalette.displayName(for: zone),
+            cost: zone.placementCost > 0 ? zone.placementCost : nil,
+            accent: RetroUITheme.accent(for: zone),
+            isSelected: controller.selectedTool == zone,
+            lockedBy: unlocked ? nil : "\(controller.residentsNeeded(for: zone)) more residents",
             // `selectTool` rather than assigning directly: picking a zone also
             // leaves a network overlay, so the two are mutually exclusive.
-            controller.selectTool(zone)
-        }
-        .buttonStyle(RetroButtonStyle(
-            accent: RetroUITheme.accent(for: zone),
-            isSelected: controller.selectedTool == zone
-        ))
-        .disabled(!unlocked)
-        .opacity(unlocked ? 1 : 0.35)
-        .help(unlocked
-              ? toolLabel(for: zone)
-              : "\(toolLabel(for: zone)) — needs \(Unlocks.requiredPopulation(for: zone)) residents "
-                + "(\(controller.residentsNeeded(for: zone)) to go)")
+            action: { controller.selectTool(zone) }
+        )
     }
 
     /// One row: Play/Pause, the editing hint for whichever overlay is up, and
@@ -295,7 +290,7 @@ struct GameView: View {
         HStack(spacing: 14) {
             statTile(label: "Population", value: "\(controller.population)", history: controller.history.map(\.population), color: .green)
             statTile(label: "Jobs", value: "\(controller.jobs)", history: controller.history.map(\.jobs), color: .cyan)
-            statTile(label: "Treasury", value: "$\(controller.treasury) (\(netRevenueLabel)/tick)", history: controller.history.map(\.treasury), color: .yellow)
+            statTile(label: "Treasury", value: "$\(controller.treasury)", detail: "\(netRevenueLabel)/tick", history: controller.history.map(\.treasury), color: .yellow)
                 // A tooltip rather than another visible tile: `netRevenueLabel`
                 // is one number with five things behind it, and the one a
                 // player is least likely to guess at is `civicUpkeep` — it
@@ -352,17 +347,23 @@ struct GameView: View {
     /// stops every high-density building in the city from growing — the
     /// single least guessable stall in the game without a readout.
     private var utilityTile: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            utilityLine(label: "Water", load: controller.waterLoad)
-            utilityLine(label: "Power", load: controller.powerLoad)
+        VStack(alignment: .leading, spacing: 6) {
+            meter(label: "Water", load: controller.waterLoad, accent: RetroUITheme.accent(for: .waterTower))
+            meter(label: "Power", load: controller.powerLoad, accent: RetroUITheme.accent(for: .powerPlant))
         }
+        .frame(width: 104)
     }
 
-    private func utilityLine(label: String, load: UtilityLoad) -> some View {
-        Text("\(label): \(load.demand)/\(load.capacity)")
-            .font(.caption)
-            .lineLimit(1)
-            .foregroundStyle(load.isOverloaded ? Color.red : RetroUITheme.textSecondary)
+    private func meter(label: String, load: UtilityLoad, accent: Color) -> some View {
+        RetroMeter(
+            label: label,
+            // Zero capacity is "no utility built at all", which is not the same
+            // as "empty" — an empty bar there would claim headroom the city
+            // does not have.
+            fill: load.capacity > 0 ? Double(load.demand) / Double(load.capacity) : (load.demand > 0 ? 2 : 0),
+            detail: "\(load.demand)/\(load.capacity)",
+            accent: accent
+        )
     }
 
     /// The one place `CitySimulator`'s demand-gated growth (see
@@ -372,7 +373,7 @@ struct GameView: View {
     /// not a history worth trending.
     private var demandTile: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Demand").font(.callout).foregroundStyle(RetroUITheme.textPrimary)
+            RetroSectionLabel(text: "Demand")
             HStack(spacing: 8) {
                 DemandBar(label: "R", value: controller.cityDemand.residential)
                 DemandBar(label: "C", value: controller.cityDemand.commercial)
@@ -402,30 +403,11 @@ struct GameView: View {
         return net < 0 ? "-$\(-net)" : "+$\(net)"
     }
 
-    private func statTile(label: String, value: String, history: [Int], color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // `.lineLimit(1)` is the actual fix for a real bug a live
-            // playtest found: this text's length grows with `controller`'s
-            // own numbers (population, jobs, and especially treasury, which
-            // this project's balance-tuning pass confirmed can climb into
-            // 6-7+ digits over a long session) with nothing capping it.
-            // Without a line limit, once it grew long enough to not fit
-            // this HStack's available width, SwiftUI would wrap it to a
-            // second line instead of truncating — changing this row's own
-            // height, which changes the SpriteKit view's height below it,
-            // which fires `GameScene.didChangeSize`, which recenters the
-            // camera. Every tick these volatile numbers wobbled across
-            // that wrap threshold, the *whole map* would visibly jump —
-            // reading as "the city is shifting up and down," not as a
-            // rendering performance problem at all.
-            Text("\(label): \(value)").font(.callout).foregroundStyle(RetroUITheme.textPrimary).lineLimit(1)
-            Sparkline(values: history, color: color)
-                .frame(width: 70, height: 16)
-        }
+    private func statTile(label: String, value: String, detail: String? = nil,
+                          history: [Int], color: Color) -> some View {
+        RetroStatTile(label: label, value: value, detail: detail, history: history, accent: color)
     }
 
-    /// "Residential $100", but plain "Bulldoze" for `.empty` — it's free, so
-    /// a "$0" suffix would just be noise on every press of that button.
     private func toolLabel(for zone: ZoneType) -> String {
         let name = RenderPalette.displayName(for: zone)
         guard zone.placementCost > 0 else { return name }
