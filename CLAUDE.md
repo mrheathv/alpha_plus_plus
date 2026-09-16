@@ -777,8 +777,11 @@ contact sheet suddenly sits square in its cell.
 
 ## Looking at the art without playing to it
 
-Every `ZoneIcon` variant renders to a single PNG contact sheet via a test, so
-checking a building's look no longer means growing a city to that tier:
+There are two renders, and they answer different questions.
+
+**`ZoneIconContactSheetTests` — is this building any good?** Every `ZoneIcon`
+variant, one per cell, centred with air around it, so checking a building's
+look no longer means growing a city to that tier:
 
 ```sh
 xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
@@ -796,6 +799,32 @@ The same test file also asserts every catalogued icon actually draws (non-nil,
 non-zero frame) and that both variant seeds really select different buildings,
 so a silently-blank or accidentally-duplicated icon fails the build instead of
 waiting to be noticed in play.
+
+**`ZoneStreetscapeTests` — does this *city* look right?** A hand-authored block
+of city at the game's own proportions: roads, and 2×2 lots of every zone and
+tier sitting next to each other, so zone cycles along x and density rises
+toward the middle the way land value does.
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/ZoneStreetscapeTests
+
+open ./build/ContactSheet/streetscape.png
+```
+
+Every question about art in context is a question about neighbours — whether
+lots fill their footprint, whether adjacent buildings collide or leave gaps,
+whether three zones side by side still read as three zones once they are small
+and touching — and the contact sheet cannot answer any of them, because with
+one icon per cell there is no neighbour. That is not hypothetical: it is
+exactly why the `fitIconToTile` centring bug above survived so long. The file
+also carries the regression test for it, asserting every building stays inside
+its own footprint once scaled and placed.
+
+It is hand-authored rather than grown by `CitySimulator` on purpose: the point
+is to guarantee that every tier of every zone appears, and appears next to the
+others. A grown city shows whatever it happened to grow.
 
 The app ships an icon (`Assets.xcassets/AppIcon.appiconset`, wired up via
 `ASSETCATALOG_COMPILER_APPICON_NAME`). It predates the retirement of the
