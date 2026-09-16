@@ -173,7 +173,79 @@ struct Isometric {
         max(0, min(1, (face.normal.dot(keyLight) + 0.35) / 1.35))
     }
 
+    // MARK: - Map-level geometry
+
+    /// Screen point at the centre of a tile's ground diamond.
+    func point(for position: GridPosition) -> CGPoint {
+        project(CGFloat(position.x) + 0.5, CGFloat(position.y) + 0.5, 0)
+    }
+
+    /// Centre of the ground a footprint-`size` building stands on, anchored at
+    /// its minimum corner — the isometric counterpart of
+    /// `GridLayout.centerPoint(ofFootprintOrigin:size:)`.
+    func centerPoint(ofFootprintOrigin origin: GridPosition, size: Int) -> CGPoint {
+        project(CGFloat(origin.x) + CGFloat(size) / 2, CGFloat(origin.y) + CGFloat(size) / 2, 0)
+    }
+
+    /// Which tile a screen point falls in, or `nil` outside the map.
+    ///
+    /// **Deliberately picks against the ground plane, not against what is drawn
+    /// on top of it.** A click over a tall tower's upper floors is geometrically
+    /// over the *ground* several tiles behind it, and a renderer that picked the
+    /// topmost drawn thing would return the tower. Either answer can be argued
+    /// for; a city builder wants the ground, because every tool the player has
+    /// acts on a lot rather than on a building — placing, bulldozing and zoning
+    /// are all "this square of land", and picking the tower would make it
+    /// impossible to select the lot behind a skyscraper at all.
+    func position(for point: CGPoint, in map: CityMap) -> GridPosition? {
+        let ground = groundPosition(for: point)
+        let position = GridPosition(x: Int(ground.x.rounded(.down)), y: Int(ground.y.rounded(.down)))
+        return map.contains(position) ? position : nil
+    }
+
+    /// The ground's extent on screen — a diamond, so its bounding box is wider
+    /// and shorter than a square grid's would be.
+    ///
+    /// Used for camera limits. Deliberately the *ground* rather than everything
+    /// drawn: buildings rise above the top edge of this box, and clamping the
+    /// camera to include them would let the view drift off the map whenever a
+    /// tall tower stood near an edge.
+    func contentBounds(of map: CityMap) -> CGRect {
+        let width = CGFloat(map.width), height = CGFloat(map.height)
+        return CGRect(
+            x: -height * tileWidth / 2,
+            y: -(width + height) * tileHeight / 2,
+            width: (width + height) * tileWidth / 2,
+            height: (width + height) * tileHeight / 2
+        )
+    }
+
+    /// Middle of the map, in points — where the camera parks.
+    func centerPoint(of map: CityMap) -> CGPoint {
+        project(CGFloat(map.width) / 2, CGFloat(map.height) / 2, 0)
+    }
+
     // MARK: - Ordering
+
+    /// A tile's place in the back-to-front order, as an `SKNode.zPosition`.
+    ///
+    /// Top-down, every tile sprite can sit at zero because nothing overlaps.
+    /// Isometric needs a painter's algorithm, and `x + y` is what decides near
+    /// from far. Expressed as a `zPosition` rather than as a sort of the child
+    /// array so that `GameScene.rebuildRegion` can keep working the way it
+    /// does: it adds and removes nodes in a window without touching the rest,
+    /// and re-sorting an entire tile layer on every placement would undo the
+    /// 40x saving that region rebuild exists for.
+    /// A multi-tile building sorts by its **nearest** corner, not its anchor.
+    /// A 3×3 anchored at (1,1) reaches tile (3,3), so it must draw after
+    /// everything that tile would draw after — keyed on its anchor it would be
+    /// painted over by the very tiles it covers.
+    static func depth(of origin: GridPosition, footprint: Int = 1) -> CGFloat {
+        CGFloat(origin.x + origin.y + 2 * (footprint - 1))
+    }
+
+    /// Back-to-front order — the painter's algorithm an isometric scene needs
+    /// and a top-down one does not.
 
     /// Back-to-front order — the painter's algorithm an isometric scene needs
     /// and a top-down one does not.

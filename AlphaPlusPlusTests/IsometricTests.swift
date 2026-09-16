@@ -46,6 +46,87 @@ final class IsometricTests: XCTestCase {
         XCTAssertEqual(projection.tileWidth, projection.tileHeight * 2, accuracy: 0.0001)
     }
 
+    // MARK: - Map geometry and picking
+
+    /// Every tile's own centre must pick that tile. This is the whole of
+    /// click-to-place: if it is wrong, buildings land one square off and
+    /// nothing else in the game notices.
+    func testEveryTileCentrePicksItsOwnTile() {
+        let map = CityMap(width: 24, height: 18)
+        for x in 0 ..< map.width {
+            for y in 0 ..< map.height {
+                let position = GridPosition(x: x, y: y)
+                let picked = projection.position(for: projection.point(for: position), in: map)
+                XCTAssertEqual(picked, position, "tile (\(x), \(y)) picked \(String(describing: picked))")
+            }
+        }
+    }
+
+    /// And near the diamond's corners, which is where an off-by-one in the
+    /// inverse shows up first — a centre would still pick correctly even if the
+    /// transform were subtly wrong in scale.
+    func testPointsNearATileEdgePickTheRightTile() {
+        let map = CityMap(width: 12, height: 12)
+        let position = GridPosition(x: 5, y: 7)
+        // Just inside each of the four ground corners of the tile.
+        let inset: CGFloat = 0.02
+        for (dx, dy) in [(inset, inset), (1 - inset, inset), (inset, 1 - inset), (1 - inset, 1 - inset)] {
+            let screen = projection.project(CGFloat(position.x) + dx, CGFloat(position.y) + dy, 0)
+            XCTAssertEqual(projection.position(for: screen, in: map), position,
+                           "corner (\(dx), \(dy)) of tile (5, 7) picked the wrong tile")
+        }
+    }
+
+    func testPointsOutsideTheMapPickNothing() {
+        let map = CityMap(width: 8, height: 8)
+        XCTAssertNil(projection.position(for: projection.project(-1.5, 4, 0), in: map))
+        XCTAssertNil(projection.position(for: projection.project(4, -1.5, 0), in: map))
+        XCTAssertNil(projection.position(for: projection.project(9.5, 4, 0), in: map))
+        XCTAssertNil(projection.position(for: projection.project(4, 9.5, 0), in: map))
+    }
+
+    /// Picking is against the ground, not against what is drawn on top of it.
+    ///
+    /// A point over a tall tower's upper floors is geometrically over ground
+    /// several tiles *behind* the tower. A city builder wants the ground — every
+    /// tool acts on a lot rather than a building — and this pins that choice so
+    /// it cannot drift into "topmost drawn thing" by accident.
+    func testPickingIgnoresElevation() {
+        let map = CityMap(width: 20, height: 20)
+        let ground = GridPosition(x: 4, y: 4)
+        // Where the top of a three-unit tower on that lot appears on screen.
+        let towerTop = projection.project(4.5, 4.5, 3)
+        let picked = projection.position(for: towerTop, in: map)
+        XCTAssertNotEqual(picked, ground, "a point at the top of a tower is not over the tower's own lot")
+        XCTAssertNotNil(picked, "it is over some other lot, further back")
+    }
+
+    /// The map's bounding box has to contain the whole ground diamond, or the
+    /// camera will clamp the player away from the corners.
+    func testContentBoundsContainsEveryCorner() {
+        let map = CityMap(width: 14, height: 9)
+        let bounds = projection.contentBounds(of: map)
+        for (x, y) in [(0, 0), (map.width, 0), (0, map.height), (map.width, map.height)] {
+            let corner = projection.project(CGFloat(x), CGFloat(y), 0)
+            XCTAssertTrue(bounds.insetBy(dx: -0.001, dy: -0.001).contains(corner),
+                          "corner (\(x), \(y)) at \(corner) falls outside \(bounds)")
+        }
+        XCTAssertTrue(bounds.contains(projection.centerPoint(of: map)))
+    }
+
+    /// A near tile must sort in front of a far one, and a multi-tile building
+    /// must sort by its nearest corner — otherwise a 3x3 stadium anchored far
+    /// back would be painted over by the 1x1 tiles it actually covers.
+    func testTileDepthIsNearestLast() {
+        XCTAssertLessThan(Isometric.depth(of: GridPosition(x: 0, y: 0)),
+                          Isometric.depth(of: GridPosition(x: 3, y: 3)))
+        XCTAssertEqual(Isometric.depth(of: GridPosition(x: 2, y: 1)),
+                       Isometric.depth(of: GridPosition(x: 1, y: 2)))
+        XCTAssertEqual(Isometric.depth(of: GridPosition(x: 1, y: 1), footprint: 3),
+                       Isometric.depth(of: GridPosition(x: 3, y: 3)),
+                       "a 3x3 anchored at (1,1) reaches as near as a tile at (3,3)")
+    }
+
     // MARK: - Faces
 
     func testBoxFaceNormalsAllPointOutward() {

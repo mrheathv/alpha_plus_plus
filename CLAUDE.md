@@ -951,6 +951,38 @@ Four things worth keeping:
   landed on top came down to insertion order and at some seeds the plus
   collapsed to a single bar. They differ by a hair of height now.
 
+### Phase 7 (done): layout and picking
+
+`Isometric` gains the map-level operations `GameScene` needs — tile centres,
+footprint centres, content bounds, camera centre, the click inverse, and the
+depth key. Deliberately added to `Isometric` rather than bolted onto
+`GridLayout` as a mode: in isometric there is no "sprite size" to fit a
+building into, because massing occupies real space, so the two layouts have
+genuinely different interfaces rather than one interface with different numbers.
+`GridLayout` stays untouched until the elevation path is deleted.
+
+Three decisions worth recording:
+
+- **Picking is against the ground plane, not against what is drawn on it.** A
+  point over a tall tower's upper floors is geometrically over ground several
+  tiles *behind* the tower. Either answer is defensible; a city builder wants
+  the ground, because every tool acts on a lot rather than a building — place,
+  zone and bulldoze are all "this square of land" — and picking the tower would
+  make the lot behind a skyscraper unselectable. Pinned by a test so it cannot
+  drift into "topmost drawn thing" by accident.
+- **Depth is a `zPosition`, not a sort of the child array.** `rebuildRegion`
+  adds and removes nodes in a ±4-tile window without touching the rest, and
+  re-sorting a whole tile layer on every placement would undo the 40x saving
+  that exists for.
+- **A multi-tile building sorts by its nearest corner, not its anchor.** A 3×3
+  anchored at (1,1) reaches tile (3,3), so its key is `x + y + 2(N-1)`. Keyed on
+  its anchor, a stadium would be painted over by the very tiles it covers. The
+  first implementation used `x + y + N - 1`, and the test caught it.
+
+`contentBounds` is the *ground* diamond rather than everything drawn: buildings
+rise above its top edge, and clamping the camera to include them would let the
+view drift off the map whenever a tall tower stood near an edge.
+
 ### Rendering cost, measured at phase 2 rather than phase 11
 
 A building costs **~55 nodes in isometric against ~26 in elevation**, and the
