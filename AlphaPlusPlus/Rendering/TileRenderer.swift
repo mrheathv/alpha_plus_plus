@@ -201,11 +201,36 @@ struct TileRenderer {
     /// as much of its actual lot as its own silhouette proportions allow,
     /// without this file needing to know or care what those proportions
     /// are for any given building.
-    static func fitIconToTile(_ icon: SKNode, footprintSize: Int, layout: GridLayout) {
+    /// `center` is where the icon's *silhouette* should end up in its
+    /// parent's coordinates — the tile sprite's own centre by default.
+    ///
+    /// **Why the position is set here and not left to the caller.** Icons are
+    /// authored from a ground line at `y = -40` upward, so a tall tower's
+    /// drawn frame happens to sit roughly on its origin while a short one — a
+    /// strip of shops, a row of houses, an industrial shed — does not: its
+    /// frame's midpoint can be twenty-odd points below the origin. Placing
+    /// such an icon at the tile centre put the *origin* there and left the
+    /// building hanging a quarter of a lot below, overlapping its neighbour.
+    /// Since this function already measures the frame in order to scale by
+    /// it, it is also the only place that knows the offset needed to undo
+    /// that, so it applies it rather than expecting every caller to.
+    static func fitIconToTile(
+        _ icon: SKNode,
+        footprintSize: Int,
+        layout: GridLayout,
+        centeredAt center: CGPoint = .zero
+    ) {
         let spriteSize = layout.spriteSize(forFootprint: footprintSize)
-        let occupied = icon.calculateAccumulatedFrame().size
-        let fitScale = min(spriteSize.width / max(occupied.width, 1), spriteSize.height / max(occupied.height, 1))
-        icon.setScale(fitScale * iconFillFactor)
+        let occupied = icon.calculateAccumulatedFrame()
+        let fitScale = min(
+            spriteSize.width / max(occupied.width, 1),
+            spriteSize.height / max(occupied.height, 1)
+        ) * iconFillFactor
+        icon.setScale(fitScale)
+        icon.position = CGPoint(
+            x: center.x - occupied.midX * fitScale,
+            y: center.y - occupied.midY * fitScale
+        )
     }
 
     /// Removes a tile's icon — used alongside `clearPips` when `GameScene`

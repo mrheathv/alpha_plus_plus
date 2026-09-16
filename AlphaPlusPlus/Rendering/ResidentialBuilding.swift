@@ -294,10 +294,13 @@ enum ResidentialBuilding {
             ),
             // The glowing walkway up to the door, carried over from the
             // hand-drawn residential icons this generator replaces — it was
-            // pulled from a reference sprite and is worth keeping.
+            // pulled from a reference sprite and is worth keeping. Kept short
+            // and dim: the icons it came from were cropped by the tile, and
+            // once `fitIconToTile` started centring the whole silhouette this
+            // became a bright bar hanging off the bottom of every house.
             ZoneIcon.detail(
-                rect: CGRect(x: x - 2, y: -48, width: 4, height: 8),
-                fill: ZoneIcon.litAccent
+                rect: CGRect(x: x - 1.5, y: -45, width: 3, height: 5),
+                fill: ZoneIcon.litAccent.withAlphaComponent(0.6)
             ),
         ]
     }

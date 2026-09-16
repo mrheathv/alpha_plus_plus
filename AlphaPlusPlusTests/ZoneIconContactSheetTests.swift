@@ -315,8 +315,7 @@ final class ZoneIconContactSheetTests: XCTestCase {
             // `footprintSize`: the sheet's cells are uniform, and what
             // matters here is how much of its lot an icon claims, which is
             // identical at any footprint. The caption carries the real size.
-            TileRenderer.fitIconToTile(icon, footprintSize: 1, layout: layout)
-            icon.position = center
+            TileRenderer.fitIconToTile(icon, footprintSize: 1, layout: layout, centeredAt: center)
             scene.addChild(icon)
         }
 

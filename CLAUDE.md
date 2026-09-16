@@ -766,6 +766,15 @@ failed a test:
   plant box could be offset past its own parapet, where it read as a rectangle
   floating beside the building rather than as rooftop machinery.
 
+And one long-standing placement bug the new forms exposed. Icons are authored
+from a ground line at `y = -40` upward, so a tall tower's drawn frame happens to
+straddle its origin while a short one — a strip of shops, a row of houses, an
+industrial shed — does not. `TileRenderer.fitIconToTile` measured the frame in
+order to *scale* by it but then left the icon at its origin, so short buildings
+hung a quarter of a lot below their tile, overlapping the neighbour. It now
+recentres on the measured frame as well, which is why every building on the
+contact sheet suddenly sits square in its cell.
+
 ## Looking at the art without playing to it
 
 Every `ZoneIcon` variant renders to a single PNG contact sheet via a test, so
