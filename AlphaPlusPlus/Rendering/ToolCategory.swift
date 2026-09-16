@@ -33,7 +33,7 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// The tools in this group, in the order the city earns them.
+    /// Everything this group offers, in the order the city earns it.
     ///
     /// Unlock order rather than pairing each cheap tool with its upgrade
     /// (road beside highway, pump beside tower). Both readings are defensible,
@@ -41,17 +41,37 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
     /// group and everything still locked trailing off to the right, so a
     /// player's usable tools are always where they last were rather than
     /// interleaved with greyed-out ones.
-    var tools: [ZoneType] {
+    ///
+    /// **Entries, not `ZoneType`s.** Pipes and power lines are not zones —
+    /// they are separate layers edited by clicking while their overlay is up
+    /// (see `Tile.hasPipe`) — so the toolbar had to special-case them with an
+    /// `if category == .utilities` in the middle of its layout code. Anything
+    /// that is not a `ZoneType` needed another such branch, which is a poor
+    /// way to grow a toolbar. An entry says what a button *does*, so the
+    /// layout renders a list and stops knowing what is on it.
+    var entries: [ToolbarEntry] {
         switch self {
         case .zones:
-            return [.residential, .commercial, .industrial]
+            return [.zone(.residential), .zone(.commercial), .zone(.industrial)]
         case .transport:
-            return [.road, .publicTransit, .highway, .subway]
+            return [.zone(.road), .zone(.publicTransit), .zone(.highway), .zone(.subway)]
         case .utilities:
-            return [.waterPump, .generator, .waterTower, .powerPlant]
+            return [
+                .zone(.waterPump), .zone(.generator),
+                .zone(.waterTower), .zone(.powerPlant),
+                .network(.water, title: "Pipe", cost: GameController.pipePlacementCost, accentZone: .waterTower),
+                .network(.power, title: "Power Line", cost: GameController.powerLinePlacementCost, accentZone: .powerPlant),
+            ]
         case .services:
-            return [.policeStation, .fireStation, .school, .hospital, .stadium]
+            return [.zone(.policeStation), .zone(.fireStation), .zone(.school),
+                    .zone(.hospital), .zone(.stadium)]
         }
+    }
+
+    /// Just the zones in this group — what unlock ordering and the category
+    /// picker's "is the selected tool in here" check care about.
+    var tools: [ZoneType] {
+        entries.compactMap(\.zone)
     }
 
     /// The group `zone` belongs to, for keeping the picker in step when the
@@ -69,4 +89,64 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
     static var allTools: [ZoneType] {
         allCases.flatMap(\.tools)
     }
+
+    static var allEntries: [ToolbarEntry] {
+        allCases.flatMap(\.entries)
+    }
+}
+
+/// One thing the toolbar offers.
+///
+/// A button is described rather than drawn: what it does, what it is called,
+/// what it costs, and whose neon it borrows. `GameView` renders a list of
+/// these, so adding a control is adding an entry — the thing four hundred
+/// lines of hand-rolled rows made expensive enough that ordinances and bonds
+/// still have no button at all.
+struct ToolbarEntry: Identifiable, Hashable {
+    enum Action: Hashable {
+        /// Paint a zone onto the map.
+        case zone(ZoneType)
+        /// Edit an underground or overhead layer. Selecting it switches to the
+        /// overlay that makes clicks lay that layer, which is how pipes and
+        /// power lines have always worked — this just says so out loud.
+        case network(OverlayMode)
+    }
+
+    let action: Action
+    let title: String
+    let cost: Int?
+    /// Whose colour this borrows. A network tool has no `ZoneType` of its own,
+    /// so it takes the one belonging to the utility it feeds — a pipe glows
+    /// like a water tower, which is the thing it connects.
+    let accentZone: ZoneType
+
+    var id: Action { action }
+
+    var zone: ZoneType? {
+        if case .zone(let zone) = action { return zone }
+        return nil
+    }
+
+    var overlay: OverlayMode? {
+        if case .network(let overlay) = action { return overlay }
+        return nil
+    }
+
+    static func zone(_ zone: ZoneType) -> ToolbarEntry {
+        ToolbarEntry(
+            action: .zone(zone),
+            title: RenderPalette.displayName(for: zone),
+            cost: zone.placementCost > 0 ? zone.placementCost : nil,
+            accentZone: zone
+        )
+    }
+
+    static func network(_ overlay: OverlayMode, title: String, cost: Int, accentZone: ZoneType) -> ToolbarEntry {
+        ToolbarEntry(action: .network(overlay), title: title, cost: cost, accentZone: accentZone)
+    }
+
+    /// The bulldozer, which belongs to no group: it stays on screen at all
+    /// times, because needing to change category before you can undo a mistake
+    /// would be a poor joke.
+    static let bulldozer = ToolbarEntry.zone(.empty)
 }

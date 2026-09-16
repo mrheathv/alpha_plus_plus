@@ -138,7 +138,7 @@ struct GameView: View {
     /// change category before you can undo a mistake would be miserable.
     private var zoningRow: some View {
         HStack(spacing: 10) {
-            toolButton(for: .empty)
+            chip(for: .bulldozer)
 
             Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
 
@@ -161,20 +161,8 @@ struct GameView: View {
 
             Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
 
-            ForEach(toolCategory.tools, id: \.self) { zone in
-                toolButton(for: zone)
-            }
-
-            // Pipes and power lines are not `ZoneType`s — they are separate
-            // underground/overhead layers (see `Tile.hasPipe`) edited by
-            // clicking while their overlay is up. That made them completely
-            // unreachable once the overlay picker moved to a menu: nothing on
-            // screen said they existed. Presenting them here as two more tools
-            // in the group they belong to is what a player expects, and
-            // selecting one just switches to the overlay that enables it.
-            if toolCategory == .utilities {
-                networkToolButton(label: "Pipe", overlay: .water)
-                networkToolButton(label: "Power Line", overlay: .power)
+            ForEach(toolCategory.entries) { entry in
+                chip(for: entry)
             }
 
             Spacer()
@@ -188,33 +176,39 @@ struct GameView: View {
         }
     }
 
-    /// A pipe or power-line tool: selecting it switches to the overlay that
-    /// makes clicks lay that network, and highlights while that overlay is up.
-    private func networkToolButton(label: String, overlay: OverlayMode) -> some View {
-        Button(label) {
-            controller.overlayMode = (controller.overlayMode == overlay) ? .none : overlay
+    /// One toolbar entry, whatever kind it is.
+    ///
+    /// The layout used to branch: zones were drawn by one function, and pipes
+    /// and power lines by another, reached through an `if category ==
+    /// .utilities` wedged into the middle of the row. Anything that was not a
+    /// `ZoneType` would have needed a third branch. `ToolbarEntry` says what a
+    /// button *does*, so there is one builder and the row renders a list.
+    @ViewBuilder
+    private func chip(for entry: ToolbarEntry) -> some View {
+        switch entry.action {
+        case .zone(let zone):
+            let unlocked = controller.isUnlocked(zone)
+            RetroToolChip(
+                title: entry.title,
+                cost: entry.cost,
+                accent: RetroUITheme.accent(for: entry.accentZone),
+                isSelected: controller.selectedTool == zone && controller.overlayMode == .none,
+                lockedBy: unlocked ? nil : "\(controller.residentsNeeded(for: zone)) more residents",
+                // `selectTool` rather than assigning directly: picking a zone
+                // also leaves a network overlay, so the two stay exclusive.
+                action: { controller.selectTool(zone) }
+            )
+        case .network(let overlay):
+            RetroToolChip(
+                title: entry.title,
+                cost: entry.cost,
+                accent: RetroUITheme.accent(for: entry.accentZone),
+                isSelected: controller.overlayMode == overlay,
+                action: {
+                    controller.overlayMode = (controller.overlayMode == overlay) ? .none : overlay
+                }
+            )
         }
-        .buttonStyle(RetroButtonStyle(
-            accent: RetroUITheme.accent(for: overlay == .water ? .waterTower : .powerPlant),
-            isSelected: controller.overlayMode == overlay
-        ))
-        .help("\(label) — click the map to lay, right-click to remove")
-    }
-
-    /// One tool button, disabled and dimmed with its requirement when the city
-    /// has not earned it yet.
-    private func toolButton(for zone: ZoneType) -> some View {
-        let unlocked = controller.isUnlocked(zone)
-        return RetroToolChip(
-            title: RenderPalette.displayName(for: zone),
-            cost: zone.placementCost > 0 ? zone.placementCost : nil,
-            accent: RetroUITheme.accent(for: zone),
-            isSelected: controller.selectedTool == zone,
-            lockedBy: unlocked ? nil : "\(controller.residentsNeeded(for: zone)) more residents",
-            // `selectTool` rather than assigning directly: picking a zone also
-            // leaves a network overlay, so the two are mutually exclusive.
-            action: { controller.selectTool(zone) }
-        )
     }
 
     /// One row: Play/Pause, the editing hint for whichever overlay is up, and

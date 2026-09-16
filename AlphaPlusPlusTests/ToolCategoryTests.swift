@@ -10,6 +10,41 @@ final class ToolCategoryTests: XCTestCase {
     /// `ZoneType` without adding it to a category would make it unreachable
     /// from the toolbar, with nothing to say so — which is precisely the
     /// failure the flat row could not have.
+    /// Every entry the toolbar offers appears exactly once across all groups.
+    ///
+    /// The point of a registry is that adding a control is adding data, and
+    /// the risk of one is that data can be added twice or in two places. This
+    /// is the guarantee that makes the layout safe to be dumb about what it is
+    /// rendering.
+    func testEveryToolbarEntryAppearsExactlyOnce() {
+        let entries = ToolCategory.allEntries
+        XCTAssertEqual(Set(entries.map(\.id)).count, entries.count,
+                       "a toolbar entry is listed in more than one group")
+    }
+
+    /// Pipes and power lines have to be *somewhere*. They are not `ZoneType`s,
+    /// so nothing else in the test suite would notice them going missing — and
+    /// they were once completely unreachable, with nothing on screen saying
+    /// they existed at all.
+    func testBothEditableNetworksAreOffered() {
+        let overlays = Set(ToolCategory.allEntries.compactMap(\.overlay))
+        XCTAssertTrue(overlays.contains(.water), "no way to lay pipe")
+        XCTAssertTrue(overlays.contains(.power), "no way to lay power line")
+    }
+
+    /// An entry that costs something must say so, or the player finds out by
+    /// being charged.
+    func testPlaceableEntriesCarryTheirCost() {
+        for entry in ToolCategory.allEntries {
+            guard let zone = entry.zone else {
+                XCTAssertNotNil(entry.cost, "\(entry.title) is a network tool with no cost shown")
+                continue
+            }
+            XCTAssertEqual(entry.cost, zone.placementCost > 0 ? zone.placementCost : nil,
+                           "\(entry.title) shows a cost that is not what it charges")
+        }
+    }
+
     func testEveryZoneIsReachableFromExactlyOneGroup() {
         // `.empty` is the bulldozer: deliberately outside the groups, shown at
         // all times so undo never needs a category change.

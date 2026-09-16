@@ -1125,6 +1125,30 @@ Three decisions worth recording:
 - **Corners are cut, not rounded.** A 45° chamfer is the cheapest single thing
   that stops this chrome reading as a dark-mode macOS button.
 
+### Phase 2: a toolbar you add to with data
+
+`ToolbarEntry` describes what a button *does* — place a zone, edit a network —
+along with its name, cost and whose neon it borrows. `ToolCategory.entries`
+lists them, and `GameView` renders that list.
+
+The branch this removes is the point. Pipes and power lines are not
+`ZoneType`s: they are separate layers edited by clicking while their overlay is
+up, so the row special-cased them with an `if category == .utilities` wedged
+into the middle of its layout. Anything that was not a `ZoneType` needed
+another such branch, which is exactly why ordinances and bonds still have no
+button — adding one meant editing layout rather than adding data.
+
+Three tests hold the registry honest, and they are the reason it is safe for
+the layout to be dumb about what it is rendering: every entry appears exactly
+once across all groups; both editable networks are offered (nothing else in the
+suite would notice pipes going missing, and they were once completely
+unreachable); and every entry's advertised cost is what it actually charges.
+
+`GameController.pipePlacementCost` and its power-line twin became
+`nonisolated`, so the registry can name a cost without being main-actor bound.
+They are immutable `Int`s — the isolation bought nothing and cost
+`ToolCategory` its independence from the controller.
+
 ### The UI gets a render, like the art does
 
 `RetroUIContactSheetTests` renders the components to a PNG through

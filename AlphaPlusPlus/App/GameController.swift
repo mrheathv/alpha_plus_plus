@@ -353,7 +353,10 @@ final class GameController: ObservableObject {
     /// `ZoneType.placementCost` the way every other placeable thing's cost
     /// does. Matches `.pipe`'s old placement cost from before pipes moved
     /// off the surface grid.
-    static let pipePlacementCost = 40
+    /// `nonisolated` so the toolbar registry can name the cost without being
+    /// main-actor bound. It is an immutable `Int`; the isolation bought
+    /// nothing and cost `ToolCategory` its independence from the controller.
+    nonisolated static let pipePlacementCost = 40
 
     /// Lay a pipe at `position`, charging `pipePlacementCost` — unless
     /// there's already one there, in which case this is a free no-op
@@ -386,7 +389,7 @@ final class GameController: ObservableObject {
     /// live on `ZoneType.placementCost`. Priced the same as a pipe: both
     /// are a single tile's worth of buried/strung utility line, not a
     /// building.
-    static let powerLinePlacementCost = 40
+    nonisolated static let powerLinePlacementCost = 40
 
     /// Lay a power line at `position` — the exact same contract
     /// `layPipe(at:)` has, one paragraph up, for the parallel layer.
