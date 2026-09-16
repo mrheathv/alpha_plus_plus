@@ -6,6 +6,19 @@ A city-building game in the spirit of SimCity 2000/3000 (aggregate simulation,
 zone-based growth, land value, service coverage) with the depth of Cities:
 Skylines, built natively for Apple Silicon to avoid Rosetta overhead.
 
+## Where this is going
+
+The end goal is a **finished, high-fidelity game shipped on the Mac App Store
+and/or Steam** — not a prototype, not a tech demo. Two things follow, and they
+are why the grayboxing rule was retired:
+
+- **Visual quality is a feature, not a finishing pass.** The game has to look
+  like something someone would pay for.
+- **Variety matters as much as detail.** Even SimCity Classic drew several
+  different buildings per zone per density. The target is **ten or more
+  distinct looks per zone per tier** — which means a parametric generator, not
+  ninety hand-written shape functions. See `ZoneIcon`.
+
 ## Tech stack
 
 - Swift, native macOS app target, Apple Silicon only (no Intel fallback)
@@ -18,20 +31,26 @@ Skylines, built natively for Apple Silicon to avoid Rosetta overhead.
 
 ## Development philosophy
 
-- **Grayboxing first**: prove mechanics with colored squares/placeholder shapes
-  before any real art. Do not build final art assets until zone/simulation
-  mechanics are stable.
+- **Art is part of the work now, not a later phase.** This project started
+  under a grayboxing rule — placeholder shapes until mechanics locked, no real
+  art before then. That rule has been retired. It did its job: every mechanic
+  below was proven against coloured squares first. But the mechanics are stable
+  enough now that deferring the visuals only defers finding out whether they
+  work. Expect turns spent purely on how the game *looks*, interleaved with
+  mechanics, rather than an art phase bolted on at the end.
 - **Rendering is decoupled from simulation from day one**: simulation logic
   outputs plain data (e.g. "tile at (x,y): zone=residential, density=2"), and a
-  separate rendering layer maps that data to visuals. This lets us iterate on
-  visual style anytime without touching simulation logic.
-- Visual style polish (color palette, camera feel, clean shapes, UI) is fine to
-  iterate on early since it's cheap. Final asset production (detailed sprites
-  per building/zone type) waits until mechanics lock.
+  separate rendering layer maps that data to visuals. This is what makes the
+  point above cheap — visual style can be reworked at any time without touching
+  a line of simulation code, and the import rule under "Project structure
+  conventions" is what keeps it true.
 - **Small, testable increments.** Each unit of work should be buildable and
   verifiable before moving to the next.
-- Keep data models serialization-friendly where reasonable (we'll want
-  save/load eventually), but don't build save/load system yet.
+- **Look at the art, don't imagine it.** `ZoneIconContactSheetTests` renders
+  every building variant to a single PNG in seconds (see "Looking at the art
+  without playing to it"). Any change to how buildings are drawn gets reviewed
+  there before it is committed — the same way a balance change gets measured on
+  the playtest harness rather than argued about.
 
 ## Project structure conventions
 
@@ -70,7 +89,7 @@ simulation depth, then real art direction — has played out in full:
   "Phase 3 = real art" milestone via art *direction* rather than sourced
   sprites: everything is still procedurally-drawn SpriteKit shape nodes, no
   raster image assets, so the rendering/simulation split remains exactly as
-  clean as the grayboxing philosophy above intends.
+  clean as the philosophy above intends.
 
 **Genuinely next**, in rough order:
 
@@ -679,6 +698,41 @@ intact; and a load bumps `GameController.cityGeneration`, which is how
 `GameView` knows to rebuild the scene's sprites rather than just refresh them
 (a load can change the tile count).
 
+## Buildings are generated, not drawn one at a time
+
+`ZoneIcon` used to hold two hand-written shape functions per zone per tier, and
+a hash picked between them. That does not reach the ten-plus looks per zone per
+tier this project now targets — that would be ninety functions — so growable
+zones are moving to parametric generators instead: a building is *composed*
+from parts against a seed, and the number of distinct results is the product of
+those choices rather than the number of functions anyone typed.
+
+`IndustrialBuilding` is the first, and industry went first for a reason the
+contact sheet made obvious: all three growable zones drew the same silhouette,
+a tall rectangle with a window grid, and differed only in hue. With the colour
+stripped you could not tell a factory from a tower block. Industry now draws
+wide and low, with sawtooth or monitor rooflines, one to three chimneys,
+storage tanks and loading bays — a vocabulary nothing else in the game uses.
+Residential and commercial follow, each with their own.
+
+Two rules this establishes:
+
+- **A lot's look is stable, its neighbour's is different.** `BuildingRandom`
+  seeds from the lot's own position, so a building draws identically on every
+  tick and every launch but differs from the one next door. It deliberately
+  avoids `GridPosition.hashValue`, which Swift randomises per process.
+- **The shared drawing vocabulary stays shared.** `ZoneIcon`'s primitives
+  (`neonShape`, `detail`, `withGlow`, the window and sign palettes) are
+  `internal` so generators can live in their own files while drawing in the
+  same idiom — which is what stops the zones drifting into looking like three
+  different games.
+
+`ZoneIconContactSheetTests` renders ten seeds per tier for a generated zone and
+asserts they produce at least seven structurally distinct buildings. A
+generator that technically produces thousands of identical-looking buildings is
+no better than the two hand-drawn ones it replaced, and that is the failure the
+count is there to catch.
+
 ## Looking at the art without playing to it
 
 Every `ZoneIcon` variant renders to a single PNG contact sheet via a test, so
@@ -702,11 +756,9 @@ so a silently-blank or accidentally-duplicated icon fails the build instead of
 waiting to be noticed in play.
 
 The app ships an icon (`Assets.xcassets/AppIcon.appiconset`, wired up via
-`ASSETCATALOG_COMPILER_APPICON_NAME`). This is a deliberate exception to the
-grayboxing rule above: the icon is chrome around the game, not game art, so
-producing it early costs nothing that the "wait until mechanics lock" rule is
-meant to protect. That rule still applies in full to anything *inside* the
-map view.
+`ASSETCATALOG_COMPILER_APPICON_NAME`). It predates the retirement of the
+grayboxing rule, and was an explicit exception to it at the time, on the
+grounds that an app icon is chrome *around* the game rather than game art.
 
 Naming note: the app's user-visible name is **Alpha++**, but the on-disk target,
 folder, and Swift module are named `AlphaPlusPlus`. Swift module names can't

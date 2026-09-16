@@ -47,6 +47,26 @@ final class ZoneIconContactSheetTests: XCTestCase {
     /// twice in adjacent columns.
     private static let variantSeeds = [GridPosition(x: 0, y: 0), GridPosition(x: 0, y: 1)]
 
+    /// How many different lots to draw for a *generated* zone.
+    ///
+    /// The hand-written zones have exactly two looks and there is nothing more
+    /// to show. A parametric zone's whole point is that the count is unbounded
+    /// (see `IndustrialBuilding`), so the sheet has to show enough seeds to
+    /// judge whether the variety is real — a generator that technically
+    /// produces thousands of buildings which all look alike is no better than
+    /// the two hand-drawn ones it replaced. Ten is CLAUDE.md's stated target.
+    private static let generatedVariantCount = 10
+
+    /// Zones drawn by a parametric generator rather than fixed functions.
+    private static let generatedZones: Set<ZoneType> = [.industrial]
+
+    /// Lot positions to draw a generated zone at. Spread apart rather than
+    /// consecutive, so neighbouring seeds cannot flatter the result by
+    /// accident.
+    private static func generatedSeeds() -> [GridPosition] {
+        (0 ..< generatedVariantCount).map { GridPosition(x: $0 * 7, y: $0 * 3) }
+    }
+
     /// Which density stands in for each growth tier.
     ///
     /// `RenderPalette.growthTier(for:)` maps 1-2 to tier 1, 3-4 to tier 2,
@@ -80,7 +100,8 @@ final class ZoneIconContactSheetTests: XCTestCase {
         for zone in growableZones {
             for tier in tierDensities.keys.sorted() {
                 let density = tierDensities[tier]!
-                for (index, seed) in variantSeeds.enumerated() {
+                let seeds = generatedZones.contains(zone) ? generatedSeeds() : variantSeeds
+                for (index, seed) in seeds.enumerated() {
                     entries.append(Entry(
                         zone: zone,
                         density: density,
@@ -135,7 +156,7 @@ final class ZoneIconContactSheetTests: XCTestCase {
     /// onto one variant, the sheet would silently show duplicates.
     func testEveryVariantIsReachable() {
         for zone in Self.growableZones + Self.serviceZones
-        where !Self.singleVariantZones.contains(zone) {
+        where !Self.singleVariantZones.contains(zone) && !Self.generatedZones.contains(zone) {
             let density = zone.maxDensity > 0 ? 5 : 0
             let shapes = Self.variantSeeds.map { seed -> String in
                 let node = ZoneIcon.makeNode(for: zone, density: density, seed: seed)
@@ -146,6 +167,42 @@ final class ZoneIconContactSheetTests: XCTestCase {
                 "\(Self.displayName(zone)): both contact-sheet seeds select the same variant, "
                 + "so the sheet would show it twice instead of both looks"
             )
+        }
+    }
+
+    /// A generator has to actually generate. Ten seeds producing ten
+    /// structurally identical buildings would satisfy every other test in this
+    /// file while being no better than the two hand-drawn looks it replaced.
+    func testGeneratedZonesProduceGenuinelyDifferentBuildings() {
+        for zone in Self.generatedZones {
+            for tier in Self.tierDensities.keys.sorted() {
+                let density = Self.tierDensities[tier]!
+                let signatures = Self.generatedSeeds().map { seed in
+                    Self.structuralSignature(of: ZoneIcon.makeNode(for: zone, density: density, seed: seed))
+                }
+                let distinct = Set(signatures).count
+                XCTAssertGreaterThanOrEqual(
+                    distinct, 7,
+                    "\(Self.displayName(zone)) tier \(tier) drew only \(distinct) distinct buildings "
+                    + "from \(signatures.count) seeds — the generator is not generating"
+                )
+            }
+        }
+    }
+
+    /// The same lot must draw the same building every time, or a city visibly
+    /// reshuffles itself while the player watches.
+    func testGeneratedBuildingsAreStableForAGivenLot() {
+        let seed = GridPosition(x: 5, y: 9)
+        for zone in Self.generatedZones {
+            let first = Self.structuralSignature(of: ZoneIcon.makeNode(for: zone, density: 5, seed: seed))
+            for _ in 0 ..< 5 {
+                XCTAssertEqual(
+                    Self.structuralSignature(of: ZoneIcon.makeNode(for: zone, density: 5, seed: seed)),
+                    first,
+                    "\(zone) drew a different building for the same lot on a redraw"
+                )
+            }
         }
     }
 
