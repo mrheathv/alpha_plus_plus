@@ -26,8 +26,10 @@ enum ZoneMassing {
             let tier = RenderPalette.growthTier(for: density)
             guard tier > 0 else { return nil }
             return ResidentialMassing.make(tier: tier, seed: seed, footprint: footprint)
-        default:
+        case .empty, .road, .highway:
             return nil
+        default:
+            return ServiceMassing.make(for: zone, seed: seed, footprint: footprint)
         }
     }
 

@@ -914,6 +914,43 @@ Two things the projection adds here:
 That completes the three growable zones. `ZoneMassing` covers them and still
 returns `nil` for services, which is the next phase.
 
+### Phases 5–6 (done): the eleven services
+
+`ServiceMassing` covers all of them, 1×1 through the 3×3 power plant and
+stadium. `ZoneMassing` now returns massing for every zone that has a building,
+which completes the catalogue: the remaining phases are layout, scene and
+decorations, not art.
+
+**One generator per service, not two hand-picked looks.** `ZoneIcon` draws
+exactly two variants of each, because hand-writing a third was unaffordable —
+the file says as much. Massing has no such limit, so the seeded parameters that
+give growable zones their variety work here too, and two fire stations differ
+the way two factories do without anyone writing a second function.
+
+What is preserved exactly is each service's **identity mark** — the one feature
+that makes it findable while scanning for coverage gaps, which is what these
+icons are *for*. A hose-drying tower, a tank on legs, a gable and a clock, a
+cross, cooling towers, a bowl with floodlights.
+
+Four things worth keeping:
+
+- **The variety bar is lower for services, and not to make a test pass.** A
+  growable zone tiles the map, so repetition reads as wallpaper. A city has two
+  fire stations; what they owe the player is identity, and demanding eight
+  distinguishable ones would trade that away for a property nobody can
+  perceive. They still have to not be literally one building.
+- **A service has no density**, so cataloguing it at three tiers rendered three
+  identical copies of every fire station — noise pretending to be coverage.
+- **An identity mark has to be placed where it can be seen.** The firehouse
+  tower started at a far corner, where it sorts behind the body and survives
+  only as a stub through the roof — which reads as a chimney, and a chimney is
+  industry's mark. It sits at a near corner now. The school's clock tower was
+  sized against the body and came out shorter than the roof it stood in.
+- **Ties in the sort order are a real bug.** The hospital's cross is two boxes
+  sharing a centre and an elevation, which ties every sort key, so which one
+  landed on top came down to insertion order and at some seeds the plus
+  collapsed to a single bar. They differ by a hair of height now.
+
 ### Rendering cost, measured at phase 2 rather than phase 11
 
 A building costs **~55 nodes in isometric against ~26 in elevation**, and the
