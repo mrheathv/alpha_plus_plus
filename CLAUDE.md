@@ -766,6 +766,53 @@ failed a test:
   plant box could be offset past its own parapet, where it read as a rectangle
   floating beside the building rather than as rooftop machinery.
 
+## Going isometric (decided; spiked, not migrated)
+
+**The decision is made: the game moves to an isometric projection.** Nothing in
+the running game uses it yet. `Isometric` holds the projection and
+`IsometricSpikeTests` renders a block with it, so the look could be judged
+before the codebase was committed.
+
+**The problem it solves.** The game draws its ground from directly overhead
+and its buildings as front elevations, as if seen from the street. Those are
+two viewpoints in one picture, which is why a building reads as a lit card
+standing on a floor plan. No amount of colour or glow tuning closes that: a
+shape reads as a volume when you can see two of its faces at once, and an
+elevation has one.
+
+**And it suits this art direction rather than fighting it.** Neon is an *edge*
+treatment. In elevation a box has no visible edges, so the glow can only trace
+a silhouette — which is precisely what the current buildings look like. In
+isometric the same box shows a top and two sides, and the creases between them
+are real lines with direction. The style gets structure to light.
+
+### What the migration actually touches
+
+`GridLayout`'s doc comment claims a switch to isometric is a change to that one
+struct. That is true for *positioning* and nothing else:
+
+| | why |
+|---|---|
+| `GridLayout.position(for:)` | Today an integer divide, because squares tile trivially. Diamonds do not; click-to-tile needs the inverse projection. |
+| **Draw order** | Every tile sprite sits in `tileLayer` at `zPosition = 0`. Correct top-down, where nothing overlaps; fatal in isometric, where a near building must occlude a far one. Needs a painter's algorithm keyed on `x + y` (`Isometric.sorted`), maintained through `rebuildRegion`. |
+| The three generators | The *forms* survive — a strip of shops, a corner unit, a row of houses, a sawtooth roof are massing decisions, not drawing ones. What has to change is that they stop returning an `SKNode` of a facade and start returning **massing**: boxes in tile units, which a projection then draws. That split is the same one the project already draws between simulation and rendering, one level down. |
+| `fitIconToTile`, `spriteSize(forFootprint:)` | "Fit a 2×2 lot" means fitting a diamond. |
+| Overlays, roads, lane lines, cars, placement preview | All tint or draw squares today. |
+| Both renders | The streetscape composites per lot into a tile rect, which isometric buildings break by overlapping. The spike shows the fix: depth-sorted batches composited back to front. |
+
+### What the spike already established
+
+- Volumes read, the three zones still separate, and lit panels projected onto
+  the *face plane* (rather than drawn as screen-space rectangles) are what stop
+  an isometric building looking like a crate.
+- `heightUnit` is the knob that matters most and must not be tied to
+  `tileHeight`: a storey is not as tall as a lot is wide, and tying them makes
+  every building squat.
+- Node count per building is comparable to the elevation version (three faces
+  per box plus panels on two of them), so this is not obviously a performance
+  regression — but it should be measured on `HarnessTimingTests` before the
+  migration is called done, not after.
+
 ## Ground and light: retiring the last of the grayboxing
 
 The buildings were never the thing holding the look back. The *ground* was.
