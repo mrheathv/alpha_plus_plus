@@ -871,6 +871,27 @@ was a single line at the top of a silhouette. Isometric shows the whole roof
 plane, so an empty one is the biggest surface on the building saying nothing;
 flat-roofed halls get rooftop plant instead.
 
+### Phase 3 (done): housing, and two marks that got *better*
+
+`ResidentialMassing` carries the vocabulary across unchanged — stepped massing
+that narrows as it rises, punched window grids rather than continuous bands,
+rooftop clutter rather than lit crowns, and a row of separate houses at tier 1.
+
+Two of those marks are genuinely better in isometric rather than merely
+equivalent, which is worth naming because it is the payoff for the migration
+rather than the cost of it:
+
+- **A balcony is now a ledge, not a line.** In elevation it was a bright
+  horizontal with railing posts, and the posts had to be deleted for being a
+  quarter of a screen point wide, which left a line. Here it projects past the
+  wall on every side and wraps the corner, so it reads as a balcony from its
+  silhouette alone — the shape carries the meaning instead of the decoration,
+  which is exactly the fix `minimumDetailSize` keeps asking for and elevation
+  could not provide.
+- **A pitched roof is a volume.** It was a trapezoid stuck on a rectangle;
+  it is now two slopes and a gable end, and how many of them you see depends on
+  the pitch.
+
 ### Rendering cost, measured at phase 2 rather than phase 11
 
 A building costs **~55 nodes in isometric against ~26 in elevation**, and the
