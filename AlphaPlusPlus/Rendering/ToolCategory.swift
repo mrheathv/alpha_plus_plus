@@ -63,8 +63,11 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
                 .network(.power, title: "Power Line", cost: GameController.powerLinePlacementCost, accentZone: .powerPlant),
             ]
         case .services:
-            return [.zone(.policeStation), .zone(.fireStation), .zone(.school),
-                    .zone(.hospital), .zone(.stadium)]
+            // Park first: it is the only one of these available from tick
+            // one, and tools appear in unlock order so everything currently
+            // usable sits to the left.
+            return [.zone(.park), .zone(.policeStation), .zone(.fireStation),
+                    .zone(.school), .zone(.hospital), .zone(.stadium)]
         }
     }
 

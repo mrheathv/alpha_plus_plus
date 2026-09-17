@@ -199,6 +199,14 @@ enum RenderPalette {
     /// exactly that reason.
     static func fullColor(for zone: ZoneType) -> SKColor {
         switch zone {
+        case .park:
+            // **The one green in the game**, and deliberately the only one.
+            // Every other zone sits somewhere on the magenta-to-cyan
+            // retrowave spine; a park is the thing that is *not* built, so it
+            // gets the hue nothing else uses. Pushed toward emerald rather
+            // than a natural leaf green — this is a park at night under city
+            // light, not a photograph of grass.
+            return SKColor(srgbRed: 0.18, green: 0.92, blue: 0.55, alpha: 1.0)
         case .empty:
             // Unzoned land — between the near-black background and the
             // road's own dark asphalt-purple, the "night" every neon shape
@@ -469,6 +477,7 @@ enum RenderPalette {
     /// "no zone" case used for freshly-created tiles.
     static func displayName(for zone: ZoneType) -> String {
         switch zone {
+        case .park: return "Park"
         case .empty: return "Bulldoze"
         case .residential: return "Residential"
         case .commercial: return "Commercial"

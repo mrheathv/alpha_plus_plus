@@ -72,6 +72,22 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // what a hazard takes out of the blocks it covers.
     case school
     case hospital
+
+    /// A park: the one thing in the game whose only job is to make a place
+    /// nicer.
+    ///
+    /// Every other contributor to `LandValue` is a service with desirability
+    /// as a side effect — a police station raises land value *and* stops
+    /// crime, a school raises it *and* unlocks the top tier. So "make this
+    /// neighbourhood desirable" had no direct tool, which left the land-value
+    /// gate on the upper densities something you satisfied by accident rather
+    /// than something you could aim at.
+    ///
+    /// 1×1, unlike every other civic building, and that is the whole design:
+    /// a park's cost is the *ground* it sits on. Trading buildable area for
+    /// desirability is a real land-use decision, and it only reads as one if
+    /// parks are small enough to thread between blocks.
+    case park
 }
 
 extension ZoneType {
@@ -106,6 +122,10 @@ extension ZoneType {
         // a hospital serves a wider area and costs accordingly.
         case .school: return 900
         case .hospital: return 1_400
+        // Cheap, because the price of a park is the lot it occupies rather
+        // than the money. A player should be able to answer "this block is
+        // grim" immediately, not save up for it.
+        case .park: return 120
         // City-scale infrastructure/civic projects, priced well above even
         // a service station to match sitting on 9 tiles instead of 4.
         case .powerPlant: return 2000
@@ -131,7 +151,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower, .waterPump, .generator, .school, .hospital: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower, .waterPump, .generator, .school, .hospital, .park: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -199,6 +219,9 @@ extension ZoneType {
         // school — but well above the stations.
         case .school: return 35
         case .hospital: return 55
+        // Small but not nothing: a city that paves itself in parks should feel
+        // it, and the ongoing cost is what stops "park everything" being free.
+        case .park: return 4
         case .powerPlant: return 50
         case .stadium: return 40
         // `.subway` *is* a service, same as `.publicTransit` (staffed
@@ -220,7 +243,7 @@ extension ZoneType {
     /// everything built on it) doesn't care how big a zone is.
     var footprintSize: Int {
         switch self {
-        case .empty, .road, .publicTransit, .highway, .subway, .waterPump: return 1
+        case .empty, .road, .publicTransit, .highway, .subway, .waterPump, .park: return 1
         case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital: return 2
         case .powerPlant, .stadium: return 3
         }

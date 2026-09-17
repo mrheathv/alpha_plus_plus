@@ -2170,6 +2170,65 @@ about where a *live* conduit counts.
 Practically this changes almost nothing — the zones it could affect are all
 2×2 — which is the point: it removes an arbitrary rule at no gameplay cost.
 
+## Parks: the one thing that only makes a place nicer
+
+Every contributor to `LandValue` was a service with desirability as a side
+effect — a police station raises land value *and* stops crime, a school raises
+it *and* unlocks the top tier. So "make this neighbourhood desirable" had no
+direct tool, and the land-value gate on the upper densities was something you
+satisfied by accident rather than aimed at.
+
+**A park adds rather than competes, and that is the whole design.** Every other
+positive goes through a `max` in `LandValue.value` — "how good is the best
+thing near you" — which means a second amenity beside a police station
+contributes nothing at all. A park is not trying to be the best thing nearby;
+it makes an already-decent block better, so it stacks on top the same way the
+pollution and power-plant penalties stack underneath. It is the only positive
+that does.
+
+`parkBonus` is 0.18, sized against the gate it exists to help with: plain road
+frontage tops out at 0.75 and the top tier asks 0.8, so a park is what carries
+an ordinary street over that line. It cannot do it alone — density 5 still
+wants water, power and a school — it just stops land value being the thing
+quietly blocking it.
+
+Three decisions worth recording:
+
+- **1×1, unlike every other civic building.** A park's cost is the *ground* it
+  sits on. Trading buildable area for desirability is a real land-use decision
+  and it only reads as one if parks are small enough to thread between blocks.
+- **Unlocked from tick one.** The land-value gate bites from density 2, long
+  before any service unlocks; holding parks back would repeat the mistake the
+  starter utilities exist to fix — a problem the game shows you and will not
+  let you solve.
+- **They do not stack with each other.** `falloffValue` measures distance to
+  the *nearest*, so a wall of parks is one park's worth of desirability. That
+  is what stops paving the map in them being the dominant strategy.
+
+### The clamp that nearly smuggled itself in
+
+Adding parks to `positives` meant the total could exceed 1, so the obvious move
+was to clamp it — and that quietly deleted a documented feature.
+`falloffValue` scales with funding, the player can push funding above 1.0, and
+`testOverfundedServiceProjectsProportionallyMoreLandValue` pins an over-funded
+station out-projecting its usual falloff as a *deliberate lever*. The test
+caught it immediately.
+
+Same shape as the `.burning` branch that nearly skipped a repair roll during
+the `LotStatus` extraction: a behaviour change riding along inside an unrelated
+feature, justified by a tidiness argument. The park test was rewritten to
+assert what actually matters — that a park's contribution is bounded by
+`parkBonus` — rather than that land value stays under 1, which is not a
+property this model has ever had.
+
+### Schools and hospitals already existed
+
+Worth writing down because it was not obvious from playing: `.school` unlocks
+at 250 population and `.hospital` at 600. The quick playtest profile settles
+around 370, so a hospital never appears in a short session at that size — which
+is a reasonable thing to revisit if they feel absent in play, but it is an
+unlock-threshold question rather than a missing feature.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

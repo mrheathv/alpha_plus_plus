@@ -29,6 +29,7 @@ enum ServiceMassing {
         case .waterTower: waterTower(footprint, &massing, &random)
         case .waterPump: waterPump(footprint, &massing, &random)
         case .generator: generator(footprint, &massing, &random)
+        case .park: park(footprint, &massing, &random)
         case .school: school(footprint, &massing, &random)
         case .hospital: hospital(footprint, &massing, &random)
         case .powerPlant: powerPlant(footprint, &massing, &random)
@@ -247,6 +248,53 @@ enum ServiceMassing {
     /// Civic buildings get silhouettes nothing else in the game uses, because
     /// they are the two zones a player most needs to pick out while scanning
     /// for coverage gaps.
+    /// A park: the only thing on this map that is not a building.
+    ///
+    /// **Drawn short and soft on purpose.** Every other civic block is a
+    /// lit box with windows, and a park has to read as the *absence* of that
+    /// from across the map — so it is a low hedge line, a few trees, and
+    /// nothing above knee height. It also has to survive being 1×1, which is a
+    /// quarter of the area every other service gets: at that size there is
+    /// room for exactly one idea, and the idea is "trees".
+    ///
+    /// Trees are a trunk and a canopy, both cylinders, because a cylinder's
+    /// top is a real ellipse catching light in this projection — the same
+    /// thing that lets an industrial tank read as a drum rather than a box.
+    private static func park(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.12
+        let span = footprint - margin * 2
+
+        // A low kerb around the lawn, which is what stops a park reading as
+        // bare ground with something dropped on it.
+        massing.add(.box(Box(x: margin, y: margin, z: 0,
+                             width: span, depth: span, height: 0.06)))
+
+        // Two or three trees, placed off-centre so no two parks line up.
+        for _ in 0 ..< random.int(in: 2 ... 3) {
+            let inset = margin + 0.14
+            let free = Swift.max(0.01, span - 0.28)
+            let x = inset + CGFloat(random.value(in: 0 ... 1)) * free
+            let y = inset + CGFloat(random.value(in: 0 ... 1)) * free
+            let height = CGFloat(random.value(in: 0.34 ... 0.52))
+            let trunk = Cylinder(x: x, y: y, z: 0.06, radius: 0.028, height: height * 0.45)
+            massing.add(.cylinder(trunk))
+            massing.add(.cylinder(Cylinder(
+                x: x, y: y, z: 0.06 + height * 0.45,
+                radius: CGFloat(random.value(in: 0.1 ... 0.15)), height: height * 0.55
+            )))
+        }
+
+        // **No lit mark on the ground, and none needed.** `Panel` only draws
+        // on the two visible *walls* — there is no top face to paint a path
+        // on — but the thing that keeps a park readable once the camera pulls
+        // back is `syncGroundGlow`, which already throws a pool of the zone's
+        // colour onto every service lot. A park's pool is the only green one
+        // on the map, so it reads as a park from further out than the trees
+        // survive, which is exactly the job.
+    }
+
     private static func school(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {

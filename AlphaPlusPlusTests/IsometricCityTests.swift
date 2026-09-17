@@ -78,6 +78,11 @@ final class IsometricCityTests: XCTestCase {
         place(.waterTower, 0, at: GridPosition(x: 11, y: 11))
         place(.fireStation, 0, at: GridPosition(x: 6, y: 11))
         place(.school, 0, at: GridPosition(x: 1, y: 11))
+        // Parks are 1×1, so they thread between blocks where nothing else
+        // fits — which is the whole point of them and needs to be visible.
+        for spot in [GridPosition(x: 5, y: 4), GridPosition(x: 9, y: 8), GridPosition(x: 14, y: 5)] {
+            place(.park, 0, at: spot)
+        }
 
         // A handful of lots mid-build, at four different stages, so the
         // renders below show what a scaffold looks like next to the finished

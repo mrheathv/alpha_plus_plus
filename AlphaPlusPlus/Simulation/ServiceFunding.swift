@@ -78,7 +78,11 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .school: return school
         case .hospital: return hospital
         case .road, .highway: return road
-        case .empty, .residential, .commercial, .industrial: return 1.0
+        // A park has no staff and no coverage strength to scale — its upkeep
+        // is grounds maintenance, a flat cost. Same reasoning `.road` had
+        // before public works gave it a dial, and if parks ever want one they
+        // belong on that dial rather than a fourteenth of their own.
+        case .empty, .residential, .commercial, .industrial, .park: return 1.0
         }
     }
 
@@ -99,7 +103,7 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .school: school = level
         case .hospital: hospital = level
         case .road, .highway: road = level
-        case .empty, .residential, .commercial, .industrial: break
+        case .empty, .residential, .commercial, .industrial, .park: break
         }
     }
 }

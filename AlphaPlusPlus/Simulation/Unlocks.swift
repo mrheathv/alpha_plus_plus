@@ -45,6 +45,14 @@ enum Unlocks {
         // become upgrades rather than prerequisites.
         case .waterPump, .generator:
             return 0
+        // Unlocked from the start, and deliberately so. A park is the cheapest
+        // answer to "this block is grim", and the land-value gate it helps
+        // with bites from density 2 — which a city reaches long before any
+        // service unlocks. Holding it back would repeat the mistake the
+        // starter utilities exist to fix: a problem the game shows you and
+        // does not let you solve.
+        case .park:
+            return 0
         // Once there is something standing, there is something to protect.
         case .policeStation, .fireStation:
             return 40

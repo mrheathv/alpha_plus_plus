@@ -88,6 +88,33 @@ enum LandValue {
     /// plant is the first to lower it — nobody wants to live next to one,
     /// same falloff shape as everything else, just subtracted instead of
     /// competing in the `max`.
+    /// How far a park's effect carries.
+    ///
+    /// Short — a park serves the streets around it, not a district. That is
+    /// what makes covering a neighbourhood take several of them, and what
+    /// turns "make this area desirable" into a land-use decision rather than
+    /// a single purchase.
+    static let parkFalloffDistance = 4
+
+    /// How much desirability a park adds at its own doorstep.
+    ///
+    /// **Added to the best nearby amenity rather than competing with it**, and
+    /// that is the whole point of parks existing. Every other positive goes
+    /// through the `max` in `value(at:in:using:)` — "how good is the best
+    /// thing near you" — which means a second amenity beside a police station
+    /// contributes nothing. A park is not trying to be the best thing nearby;
+    /// it is the thing that makes an already-decent block better, so it stacks
+    /// on top the same way the pollution and power-plant penalties stack
+    /// underneath. It is the only positive that does.
+    ///
+    /// Sized against the gate it exists to help with: plain road frontage tops
+    /// out at 0.75 and the top density tier asks 0.8, so a park is what
+    /// carries an ordinary street over that line. It cannot do it alone —
+    /// density 5 still wants water, power and a school — it just stops land
+    /// value being the thing that quietly blocks it. A first guess, and the
+    /// playtest harness can check it.
+    static let parkBonus = 0.18
+
     static let powerPlantPenaltyDistance = 8
 
     /// How much land value a power plant subtracts at distance 0 (standing
@@ -192,6 +219,12 @@ enum LandValue {
         let hospital = falloffValue(nearestZone: .hospital, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
         let positives = max(road, transit, subway, police, fire, stadium, school, hospital)
 
+        // Parks add rather than compete — see `parkBonus`. Two parks do not
+        // stack with each other, because `falloffValue` measures the distance
+        // to the *nearest* one, which is what stops a wall of parks being the
+        // dominant strategy.
+        let parks = falloffValue(nearestZone: .park, falloffDistance: parkFalloffDistance, at: position, in: map, using: field) * parkBonus
+
         // The power plant penalty is subtracted from the combined positive
         // score, not folded into the same `max` — it's not competing to be
         // the best amenity, it's dragging down whatever score the tile
@@ -215,7 +248,15 @@ enum LandValue {
             * pollutionPenaltyStrength
             * pollutionSensitivity(of: zoneHere)
 
-        return max(0, positives - powerPlantPenalty - pollutionPenalty)
+        // **Deliberately not clamped at the top**, and adding parks was very
+        // nearly the change that clamped it by accident. `falloffValue` is
+        // scaled by funding, which the player can push above 1.0, and
+        // `testOverfundedServiceProjectsProportionallyMoreLandValue` pins that
+        // as a real lever: an over-funded station out-projects its usual
+        // falloff. A ceiling here would have quietly taken that away as a side
+        // effect of an unrelated feature. Only the floor is enforced —
+        // "worthless" is as bad as this model represents.
+        return max(0, positives + parks - powerPlantPenalty - pollutionPenalty)
     }
 
     /// Road frontage value, dampened by whichever adjacent road is most
