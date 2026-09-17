@@ -1871,6 +1871,50 @@ gate *behind* it, and a school is itself an amenity — so it pushed land value
 over the very bar the test needed it to fall short of. When a fixture stops
 measuring what it claims, check whether it moved the thing or the yardstick.
 
+### Phase 2 (done): the panel
+
+One headline, one line of advice, then supporting evidence in two groups.
+Structured as a *diagnosis* rather than a dump, because listing a dozen
+available numbers fails the way `NeonStyle.minimumDetailSize` describes for
+art: past a certain density more marks stop adding information and start
+averaging into noise. A player who reads only the first line has still been
+told the useful thing.
+
+`InspectorText` holds every word. Two rules run through it — the headline names
+a *fix* rather than a mechanism ("Needs water", then "put a tower or a pump
+within a few tiles"), and continuous fields become ratings, since a player
+reasons in levels and residents but "desirability 0.62" is a debug readout.
+
+`RetroUIContactSheetTests.testRenderInspectorStates` renders **every state at
+once**, which is the only arrangement that can answer the question the panel
+exists to answer: whether "on fire" and "not desirable enough" read differently
+at a glance. It found four real problems immediately.
+
+- **Bare ground introduced itself as "BULLDOZE".**
+  `RenderPalette.displayName` is the *toolbar's* name for a zone, and the
+  toolbar's name for `.empty` is the tool that produces it.
+- **Plain road frontage read as "Prime".** Even bands over 0…1 put the
+  baseline — a lot with a road and nothing else, 0.75 — in the top word,
+  congratulating the player on a lot that cannot reach the top tier. The bands
+  are cut at `CitySimulator.requiredLandValue` instead, so each word names the
+  level that land actually supports.
+- **"Unzoned land" was drawn in `.empty`'s colour**, which is the near-black
+  night the whole map sits on. Invisible as text — the same trap that once drew
+  the Road button black on black, and the second time `.empty`'s *ground*
+  colour has been wrong as a *foreground* colour.
+- **The "fully served" fixture had no utilities.** It placed a tower and a
+  generator a few tiles away and trusted `Water.directSupplyRadius` to bridge
+  the gap; both pills rendered dark, so the one panel in the sheet meant to
+  show what "covered" looks like was showing the opposite. Exactly the trap the
+  overlay render fell into with a fixture that had no pipes in it, one phase
+  earlier.
+
+A lot that does not grow shows no headline: its headline is its own name, which
+the title line has already said, and a panel that repeats itself teaches a
+player to stop reading it. Exposure warnings ("no fire cover") sit at the
+bottom rather than in the headline, because an uncovered block is not broken —
+it is at risk, and promoting that would bury the thing that actually is wrong.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

@@ -52,6 +52,115 @@ final class RetroUIContactSheetTests: XCTestCase {
             CityPanel(controller: controller, dismiss: {}))
     }
 
+    /// **Every state the inspector can be in, side by side.**
+    ///
+    /// The panel's whole job is telling states apart, so reviewing it one
+    /// state at a time would flatter it exactly the way the overlay render did
+    /// while it had no pipes in the fixture. A player never sees these
+    /// together; the point of putting them together is that *I* can tell
+    /// whether "on fire" and "not desirable enough" read differently at a
+    /// glance, which is the property that matters and the one a single panel
+    /// cannot show.
+    func testRenderInspectorStates() throws {
+        let states = Self.inspectorStates()
+        try render(name: "retro-inspector", content:
+            VStack(alignment: .leading, spacing: 14) {
+                Text("INSPECTOR — EVERY STATE")
+                    .font(.system(size: 13, weight: .bold)).tracking(2)
+                    .foregroundStyle(RetroUITheme.textPrimary)
+                ForEach(Array(stride(from: 0, to: states.count, by: 3)), id: \.self) { start in
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(states[start ..< min(start + 3, states.count)], id: \.0) { state in
+                            InspectorPanel(report: state.1)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+            .background(RetroUITheme.background)
+        )
+    }
+
+    /// One real `TileReport` per interesting `LotStatus`, built by putting a
+    /// city into the state rather than by hand-assembling a report — a
+    /// hand-made report could describe a city that cannot exist.
+    private static func inspectorStates() -> [(String, TileReport)] {
+        let origin = GridPosition(x: 0, y: 0)
+        func base(_ zone: ZoneType = .residential, density: Int = 0) -> CityMap {
+            var map = CityMap(width: 20, height: 20)
+            for x in 0 ..< 20 { map[GridPosition(x: x, y: 2)].zone = .road }
+            map.placeBuilding(zone: zone, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: zone.footprintSize) {
+                map[cell].density = density
+            }
+            map.cityDemand = CityDemand(residential: 0.6, commercial: 0.6, industrial: 0.6)
+            return map
+        }
+        func report(_ map: CityMap) -> TileReport { TileReport.make(at: origin, in: map) }
+
+        var burning = base(.industrial, density: 4)
+        for cell in burning.footprintCells(origin: origin, size: 2) {
+            burning[cell].fireTicks = 2
+            burning[cell].damagedBy = .fireStation
+        }
+
+        var building = base(density: 1)
+        for cell in building.footprintCells(origin: origin, size: 2) {
+            building[cell].constructionRemaining = 5
+        }
+
+        var abandoning = base(density: 3)
+        abandoning.cityDemand = CityDemand(residential: -1, commercial: -1, industrial: -1)
+
+        var cutOff = base(density: 3)
+        for x in 0 ..< 20 { cutOff[GridPosition(x: x, y: 2)].zone = .empty }
+
+        var worn = base(density: 2)
+        worn[GridPosition(x: 1, y: 2)].wear = 0.8
+
+        // **A lot with everything.** Without it every pill in the sheet is
+        // drawn in its "off" state and the render says nothing about whether
+        // "covered" and "not covered" are distinguishable — which is the only
+        // question a row of pills exists to answer. Same trap the overlay
+        // render fell into with a fixture that had no pipes in it.
+        var served = base(density: 4)
+        served.placeBuilding(zone: .policeStation, origin: GridPosition(x: 3, y: 0))
+        served.placeBuilding(zone: .fireStation, origin: GridPosition(x: 6, y: 0))
+        served.placeBuilding(zone: .school, origin: GridPosition(x: 9, y: 0))
+        served.placeBuilding(zone: .hospital, origin: GridPosition(x: 12, y: 0))
+        // Piped and wired rather than merely nearby: the first version put the
+        // tower and generator a few tiles off and trusted
+        // `Water.directSupplyRadius` to bridge the gap, and the render showed
+        // both pills dark — so the "fully served" panel was quietly reporting
+        // a lot with no utilities and a headline to match.
+        served.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 4))
+        served.placeBuilding(zone: .generator, origin: GridPosition(x: 6, y: 4))
+        for x in 0 ... 7 {
+            served[GridPosition(x: x, y: 3)].hasPipe = true
+            served[GridPosition(x: x, y: 3)].hasPowerLine = true
+        }
+        for y in 0 ... 4 {
+            served[GridPosition(x: 1, y: y)].hasPipe = true
+            served[GridPosition(x: 1, y: y)].hasPowerLine = true
+        }
+        served[GridPosition(x: 3, y: 4)].hasPipe = true
+        served[GridPosition(x: 6, y: 4)].hasPowerLine = true
+        served.waterSupply = Water.computeSupply(for: served)
+        served.powerSupply = PowerGrid.computeSupply(for: served, outageActive: false)
+
+        return [
+            ("served", report(served)),
+            ("ready", report(base(density: 1))),
+            ("needs-water", report(base(density: CitySimulator.waterRequiredFromLevel - 1))),
+            ("burning", report(burning)),
+            ("abandoning", report(abandoning)),
+            ("cut-off", report(cutOff)),
+            ("building", report(building)),
+            ("worn", report(worn)),
+            ("empty", TileReport.make(at: GridPosition(x: 15, y: 15), in: base())),
+        ]
+    }
+
     private var componentSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("RETRO UI — COCKPIT PARTS")
