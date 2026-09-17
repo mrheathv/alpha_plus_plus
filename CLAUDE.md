@@ -1596,6 +1596,104 @@ Two things follow that are worth keeping:
   Prefer it wherever the field is genuinely optional. A non-optional one is a
   format break, and should be declared as such.
 
+### Phase 6 (done): infrastructure is owned, not bought
+
+Every piece of infrastructure in the game was a one-time purchase. You laid a
+road, paid a flat `roadUpkeepPerTile` forever, and it worked identically on
+tick 10,000 as on tick 1 — so the only question a mature treasury faced was
+"what else can I build", never "can I still afford what I have."
+
+`Infrastructure` wears roads, pipes and power lines out, and
+`ServiceFunding.road` — public works — is the budget that holds them together.
+Phase 5 gave the city weather from outside; this is entropy from inside.
+
+**Wear is deterministic, for the same three reasons `RegionalEconomy` is**: a
+player steers against a trend rather than a die, the harness needs cities
+reproducible tick for tick, and `AlwaysZeroRNG` would have rotted every fixture
+city's network at maximum speed. Entropy is not an event — it is what happens
+when no event does.
+
+#### Congestion is the mechanic; the base rate is just the floor
+
+Three rates, and the relationship between them is the whole design:
+
+| | per tick |
+|---|---|
+| `baseWearPerTick` | 0.002 — a quiet street, 500 ticks to ruin unmaintained |
+| `congestionWearPerTick` | 0.010 — what a *saturated* road adds on top |
+| `repairPerTickAtFullFunding` | 0.005 |
+
+Full funding comfortably covers the floor and comfortably does **not** cover
+congestion. So what wears a city out is its own traffic: the arterials rot and
+the back streets do not, and a congested corridor has two real answers — pay
+for it, or fix the congestion with a highway or a transit line. A flat decay
+rate would have been one more bill with no decision attached.
+`InfrastructureTests.testFundingCoversQuietRoadsAndNotBusyOnes` states exactly
+that relationship, checkable without building a city.
+
+Two consequences worth naming:
+
+- **A worn road carries less traffic**, which makes it more congested, which
+  wears it faster. That loop is deliberate, and
+  `ruinedCapacityFraction` (0.4) is the floor that keeps it recoverable rather
+  than terminal — the house rule phase 2 settled for this exact shape.
+- **A pipe or line worn past `failureWear` (0.75) stops conducting**, and the
+  gap it leaves cuts the network exactly the way a missing tile would, because
+  the player's fix for both is the same. It fails *before* total ruin so the
+  overlay has a warning band, rather than being an invisible cliff.
+
+One tile carries one wear value covering the road *and* whatever is buried
+under it. That is a simplification with a defensible shape — a public-works
+budget resurfaces the street and replaces the main under it in the same job —
+and it is why `clearBuilding` carries wear forward whenever anything buried
+remains: otherwise rebuilding the road on top would be a full repair of the
+main for the price of a bulldoze.
+
+#### Measured
+
+A control pair, the design `testLosingPowerMakesACityDecline` had to adopt:
+two identical settled cities, one of which stops paying for public works, over
+375 ticks.
+
+| | density | worn | net/tick | treasury |
+|---|---|---|---|---|
+| funded | 208 | 0% | +56 | 15,276 |
+| neglected | **124** | **100%** | **−80** | **1,972** |
+
+Neglect is dominated on both axes — 40% less city *and* less money — which is
+what makes the dial a lever rather than a tax. The standing test asserts both
+halves, because either one alone would let the mechanic degenerate: without the
+density gap it is free money, without the treasury gap it is a dominant
+strategy.
+
+**One honest caveat about that measurement.** The funded city reads 0% worn,
+which means full funding holds everything in the quick profile — the congestion
+term never bites there. That is a property of the fixture, not of the mechanic:
+`CitySpec.roadSpacing` is 3 so that every lot touches a road, which spreads
+traffic thin by construction. A player city with a few arterials concentrates
+it. The congestion term is covered directly by
+`testABusyRoadWearsFasterThanAQuietOne` instead.
+
+#### What it turned up in the UI
+
+- **`.school` and `.hospital` had no funding row anywhere**, and had not since
+  they were added. Both carry a dial that `LandValue` and `CityHazards`
+  actually read, both are documented as "heavy enough per building that
+  defunding one is a real lever," and neither was reachable. A lever with no
+  control on it is not a lever.
+- **City Hall had no render**, which is how that survived. Phase 4 of the
+  cockpit found two bugs in that panel by rendering it and the render then went
+  away with the mock cockpit sheet. It is the tallest view in the app and it
+  splits into two columns *by hand*, so it is exactly the layout that quietly
+  stops fitting. `testRenderCityPanel` brings it back.
+- The cockpit gets a **Roads meter** beside Water and Power, reading as a load
+  — a full red bar means the network is falling apart — so all three point the
+  same way and can be scanned without reading the labels. On the map, a worn
+  road's lane line simply goes dim; brightness rather than hue, because hue is
+  already saying which *kind* of road it is. The condition is quantised into
+  five steps in the cache key, since wear moves by a thousandth per tick and a
+  raw key would rebuild the entire street grid every second.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear

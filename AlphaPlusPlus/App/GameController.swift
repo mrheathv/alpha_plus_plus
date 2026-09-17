@@ -354,7 +354,20 @@ final class GameController: ObservableObject {
     private func clearBuilding(at origin: GridPosition) {
         let size = map[origin].zone.footprintSize
         for cell in map.footprintCells(origin: origin, size: size) {
-            map[cell] = Tile(position: cell, hasPipe: map[cell].hasPipe, hasPowerLine: map[cell].hasPowerLine)
+            let buried = map[cell].hasPipe || map[cell].hasPowerLine
+            map[cell] = Tile(
+                position: cell,
+                hasPipe: map[cell].hasPipe,
+                hasPowerLine: map[cell].hasPowerLine,
+                // Wear carries forward only while something buried is still
+                // there. `Infrastructure` keeps one wear value per tile for
+                // the whole corridor — surface and trench together — so
+                // rebuilding the road on top cannot make the main under it new
+                // again, which would be a full repair for the price of a
+                // bulldoze. Clear the tile completely and there is nothing
+                // left to be worn.
+                wear: buried ? map[cell].wear : nil
+            )
         }
     }
 
@@ -682,6 +695,11 @@ final class GameController: ObservableObject {
         // copies both carry it forward automatically since it's just
         // another field on the struct they copy.
         map.trafficLoad = Traffic.computeLoad(for: map)
+        // Between traffic and supply, and it has to be exactly there: wear
+        // reads this tick's congestion to decide which roads are rotting
+        // fastest, and a main that bursts this tick has to cut the network
+        // this tick rather than next.
+        map = Infrastructure.advance(map)
         map.waterSupply = Water.computeSupply(for: map)
         map.powerSupply = computePowerSupply()
         // The region moves on whether the player is watching or not, and it
@@ -758,6 +776,16 @@ final class GameController: ObservableObject {
     /// still a first-guess rate, same as everything else in this file, but
     /// one checked against real simulated numbers rather than a guess made
     /// in the abstract.
+    /// How much of the city's road, pipe and power-line network is worn far
+    /// enough to be worth worrying about — see
+    /// `Infrastructure.degradedFraction`. Drives the cockpit's Roads meter.
+    var infrastructureWear: Double { Infrastructure.degradedFraction(in: map) }
+
+    /// What the player is paying for public works, as a multiple of the
+    /// default. Named separately from `fundingLevel(for: .road)` because
+    /// upkeep reads it per tile, thousands of times per tick.
+    var maintenanceFunding: Double { map.serviceFunding.level(for: .road) }
+
     static let roadUpkeepPerTile: Double = 0.5
     static let highwayUpkeepPerTile: Double = 1.2
 
@@ -774,10 +802,14 @@ final class GameController: ObservableObject {
         var total = 0.0
         for tile in map.tiles {
             switch tile.zone {
+            // Scaled by the public-works dial, the same way a service
+            // building's cost scales with its own funding. This is the whole
+            // economics of phase 6: the dial buys road condition and charges
+            // for it on the axis the condition is spent on.
             case .road:
-                total += Self.roadUpkeepPerTile
+                total += Self.roadUpkeepPerTile * maintenanceFunding
             case .highway:
-                total += Self.highwayUpkeepPerTile
+                total += Self.highwayUpkeepPerTile * maintenanceFunding
             default:
                 guard tile.isBuildingAnchor else { continue }
                 let base = tile.zone.upkeepCost

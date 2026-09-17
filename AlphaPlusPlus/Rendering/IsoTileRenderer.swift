@@ -572,10 +572,22 @@ struct IsoTileRenderer {
     /// Drawn from the tile's centre out to the midpoint of each connected
     /// edge, so a straight run joins seamlessly and a junction reads as a
     /// junction without any tile needing to know more than its own neighbours.
-    func syncLaneLine(on node: SKNode, zone: ZoneType, connections: Traffic.RoadConnections) {
+    func syncLaneLine(
+        on node: SKNode,
+        zone: ZoneType,
+        connections: Traffic.RoadConnections,
+        condition: Double = 1
+    ) {
         let mask = (connections.east ? 1 : 0) | (connections.west ? 2 : 0)
             | (connections.north ? 4 : 0) | (connections.south ? 8 : 0)
-        let key = "\(zone.rawValue)|\(mask)"
+        // Condition is quantised into five steps rather than keyed raw.
+        // `Infrastructure.advance` moves wear by a thousandth of a tick, so a
+        // raw key would miss on every tile every tick and rebuild the entire
+        // street grid once a second — precisely the churn CLAUDE.md records as
+        // "why the map blinked". Five steps is more than the eye resolves in a
+        // glow's brightness anyway.
+        let step = Swift.max(0, Swift.min(4, Int(condition * 4.999)))
+        let key = "\(zone.rawValue)|\(mask)|\(step)"
         guard !isUpToDate(node, Self.laneNodeName, key) else { return }
         markUpToDate(node, Self.laneNodeName, key)
         node.childNode(withName: Self.laneNodeName)?.removeFromParent()
@@ -590,6 +602,13 @@ struct IsoTileRenderer {
         // separately-lit squares — the thing that makes the street grid look
         // like neon tube and not like painted markings.
         lane.blendMode = .add
+        // A worn road's neon goes out. Brightness rather than colour, because
+        // the lane line is already the one thing on the map whose *hue* says
+        // which kind of road it is — recolouring it would trade a fact the
+        // player needs for one they can get from the Roads meter. A dark
+        // street in a lit grid reads as neglect at any zoom, which is the only
+        // property that matters here.
+        lane.alpha = 0.35 + 0.65 * Double(step) / 4
         lane.zPosition = 0.25
         node.addChild(lane)
     }

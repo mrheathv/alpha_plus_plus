@@ -301,6 +301,91 @@ final class PlateauDiagnosticTests: XCTestCase {
         )
     }
 
+    /// **The phase-6 promise: infrastructure is owned, not bought.**
+    ///
+    /// A control pair, the same design `testLosingPowerMakesACityDecline`
+    /// had to adopt: two identical cities, one of which stops paying for
+    /// public works. Everything else — spec, seed, tick counts, the regional
+    /// cycle — is common to both, so the gap between them is the maintenance
+    /// budget and nothing else.
+    ///
+    /// Two things have to be true at once for this to be a lever rather than a
+    /// tax. Neglect has to *cost* something, or the dial is free money; and
+    /// paying has to cost something too, or there is no decision, just a
+    /// button you press once.
+    func testNeglectingMaintenanceCostsMoreThanItSaves() {
+        func city(maintenance: Double) -> GameController {
+            let spec = PlaytestHarness.spec(regionalWeather: true)
+            let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
+            _ = advanceUntilSettled(controller)
+            controller.setFundingLevel(maintenance, for: .road)
+            return controller
+        }
+
+        func totalDensity(_ controller: GameController) -> Int {
+            controller.map.tiles
+                .filter { $0.isBuildingAnchor && $0.zone.maxDensity > 0 }
+                .reduce(0) { $0 + $1.density }
+        }
+
+        let maintained = city(maintenance: 1)
+        let neglected = city(maintenance: 0)
+        XCTAssertEqual(totalDensity(maintained), totalDensity(neglected),
+                       "precondition: the pair must start identical")
+
+        // Long enough for the base wear rate to matter on its own: a quiet
+        // road needs 1 / `baseWearPerTick` ticks of total neglect to reach
+        // ruin, and the conduits fail at `failureWear` of that.
+        let horizon = Int(Infrastructure.failureWear / Infrastructure.baseWearPerTick)
+        var maintainedTreasury: [Int] = []
+        var neglectedTreasury: [Int] = []
+        for tick in 1 ... horizon {
+            maintained.advanceSimulation()
+            neglected.advanceSimulation()
+            if tick > horizon - 60 {
+                maintainedTreasury.append(maintained.treasury)
+                neglectedTreasury.append(neglected.treasury)
+            }
+        }
+
+        print(String(format: """
+
+            maintenance over %d ticks:
+              funded    density %d, worn %.0f%%, net %+d/tick, treasury %d
+              neglected density %d, worn %.0f%%, net %+d/tick, treasury %d
+            """,
+            horizon,
+            totalDensity(maintained), maintained.infrastructureWear * 100,
+            maintained.netRevenue, maintainedTreasury.last ?? 0,
+            totalDensity(neglected), neglected.infrastructureWear * 100,
+            neglected.netRevenue, neglectedTreasury.last ?? 0))
+
+        XCTAssertGreaterThan(
+            neglected.infrastructureWear, maintained.infrastructureWear + 0.2,
+            "the unfunded city's network is no more worn than the funded one — "
+            + "the public-works dial is not reaching `Infrastructure.advance`"
+        )
+        XCTAssertLessThan(
+            totalDensity(neglected), totalDensity(maintained),
+            "letting the network rot cost the city nothing — maintenance is a tax, not a lever"
+        )
+        // And the other half of a decision: paying is not free either. Without
+        // this the dial would be one you turn up once and forget, which is the
+        // same non-choice a dominant strategy always is.
+        XCTAssertGreaterThan(
+            maintained.upkeepCost, 0,
+            "maintenance costs the funded city nothing"
+        )
+        // Neglect must not be *strictly* cheaper either. The saving is real —
+        // the neglected city stops paying road upkeep entirely — so the test
+        // that matters is whether it comes out ahead on money as well as on
+        // density. It must not.
+        XCTAssertLessThan(
+            neglectedTreasury.last ?? 0, maintainedTreasury.last ?? 0,
+            "letting the network rot left the city richer — neglect is the dominant strategy"
+        )
+    }
+
     /// Prints the trajectory, and pins the shape the plan is aiming at: an
     /// unattended city loses ground, but slowly enough to be rescued.
     ///

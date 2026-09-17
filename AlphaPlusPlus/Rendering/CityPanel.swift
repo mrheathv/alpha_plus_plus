@@ -41,8 +41,20 @@ struct CityPanel: View {
 
     /// Every zone with its own funding dial, in the order they appear in the
     /// zoning toolbar so the two read the same way round.
+    ///
+    /// **`.school` and `.hospital` were missing**, and had been since they
+    /// were added — both carry a real dial that `LandValue` and `CityHazards`
+    /// read, both are documented as "heavy enough per building that defunding
+    /// one is a real lever", and neither had a row anywhere in the UI. A lever
+    /// with no control on it is not a lever.
+    ///
+    /// `.road` is new with phase 6: the public-works budget that keeps the
+    /// network from wearing out. It goes first because it is the one a player
+    /// cannot ignore — every other dial buys a service, this one stops what
+    /// you already own from falling apart.
     private static let fundableZones: [ZoneType] = [
-        .policeStation, .fireStation, .publicTransit, .subway, .powerPlant, .waterTower, .stadium,
+        .road, .policeStation, .fireStation, .school, .hospital,
+        .publicTransit, .subway, .powerPlant, .waterTower, .stadium,
     ]
 
     var body: some View {
@@ -186,8 +198,9 @@ struct CityPanel: View {
                     }
                 }
             }
-            Text("Funding buys both coverage and capacity: a half-funded water "
-                 + "budget halves what your towers can carry.")
+            Text("Funding buys coverage and capacity: a half-funded water budget "
+                 + "halves what your towers can carry. Road funding is different — "
+                 + "it is upkeep, and what it buys is a network that does not wear out.")
                 .font(.caption)
                 .foregroundStyle(RetroUITheme.textSecondary)
         }

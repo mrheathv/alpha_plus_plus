@@ -424,6 +424,18 @@ struct GameView: View {
         VStack(alignment: .leading, spacing: 6) {
             meter(label: "Water", load: controller.waterLoad, accent: RetroUITheme.accent(for: .waterTower))
             meter(label: "Power", load: controller.powerLoad, accent: RetroUITheme.accent(for: .powerPlant))
+            // Roads sit with the utilities rather than anywhere else because
+            // the question is identical in shape: how much headroom is left
+            // before something stops working. It reads as a *load* — a full
+            // red bar means the network is falling apart — so it points the
+            // same way the two above it do, which is what lets a player scan
+            // all three without reading the labels.
+            RetroMeter(
+                label: "Roads",
+                fill: controller.infrastructureWear,
+                detail: "\(Int(controller.infrastructureWear * 100))% worn",
+                accent: RetroUITheme.accent(for: .road)
+            )
         }
         .frame(width: 104)
     }

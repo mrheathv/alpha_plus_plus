@@ -43,6 +43,23 @@ struct ServiceFunding: Equatable, Codable, Sendable {
     var school: Double = 1.0
     var hospital: Double = 1.0
 
+    /// Public works: the budget that resurfaces roads and replaces the mains
+    /// under them. See `Infrastructure`.
+    ///
+    /// Roads were explicitly *not* fundable until this — the note above still
+    /// reads "roads aren't fundable" — on the reasoning that a road has no
+    /// coverage radius for funding to scale. That was right about coverage and
+    /// wrong about cost: a road is the one thing in the game a city owns
+    /// thousands of, and "can I afford the network I have" is the question
+    /// this whole phase exists to ask. `GameController.upkeepCost` scales the
+    /// per-tile road cost by this, so the dial buys condition and charges for
+    /// it on the same axis.
+    ///
+    /// Pipes and power lines share it, the way `.waterPump` shares
+    /// `.waterTower`'s: a budget line is "public works", not one slider per
+    /// conduit.
+    var road: Double = 1.0
+
     /// How well-funded `zone` currently is. Never optional — every
     /// `ZoneType` has an answer, even the ones that can't be funded at all.
     func level(for zone: ZoneType) -> Double {
@@ -60,7 +77,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .waterTower, .waterPump: return waterTower
         case .school: return school
         case .hospital: return hospital
-        case .empty, .residential, .commercial, .industrial, .road, .highway: return 1.0
+        case .road, .highway: return road
+        case .empty, .residential, .commercial, .industrial: return 1.0
         }
     }
 
@@ -80,7 +98,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .waterTower, .waterPump: waterTower = level
         case .school: school = level
         case .hospital: hospital = level
-        case .empty, .residential, .commercial, .industrial, .road, .highway: break
+        case .road, .highway: road = level
+        case .empty, .residential, .commercial, .industrial: break
         }
     }
 }

@@ -105,7 +105,14 @@ enum Traffic {
         guard map.contains(position) else { return 0 }
         let zone = map[position].zone
         guard isRoadLike(zone) else { return 0 }
-        let capacity = zone == .highway ? capacityPerRoadTile * highwayCapacityMultiplier : capacityPerRoadTile
+        let designed = zone == .highway ? capacityPerRoadTile * highwayCapacityMultiplier : capacityPerRoadTile
+        // A worn road carries less than it was built to. That closes a loop on
+        // purpose — less capacity means more congestion, and congestion is
+        // what wears a road out (see `Infrastructure.congestionWearPerTick`)
+        // — so a neglected arterial degrades faster the worse it gets.
+        // `Infrastructure.ruinedCapacityFraction` is the floor that keeps that
+        // spiral recoverable rather than terminal.
+        let capacity = designed * Infrastructure.capacityFraction(of: map[position])
         return min(1, Double(map.trafficLoad.load(at: position)) / capacity)
     }
 

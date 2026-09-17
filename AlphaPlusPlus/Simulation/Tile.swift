@@ -122,6 +122,17 @@ struct Tile: Equatable, Codable, Sendable {
     /// Is this lot part-way through building its next level?
     var isUnderConstruction: Bool { (constructionRemaining ?? 0) > 0 }
 
+    /// How worn the road, pipe or power line on this tile is: 0 for as-new, 1
+    /// for ruined. See `Infrastructure`.
+    ///
+    /// `Optional` for the same reason `damagedBy` and `constructionRemaining`
+    /// are, and with the same invariant those two keep: `nil` is the *only*
+    /// representation of "none". `Infrastructure.advance` stores `nil` rather
+    /// than 0 for a tile it has repaired back to perfect, because `Tile` is
+    /// `Equatable` and a tile that has been fixed has to compare equal to one
+    /// that was never broken.
+    var wear: Double?
+
     init(
         position: GridPosition,
         zone: ZoneType = .empty,
@@ -130,7 +141,8 @@ struct Tile: Equatable, Codable, Sendable {
         hasPipe: Bool = false,
         hasPowerLine: Bool = false,
         damagedBy: ZoneType? = nil,
-        constructionRemaining: Int? = nil
+        constructionRemaining: Int? = nil,
+        wear: Double? = nil
     ) {
         self.position = position
         self.zone = zone
@@ -140,5 +152,6 @@ struct Tile: Equatable, Codable, Sendable {
         self.hasPowerLine = hasPowerLine
         self.damagedBy = damagedBy
         self.constructionRemaining = constructionRemaining
+        self.wear = wear
     }
 }

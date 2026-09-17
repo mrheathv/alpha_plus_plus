@@ -130,7 +130,12 @@ enum Water {
         // empty supply before ever reaching it.
         let direct = directCoverage(in: map)
 
-        let pipes = Set(map.tiles.filter { $0.hasPipe }.map(\.position))
+        // A main worn past `Infrastructure.failureWear` has burst: it is
+        // still on the map, and it no longer carries water. Filtering here
+        // rather than inside the search means a failed length of pipe cuts the
+        // network in two exactly the way a missing one would — which is the
+        // point, since the player's fix for both is the same.
+        let pipes = Set(map.tiles.filter { $0.hasPipe && !Infrastructure.hasFailed($0) }.map(\.position))
         guard !pipes.isEmpty else { return WaterSupply(reachablePipes: [], directlyServed: direct) }
 
         var frontier: [GridPosition] = []

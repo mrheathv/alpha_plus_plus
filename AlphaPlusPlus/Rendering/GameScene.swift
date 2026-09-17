@@ -903,11 +903,12 @@ final class GameScene: SKScene {
     private func syncLaneLine(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let zone = map[position].zone
-        guard zone == .road || zone == .highway else {
-            tileRenderer.syncLaneLine(on: node, zone: zone, connections: Traffic.roadConnections(at: position, in: map))
-            return
-        }
-        tileRenderer.syncLaneLine(on: node, zone: zone, connections: Traffic.roadConnections(at: position, in: map))
+        tileRenderer.syncLaneLine(
+            on: node, zone: zone,
+            connections: Traffic.roadConnections(at: position, in: map),
+            // How worn the road is decides how brightly its lane line burns.
+            condition: Infrastructure.condition(of: map[position])
+        )
     }
 
     /// A `ZoneDistanceField` held only for the duration of a `refreshAll()`.

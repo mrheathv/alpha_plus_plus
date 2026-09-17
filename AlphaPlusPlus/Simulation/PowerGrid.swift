@@ -73,7 +73,10 @@ enum PowerGrid {
         // with no lines still powers what is next to it.
         let direct = directCoverage(in: map)
 
-        let lines = Set(map.tiles.filter { $0.hasPowerLine }.map(\.position))
+        // Same as `Water.computeSupply`: a line worn past
+        // `Infrastructure.failureWear` is down, and the gap it leaves is a gap
+        // in the grid.
+        let lines = Set(map.tiles.filter { $0.hasPowerLine && !Infrastructure.hasFailed($0) }.map(\.position))
         guard !lines.isEmpty else { return PowerSupply(reachableLines: [], directlyServed: direct) }
 
         var frontier: [GridPosition] = []

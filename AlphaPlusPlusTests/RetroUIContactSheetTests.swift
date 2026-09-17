@@ -36,6 +36,22 @@ final class RetroUIContactSheetTests: XCTestCase {
             GameView(controller: controller).frame(width: 1400, height: 760))
     }
 
+    /// **City Hall has no render, and it is the panel that most needs one.**
+    /// Phase 4 of the cockpit found two bugs in it by rendering it — a
+    /// `ScrollView` that blanked the whole body, and a native `Toggle` that
+    /// did not draw — and then the render went away with the mock cockpit
+    /// sheet. It is the tallest thing in the UI, it lays out in two hand-split
+    /// columns, and phase 6 just added three funding rows to it. A layout that
+    /// splits by hand and grows by hand is exactly the layout that quietly
+    /// stops fitting.
+    func testRenderCityPanel() throws {
+        let controller = GameController()
+        controller.setFundingLevel(0.5, for: .road)
+        controller.setOrdinance(\.neighborhoodWatch, active: true)
+        try render(name: "retro-city-hall", content:
+            CityPanel(controller: controller, dismiss: {}))
+    }
+
     private var componentSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("RETRO UI — COCKPIT PARTS")
