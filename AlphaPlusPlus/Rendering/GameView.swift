@@ -177,10 +177,13 @@ struct GameView: View {
             }
 
             RetroPanel(title: "Demand", accent: RetroUITheme.secondaryAccent) {
-                HStack(spacing: 8) {
-                    DemandBar(label: "R", value: controller.cityDemand.residential)
-                    DemandBar(label: "C", value: controller.cityDemand.commercial)
-                    DemandBar(label: "I", value: controller.cityDemand.industrial)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        DemandBar(label: "R", value: controller.cityDemand.residential)
+                        DemandBar(label: "C", value: controller.cityDemand.commercial)
+                        DemandBar(label: "I", value: controller.cityDemand.industrial)
+                    }
+                    regionMood
                 }
             }
 
@@ -198,6 +201,42 @@ struct GameView: View {
         .background(RetroUITheme.background)
         .overlay(alignment: .top) { sunBleed }
         .overlay(alignment: .top) { neonSeam }
+    }
+
+    /// What the region outside the city is doing, under the RCI bars it is
+    /// pushing on.
+    ///
+    /// **It sits in the Demand panel rather than in Alerts**, because it is
+    /// not an alert: a slump is weather, not a fault, and there is nothing
+    /// broken to go and fix. It belongs next to the bars because it is the
+    /// explanation for them — a player who sees R sagging needs to know
+    /// whether they over-zoned housing or whether the whole region is down,
+    /// since those two call for opposite responses. Without it the bars move
+    /// for reasons nothing on screen accounts for, which is the shape of an
+    /// unfair game.
+    private var regionMood: some View {
+        let mood = controller.map.regionalEconomy.mood
+        return HStack(spacing: 6) {
+            Text("REGION")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(RetroUITheme.textSecondary)
+            RetroBadge(
+                text: mood.label,
+                accent: Self.moodAccent(mood),
+                // Only a slump shouts. A boom is good news and needs no more
+                // than a colour; making both urgent would train the player to
+                // stop reading the badge.
+                isUrgent: mood == .slump
+            )
+        }
+    }
+
+    private static func moodAccent(_ mood: RegionalEconomy.Mood) -> Color {
+        switch mood {
+        case .boom: return RetroUITheme.accent(for: .residential)
+        case .steady: return RetroUITheme.textSecondary
+        case .slump: return .orange
+        }
     }
 
     /// A thin glowing seam where the chrome meets the map, echoing the neon

@@ -86,44 +86,60 @@ final class PlateauDiagnosticTests: XCTestCase {
     /// it should do so *gradually*, because the whole point of choosing
     /// recoverable over harsh is that a player who notices has time to act.
     func testLosingPowerMakesACityDecline() {
-        let spec = PlaytestHarness.spec()
-        let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
-        // Settled, measured rather than guessed. Sixty ticks was plenty when
-        // a lot reached full density in five; with construction it is not
-        // even enough for one lot to finish, and any fixed number picked
-        // instead would be a guess about a staggered, demand-gated city. A
-        // city still climbing goes on climbing after you take its power away,
-        // which is exactly how a working decline mechanic reads as a broken
-        // one: the first attempt here reported a 5% loss because growth was
-        // still cancelling most of the decline out.
-        let settleTicks = advanceUntilSettled(controller)
+        // **Two identical cities, one intervention.** Everything else here is
+        // held fixed by construction: same spec, same seed, same tick counts,
+        // and `RegionalEconomy` is a pure function of elapsed ticks — so the
+        // pair see the same weather and differ only in whether the power is on.
+        //
+        // The single-city version of this measured "the city 120 ticks later",
+        // which since phase 5 is the power cut *plus* wherever the regional
+        // cycle happened to be, and those are the same size. It reported a 7%
+        // loss where a control puts the real figure at more than double that.
+        // Third time this file has had to learn it: check whether the thing
+        // moved or the yardstick did.
+        func settledCity() -> GameController {
+            // Weather on: the point of a control pair is that the two cities
+            // live in the same world, and a world with weather is the one the
+            // player plays in.
+            let spec = PlaytestHarness.spec(regionalWeather: true)
+            let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
+            // Settled, measured rather than guessed. Sixty ticks was plenty
+            // when a lot reached full density in five; with construction it is
+            // not even enough for one lot to finish, and any fixed number
+            // picked instead would be a guess about a staggered, demand-gated
+            // city.
+            _ = advanceUntilSettled(controller)
+            return controller
+        }
 
-        // **Built stock, not population**, and this took a wrong answer to
-        // find. Population counts residents only, and the quick profile's
-        // settled city keeps its density where the *jobs* are: sixteen
-        // industrial lots sit at density 4 against six residential ones. So
-        // cutting the power — which caps every lot at
-        // `sustainableDensity(hasPower: false)`, i.e. 3 — knocks 14% off the
-        // city's total density while moving population by 3%. Reading
-        // population alone said "losing a utility costs nothing" about a
-        // mechanic that was working correctly the whole time.
-        func totalDensity() -> Int {
+        func totalDensity(_ controller: GameController) -> Int {
             controller.map.tiles
                 .filter { $0.isBuildingAnchor && $0.zone.maxDensity > 0 }
                 .reduce(0) { $0 + $1.density }
         }
 
-        let settled = totalDensity()
-        print("\nlosing power: city settled after \(settleTicks) ticks "
-              + "at density \(settled), population \(controller.population)")
+        let powered = settledCity()
+        let doomed = settledCity()
+        XCTAssertEqual(totalDensity(powered), totalDensity(doomed),
+                       "precondition: the control and the subject must start identical")
+
+        // **Built stock, not population**, and this took a wrong answer to
+        // find. Population counts residents only, and the quick profile's
+        // settled city keeps its density where the *jobs* are: sixteen
+        // industrial lots at density 4 against six residential ones. Cutting
+        // the power caps every lot at `sustainableDensity(hasPower: false)`,
+        // i.e. 3 — which moves total density several times as far as it moves
+        // population. Reading population alone said "losing a utility costs
+        // nothing" about a mechanic that was working correctly the whole time.
+        let settled = totalDensity(doomed)
+        XCTAssertGreaterThan(settled, 100, "precondition: expected a real city to knock down")
         for zone in [ZoneType.residential, .commercial, .industrial] {
             var histogram = [Int](repeating: 0, count: 6)
-            for tile in controller.map.tiles where tile.isBuildingAnchor && tile.zone == zone {
+            for tile in doomed.map.tiles where tile.isBuildingAnchor && tile.zone == zone {
                 histogram[min(5, tile.density)] += 1
             }
             print("  \(zone.rawValue) lots at density 0…5: \(histogram)")
         }
-        XCTAssertGreaterThan(settled, 100, "precondition: expected a real city to knock down")
 
         // Take the grid down by defunding it, and walk away.
         //
@@ -133,34 +149,51 @@ final class PlateauDiagnosticTests: XCTestCase {
         // demolishing every plant on a 24×24 map lifts a land-value penalty
         // across most of the city at the same moment it cuts the power. Every
         // lot the old land value had capped below density 3 was then free to
-        // climb, and that backfill cancelled out almost all of the decline —
-        // 3% lost, which reads exactly like "decline does not work".
+        // climb, and that backfill cancelled out almost all of the decline.
         //
         // Defunding is the clean instrument: `PowerGrid.computeSupply` returns
         // an empty grid the moment the dial hits zero, the buildings stay
-        // where they are, and nothing else about the city moves. The general
-        // form of this is already in this file's own history — when a
-        // measurement changes, check whether the thing moved or the yardstick
-        // did.
-        controller.setFundingLevel(0, for: .powerPlant)
+        // where they are, and nothing else about the city moves.
+        doomed.setFundingLevel(0, for: .powerPlant)
 
         var after10 = 0
-        for tick in 1 ... 120 {
-            controller.advanceSimulation()
-            if tick == 10 { after10 = totalDensity() }
+        var control10 = 0
+        // The tail, not the last tick. Both cities still ride the regional
+        // cycle, and a single final reading is one arbitrary point on it —
+        // the same reason `PlaytestHarness.report` quotes a tail mean for
+        // every steady-state claim it makes.
+        var doomedTail: [Int] = []
+        var controlTail: [Int] = []
+        for tick in 1 ... 240 {
+            doomed.advanceSimulation()
+            powered.advanceSimulation()
+            if tick == 10 {
+                after10 = totalDensity(doomed)
+                control10 = totalDensity(powered)
+            }
+            if tick > 180 {
+                doomedTail.append(totalDensity(doomed))
+                controlTail.append(totalDensity(powered))
+            }
         }
-        let after120 = totalDensity()
+        func mean(_ values: [Int]) -> Double {
+            Double(values.reduce(0, +)) / Double(values.count)
+        }
+        let withoutPower = mean(doomedTail)
+        let withPower = mean(controlTail)
 
-        print(String(format: "losing power: density %d settled → %d after 10 ticks → %d after 120 (%.0f%% lost)",
-                     settled, after10, after120,
-                     (1 - Double(after120) / Double(settled)) * 100))
+        print(String(format: "losing power: density %d settled → %d after 10 ticks; "
+                     + "tail mean %.0f without power against %.0f with "
+                     + "(%.0f%% cost of the outage)",
+                     settled, after10, withoutPower, withPower,
+                     (1 - withoutPower / withPower) * 100))
 
         XCTAssertLessThan(
-            after120, Int(Double(settled) * 0.9),
-            "a city stripped of power did not shed density — losing a utility should cost something"
+            withoutPower, withPower * 0.9,
+            "a city stripped of power ended up no worse than the one that kept it"
         )
         XCTAssertGreaterThan(
-            after10, Int(Double(settled) * 0.9),
+            after10, Int(Double(control10) * 0.9),
             "the city collapsed within ten ticks — decline should be gradual enough to notice and fix"
         )
     }
@@ -211,6 +244,60 @@ final class PlateauDiagnosticTests: XCTestCase {
         XCTAssertGreaterThan(
             best, worst + 0.5,
             "an oversupplied city thinned evenly — the worst neighbourhoods should empty first"
+        )
+    }
+
+    /// **The phase-5 promise: the region has weather.**
+    ///
+    /// Phase 1 measured a settled city moving by 72 people across 1,450 ticks
+    /// — a steady state so perfect that nothing the player could watch for
+    /// ever changed. Phase 2 gave neglect consequences and barely moved that
+    /// number, and the note written then said exactly why: decline fires when
+    /// a lot's surroundings degrade, and in a city where nothing changes, they
+    /// do not. `RegionalEconomy` is the thing that changes them.
+    ///
+    /// Measured on built density rather than population, for the reason
+    /// `testLosingPowerMakesACityDecline` had to learn: population is one
+    /// sector's share of the city, and the region pushes on all three.
+    func testTheRegionKeepsASettledCityMoving() {
+        let spec = PlaytestHarness.spec(regionalWeather: true)
+        let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
+        let settleTicks = advanceUntilSettled(controller)
+
+        func totalDensity() -> Int {
+            controller.map.tiles
+                .filter { $0.isBuildingAnchor && $0.zone.maxDensity > 0 }
+                .reduce(0) { $0 + $1.density }
+        }
+
+        // A full sweep of the longest sector cycle (211 ticks) and then some,
+        // so the sample is guaranteed to contain a boom and a slump rather
+        // than however many happen to fall inside a round number of ticks.
+        var densities: [Int] = []
+        var moods: Set<RegionalEconomy.Mood> = []
+        for _ in 0 ..< 600 {
+            controller.advanceSimulation()
+            densities.append(totalDensity())
+            moods.insert(controller.map.regionalEconomy.mood)
+        }
+
+        let low = densities.min() ?? 0
+        let high = densities.max() ?? 0
+        let swing = Double(high - low) / Double(high)
+        print(String(format: "\nregional weather: settled after %d ticks, density ranged %d…%d "
+                     + "over 600 ticks (%.0f%% swing)", settleTicks, low, high, swing * 100))
+
+        XCTAssertEqual(moods.count, 3, "the sample did not contain all three regional moods")
+        XCTAssertGreaterThan(
+            swing, 0.05,
+            "a settled city still does not move — the region is not reaching the simulation"
+        )
+        // And the other end: weather, not catastrophe. A city that loses half
+        // its stock to an ordinary downturn is not something a player can plan
+        // around, it is something that happens to them.
+        XCTAssertLessThan(
+            swing, 0.5,
+            "an ordinary regional slump gutted the city — this is meant to be weather"
         )
     }
 

@@ -120,12 +120,14 @@ enum PlaytestHarness {
     static func spec(
         includeUtilities: Bool = true,
         includeServices: Bool = true,
-        serviceSpacing: Int = 6
+        serviceSpacing: Int = 6,
+        regionalWeather: Bool = false
     ) -> CitySpec {
         CitySpec(
             size: Profile.current.size,
             includeUtilities: includeUtilities,
             includeServices: includeServices,
+            regionalWeather: regionalWeather,
             serviceSpacing: serviceSpacing
         )
     }
@@ -152,6 +154,26 @@ enum PlaytestHarness {
         /// buildings below `CityHazards.coverageThreshold`.
         var includeUtilities: Bool = true
         var includeServices: Bool = true
+
+        /// Whether the region outside the city runs its boom-and-bust cycle.
+        ///
+        /// **Off by default, and that is a measurement decision rather than a
+        /// convenience.** This harness exists to measure the city's own
+        /// economics, and it already goes out of its way to hold the other
+        /// variables still — `roadSpacing` is chosen so every lot touches a
+        /// road specifically to stop "a measurement about economics silently
+        /// becoming a measurement about road layout". `RegionalEconomy` is the
+        /// same hazard and worse: its cycles run up to
+        /// `RegionalEconomy.longestCycle` ticks, which is *longer than the
+        /// whole quick profile*, so a tail mean taken with weather on is not
+        /// an average over the cycle at all — it is one arbitrary sample of
+        /// it. That is exactly how a solvent city came to report negative net
+        /// revenue the moment phase 5 landed: same city, same constants, the
+        /// yardstick had started moving.
+        ///
+        /// Turn it on for scenarios where the region *is* the subject — see
+        /// `PlateauDiagnosticTests`, which does.
+        var regionalWeather: Bool = false
 
         /// How many building lots separate one service building from the
         /// next. Larger means thinner coverage and more hazard-eligible
@@ -183,6 +205,7 @@ enum PlaytestHarness {
     /// trying to measure.
     static func buildCity(_ spec: CitySpec) -> CityMap {
         var map = CityMap(width: spec.size, height: spec.size)
+        if !spec.regionalWeather { map.regionalEconomy = .calm }
 
         // Road rows first, so lots can be placed against them.
         for y in stride(from: 0, to: spec.size, by: spec.roadSpacing) {

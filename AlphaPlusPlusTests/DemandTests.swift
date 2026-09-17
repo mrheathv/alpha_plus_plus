@@ -3,10 +3,26 @@ import XCTest
 
 final class DemandTests: XCTestCase {
 
+    /// Every fixture here builds its map through this, so the region outside
+    /// the city holds still.
+    ///
+    /// These tests are about `Demand`'s own arithmetic — that a balanced city
+    /// reads exactly zero, that the tax rate subtracts exactly
+    /// `taxDemandSensitivity`. `RegionalEconomy` adds a fourth term that moves
+    /// every tick, so with weather on, "exactly zero" becomes "zero plus
+    /// wherever the cycle happens to be" and these tests would be pinning the
+    /// shape of the cycle rather than the formula. `RegionalEconomyTests`
+    /// covers the cycle, and covers the fact that it reaches demand at all.
+    private func makeMap(width: Int = 5, height: Int = 5) -> CityMap {
+        var map = CityMap(width: width, height: height)
+        map.regionalEconomy = .calm
+        return map
+    }
+
     func testBalancedCityHasZeroDemandForEveryType() {
         // No buildings at all: population 0, jobs 0 -- perfectly balanced,
         // if uninteresting.
-        let map = CityMap(width: 5, height: 5)
+        let map = makeMap(width: 5, height: 5)
 
         let demand = Demand.compute(for: map)
 
@@ -18,7 +34,7 @@ final class DemandTests: XCTestCase {
     /// More jobs than people should pull residential demand positive --
     /// the city has openings nobody's around to fill.
     func testUnfilledJobsRaiseResidentialDemand() {
-        var map = CityMap(width: 5, height: 5)
+        var map = makeMap(width: 5, height: 5)
         map.placeBuilding(zone: .commercial, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 0, y: 0)].density = 5 // covers (0,0)-(1,1): 5 * 3 = 15 jobs, 0 population
 
@@ -31,7 +47,7 @@ final class DemandTests: XCTestCase {
     /// positive (and equal to each other, in this v1 with no split yet)
     /// -- a workforce with nowhere to work.
     func testJobSeekersRaiseCommercialAndIndustrialDemandEqually() {
-        var map = CityMap(width: 5, height: 5)
+        var map = makeMap(width: 5, height: 5)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 0, y: 0)].density = 5 // 5 * 4 = 20 population, 0 jobs
 
@@ -48,7 +64,7 @@ final class DemandTests: XCTestCase {
     /// that's just somewhat out of balance past a point, not an
     /// ever-larger number nothing else interprets differently.
     func testDemandClampsAtPlusOrMinusOne() {
-        var map = CityMap(width: 20, height: 20)
+        var map = makeMap(width: 20, height: 20)
         var x = 0
         while x < 18 {
             map.placeBuilding(zone: .commercial, origin: GridPosition(x: x, y: 0))
@@ -89,7 +105,7 @@ final class DemandTests: XCTestCase {
     /// `businessTaxBreakBoost` without touching Industrial or Residential
     /// at all.
     func testBusinessTaxBreakBoostsCommercialDemandOnly() {
-        var map = CityMap(width: 5, height: 5)
+        var map = makeMap(width: 5, height: 5)
         map.ordinances.businessTaxBreak = true
 
         let demand = Demand.compute(for: map)
@@ -103,7 +119,7 @@ final class DemandTests: XCTestCase {
     /// already at maximum commercial demand doesn't read as "even more
     /// than maximum" just because the ordinance is also active.
     func testBusinessTaxBreakBoostClampsAtOne() {
-        var map = CityMap(width: 20, height: 20)
+        var map = makeMap(width: 20, height: 20)
         var x = 0
         while x < 18 {
             map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: 0))
@@ -125,7 +141,7 @@ final class DemandTests: XCTestCase {
     /// yet reads as neutral/empty" default `TrafficLoad`/`WaterSupply`
     /// already use for their own uncomputed state.
     func testCityMapDefaultsToBalancedDemand() {
-        let map = CityMap(width: 5, height: 5)
+        let map = makeMap(width: 5, height: 5)
 
         XCTAssertEqual(map.cityDemand, CityDemand())
     }
@@ -136,7 +152,7 @@ final class DemandTests: XCTestCase {
     /// all — the baseline every other balance number was tuned against has to
     /// stay exactly where it was.
     func testTheDefaultTaxRateAppliesNoPressure() {
-        var map = CityMap(width: 9, height: 9)
+        var map = makeMap(width: 9, height: 9)
         map.taxRate = 1.0
 
         let demand = Demand.compute(for: map)
@@ -149,7 +165,7 @@ final class DemandTests: XCTestCase {
     /// A high rate makes the whole city less attractive to build in: all three
     /// types drop, by the same amount.
     func testAHighTaxRateSuppressesEveryTypeEqually() {
-        var map = CityMap(width: 9, height: 9)
+        var map = makeMap(width: 9, height: 9)
         map.taxRate = 2.0
 
         let demand = Demand.compute(for: map)
@@ -163,7 +179,7 @@ final class DemandTests: XCTestCase {
     /// Cutting taxes below the default genuinely attracts growth, rather than
     /// just forfeiting income — that is what makes the low end a strategy.
     func testALowTaxRateRaisesDemand() {
-        var map = CityMap(width: 9, height: 9)
+        var map = makeMap(width: 9, height: 9)
         map.taxRate = 0.0
 
         let demand = Demand.compute(for: map)
@@ -192,7 +208,7 @@ final class DemandTests: XCTestCase {
     /// city-wide tax drag — which is exactly what an ordinance of that name
     /// ought to do.
     func testTheBusinessTaxBreakOffsetsTaxPressureForCommercialOnly() {
-        var map = CityMap(width: 9, height: 9)
+        var map = makeMap(width: 9, height: 9)
         map.taxRate = 1.5
         map.ordinances.businessTaxBreak = true
 
@@ -222,7 +238,7 @@ final class DemandTests: XCTestCase {
         // 330 jobs. A 30-job surplus against a 630-strong city: ~10% out of
         // balance, which under the old flat scale of 30 would have pinned
         // demand at exactly +1.0.
-        var big = CityMap(width: 40, height: 40)
+        var big = makeMap(width: 40, height: 40)
         placeBalancedCity(in: &big, residentialLots: 15, commercialLots: 22)
 
         let demand = Demand.compute(for: big)

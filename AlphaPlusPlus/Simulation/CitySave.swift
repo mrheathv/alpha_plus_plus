@@ -44,7 +44,33 @@ struct CitySave: Equatable, Codable, Sendable {
     /// `String` raw values, so inserting a new zone case never renumbers the
     /// existing ones (see its own doc comment) — between the two, old saves
     /// stay readable and unreadable ones say so.
-    static let currentFormatVersion = 1
+    static let currentFormatVersion = 2
+
+    /// The oldest format this build can still read.
+    ///
+    /// **Why there is a floor at all, and why it moved to 2.** `CityMap` uses
+    /// the synthesised `Codable` conformance, and synthesised decoding throws
+    /// on a *missing* key even for a property that has a default value. So
+    /// every non-optional field ever added to `CityMap` has silently made
+    /// older saves undecodable — `pollution`, `ordinances` and `taxRate` all
+    /// did, and none of them bumped this number, so the failure showed up as a
+    /// raw `DecodingError` ("the data couldn't be read") rather than as
+    /// anything a player could act on. `regionalEconomy` is the fourth, and
+    /// the first to admit it.
+    ///
+    /// The alternative is hand-writing `CityMap.init(from:)` with
+    /// `decodeIfPresent` for every field, which buys real migration at the
+    /// price of a decoder that must be updated in lockstep with the struct
+    /// forever — the kind of duplication this project has repeatedly found
+    /// goes stale without failing anything. For a game with no released
+    /// version, saying so loudly is worth more than migrating. The moment
+    /// there *is* a released version, this is the line to stop moving, and
+    /// that is what the constant is for.
+    ///
+    /// An optional field still needs no bump: `decodeIfPresent` handles those
+    /// for free, which is why `peakPopulation` and `Tile.damagedBy` cost
+    /// nothing. Prefer that where the field is genuinely optional.
+    static let minimumSupportedFormatVersion = 2
 
     /// The format version this particular save was written with.
     let formatVersion: Int
@@ -95,20 +121,50 @@ extension CitySave {
         /// The save was written by a build using a newer `formatVersion`
         /// than this one understands.
         case unsupportedFormatVersion(found: Int, supported: Int)
+
+        /// The save predates a format change this build cannot read back —
+        /// see `minimumSupportedFormatVersion`.
+        case obsoleteFormatVersion(found: Int, oldestSupported: Int)
     }
 
-    /// Checks `formatVersion` before anything reads the rest of this value.
+    /// Checks a `formatVersion` against what this build can read, in both
+    /// directions.
     ///
-    /// Only *newer* is rejected. An older version is explicitly allowed
-    /// through: there is exactly one format today, so there is nothing yet
-    /// to migrate, and the first time that stops being true this is the one
-    /// place a migration belongs.
-    func validateFormatVersion() throws {
-        guard formatVersion <= Self.currentFormatVersion else {
+    /// Static and taking a bare `Int` so it can run *before* the full decode.
+    /// That ordering is the whole point: a version mismatch usually means a
+    /// field this build has never heard of or a field it now requires, and
+    /// either way `JSONDecoder` throws its own opaque error first, so a check
+    /// that ran on an already-decoded `CitySave` could only ever catch the
+    /// cases where decoding happened to succeed anyway. See
+    /// `CitySaveFile.read(from:)`, which peeks at the version key alone.
+    static func validateFormatVersion(_ version: Int) throws {
+        guard version <= currentFormatVersion else {
             throw LoadError.unsupportedFormatVersion(
-                found: formatVersion,
-                supported: Self.currentFormatVersion
+                found: version,
+                supported: currentFormatVersion
+            )
+        }
+        guard version >= minimumSupportedFormatVersion else {
+            throw LoadError.obsoleteFormatVersion(
+                found: version,
+                oldestSupported: minimumSupportedFormatVersion
             )
         }
     }
+
+    /// Checks this save's own `formatVersion`.
+    func validateFormatVersion() throws {
+        try Self.validateFormatVersion(formatVersion)
+    }
+}
+
+/// Just enough of a save to read its version number, for the peek in
+/// `CitySaveFile.read(from:)`.
+///
+/// A separate type rather than a `JSONSerialization` dictionary lookup so the
+/// key is spelled once, by the compiler, from the same property name
+/// `CitySave` uses — a hand-written `"formatVersion"` string here would be
+/// free to drift from the real one and would fail open when it did.
+struct CitySaveVersion: Decodable, Sendable {
+    let formatVersion: Int
 }

@@ -684,6 +684,9 @@ final class GameController: ObservableObject {
         map.trafficLoad = Traffic.computeLoad(for: map)
         map.waterSupply = Water.computeSupply(for: map)
         map.powerSupply = computePowerSupply()
+        // The region moves on whether the player is watching or not, and it
+        // has to move *before* demand is computed — `Demand.compute` reads it.
+        map.regionalEconomy = map.regionalEconomy.advanced()
         map.cityDemand = Demand.compute(for: map)
         // Before hazards and growth, like every other whole-map value above:
         // `LandValue` reads it, and both of those read land value.

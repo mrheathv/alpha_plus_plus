@@ -254,11 +254,24 @@ final class CitySaveTests: XCTestCase {
         XCTAssertEqual(controller.snapshot(), before)
     }
 
-    func testAnOlderFormatVersionIsStillAccepted() throws {
+    /// A save older than `minimumSupportedFormatVersion` is refused, and
+    /// refused *by name*.
+    ///
+    /// This test used to assert the opposite — that any older version was
+    /// waved through — on the reasoning that there was only one format so far
+    /// and nothing to migrate. That reasoning quietly stopped being true three
+    /// fields ago: `CityMap` decodes through the synthesised `Codable`
+    /// conformance, which throws on a missing key even where the property has
+    /// a default, so `pollution`, `ordinances` and `taxRate` each made older
+    /// saves unreadable without anybody saying so. The old contract was
+    /// therefore not "older versions are accepted", it was "older versions
+    /// fail with `DecodingError`, which the player sees as *the data couldn't
+    /// be read*". Saying so is strictly better than pretending otherwise.
+    func testAFormatVersionBelowTheFloorIsRefusedByName() throws {
         let original = makeExercisedCity()
         let current = original.snapshot()
         let older = CitySave(
-            formatVersion: 0,
+            formatVersion: CitySave.minimumSupportedFormatVersion - 1,
             map: current.map,
             treasury: current.treasury,
             taxRate: current.taxRate,
@@ -267,7 +280,26 @@ final class CitySaveTests: XCTestCase {
         )
 
         let restored = makeController(rng: AlwaysZeroRNG())
-        XCTAssertNoThrow(try restored.restore(from: older))
+        XCTAssertThrowsError(try restored.restore(from: older)) { error in
+            XCTAssertEqual(
+                error as? CitySave.LoadError,
+                .obsoleteFormatVersion(
+                    found: CitySave.minimumSupportedFormatVersion - 1,
+                    oldestSupported: CitySave.minimumSupportedFormatVersion
+                )
+            )
+        }
+        XCTAssertEqual(restored.map, CityMap(width: MapSize.small.dimension,
+                                             height: MapSize.small.dimension),
+                       "a refused save still mutated the open city")
+    }
+
+    /// The current version is, of course, accepted — which is what makes the
+    /// test above a statement about the floor rather than about loading.
+    func testTheCurrentFormatVersionIsAccepted() throws {
+        let original = makeExercisedCity()
+        let restored = makeController(rng: AlwaysZeroRNG())
+        XCTAssertNoThrow(try restored.restore(from: original.snapshot()))
         XCTAssertEqual(restored.map, original.map)
     }
 

@@ -1467,6 +1467,135 @@ and `> 0.6`), because both ends matter. A city that never slips gives the
 player no reason to stay; a city that collapses while nobody is looking is a
 punishment, not a game.
 
+### Phase 5 (done): the region has weather
+
+Phase 2 gave neglect consequences and the headline number barely moved, and
+the note written then said exactly why: *"Phase 2 gives the city consequences;
+it does not give it weather."* `Demand` was a closed loop — the city's own
+residents against the city's own jobs, plus the tax rate — and a closed loop
+settles. Post-plateau, residential demand moved 0.05 across fourteen hundred
+ticks.
+
+`RegionalEconomy` is the open term. The region outside the city booms and busts
+on its own, pushing all three demands around independently of anything the
+player does. In a boom there is somewhere new to grow; in a slump the marginal
+lots — the ones `localDemand` already sorts to the bottom — cross
+`abandonmentDemand` and empty.
+
+**It is a clock, not a dice roll**, for three separate reasons, each of which
+would have been enough on its own:
+
+- A player can only steer against pressure they can *read*. A walk that
+  re-rolls every tick is noise, and noise is something you endure rather than
+  plan against.
+- The playtest harness needs a city reproducible tick for tick. Drawing from
+  the simulation RNG would put every balance measurement at the mercy of how
+  many other rolls happened first that tick.
+- `AlwaysZeroRNG` passes every probability gate, and most fixtures in this
+  project use it. A random cycle would have pinned at one extreme forever,
+  turning every test city into a permanent depression.
+
+So it is two sine waves of co-prime period per sector, summed. One sine is a
+metronome whose half-period a player learns; two that beat against each other
+give booms of differing height and spacing that never repeat inside a session.
+Each sector gets its own periods and phase, which is the part that makes this a
+decision rather than a volume knob: in lockstep, a slump is just "everything is
+worse for a while" and there is nothing to do but wait — decoupled, a city can
+be short of jobs while housing is oversupplied, which you answer by *re-zoning*
+using the RCI meter you already have.
+
+`amplitude` is 0.25, sized between the two numbers it has to sit among. A
+settled city already runs near demand −0.5 and `abandonmentDemand` is −0.75, so
+a slump of this depth carries the average to the line and the worst quarter of
+lots past it. And it stays below `taxDemandSensitivity`'s 0.5, so the player's
+own lever remains the stronger one: the region can make a bad tax rate hurt, it
+cannot overrule a good one.
+
+#### The cycle has to be long relative to how long building takes
+
+The first version used periods of 149–211 ticks, and measuring it found
+something worth keeping. **The region made every city permanently poorer**, not
+more volatile: the same scenario ran at net +6.6/tick and 390 population with
+the weather off, and −1.9/tick and 349 with it on.
+
+The cause is an interaction with phase 4. Construction takes 8 to 40 ticks per
+level, 125 from bare ground to maximum — while decline, once a lot is above
+what its surroundings sustain, starts immediately. So a boom shorter than the
+construction it invites cannot be captured: the city is still building when the
+upswing passes, and then sheds what it did build on the way down. Against flat
+upkeep, a city that oscillates below its potential is simply a poorer city. The
+mechanic was a one-way tax wearing a cycle's clothes.
+
+Periods roughly doubled — 347/139, 421/173, 293/199, all prime and pairwise
+co-prime — so an upswing lasts long enough to build into. That is the general
+form worth remembering: **a cycle in one system has to be long compared to the
+lag in the systems that respond to it, or it only ever punishes them.**
+
+The mood threshold needed the same treatment in miniature. At half of full
+amplitude the region read boom or slump on 12% of ticks, because the mean of
+three *decoupled* sectors has about a third of the variance of any one of them
+— a player could finish a session having never met either. At 0.35 it is named
+on roughly a quarter of ticks.
+
+#### Measured
+
+A settled 24×24 city, weather on, over 600 ticks: **built density ranges
+191–208, an 8% swing**, with all three moods occurring. It no longer sits still.
+
+The utility-decline measurement moved too, and got sharper:
+`testLosingPowerMakesACityDecline` now runs **two identical cities and cuts the
+power in one**, which is how it should always have worked. Everything else is
+held fixed by construction — same spec, same seed, same tick counts, and the
+region is a pure function of elapsed ticks, so the pair see the same weather.
+Measured against a control the outage costs **22% of built density**, against
+the 7% a single city reported when the cycle happened to be climbing underneath
+it.
+
+#### The harness holds the weather still, on purpose
+
+`CitySpec.regionalWeather` defaults to **off**, and that is a measurement
+decision rather than a convenience. This harness exists to measure the city's
+own economics, and it already works to hold everything else fixed —
+`roadSpacing` is chosen so every lot touches a road specifically to keep "a
+measurement about economics" from becoming "a measurement about road layout."
+The region is the same hazard and worse: its cycles run up to 421 ticks, which
+is **longer than the whole quick profile**, so a tail mean taken with weather on
+is not an average over the cycle at all, it is one arbitrary sample of it. That
+is precisely how a solvent city came to report negative net revenue the instant
+phase 5 landed — same city, same constants, the yardstick had started moving.
+`PlateauDiagnosticTests` turns it on, because there the region is the subject.
+
+`DemandTests` gets the same treatment through `RegionalEconomy.calm`: those
+tests assert that a balanced city reads *exactly* zero, and with weather on
+that becomes "zero plus wherever the cycle is," which would pin the cycle's
+shape rather than the demand formula. `calm` is a region with `swing: 0` — a
+real value rather than a test backdoor, and the obvious shape for a future
+difficulty or sandbox setting.
+
+#### Save compatibility, admitted rather than assumed
+
+`CityMap` decodes through the synthesised `Codable` conformance, and that
+throws on a *missing* key even where the property has a default value. So every
+non-optional field ever added to `CityMap` has silently made older saves
+unreadable — `pollution`, `ordinances` and `taxRate` all did, none bumped the
+format version, and the failure reached the player as a raw `DecodingError`
+("the data couldn't be read"). `regionalEconomy` is the fourth, and the first
+to say so: `currentFormatVersion` is 2, `minimumSupportedFormatVersion` is 2,
+and `CitySave.LoadError.obsoleteFormatVersion` names the problem.
+
+Two things follow that are worth keeping:
+
+- **The version is checked before the full decode.** `CitySaveFile.read`
+  decodes a one-field `CitySaveVersion` first. Checking an already-decoded
+  `CitySave` was the obvious order and was useless: a save from either side of
+  a format change is exactly the save whose fields do not line up, so
+  `JSONDecoder` threw first and the check that exists to produce a better
+  message never ran.
+- **An optional field still needs no bump.** `decodeIfPresent` handles those
+  for free, which is why `peakPopulation` and `Tile.damagedBy` cost nothing.
+  Prefer it wherever the field is genuinely optional. A non-optional one is a
+  format break, and should be declared as such.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear

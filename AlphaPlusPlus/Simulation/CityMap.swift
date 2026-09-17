@@ -100,6 +100,16 @@ struct CityMap: Equatable, Codable, Sendable {
     /// this moved.
     var taxRate: Double = 1.0
 
+    /// The boom-and-bust cycle of the region the city sits in — the one input
+    /// to `Demand` that does not come from the city itself.
+    ///
+    /// Stored rather than recomputed, unlike `cityDemand` and `pollution`
+    /// above, because it is genuinely *state*: a clock counting ticks since
+    /// the city was founded. That is also why it lives on the map rather than
+    /// on `GameController`, for the same reason `taxRate` does — the
+    /// simulation reads it, via `Demand.compute(for:)`.
+    var regionalEconomy = RegionalEconomy()
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width

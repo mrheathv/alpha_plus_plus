@@ -150,10 +150,19 @@ enum Demand {
         // precisely what an ordinance of that name ought to do.
         let taxPressure = (map.taxRate - 1.0) * taxDemandSensitivity
 
+        // And the one term that comes from outside the city entirely. Added
+        // here rather than applied to the result, so it is subject to the same
+        // clamp as everything else and cannot smuggle demand past ±1 — see
+        // `RegionalEconomy` for why the city needed an external input at all.
+        let region = map.regionalEconomy
+
         return CityDemand(
-            residential: clamped(pressure(from: unfilledJobs, scale: scale) - taxPressure),
-            commercial: clamped(commercialAndIndustrial + commercialBoost - taxPressure),
-            industrial: clamped(commercialAndIndustrial - taxPressure)
+            residential: clamped(pressure(from: unfilledJobs, scale: scale)
+                - taxPressure + region.strength(for: .residential)),
+            commercial: clamped(commercialAndIndustrial + commercialBoost
+                - taxPressure + region.strength(for: .commercial)),
+            industrial: clamped(commercialAndIndustrial
+                - taxPressure + region.strength(for: .industrial))
         )
     }
 

@@ -48,17 +48,27 @@ enum CitySaveFile {
 
     // MARK: - Reading
 
-    /// Reads a `CitySave` back from `url`, rejecting one written by a newer
-    /// build before returning it.
+    /// Reads a `CitySave` back from `url`, rejecting one this build cannot
+    /// read before returning it.
     ///
     /// The version check happens here rather than being left to the caller so
     /// there is no way to obtain an unvalidated `CitySave` from disk and use
     /// it by accident.
+    ///
+    /// **It reads the version first, on its own.** Decoding the whole save and
+    /// then checking was the obvious order and it was wrong: a save from
+    /// either side of a format change is exactly the save whose *fields* do
+    /// not line up, so `JSONDecoder` threw "the data couldn't be read because
+    /// it isn't in the correct format" before the version check — which exists
+    /// to say something better than that — ever ran. Two decodes of a file
+    /// measured in tens of kilobytes is not a cost worth optimising against a
+    /// legible error message.
     static func read(from url: URL) throws -> CitySave {
         let data = try Data(contentsOf: url)
-        let save = try makeDecoder().decode(CitySave.self, from: data)
-        try save.validateFormatVersion()
-        return save
+        let decoder = makeDecoder()
+        let version = try decoder.decode(CitySaveVersion.self, from: data)
+        try CitySave.validateFormatVersion(version.formatVersion)
+        return try decoder.decode(CitySave.self, from: data)
     }
 
     // MARK: - Where saves live
@@ -107,6 +117,10 @@ extension CitySaveFile {
                 return "This city was saved by a newer version of Alpha++ "
                     + "(format \(found); this build understands format \(supported)). "
                     + "Update Alpha++ to open it."
+            case let .obsoleteFormatVersion(found, oldestSupported):
+                return "This city was saved in an older format (\(found)) that this "
+                    + "build can no longer read; the oldest it understands is format "
+                    + "\(oldestSupported)."
             }
         }
         if error is DecodingError {
