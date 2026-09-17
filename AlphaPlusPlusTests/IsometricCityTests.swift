@@ -138,6 +138,12 @@ final class IsometricCityTests: XCTestCase {
         // indistinguishable from it while it actually was.
         map.pollution = Pollution.compute(for: map)
         map.trafficLoad = Traffic.computeLoad(for: map)
+        // A police station, so the crime overlay has a covered half and an
+        // uncovered half to tell apart. `city()` already has a fire station.
+        // Without one the whole map is uncovered and the picture shows a
+        // single state twice — the trap this fixture already had to be fixed
+        // for once, when it had no pipes in it.
+        map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 3, y: 6))
         return map
     }
 
@@ -401,6 +407,86 @@ final class IsometricCityTests: XCTestCase {
                       "the scaffold was rebuilt rather than raised")
     }
 
+    // MARK: - The crime and fire-risk overlays
+
+    private func riskCity() -> CityMap {
+        var map = CityMap(width: 26, height: 12)
+        for x in 0 ..< 24 { map[GridPosition(x: x, y: 4)].zone = .road }
+        map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 0, y: 6))
+        // Housing next to the station, housing far from it, and a factory far
+        // from it — three answers, one of which is not the one its distance
+        // suggests.
+        for (zone, x) in [(ZoneType.residential, 2), (.residential, 18), (.industrial, 21)] {
+            map.placeBuilding(zone: zone, origin: GridPosition(x: x, y: 2))
+            for cell in map.footprintCells(origin: GridPosition(x: x, y: 2), size: 2) {
+                map[cell].density = 3
+            }
+        }
+        return map
+    }
+
+    private func paint(_ mode: OverlayMode, at position: GridPosition, in map: CityMap)
+    -> IsoTileRenderer.OverlayPaint? {
+        IsoTileRenderer.paint(for: mode, at: position, in: map,
+                              using: ZoneDistanceField.compute(for: map))
+    }
+
+    /// **The whole point of the crime map**: it shows where crime can *happen*,
+    /// not where the stations are. A factory outside every police catchment is
+    /// perfectly safe, because crime does not threaten industry — and a map
+    /// that drew it as a problem would send the player to build a station they
+    /// do not need.
+    func testTheCrimeOverlayMarksWhatIsAtRiskRatherThanWhatIsUncovered() {
+        let map = riskCity()
+        func buildings(at position: GridPosition) -> IsoTileRenderer.OverlayBuildings? {
+            paint(.police, at: position, in: map)?.buildings
+        }
+        XCTAssertEqual(buildings(at: GridPosition(x: 2, y: 2)), .connected(true),
+                       "housing beside the station is being drawn as at risk")
+        XCTAssertEqual(buildings(at: GridPosition(x: 18, y: 2)), .connected(false),
+                       "housing far from any station is being drawn as safe")
+        XCTAssertEqual(buildings(at: GridPosition(x: 21, y: 2)), .connected(true),
+                       "a factory is being drawn as at risk from crime, which cannot touch it")
+        XCTAssertEqual(buildings(at: GridPosition(x: 0, y: 6)), .highlighted,
+                       "the station itself is not the thing the player is hunting for")
+    }
+
+    /// Fire threatens the opposite half of the city, so the same three lots
+    /// answer the other way round — which is what makes these two overlays
+    /// worth having separately rather than one "services" map.
+    func testTheFireOverlayCoversADifferentSetOfBuildings() {
+        var map = riskCity()
+        map.placeBuilding(zone: .fireStation, origin: GridPosition(x: 0, y: 8))
+        func buildings(at position: GridPosition) -> IsoTileRenderer.OverlayBuildings? {
+            paint(.fire, at: position, in: map)?.buildings
+        }
+        XCTAssertEqual(buildings(at: GridPosition(x: 18, y: 2)), .connected(true),
+                       "housing is being drawn as at risk from fire, which cannot touch it")
+        XCTAssertEqual(buildings(at: GridPosition(x: 21, y: 2)), .connected(false),
+                       "a factory far from any fire station is being drawn as safe")
+    }
+
+    /// The ground carries the catchment, so a player can see its edge and put
+    /// the next station where it runs out. That is a different question from
+    /// which buildings are in danger, and the two are painted separately —
+    /// sharing one colour tinted safe factories to near-black along with the
+    /// ground they stood on.
+    func testTheGroundShowsTheCatchmentFadingWithDistance() {
+        let map = riskCity()
+        func coverage(_ x: Int) -> CGFloat {
+            let color = paint(.police, at: GridPosition(x: x, y: 6), in: map)!.color
+            return color.usingColorSpace(.deviceRGB)?.brightnessComponent ?? 0
+        }
+        XCTAssertGreaterThan(coverage(1), coverage(6), "the catchment does not fade with distance")
+        XCTAssertGreaterThan(coverage(6), coverage(20), "the far side of the map is not darkest")
+
+        // And the building tint is *not* the ground tint out there, which is
+        // the bug this separation exists to prevent.
+        let far = paint(.police, at: GridPosition(x: 21, y: 2), in: map)!
+        XCTAssertNotEqual(far.color, far.buildingColor,
+                          "a safe factory on uncovered ground is being tinted with the ground")
+    }
+
     /// What a fully built-out map actually costs the renderer.
     ///
     /// The number that matters is **nodes in the scene**, not nodes per
@@ -530,7 +616,8 @@ final class IsometricCityTests: XCTestCase {
         // grids. A render showing only the utility overlays could not have
         // caught that, because those at least still had buildings in them.
         for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power),
-                        ("land value", .landValue), ("pollution", .pollution)] {
+                        ("land value", .landValue), ("pollution", .pollution),
+                        ("crime", .police), ("fire risk", .fire)] {
             panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
         }
         let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the overlay panels")
@@ -580,7 +667,8 @@ final class IsometricCityTests: XCTestCase {
             // overlays were fine while they painted nothing. See
             // `IsoTileRenderer.paint`.
             if let paint = IsoTileRenderer.paint(for: overlay, at: position, in: map, using: nil) {
-                renderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color)
+                renderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
+                                     buildingColor: paint.buildingColor)
             }
             world.addChild(node)
         }

@@ -864,7 +864,8 @@ final class GameScene: SKScene {
             if let paint = IsoTileRenderer.paint(
                 for: controller.overlayMode, at: position, in: map, using: overlayDistances
             ) {
-                tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color)
+                tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
+                                     buildingColor: paint.buildingColor)
             }
             // The buried layers stay here: they are drawn *on top of* the
             // overlay rather than being part of it, and they read `hasPipe` /

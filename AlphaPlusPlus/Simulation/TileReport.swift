@@ -156,15 +156,11 @@ struct TileReport: Equatable {
             commuteFound: anchor.zone == .residential && anchor.density > 0
                 ? map.trafficLoad.commuteFound(at: anchor.position)
                 : nil,
-            // Exactly `CityHazards`' own condition for whether a risk can fire
-            // at all, so "exposed" here and "a hazard can strike" there cannot
-            // come apart.
-            isExposedToCrime: anchor.density > 0
-                && CityHazards.crime.zones.contains(anchor.zone)
-                && police < CityHazards.crime.coverageThreshold,
-            isExposedToFire: anchor.density > 0
-                && CityHazards.fire.zones.contains(anchor.zone)
-                && fire < CityHazards.fire.coverageThreshold
+            // `CityHazards`' own condition, called rather than restated, so
+            // "exposed" here, on the crime overlay, and "a hazard can strike"
+            // in the simulation cannot come apart.
+            isExposedToCrime: CityHazards.isExposed(anchor, to: CityHazards.crime, in: map, using: field),
+            isExposedToFire: CityHazards.isExposed(anchor, to: CityHazards.fire, in: map, using: field)
         )
     }
 

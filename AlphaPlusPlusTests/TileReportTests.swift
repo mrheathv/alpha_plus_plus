@@ -282,6 +282,33 @@ final class TileReportTests: XCTestCase {
         XCTAssertTrue(TileReport.make(at: origin, in: homes).isExposedToCrime)
     }
 
+    /// **`isExposed` and what `apply` actually does must not come apart.**
+    ///
+    /// The inspector, the crime overlay and the hazard roll all ask "can this
+    /// be struck", and until they shared one definition they each had their
+    /// own. Grow a city, fire every hazard that can fire, and check that
+    /// nothing `isExposed` called safe was hit.
+    func testNothingCalledSafeIsEverActuallyStruck() {
+        let spec = PlaytestHarness.spec()
+        let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 31)
+        for _ in 0 ..< 90 { controller.advanceSimulation() }
+
+        let before = controller.map
+        let field = ZoneDistanceField.compute(for: before)
+        var rng = AlwaysZeroRNG() // every hazard that *can* fire, does
+        let (_, strikes) = CityHazards.apply(to: before, using: &rng)
+
+        XCTAssertGreaterThan(strikes.count, 0, "precondition: nothing was struck, so nothing was checked")
+        for strike in strikes {
+            let risk = strike.coveringService == .fireStation ? CityHazards.fire : CityHazards.crime
+            XCTAssertTrue(
+                CityHazards.isExposed(before[strike.position], to: risk, in: before, using: field),
+                "\(strike.position) was struck by \(strike.coveringService.rawValue) after being "
+                + "reported safe — the overlay is promising protection the simulation does not honour"
+            )
+        }
+    }
+
     /// An empty lot cannot be robbed or burned, whatever the coverage is.
     func testAnUndevelopedLotIsNotExposedToAnything() {
         let map = lot(.industrial, density: 0)

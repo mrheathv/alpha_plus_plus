@@ -163,6 +163,29 @@ enum CityHazards {
     /// Floored at 1 density level of damage where it applies, via
     /// `Swift.max(1, ...)` at the call site: a hospital should soften a
     /// hazard, never make one free. A `densityLoss` of 1 stays 1.
+    /// Can `risk` actually strike this building?
+    ///
+    /// Exactly the condition `apply` gates on — the right kind of zone,
+    /// something standing on it, and the covering service out of range. Not
+    /// private, and not re-derived by its callers, because both the inspector
+    /// and the crime overlay need to answer "is this block at risk" and a
+    /// second copy of the condition would drift from this one. This project
+    /// has paid for that mistake three times.
+    static func isExposed(
+        _ tile: Tile, to risk: Risk, in map: CityMap, using distances: ZoneDistanceField?
+    ) -> Bool {
+        guard tile.density > 0, risk.zones.contains(tile.zone) else { return false }
+        let footprint = map.footprintCells(origin: tile.buildingOrigin, size: tile.zone.footprintSize)
+        let best = footprint.map {
+            LandValue.falloffValue(
+                nearestZone: risk.coveringService,
+                falloffDistance: LandValue.serviceFalloffDistance,
+                at: $0, in: map, using: distances
+            )
+        }.max() ?? 0
+        return best < risk.coverageThreshold
+    }
+
     /// What one strike of `risk` costs a building, hospital coverage
     /// included.
     ///

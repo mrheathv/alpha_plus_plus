@@ -13,6 +13,13 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     case water
     case power
     case pollution
+    /// Police coverage — and, read the other way, where crime can happen.
+    /// The genre calls this the crime map for a reason: a player does not
+    /// especially want to know where their stations are, they want to know
+    /// which blocks are unprotected. See `IsoTileRenderer.paint`, which draws
+    /// the coverage on the ground and the *risk* on the buildings.
+    case police
+    case fire
 
     var id: String { rawValue }
 
@@ -24,6 +31,11 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
         case .water: return "Water"
         case .power: return "Power"
         case .pollution: return "Pollution"
+        // Named for what the player is looking for rather than for the
+        // building that provides it. "Police" is a map of stations; "Crime" is
+        // a map of the problem, and the problem is what you act on.
+        case .police: return "Crime"
+        case .fire: return "Fire Risk"
         }
     }
 }

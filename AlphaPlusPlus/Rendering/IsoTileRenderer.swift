@@ -174,7 +174,7 @@ struct IsoTileRenderer {
     // MARK: - Overlays
 
     /// How an overlay treats the buildings it is drawn over.
-    enum OverlayBuildings {
+    enum OverlayBuildings: Equatable {
         /// Heatmaps — land value, pollution, traffic. The data *is* the
         /// picture, and buildings on top of it are clutter.
         case hidden
@@ -204,7 +204,29 @@ struct IsoTileRenderer {
     /// colour to paint its ground.
     struct OverlayPaint {
         let buildings: OverlayBuildings
+        /// What to paint the ground.
         let color: SKColor
+        /// What to tint the building, when that is a different question from
+        /// what to paint the ground under it.
+        ///
+        /// It is the same colour for water and power, where the ground and the
+        /// building are answering the identical yes/no. It is *not* for crime
+        /// and fire risk: there the ground carries how strongly the service
+        /// reaches this tile — a gradient, so the player can see a catchment's
+        /// edge and decide where the next station goes — while the building
+        /// carries whether it is in danger, which is a different set. A
+        /// factory outside every police catchment is perfectly safe, because
+        /// crime does not threaten industry. Sharing one colour tinted those
+        /// safe factories to near-black along with the ground they stood on,
+        /// and the render showed a map claiming half the city was at risk when
+        /// it was not.
+        let buildingColor: SKColor
+
+        init(buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil) {
+            self.buildings = buildings
+            self.color = color
+            self.buildingColor = buildingColor ?? color
+        }
     }
 
     /// The whole overlay decision, in one place.
@@ -254,6 +276,35 @@ struct IsoTileRenderer {
                 buildings: isSource ? .highlighted : .connected(supplied),
                 color: RenderPalette.waterColor(for: supplied)
             )
+        case .police, .fire:
+            // **The ground says where the service reaches; the buildings say
+            // who is actually in danger.** Those are different sets and a map
+            // showing only one of them answers half the question: an
+            // industrial block outside every police catchment is not at risk,
+            // because crime does not threaten industry, and drawing it as a
+            // problem would send the player to build a station it does not
+            // need. `CityHazards.isExposed` is the simulation's own condition
+            // for whether a strike can land here, so the two cannot disagree.
+            let risk = mode == .police ? CityHazards.crime : CityHazards.fire
+            let tile = map[position]
+            let service = risk.coveringService
+            let coverage = LandValue.falloffValue(
+                nearestZone: service,
+                falloffDistance: LandValue.serviceFalloffDistance,
+                at: position, in: map, using: distances
+            )
+            let safe = !CityHazards.isExposed(tile, to: risk, in: map, using: distances)
+            return OverlayPaint(
+                buildings: tile.zone == service ? .highlighted : .connected(safe),
+                color: RenderPalette.coverageColor(for: coverage, service: service),
+                // Lit means fine and dark means trouble, the same way round as
+                // the water and power overlays — one rule to learn across all
+                // four, rather than a crime map that runs hot where the others
+                // run cold.
+                buildingColor: safe
+                    ? RenderPalette.fullColor(for: service)
+                    : RenderPalette.waterColor(for: false)
+            )
         case .power:
             let supplied = PowerGrid.hasSupply(at: position, in: map)
             let isSource = map[position].zone == .powerPlant || map[position].zone == .generator
@@ -272,7 +323,9 @@ struct IsoTileRenderer {
     /// kind of repetition that goes stale silently, because a forgotten line
     /// leaves a stray building floating over a heatmap rather than failing
     /// anything.
-    func applyOverlay(on node: SKNode, buildings: OverlayBuildings, color: SKColor) {
+    func applyOverlay(
+        on node: SKNode, buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil
+    ) {
         for name in [Self.markerNodeName, Self.laneNodeName,
                      Self.warningNodeName, Self.damageNodeName,
                      Self.constructionNodeName, Self.fireNodeName] {
@@ -297,7 +350,7 @@ struct IsoTileRenderer {
             // it to — blue means it has water — rather than asking them to
             // judge one building's brightness against another's.
             if let building = node.childNode(withName: Self.buildingNodeName) as? SKSpriteNode {
-                building.color = color
+                building.color = buildingColor ?? color
                 building.colorBlendFactor = 0.85
                 building.alpha = isSupplied ? 1 : 0.5
             }

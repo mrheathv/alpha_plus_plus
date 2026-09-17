@@ -72,6 +72,23 @@ enum RenderPalette {
     /// synthwave palette has no unpleasant colour in it by design. Borrowing
     /// industrial's own ember hue and souring it toward green keeps it in the
     /// family while still reading as contamination.
+    /// The Crime and Fire Risk overlays' ground colour: how strongly a
+    /// service reaches this tile, from unreached to right next door.
+    ///
+    /// Ramped from the "night" the map already sits on toward the service's
+    /// own colour, rather than through a second invented hue, so the overlay
+    /// and the station it is about agree by construction — the same
+    /// relationship `waterColor` keeps with a water tower. Squared on the way
+    /// up because `LandValue.falloffValue` is linear in distance and a linear
+    /// ramp makes a station's whole catchment read as one flat disc; with the
+    /// curve, the *edge* of the catchment is where the colour changes fastest,
+    /// which is exactly where the player is deciding whether to build another.
+    static func coverageColor(for value: Double, service: ZoneType) -> SKColor {
+        let clamped = max(0, min(1, value))
+        return background.blended(withFraction: CGFloat(clamped * clamped), of: fullColor(for: service))
+            ?? background
+    }
+
     static func pollutionColor(for level: Double) -> SKColor {
         let clamped = max(0, min(1, level))
         return SKColor(

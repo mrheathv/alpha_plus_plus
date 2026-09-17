@@ -1971,6 +1971,42 @@ own opaque ground and a drop shadow now, because legibility over arbitrary
 content is a property of *this* panel rather than of where it happens to be
 placed.
 
+### Crime and fire risk get their own maps
+
+Police and fire coverage were the last mechanics with no way to see them at
+all, and the genre's name for the police one is the tell: a player does not
+especially want a map of their stations, they want a map of the *problem*. So
+`OverlayMode.police` is called **Crime** and `.fire` is **Fire Risk**.
+
+**They answer two questions at once, which is why they are two colours.** The
+ground carries how strongly the service reaches each tile — a gradient, so the
+catchment's edge is visible and the player can see where the next station
+should go. The buildings carry whether they are actually in danger, which is a
+*different set*: a factory outside every police catchment is perfectly safe,
+because crime does not threaten industry.
+
+The first version shared one colour for both, and the render showed the cost
+immediately — those safe factories were tinted to near-black along with the
+uncovered ground they stood on, so the map claimed half the city was at risk
+when it was not. `OverlayPaint` now carries a separate `buildingColor`, which
+defaults to the ground colour for water and power, where the two genuinely are
+answering the same yes/no.
+
+Lit means fine and dark means trouble, the same way round as water and power —
+one rule across all four maps, rather than a crime map that runs hot where the
+others run cold.
+
+`CityHazards.isExposed` is the single definition of "can a hazard strike here",
+called by the overlay, the inspector, and nothing else re-deriving it.
+`TileReportTests.testNothingCalledSafeIsEverActuallyStruck` grows a city, fires
+every hazard that can fire, and checks that nothing the overlay called safe was
+hit — because an overlay promising protection the simulation does not honour is
+worse than no overlay.
+
+The overlay picker is driven by `OverlayMode.allCases`, so adding the two cases
+was the whole UI change; and the render picks them up automatically now that
+both it and `GameScene` share `IsoTileRenderer.paint`.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water
