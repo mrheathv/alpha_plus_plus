@@ -122,6 +122,23 @@ struct Tile: Equatable, Codable, Sendable {
     /// Is this lot part-way through building its next level?
     var isUnderConstruction: Bool { (constructionRemaining ?? 0) > 0 }
 
+    /// How many ticks this block has been on fire, or `nil` if it is not.
+    ///
+    /// Distinct from `damagedBy`, which is the *aftermath* — what a block is
+    /// waiting on to be rebuilt. This is the event still happening. A burning
+    /// block is almost always also damaged, since the strike that lit it did
+    /// its damage on the way in, but the two clear on completely different
+    /// conditions: the fire goes out on its own (see `Fire`), the damage waits
+    /// for a fire station.
+    ///
+    /// `Optional` for the same reason `damagedBy` and `constructionRemaining`
+    /// are, and with the same invariant: `nil` is the only representation of
+    /// "not burning". 0 means a fire that started this tick.
+    var fireTicks: Int?
+
+    /// Is this block alight right now?
+    var isBurning: Bool { fireTicks != nil }
+
     /// How worn the road, pipe or power line on this tile is: 0 for as-new, 1
     /// for ruined. See `Infrastructure`.
     ///
@@ -142,7 +159,8 @@ struct Tile: Equatable, Codable, Sendable {
         hasPowerLine: Bool = false,
         damagedBy: ZoneType? = nil,
         constructionRemaining: Int? = nil,
-        wear: Double? = nil
+        wear: Double? = nil,
+        fireTicks: Int? = nil
     ) {
         self.position = position
         self.zone = zone
@@ -153,5 +171,6 @@ struct Tile: Equatable, Codable, Sendable {
         self.damagedBy = damagedBy
         self.constructionRemaining = constructionRemaining
         self.wear = wear
+        self.fireTicks = fireTicks
     }
 }

@@ -84,6 +84,17 @@ final class IsometricCityTests: XCTestCase {
         // buildings it will become — the one thing a screenshot of a settled
         // city can never show, and the only way to check that a rising deck
         // still reads as a rising deck when it is nine pixels tall.
+        // Two blocks alight, so the render shows what an active disaster looks
+        // like next to the ordinary city — and specifically next to the damage
+        // badge, since "still burning" and "burnt down" are the two states a
+        // player most needs to tell apart at a glance.
+        for origin in [GridPosition(x: 5, y: 5), GridPosition(x: 13, y: 9)]
+        where map.contains(origin) && map[origin].zone.maxDensity > 0 {
+            for cell in map.footprintCells(origin: map[origin].buildingOrigin, size: 2) {
+                map[cell].fireTicks = 2
+            }
+        }
+
         var site = 0
         for position in positions(of: map) where map[position].isBuildingAnchor
             && map[position].zone.maxDensity > 0 {
@@ -438,6 +449,7 @@ final class IsometricCityTests: XCTestCase {
                                       connections: Traffic.roadConnections(at: position, in: map))
             }
             renderer.syncConstructionSite(on: node, tile: tile)
+            renderer.syncFireMarker(on: node, tile: tile)
             switch overlay {
             case .water:
                 renderer.applyOverlay(

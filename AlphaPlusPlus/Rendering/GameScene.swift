@@ -842,6 +842,7 @@ final class GameScene: SKScene {
             // Same reasoning, and the same anchor-only placement: a scaffold
             // belongs to a building, not to each of its cells.
             tileRenderer.syncConstructionSite(on: node, tile: tile)
+            tileRenderer.syncFireMarker(on: node, tile: tile)
             // Normal view only — the Water/Power overlays already have their
             // own, bigger signal for this (the whole lot's colour), so a badge
             // on top of that would be redundant.

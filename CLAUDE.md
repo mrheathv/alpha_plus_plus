@@ -1694,6 +1694,122 @@ it. The congestion term is covered directly by
   five steps in the cache key, since wear moves by a thousandth per tick and a
   raw key would rebuild the entire street grid every second.
 
+### Phase 7 (done): fire spreads, and the grid comes apart
+
+`CityHazards` struck a building and stopped: one lot lost density, recorded
+`damagedBy`, and the event was over inside the tick it happened. That is a
+hazard doing its job, but it is not a *disaster* — a disaster has a time
+dimension and a spatial one. It unfolds over several ticks, it threatens to get
+worse, and it asks the player to do something now rather than eventually.
+
+`Fire` gives the fire risk both. A strike now leaves the block alight, and a
+block that is alight reaches for its neighbours. Everything the strike did
+before still happens on the tick it lands — density loss, `damagedBy`, the
+reported `Strike` — so this is propagation layered on that contract rather than
+a replacement for it. Crime stays atomic: one mechanic at a time, and a
+burglary reaching for the house next door is a different model.
+
+**It gives the fire station a second job.** Coverage used to be pure
+prevention, with nothing to say once a fire started. It now decides whether one
+burning lot becomes one burnt lot or a burnt district: a covered fire goes out
+three times faster and is about seven times less likely to jump. The asymmetry
+is deliberate — a service that merely shortened fires would read as a smaller
+number, while one that stops them *travelling* is the difference between an
+incident and a disaster.
+
+**And the player has an answer right now**: bulldozing a burning lot puts the
+fire out, at the cost of the building. That is exactly the trade a firebreak
+is, and it satisfies this project's standing rule that every warning the game
+raises has an answer the player can act on immediately.
+
+Two things fall out of the model for free:
+
+- **Roads are firebreaks**, without any of this knowing what a firebreak is. A
+  fire only travels to something that can burn, so a grid of streets bounds how
+  far one can reach — which rewards the layout the player is already building
+  for traffic reasons.
+- **Services are not kindling.** Spread only reaches growable zones. A random
+  roll quietly deleting the player's fire station would be a far bigger event
+  than this models.
+
+**Burnout is checked before spread, and that ordering is load-bearing twice
+over.** A fire going out this tick is not also reaching for the next block —
+the same "do one thing or the other, never both" exclusivity `CitySimulator`
+keeps between growing and being abandoned. And it is what keeps phase 7 from
+levelling the entire test suite: `AlwaysZeroRNG` passes every roll, so under it
+every fire goes out immediately and never spreads, which is exactly how
+fixtures behaved before this existed. `FireTests` pins that rather than
+trusting it.
+
+#### The blackout cascade
+
+An overload used to be a flat state: the grid drops city-wide, growth stalls,
+the meter turns red, and it stays exactly that bad for as long as you leave it.
+Nothing got *worse*, so an overloaded city was a city with a to-do item.
+`Infrastructure.overloadWearPerTick` makes the overload eat the lines carrying
+it, so they fail one at a time and a grid left overloaded does not merely stay
+broken — it comes apart, and the repair bill grows while you ignore it. Five
+times the base wear rate: the first line goes in about a hundred ticks even at
+full public-works funding.
+
+#### Measured
+
+`FireTests`, 25 runs of a row of eight adjacent industrial blocks with one
+alight: **26 blocks lost with no fire station, 1 with one.**
+
+`PlateauDiagnosticTests`, a settled city over 400 ticks:
+
+| | lots in rubble | worst moment |
+|---|---|---|
+| with services | 19% | 4 blocks alight |
+| without services | 38% | 5 blocks alight |
+
+The 19% sits right on the ~17% standing equilibrium phase 1 recorded, so spread
+did not blow up the balance — and services now halve it, where before they
+barely touched it.
+
+#### Three things worth keeping
+
+- **A mark whose only channel is hue vanishes on anything sharing the hue.**
+  The first fire was an ember-coloured glow, and the city render showed the
+  problem at once: an industrial building is *already* orange, so a fire on one
+  was indistinguishable from its own neon. Exactly the mistake the road button
+  made going black-on-black. Fire now has a silhouette no zone has — a flame
+  standing above the roofline, white-hot at the base — because height is the
+  one dimension a building cannot compete on, since the plume starts where the
+  building stops.
+- **`Double.random(in: 0 ..< 1)` keeps only the low 53 bits** of what a
+  generator hands it; it is filling a significand, not dividing a 64-bit range.
+  So a test generator returning `UInt64(0.9 * Double(UInt64.max))` produces
+  **0.2**, the fractional part of 0.9 × 2^11 — which looks exactly like a
+  working generator rolling unluckily. `AlwaysZeroRNG` and `AlwaysMaxRNG` are
+  immune by accident, sitting at the ends of the range. `ScriptedRNG` scales to
+  2^53 instead.
+- **Fire could not be tested with either existing generator**, and the reason
+  is worth recognising in general: `spreadChancePerTick` (0.18) sits *below*
+  `burnoutChancePerTick` (0.25), so "high enough not to burn out" and "low
+  enough to spread" do not overlap. One generator passing every roll burns out
+  on tick one; one failing every roll burns forever. Both report "fire does not
+  spread" about working code. A scripted sequence is the only thing that
+  separates a chain of rolls against *different* chances.
+
+#### And the bond scenario, finally measured properly
+
+`testACityThatBorrowsToItsCapCanStillPayTheInterest` asserted that an indebted
+city's net revenue was simply positive, which quietly made it a test of the
+quick profile's whole economy — and that economy sits close enough to
+break-even (tax revenue ~1,010 against ~990 of upkeep and civic services) that
+any change anywhere flips the sign. It did so twice, in phases 5 and 7, both
+times about mechanics with nothing to do with debt, while interest stayed a
+flat 37/tick, under 4% of revenue.
+
+It now runs a control pair differing only in whether the bond is taken. The
+property the 8x rate cut restored is that the *whole* cost of borrowing is the
+interest — that the debt does not feed back into the tax base servicing it —
+and measured that way it is exact: **borrowing to the cap costs 37/tick against
+37 of interest.** That the quick profile is structurally marginal is a real
+finding, and it belongs to the rebalance.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear

@@ -124,14 +124,20 @@ enum CityHazards {
                 // block being flattened, which is what a health service is
                 // for. It also gives the hospital a role of its own rather
                 // than making it a second police station.
-                let damage = hospitalIsInRange(of: footprint, in: map, using: distances)
-                    ? Swift.max(1, risk.densityLoss / 2)
-                    : risk.densityLoss
+                let damage = damage(from: risk, to: footprint, in: map, using: distances)
                 for cell in footprint {
                     next[cell].density = max(0, next[cell].density - damage)
                     // The block is now waiting on the very service whose
                     // absence let this happen — see `Tile.damagedBy`.
                     next[cell].damagedBy = risk.coveringService
+                    // And a fire keeps burning after the strike that started
+                    // it. Everything above is unchanged — the density loss,
+                    // the `damagedBy`, the reported `Strike` — so `Fire` is
+                    // propagation layered on this contract rather than a
+                    // replacement for it. Crime does not spread: one mechanic
+                    // at a time, and a burglary reaching for the house next
+                    // door is a different model from a fire doing it.
+                    if risk.coveringService == .fireStation { next[cell].fireTicks = 0 }
                 }
                 strikes.append(Strike(position: tile.position, coveringService: risk.coveringService))
             }
@@ -157,6 +163,30 @@ enum CityHazards {
     /// Floored at 1 density level of damage where it applies, via
     /// `Swift.max(1, ...)` at the call site: a hospital should soften a
     /// hazard, never make one free. A `densityLoss` of 1 stays 1.
+    /// What one strike of `risk` costs a building, hospital coverage
+    /// included.
+    ///
+    /// Not private, and not inlined in `apply`, because `Fire` needs the same
+    /// answer for a block the fire *reached* rather than struck: a fire that
+    /// arrives by spreading is the same fire, and "what a fire costs a
+    /// building" should have exactly one definition.
+    static func damage(
+        from risk: Risk,
+        to footprint: [GridPosition],
+        in map: CityMap,
+        using distances: ZoneDistanceField
+    ) -> Int {
+        // A hospital in range halves what the hazard takes out. It does not
+        // stop the fire — coverage by the *relevant* service is what prevents
+        // a strike, and that is `coverageThreshold` — but it is the difference
+        // between a setback and a block being flattened, which is what a
+        // health service is for. It also gives the hospital a role of its own
+        // rather than making it a second police station.
+        hospitalIsInRange(of: footprint, in: map, using: distances)
+            ? Swift.max(1, risk.densityLoss / 2)
+            : risk.densityLoss
+    }
+
     private static func hospitalIsInRange(
         of footprint: [GridPosition],
         in map: CityMap,

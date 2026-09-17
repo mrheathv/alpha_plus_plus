@@ -197,6 +197,80 @@ final class InfrastructureTests: XCTestCase {
         XCTAssertTrue(Infrastructure.hasFailed(tile))
     }
 
+    // MARK: - The blackout cascade
+
+    /// An overloaded grid used to be a flat state: it dropped, it stayed
+    /// dropped, and nothing about it got worse while you ignored it. Now it
+    /// eats the lines carrying it, so the fix gets more expensive the longer
+    /// you leave it.
+    func testAnOverloadedGridWearsOutTheLinesCarryingIt() {
+        /// A city drawing more power than it can make, or not.
+        func grid(overloaded: Bool) -> CityMap {
+            var map = CityMap(width: 24, height: 24)
+            for x in 0 ..< 22 { map[GridPosition(x: x, y: 6)].zone = .road }
+            for x in 0 ..< 22 { map[GridPosition(x: x, y: 4)].hasPowerLine = true }
+            map.placeBuilding(zone: .generator, origin: GridPosition(x: 0, y: 2))
+            if overloaded {
+                // Enough draw to pass `capacityPerGenerator`. Demand counts
+                // density *per building*, not per cell, so this needs a real
+                // district rather than a handful of towers — 40 blocks at full
+                // density against a capacity of 120.
+                for y in stride(from: 8, to: 16, by: 2) {
+                    for x in stride(from: 2, to: 22, by: 2) {
+                        map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: y))
+                        for cell in map.footprintCells(origin: GridPosition(x: x, y: y), size: 2) {
+                            map[cell].density = 5
+                        }
+                    }
+                }
+            }
+            // Fully funded public works, so anything that wears here wears
+            // *despite* the budget rather than because of its absence.
+            map.serviceFunding.setLevel(1, for: .road)
+            return map
+        }
+
+        var healthy = grid(overloaded: false)
+        var strained = grid(overloaded: true)
+        XCTAssertFalse(PowerGrid.load(in: healthy).isOverloaded, "precondition: the control is overloaded too")
+        XCTAssertTrue(PowerGrid.load(in: strained).isOverloaded, "precondition: the city is not overloaded")
+
+        for _ in 0 ..< 120 {
+            healthy = Infrastructure.advance(healthy)
+            strained = Infrastructure.advance(strained)
+        }
+
+        let line = GridPosition(x: 10, y: 4)
+        XCTAssertNil(healthy[line].wear, "a healthy grid wore its own lines out")
+        XCTAssertGreaterThan(strained[line].wear ?? 0, 0,
+                             "an overloaded grid cost its lines nothing")
+        XCTAssertTrue(Infrastructure.hasFailed(strained[line]),
+                      "120 ticks of overload did not take a single line down — "
+                      + "the cascade is too slow to be a consequence")
+    }
+
+    /// And the cascade only touches the grid: a water main is not carrying the
+    /// overload, so it should not be paying for it.
+    func testTheCascadeOnlyDamagesPowerLines() {
+        var map = CityMap(width: 8, height: 8)
+        map[GridPosition(x: 2, y: 2)].hasPipe = true
+        map[GridPosition(x: 3, y: 2)].hasPowerLine = true
+        // No plants at all, and a building drawing power: capacity 0, demand
+        // above it, which is the simplest possible overload.
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 5, y: 5))
+        for cell in map.footprintCells(origin: GridPosition(x: 5, y: 5), size: 2) { map[cell].density = 5 }
+        XCTAssertTrue(PowerGrid.load(in: map).isOverloaded, "precondition: not overloaded")
+
+        map.serviceFunding.setLevel(0, for: .road)
+        let next = Infrastructure.advance(map)
+
+        XCTAssertEqual(next[GridPosition(x: 2, y: 2)].wear ?? 0,
+                       Infrastructure.baseWearPerTick, accuracy: 1e-9,
+                       "a water main took damage from a power overload")
+        XCTAssertGreaterThan(next[GridPosition(x: 3, y: 2)].wear ?? 0,
+                             next[GridPosition(x: 2, y: 2)].wear ?? 0)
+    }
+
     // MARK: - The money
 
     func testThePublicWorksDialChangesWhatTheCityCosts() {

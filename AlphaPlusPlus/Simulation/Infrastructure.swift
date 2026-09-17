@@ -58,6 +58,24 @@ enum Infrastructure {
     /// outrun it.
     static let repairPerTickAtFullFunding = 0.005
 
+    /// The extra wear a power line takes, per tick, while the grid it belongs
+    /// to is drawing more than its plants can supply.
+    ///
+    /// **The cascade.** An overload used to be a flat state: the grid drops
+    /// city-wide, growth stalls, the meter turns red, and it stays exactly
+    /// that bad for as long as you leave it. Nothing about it got *worse*, so
+    /// there was no urgency — an overloaded city was a city with a to-do item.
+    /// Now the overload damages the network carrying it, so lines fail one by
+    /// one (see `failureWear`), and a grid left overloaded does not merely
+    /// stay broken, it comes apart. That is the difference between a warning
+    /// and a disaster.
+    ///
+    /// Five times `baseWearPerTick`, so an unattended overload takes the first
+    /// line out in about a hundred ticks even at full public-works funding —
+    /// slow enough to notice and act on, fast enough that ignoring it costs
+    /// you something you then have to rebuild.
+    static let overloadWearPerTick = 0.010
+
     /// Worn past this, a buried pipe or power line stops conducting.
     ///
     /// Not 1.0. A conduit that fails only at total ruin would be a cliff the
@@ -132,13 +150,18 @@ enum Infrastructure {
     static func advance(_ map: CityMap) -> CityMap {
         var next = map
         let repair = repairPerTick(funding: map.serviceFunding.level(for: .road))
+        // `PowerGrid.load` is a pure function of the map, not a read of the
+        // cached `powerSupply`, so this sees the overload as it stands right
+        // now rather than as it stood at the end of last tick.
+        let overloaded = PowerGrid.load(in: map).isOverloaded
         for tile in map.tiles where wears(tile) {
             // A buried pipe under open ground carries no traffic, so it wears
             // at the floor rate — the congestion term is about the surface.
             let congestion = tile.zone == .road || tile.zone == .highway
                 ? Traffic.congestion(at: tile.position, in: map)
                 : 0
-            let updated = (tile.wear ?? 0) + wearPerTick(congestion: congestion) - repair
+            let overload = overloaded && tile.hasPowerLine ? overloadWearPerTick : 0
+            let updated = (tile.wear ?? 0) + wearPerTick(congestion: congestion) + overload - repair
             // `nil` rather than 0 for a tile in perfect condition, and never
             // both: `Tile` is `Equatable`, and two tiles that are equally
             // pristine have to compare equal whether one of them has ever been

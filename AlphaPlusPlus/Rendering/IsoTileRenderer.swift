@@ -205,7 +205,7 @@ struct IsoTileRenderer {
     func applyOverlay(on node: SKNode, buildings: OverlayBuildings, color: SKColor) {
         for name in [Self.markerNodeName, Self.laneNodeName,
                      Self.warningNodeName, Self.damageNodeName,
-                     Self.constructionNodeName] {
+                     Self.constructionNodeName, Self.fireNodeName] {
             node.childNode(withName: name)?.removeFromParent()
             // Invalidated, not just removed: the cache key is what decides
             // whether a decoration gets rebuilt, so leaving a stale key behind
@@ -248,6 +248,8 @@ struct IsoTileRenderer {
     /// to be able to ask whether a lot is showing a scaffold.
     static let constructionNodeName = "isoConstruction"
     static let constructionDeckName = "isoConstructionDeck"
+    /// Not private: tests ask whether a block is drawn as burning.
+    static let fireNodeName = "isoFire"
     private static let pipeNodeName = "isoPipe"
     private static let powerNodeName = "isoPowerLine"
 
@@ -306,6 +308,110 @@ struct IsoTileRenderer {
     /// working. So the whole lot darkens as well — a visible hole in the city
     /// rather than a detail to notice — and the badge is tinted with the colour
     /// of the service being waited on, so it also says what to build.
+    /// A block that is on fire *right now*, as opposed to one that burnt
+    /// down earlier.
+    ///
+    /// **The one decoration in the game that animates, and the one that should
+    /// be.** Everything else here is a static mark cached on a key, because
+    /// `refreshAll()` runs every decoration for every tile every tick and
+    /// motion is expensive. A fire is the exception on both counts: there are
+    /// a handful of them at most, and the thing that distinguishes an active
+    /// disaster from the damage badge sitting next to it is precisely that it
+    /// is still happening. A still image of a fire is a picture of a ruin.
+    ///
+    /// The `SKAction` is attached once, when the node is built, and the cache
+    /// key is just "is this burning" — so a fire that goes on burning is not
+    /// restarted every tick, which would freeze the animation on its first
+    /// frame forever.
+    func syncFireMarker(on node: SKNode, tile: Tile) {
+        let key = tile.isBurning ? "burning" : "none"
+        guard !isUpToDate(node, Self.fireNodeName, key) else { return }
+        markUpToDate(node, Self.fireNodeName, key)
+        node.childNode(withName: Self.fireNodeName)?.removeFromParent()
+        guard tile.isBurning else { return }
+
+        let size = CGFloat(tile.zone.footprintSize)
+        let container = SKNode()
+        container.name = Self.fireNodeName
+        container.zPosition = 0.75
+
+        let top = buildingTop(of: tile)
+
+        // A pool of ember light on the lot, which is what carries once the
+        // camera is far enough out that nothing resolves.
+        let pool = SKSpriteNode(texture: NeonStyle.glowTexture)
+        pool.color = NeonStyle.emberColor
+        pool.colorBlendFactor = 1
+        pool.blendMode = .add
+        pool.alpha = 0.5
+        pool.size = CGSize(width: projection.tileWidth * size * 1.9,
+                           height: projection.tileHeight * size * 1.9)
+        pool.position = projection.project(size / 2, size / 2, 0)
+        container.addChild(pool)
+
+        // **And a plume, because colour alone was not enough.** The first
+        // version was an ember-coloured glow and nothing else, and the city
+        // render showed exactly what is wrong with that: an industrial
+        // building is *already* orange, so a fire on one was indistinguishable
+        // from the building's own neon. Same mistake as the road button that
+        // came out black on black — a mark whose only channel is hue vanishes
+        // on anything that shares the hue.
+        //
+        // So the fire gets a silhouette no zone has: a tall flame standing
+        // above the roofline, white at the base where it is hottest. Height is
+        // the one dimension a building cannot compete on, since the plume
+        // starts where the building stops.
+        let plumeHeight = Swift.max(1.2, top * 0.9)
+        let base = projection.project(size / 2, size / 2, top)
+        let tip = projection.project(size / 2, size / 2, top + plumeHeight)
+        let halfWidth = projection.tileWidth * size * 0.2
+        let flame = CGMutablePath()
+        flame.move(to: CGPoint(x: base.x - halfWidth, y: base.y))
+        flame.addQuadCurve(to: tip, control: CGPoint(x: base.x - halfWidth * 1.1,
+                                                     y: base.y + (tip.y - base.y) * 0.65))
+        flame.addQuadCurve(to: CGPoint(x: base.x + halfWidth, y: base.y),
+                           control: CGPoint(x: base.x + halfWidth * 1.1,
+                                            y: base.y + (tip.y - base.y) * 0.65))
+        flame.closeSubpath()
+        let plume = SKShapeNode(path: flame)
+        plume.fillColor = NeonStyle.emberColor
+        plume.strokeColor = .white
+        plume.lineWidth = 2
+        plume.glowWidth = 3
+        plume.alpha = 0.9
+        container.addChild(plume)
+
+        // White-hot at the base of the plume. White is the one colour no zone
+        // in the game uses, so this reads as fire on a factory and on a tower
+        // block alike.
+        let core = SKSpriteNode(texture: NeonStyle.glowTexture)
+        core.color = .white
+        core.colorBlendFactor = 1
+        core.blendMode = .add
+        core.alpha = 0.95
+        core.size = CGSize(width: projection.tileWidth * size * 0.7,
+                           height: projection.tileWidth * size * 0.7)
+        core.position = projection.project(size / 2, size / 2, top + plumeHeight * 0.15)
+        container.addChild(core)
+
+        // Three beats of different length, so the flicker never settles into a
+        // pulse the eye can predict — the same reason the regional cycle sums
+        // two periods rather than running one.
+        pool.run(.repeatForever(.sequence([
+            .fadeAlpha(to: 0.28, duration: 0.31),
+            .fadeAlpha(to: 0.55, duration: 0.23),
+        ])))
+        core.run(.repeatForever(.sequence([
+            .scale(to: 1.25, duration: 0.17),
+            .scale(to: 0.85, duration: 0.29),
+        ])))
+        plume.run(.repeatForever(.sequence([
+            .group([.scaleY(to: 1.18, duration: 0.19), .fadeAlpha(to: 1, duration: 0.19)]),
+            .group([.scaleY(to: 0.88, duration: 0.27), .fadeAlpha(to: 0.75, duration: 0.27)]),
+        ])))
+        node.addChild(container)
+    }
+
     func syncDamageMarker(on node: SKNode, tile: Tile, damagedBy: ZoneType?) {
         let key = "\(tile.zone.rawValue)|\(damagedBy?.rawValue ?? "none")"
         guard !isUpToDate(node, Self.damageNodeName, key) else { return }

@@ -275,6 +275,19 @@ struct GameView: View {
     @ViewBuilder
     private var alerts: some View {
         VStack(alignment: .leading, spacing: 5) {
+            // Fire goes first, above even the outage. It is the only thing in
+            // the game that gets *worse* while you read about it, and the
+            // answer to it — bulldoze the block, or get a fire station there —
+            // is one the player has to take now rather than soon.
+            if controller.burningBlocks > 0 {
+                RetroBadge(
+                    text: controller.burningBlocks == 1
+                        ? "🔥 Fire — 1 block alight"
+                        : "🔥 Fire — \(controller.burningBlocks) blocks alight",
+                    accent: .orange,
+                    isUrgent: true
+                )
+            }
             if controller.isPowerOutageActive {
                 RetroBadge(text: "⚠ Outage — grid unpowered", accent: .red, isUrgent: true)
             }

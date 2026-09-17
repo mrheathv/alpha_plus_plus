@@ -386,6 +386,64 @@ final class PlateauDiagnosticTests: XCTestCase {
         )
     }
 
+    /// **The phase-7 promise: a fire station buys containment, and the city
+    /// does not end up permanently ablaze.**
+    ///
+    /// Phase 1 measured a standing equilibrium of ~17% of the city in rubble
+    /// at all times — the balance between hazard strikes and
+    /// `unassistedRepairChancePerTick`. Fire that spreads pushes on that
+    /// number from one side, so it is worth having it written down before the
+    /// rebalance rather than after.
+    func testFireSpreadDoesNotLeaveTheCityPermanentlyAblaze() {
+        func city(fireStations: Bool) -> GameController {
+            let spec = PlaytestHarness.spec(includeServices: fireStations, regionalWeather: true)
+            let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 4242)
+            _ = advanceUntilSettled(controller)
+            return controller
+        }
+
+        func rubbleFraction(_ controller: GameController) -> Double {
+            let lots = controller.map.tiles.filter { $0.isBuildingAnchor && $0.zone.maxDensity > 0 }
+            guard !lots.isEmpty else { return 0 }
+            return Double(lots.filter(\.isDamaged).count) / Double(lots.count)
+        }
+
+        let protected = city(fireStations: true)
+        let unprotected = city(fireStations: false)
+
+        var protectedPeak = 0
+        var unprotectedPeak = 0
+        for _ in 0 ..< 400 {
+            protected.advanceSimulation()
+            unprotected.advanceSimulation()
+            protectedPeak = max(protectedPeak, protected.burningBlocks)
+            unprotectedPeak = max(unprotectedPeak, unprotected.burningBlocks)
+        }
+
+        print(String(format: """
+
+            fire over 400 ticks:
+              with services    %.0f%% of lots in rubble, worst moment %d blocks alight
+              without services %.0f%% of lots in rubble, worst moment %d blocks alight
+            """,
+            rubbleFraction(protected) * 100, protectedPeak,
+            rubbleFraction(unprotected) * 100, unprotectedPeak))
+
+        // A city that is *always* on fire would be a ratchet, which this
+        // project has already once had to unpick for hazard damage. Fires are
+        // events; between them the city should be quiet.
+        XCTAssertEqual(protected.burningBlocks, 0,
+                       "a fully serviced city is still burning after 400 ticks")
+        XCTAssertLessThan(rubbleFraction(protected), 0.25,
+                          "a fully serviced city is permanently a quarter rubble")
+        // And the services have to be worth their money against fire
+        // specifically, which before this phase they barely were: coverage
+        // lowered the chance of a strike and had nothing to say once one
+        // landed.
+        XCTAssertLessThan(rubbleFraction(protected), rubbleFraction(unprotected),
+                          "fire stations made no difference to how much of the city burns")
+    }
+
     /// Prints the trajectory, and pins the shape the plan is aiming at: an
     /// unattended city loses ground, but slowly enough to be rescued.
     ///

@@ -709,8 +709,17 @@ final class GameController: ObservableObject {
         // Before hazards and growth, like every other whole-map value above:
         // `LandValue` reads it, and both of those read land value.
         map.pollution = Pollution.compute(for: map)
-        let (hazarded, strikes) = CityHazards.apply(to: map, using: &rng)
-        lastHazardStrikes = strikes
+        // Fires that are already burning move *before* new ones are struck,
+        // so a block lit this tick gets its first burnout-or-spread roll on
+        // the next one. Same reasoning `CityHazards.apply` already runs on:
+        // a thing has to survive one full step before the next stage of it is
+        // considered.
+        let (burning, spread) = Fire.advance(map, using: &rng)
+        let (hazarded, strikes) = CityHazards.apply(to: burning, using: &rng)
+        // Reported together, so a fire jumping to the next block gets the same
+        // flash on the map as the strike that started it — to the player they
+        // are the same event, and the second one is the more alarming.
+        lastHazardStrikes = spread + strikes
         map = CitySimulator.advance(hazarded, using: &rng)
         treasury += netRevenue
         newlyUnlockedZones = Unlocks.newlyUnlocked(crossing: population, from: peakPopulation)
@@ -776,6 +785,10 @@ final class GameController: ObservableObject {
     /// still a first-guess rate, same as everything else in this file, but
     /// one checked against real simulated numbers rather than a guess made
     /// in the abstract.
+    /// How many separate blocks are on fire right now. Drives the cockpit's
+    /// fire alert — see `Fire`.
+    var burningBlocks: Int { Fire.count(in: map) }
+
     /// How much of the city's road, pipe and power-line network is worn far
     /// enough to be worth worrying about — see
     /// `Infrastructure.degradedFraction`. Drives the cockpit's Roads meter.

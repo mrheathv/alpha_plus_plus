@@ -176,3 +176,50 @@ func advanceUntilSettled(_ controller: GameController, window: Int = 40, cap: In
     }
     return ticks
 }
+
+/// A generator that plays a scripted list of fractions and then holds the last
+/// one forever.
+///
+/// `AlwaysZeroRNG` and `AlwaysMaxRNG` are all-or-nothing, and for `Fire` that
+/// is not enough: a fire's life is a *sequence* of rolls against different
+/// chances, and the two chances are ordered the wrong way round for any single
+/// fixed value to separate them. `burnoutChancePerTick` is 0.25 and
+/// `spreadChancePerTick` is 0.18, so "high enough not to burn out" and "low
+/// enough to spread" have no overlap — a generator passing every roll burns
+/// out on tick one and never spreads, and one failing every roll burns forever
+/// and never spreads either. Both report "fire does not spread" about working
+/// code.
+///
+/// `Fire.advance` rolls burnout once for a burning block and then spread once
+/// per neighbour, so `ScriptedRNG(first: 0.9, then: 0)` means exactly "this
+/// fire is not going out this tick, and everything it reaches catches" — which
+/// is the single tick a spread test wants to look at. Longer runs want
+/// `SeededRNG` and a measurement across many of them, since both halves are
+/// genuinely probabilistic.
+struct ScriptedRNG: RandomNumberGenerator {
+    private var remaining: [Double]
+    private var last: Double
+
+    init(first: Double, then: Double) {
+        self.remaining = [first]
+        self.last = then
+    }
+
+    init(_ values: [Double], then: Double) {
+        self.remaining = values
+        self.last = then
+    }
+
+    mutating func next() -> UInt64 {
+        let fraction = remaining.isEmpty ? last : remaining.removeFirst()
+        // **Scaled to 2^53, not to `UInt64.max`**, and the difference is not
+        // cosmetic. `Double.random(in: 0 ..< 1)` keeps only the low 53 bits of
+        // what the generator hands it — it is filling a significand, not
+        // dividing a 64-bit range — so `UInt64(0.9 * Double(UInt64.max))`
+        // comes back out as **0.2**, the fractional part of 0.9 × 2^11. Which
+        // looks exactly like a working generator producing an unlucky roll.
+        // `AlwaysZeroRNG` and `AlwaysMaxRNG` are immune to this by accident,
+        // being at the ends of the range where the truncation cannot bite.
+        return UInt64(fraction * Double(1 << 53))
+    }
+}
