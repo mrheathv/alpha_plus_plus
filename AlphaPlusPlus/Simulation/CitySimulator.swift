@@ -58,109 +58,73 @@ enum CitySimulator {
         // changes nothing about the answers.
         let distances = ZoneDistanceField.compute(for: map)
         for tile in map.tiles where tile.isBuildingAnchor {
-            guard tile.zone.maxDensity > 0 else { continue }
             let footprint = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
-            let isConnected = footprint.contains { hasAccess(at: $0, in: map) }
 
-            if isConnected {
-                // A damaged building rebuilds before it does anything else,
-                // and only once the service it's waiting on actually reaches
-                // it. Until then it neither grows nor decays — it just sits
-                // there, which is the whole point: an uncovered block that
-                // burns stays burnt until the player does something.
-                if let repairingService = tile.damagedBy {
-                    let covered = footprint.contains { cell in
-                        LandValue.falloffValue(
-                            nearestZone: repairingService,
-                            falloffDistance: LandValue.serviceFalloffDistance,
-                            at: cell, in: map, using: distances
-                        ) >= repairCoverageThreshold
-                    }
-                    if covered || Double.random(in: 0 ..< 1, using: &rng) < Self.unassistedRepairChancePerTick {
-                        for cell in footprint { next[cell].damagedBy = nil }
-                    }
-                    continue
-                }
+            // **The gate chain lives in `LotStatus`, and this acts on it.**
+            // It used to be written the other way round — the chain existed
+            // only as the control flow of this loop, which meant nothing could
+            // ask it a question, it could only be run. The player's inspector
+            // needs to ask, and an inspector with its own copy of these rules
+            // would drift from them the first time either changed. So the
+            // answer is computed once and both consume it.
+            switch status(of: tile, in: map, using: distances) {
 
-                // A lot already building finishes what it started. Placed
-                // after the damage branch on purpose: a burnt-out block should
-                // stop work until it is repaired, not quietly keep rising.
-                if let remaining = tile.constructionRemaining, remaining > 0 {
-                    let left = remaining - 1
-                    for cell in footprint {
-                        next[cell].constructionRemaining = left > 0 ? left : nil
-                        if left == 0 { next[cell].density = tile.density + 1 }
-                    }
-                    continue
-                }
+            // Nothing happens. Each of these is a lot waiting on something the
+            // player has to go and do; none of them is a roll.
+            case .notGrowable, .atMaximumDensity,
+                 .needsLandValue, .needsWater, .needsPower, .needsSchool:
+                continue
 
-                let bestLandValue = footprint.map { LandValue.value(at: $0, in: map, using: distances) }.max() ?? 0
-                let demand = map.cityDemand.value(for: tile.zone)
-
-                // Deep oversupply doesn't just stall growth, it reverses it.
-                // Checked before the growth path rather than after, because a
-                // building being abandoned this tick is not also a candidate
-                // to grow this tick — the same "grow-or-hold, never both"
-                // exclusivity the access branch below already keeps.
-                // Desirability shifts *which* lots give way, not whether the
-                // city wants more. Deliberately scoped to abandonment and not
-                // to the growth chance below, which keeps reading the city's
-                // own number: a prime lot should resist oversupply, but it
-                // should not grow in a city that needs nothing more — demand
-                // −1 has to keep meaning "nothing grows anywhere".
-                let feltDemand = Self.localDemand(cityDemand: demand, landValue: bestLandValue)
-                if feltDemand <= Self.abandonmentDemand, tile.density > 0 {
-                    if Double.random(in: 0 ..< 1, using: &rng) < Self.abandonmentChancePerTick {
-                        for cell in footprint { next[cell].density = tile.density - 1 }
-                    }
-                    continue
-                }
-
-                let hasWater = footprint.contains { Water.hasSupply(at: $0, in: map) }
-                let hasPower = footprint.contains { PowerGrid.hasSupply(at: $0, in: map) }
-
-                // A lot that has outgrown what its surroundings can sustain
-                // falls back toward what they can — one level at a time, the
-                // same way it climbed. Checked before growth for the same
-                // "grow-or-hold, never both" reason abandonment is.
-                let sustainable = Self.sustainableDensity(
-                    landValue: bestLandValue, hasWater: hasWater, hasPower: hasPower
-                )
-                if tile.density > sustainable {
-                    if Double.random(in: 0 ..< 1, using: &rng) < Self.declineChancePerTick {
-                        for cell in footprint { next[cell].density = tile.density - 1 }
-                    }
-                    continue
-                }
-
-                let nextLevel = tile.density + 1
-                guard nextLevel <= tile.zone.maxDensity else { continue }
-                guard bestLandValue >= requiredLandValue(toReach: nextLevel) else { continue }
-                if nextLevel >= Self.waterRequiredFromLevel { guard hasWater else { continue } }
-                if nextLevel >= Self.powerRequiredFromLevel { guard hasPower else { continue } }
-                if nextLevel >= Self.educationRequiredFromLevel {
-                    let schooled = footprint.contains { cell in
-                        LandValue.falloffValue(
-                            nearestZone: .school,
-                            falloffDistance: LandValue.serviceFalloffDistance,
-                            at: cell, in: map, using: distances
-                        ) >= Self.educationCoverageThreshold
-                    }
-                    guard schooled else { continue }
-                }
-                let chance = growthChance(for: demand)
-                guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
-                // Approved, not built. The level arrives when the work does.
-                let duration = Self.constructionTicks(toReach: nextLevel)
-                for cell in footprint { next[cell].constructionRemaining = duration }
-            } else if tile.density > 0 {
-                let previousLevel = tile.density - 1
+            case .noRoadAccess:
+                // A site nobody can reach loses a level, and stops building.
+                guard tile.density > 0 else { continue }
                 for cell in footprint {
-                    next[cell].density = previousLevel
-                    // Work stops when the road does — a site nobody can reach
-                    // is not a site under construction.
+                    next[cell].density = tile.density - 1
                     next[cell].constructionRemaining = nil
                 }
+
+            // **`.burning` behaves exactly like `.damaged` here, on purpose.**
+            // The two are one state to the simulation — a block alight is
+            // always also damaged — and they are separate only because they
+            // are completely different problems *to the player*: one is an
+            // emergency they must answer now, the other is a ruin waiting on a
+            // service. Letting the distinction change what `advance` does
+            // would be a balance change smuggled inside a refactor, and this
+            // refactor is meant to leave the simulation bit-identical.
+            case .burning, .damaged:
+                // A damaged building rebuilds before it does anything else,
+                // and only once the service it's waiting on actually reaches
+                // it. Until then it neither grows nor decays — an uncovered
+                // block that burns stays burnt until the player does
+                // something.
+                guard let service = tile.damagedBy else { continue }
+                let covered = isRepairCovered(footprint, by: service, in: map, using: distances)
+                if covered || Double.random(in: 0 ..< 1, using: &rng) < Self.unassistedRepairChancePerTick {
+                    for cell in footprint { next[cell].damagedBy = nil }
+                }
+
+            case .underConstruction(let remaining, _):
+                let left = remaining - 1
+                for cell in footprint {
+                    next[cell].constructionRemaining = left > 0 ? left : nil
+                    if left == 0 { next[cell].density = tile.density + 1 }
+                }
+
+            case .beingAbandoned:
+                if Double.random(in: 0 ..< 1, using: &rng) < Self.abandonmentChancePerTick {
+                    for cell in footprint { next[cell].density = tile.density - 1 }
+                }
+
+            case .decliningToSustainable:
+                if Double.random(in: 0 ..< 1, using: &rng) < Self.declineChancePerTick {
+                    for cell in footprint { next[cell].density = tile.density - 1 }
+                }
+
+            case .readyToGrow(let demand):
+                guard Double.random(in: 0 ..< 1, using: &rng) < growthChance(for: demand) else { continue }
+                // Approved, not built. The level arrives when the work does.
+                let duration = Self.constructionTicks(toReach: tile.density + 1)
+                for cell in footprint { next[cell].constructionRemaining = duration }
             }
         }
         return next
@@ -295,7 +259,9 @@ enum CitySimulator {
     /// should punish neglect, not inattention.
     static let declineChancePerTick = 0.02
 
-    private static func requiredLandValue(toReach level: Int) -> Double {
+    /// Not private: `LotStatus` reports the shortfall to the player, and the
+    /// number it is short *of* is half of that answer.
+    static func requiredLandValue(toReach level: Int) -> Double {
         switch level {
         case ...1: return 0.0
         case 2: return 0.3

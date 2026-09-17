@@ -1810,6 +1810,67 @@ and measured that way it is exact: **borrowing to the cap costs 37/tick against
 37 of interest.** That the quick profile is structurally marginal is a real
 finding, and it belongs to the rebalance.
 
+## The inspector (in progress)
+
+The city runs about ten systems that interact, and the player's only window
+into any of them is a whole-map overlay showing one channel at a time.
+Diagnosing one block means visiting five overlays and remembering what each
+looked like there — and several things have **no overlay at all**: school and
+hospital coverage, crime and fire exposure, how worn the roads are, what
+density a lot could actually sustain. So the honest answer to "why is this
+block stuck at 3?" was that you could not find out.
+
+**It is a player tool, not a debug view.** That decides the vocabulary: the
+headline names a *fix* rather than a mechanism, ratings replace raw numbers
+wherever a number means nothing to a player, and engineer-only fields (tick
+counts, wear fractions) do not ship. The words live in `Rendering/` regardless,
+since `Simulation/` may import Foundation only — the same reason
+`RenderPalette.displayName(for:)` is not on `ZoneType`.
+
+### Phase 1 (done): the gate chain, made askable
+
+`CitySimulator.advance` decided a lot's fate by falling through a ranked chain
+of gates — access, fire, damage, construction, oversupply, having outgrown its
+surroundings, then land value, water, power and a school for the *next* level.
+That chain is the complete answer to "why is this block stuck", and it existed
+only as control flow. Nothing could ask it a question; it could only be run.
+
+`LotStatus` is that chain as a value, and `advance` is now written in terms of
+it rather than the other way round. **That direction is the whole point.** An
+inspector with its own copy of "is it missing water?" drifts from the rules the
+first time either changes, and this project has been bitten by exactly that
+three times: a streetscape painting its own flat tiles while the renderer had
+moved on, an overlay render carrying a second stale switch, and hazard damage
+computed in two places.
+
+The standing guard is
+`TileReportTests.testTheReportedStatusPredictsWhatTheNextTickActuallyDoes`:
+grow a real city, then check every lot. Where the report says blocked, one tick
+must not move it; where it says the lot is only waiting on demand, a generator
+that passes every roll must. It currently compares 48 blocked lots against
+what actually happens to them.
+
+Three things worth recording from the extraction:
+
+- **`.burning` and `.damaged` are one state to the simulation and two
+  different problems to the player.** A block alight is always also damaged, so
+  separating them changed nothing about `advance` — and the first version of
+  the switch accidentally let a burning block skip its repair roll, which is a
+  balance change smuggled inside a refactor. They share a branch deliberately,
+  with a comment saying why.
+- **`.readyToGrow` had to exist.** Without a case meaning "nothing is wrong,
+  the city just doesn't want more yet", every healthy lot would show an
+  inspector unable to name a problem it did not have.
+- **The report describes the building, not the cell under the pointer.**
+  Hovering the far corner of a 2×2 tower is still hovering the tower, and the
+  simulation already decides growth, coverage and hazards per footprint.
+
+One fixture lesson, which is the same one the phase-5 power measurement taught:
+a test for "this lot's land value is too low" added a school to satisfy the
+gate *behind* it, and a school is itself an amenity — so it pushed land value
+over the very bar the test needed it to fall short of. When a fixture stops
+measuring what it claims, check whether it moved the thing or the yardstick.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water
