@@ -495,6 +495,69 @@ final class IsometricCityTests: XCTestCase {
                           "a safe factory on uncovered ground is being tinted with the ground")
     }
 
+    /// **"It's tough to tell where buildings are in the power/water
+    /// overlay."** Reported from play, and the cause was that both states
+    /// repainted the building — 85% toward the utility colour if supplied,
+    /// 85% toward near-black if not. The second sank a block of flats into
+    /// bare ground.
+    ///
+    /// The colour comes from the light it throws now, so a supplied building
+    /// keeps its form and casts a pool of the utility's colour, and an
+    /// unsupplied one desaturates to unlit slate while staying plainly a
+    /// building.
+    func testSupplyLightsABuildingAndTheAbsenceOfItDoesNotEraseOne() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let tile = Tile(position: GridPosition(x: 2, y: 2), zone: .residential, density: 4)
+        let node = renderer.makeNode(for: tile)
+        func building() -> SKSpriteNode? {
+            node.childNode(withName: IsoTileRenderer.buildingNodeName) as? SKSpriteNode
+        }
+        func glow() -> SKNode? { node.childNode(withName: "isoGroundGlow") }
+
+        let hue = RenderPalette.conduitColor(isPipe: true, live: true)
+        renderer.applyOverlay(on: node, buildings: .connected(true), color: .black, buildingColor: hue)
+        assertSameColor(building()?.color, hue, "a supplied building was not lit by its utility")
+        XCTAssertEqual(building()?.alpha, 1)
+        XCTAssertNotNil(glow(), "a supplied building throws no light on its lot")
+
+        renderer.applyOverlay(on: node, buildings: .connected(false), color: .black,
+                              buildingColor: RenderPalette.unlitBuilding)
+        // Dark, but emphatically still there: the silhouette is how a player
+        // knows a lot is built on at all.
+        XCTAssertGreaterThan(building()?.alpha ?? 0, 0.75,
+                             "an unsupplied building faded until it was not a building")
+        XCTAssertNil(glow(), "an unsupplied building is still lighting its lot")
+    }
+
+    /// The two supply routes have different shapes, and the difference between
+    /// them is the pipe you did not need to lay.
+    func testTheGroundTellsRadiusCoverageApartFromPipeCoverage() {
+        let unserved = RenderPalette.supplyGroundColor(isPipe: true, supplied: false, direct: false)
+        let viaRadius = RenderPalette.supplyGroundColor(isPipe: true, supplied: true, direct: true)
+        let viaPipe = RenderPalette.supplyGroundColor(isPipe: true, supplied: true, direct: false)
+
+        func brightness(_ color: SKColor) -> CGFloat {
+            color.usingColorSpace(.deviceRGB)?.brightnessComponent ?? 0
+        }
+        XCTAssertGreaterThan(brightness(viaPipe), brightness(viaRadius),
+                             "pipe-fed ground looks the same as a source's free radius")
+        XCTAssertGreaterThan(brightness(viaRadius), brightness(unserved),
+                             "ground inside a source's radius looks unserved")
+    }
+
+    /// Water and power have to be told apart at a glance, or the two overlays
+    /// are one overlay shown twice.
+    func testWaterAndPowerAreDifferentColours() {
+        func brightness(_ color: SKColor) -> (CGFloat, CGFloat, CGFloat) {
+            let c = color.usingColorSpace(.deviceRGB)!
+            return (c.redComponent, c.greenComponent, c.blueComponent)
+        }
+        let water = brightness(RenderPalette.conduitColor(isPipe: true, live: true))
+        let power = brightness(RenderPalette.conduitColor(isPipe: false, live: true))
+        XCTAssertGreaterThan(water.2, water.0, "water does not read as blue")
+        XCTAssertGreaterThan(power.0, power.2, "power does not read as yellow")
+    }
+
     // MARK: - Buried conduits
 
     /// **"Did that connect?" is the only question a player asks while laying

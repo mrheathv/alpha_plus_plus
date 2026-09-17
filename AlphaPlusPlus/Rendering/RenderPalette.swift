@@ -72,6 +72,34 @@ enum RenderPalette {
     /// synthwave palette has no unpleasant colour in it by design. Borrowing
     /// industrial's own ember hue and souring it toward green keeps it in the
     /// family while still reading as contamination.
+    /// A building with no supply: dark and desaturated, but not black.
+    ///
+    /// The distinction the utility overlays live or die on, so it gets a name
+    /// rather than being whichever colour was to hand. Dark enough that a
+    /// wash toward it plainly reads as *off*, light enough that the building's
+    /// own neon outline survives at a fifth strength and the silhouette is
+    /// still a silhouette.
+    static let unlitBuilding = SKColor(srgbRed: 0.16, green: 0.15, blue: 0.24, alpha: 1.0)
+
+    /// The ground under a utility overlay, in the three states a tile can
+    /// actually be in.
+    ///
+    /// **Three, not two**, because the two supply routes have different shapes
+    /// and a player cannot see either. A source covers everything within
+    /// `Water.directSupplyRadius` with no pipe at all; a pipe covers what it
+    /// runs beside. Drawing both as one "served" colour hides the single most
+    /// useful thing the overlay could tell you — which part of your network
+    /// you did not need to build.
+    ///
+    /// So radius coverage is a soft halo around each source and pipe coverage
+    /// is the brighter field, and the difference between them is the pipe you
+    /// could have skipped.
+    static func supplyGroundColor(isPipe: Bool, supplied: Bool, direct: Bool) -> SKColor {
+        guard supplied else { return waterUnsupplied }
+        let hue = conduitColor(isPipe: isPipe, live: true)
+        return background.blended(withFraction: direct ? 0.22 : 0.48, of: hue) ?? waterUnsupplied
+    }
+
     /// A buried conduit's line colour.
     ///
     /// **Hot when live, cold when not.** Power runs electric yellow and water

@@ -2115,6 +2115,44 @@ And the render fixture had to grow an orphaned run, for the reason it once had
 to grow pipes at all: a fixture where every conduit is live cannot show whether
 a dead one is visible.
 
+### Phase 2 (done): the network lights what it feeds
+
+Also reported from play: *"it's tough to tell where buildings are in the
+power/water overlay."* The cause was that both states **repainted** the
+building — 85% toward the utility colour when supplied, 85% toward near-black
+when not — and the second sank a block of flats into bare ground.
+
+The fix is the move this project already made when the map stopped being flat
+coloured tiles: **colour comes from the light a thing throws, not from
+repainting it.** A building on the network keeps its form and casts a pool of
+the utility's colour on its lot — the existing `syncGroundGlow` pool,
+recoloured rather than removed, so it costs nothing new. One off the network
+washes to `unlitBuilding` and keeps a readable silhouette.
+
+**The blend had to go hard in both directions**, and the middle was worse than
+either end. At 0.45 supplied and 0.8 unsupplied the buildings kept so much of
+their own neon that the two states read as the same picture at slightly
+different brightness — the overlay went from "everything is mush" to
+"everything is lit" without passing through "these are obviously different". A
+utility overlay asks exactly one question and Normal view is where zone
+identity lives, so it can afford to spend all its colour on the answer: 0.78
+and 0.92, a dark slate city with the supplied half burning.
+
+**And the ground has three states, not two.** A source covers everything within
+`Water.directSupplyRadius` with no pipe at all; a pipe covers what it runs
+beside. Drawing both as one "served" colour hid the most useful thing the
+overlay could say — which part of the network you did not need to build. Radius
+coverage is now a soft halo around each source and pipe coverage the brighter
+field, and the difference between them is the pipe you could have skipped.
+
+One process note. Two rounds of this were spent squinting at a small crop and
+reaching for the wrong conclusion — I twice "saw" buildings keeping their own
+colours when the tint was in fact applying exactly as written. Printing the
+actual `colorBlendFactor` and `color` off the rendered nodes settled it in one
+run, and the magnified crop then showed the effect plainly. **When a render
+disagrees with the code, measure the render before changing the code** — the
+small crop was the unreliable instrument, not the renderer.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

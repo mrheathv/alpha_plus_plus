@@ -274,7 +274,18 @@ struct IsoTileRenderer {
             let isSource = map[position].zone == .waterTower || map[position].zone == .waterPump
             return OverlayPaint(
                 buildings: isSource ? .highlighted : .connected(supplied),
-                color: RenderPalette.waterColor(for: supplied)
+                color: RenderPalette.supplyGroundColor(
+                    isPipe: true, supplied: supplied,
+                    direct: map.waterSupply.isDirectlyServed(at: position)
+                ),
+                // **Per state, not one colour for both.** Passing the
+                // utility's own hue for a building with no water tinted the
+                // unsupplied ones blue as well, and the overlay went from
+                // "everything is mush" to "everything is lit" — the same
+                // failure wearing the opposite sign.
+                buildingColor: supplied
+                    ? RenderPalette.conduitColor(isPipe: true, live: true)
+                    : RenderPalette.unlitBuilding
             )
         case .police, .fire:
             // **The ground says where the service reaches; the buildings say
@@ -310,7 +321,13 @@ struct IsoTileRenderer {
             let isSource = map[position].zone == .powerPlant || map[position].zone == .generator
             return OverlayPaint(
                 buildings: isSource ? .highlighted : .connected(supplied),
-                color: RenderPalette.powerColor(for: supplied)
+                color: RenderPalette.supplyGroundColor(
+                    isPipe: false, supplied: supplied,
+                    direct: map.powerSupply.isDirectlyServed(at: position)
+                ),
+                buildingColor: supplied
+                    ? RenderPalette.conduitColor(isPipe: false, live: true)
+                    : RenderPalette.unlitBuilding
             )
         }
     }
@@ -343,18 +360,52 @@ struct IsoTileRenderer {
             invalidate(node, Self.buildingNodeName)
             invalidate(node, Self.glowNodeName)
         case .connected(let isSupplied):
-            // **Tinted, not merely dimmed.** A supplied building is washed
-            // toward the utility's own colour and left bright; an unsupplied
-            // one is washed toward the "no supply" near-black and dimmed. So
-            // the water overlay answers its question the way a player expects
-            // it to — blue means it has water — rather than asking them to
-            // judge one building's brightness against another's.
+            // **The network lights the buildings on it.**
+            //
+            // This used to repaint the building — 85% toward the utility
+            // colour if supplied, 85% toward near-black if not — and both ends
+            // were wrong. A supplied building lost the form that says what it
+            // *is*, and an unsupplied one sank into the ground until you could
+            // not tell a block of flats from bare land, which is exactly what
+            // play reported: "it's tough to tell where buildings are in the
+            // power/water overlay".
+            //
+            // So the colour comes from the light it throws rather than from
+            // repainting it — the same move this project already made when the
+            // map stopped being flat coloured tiles: zone identity "moved from
+            // a flat fill into light, which is both more legible against black
+            // and the only version of it that looks like night". A building on
+            // the network keeps its shape, takes a light wash, and casts a pool
+            // of the utility's colour on its lot. One off it desaturates to
+            // unlit slate but keeps a readable silhouette.
             if let building = node.childNode(withName: Self.buildingNodeName) as? SKSpriteNode {
                 building.color = buildingColor ?? color
-                building.colorBlendFactor = 0.85
-                building.alpha = isSupplied ? 1 : 0.5
+                // **Hard, both ways.** At 0.45 and 0.8 the buildings kept so
+                // much of their own neon that the two states read as the same
+                // picture at slightly different brightness — the overlay went
+                // from "everything is mush" to "everything is lit" without
+                // ever passing through "these are obviously different". A
+                // utility overlay asks exactly one question, and Normal view
+                // is where zone identity lives, so it can afford to spend all
+                // of its colour on the answer: a dark slate city with the
+                // supplied half burning in the utility's own hue.
+                building.colorBlendFactor = isSupplied ? 0.78 : 0.92
+                // Never below 0.85. Alpha was what made an unsupplied block
+                // vanish: at 0.5 over a dark ground there is nothing left to
+                // recognise, and "I cannot see it" is not the same message as
+                // "it has no water".
+                building.alpha = isSupplied ? 1 : 0.85
             }
-            node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+            // The zone's own light pool, recoloured rather than removed. It is
+            // already sized and placed for this lot by `syncGroundGlow`, so
+            // lighting a supplied building costs nothing new — and taking it
+            // away from an unsupplied one is the other half of the signal.
+            if let glow = node.childNode(withName: Self.glowNodeName) as? SKSpriteNode, isSupplied {
+                glow.color = buildingColor ?? color
+                glow.alpha = 0.55
+            } else {
+                node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+            }
             invalidate(node, Self.glowNodeName)
         case .highlighted:
             // The utility feeding the network you are looking at. No tint at
@@ -365,6 +416,14 @@ struct IsoTileRenderer {
                 building.colorBlendFactor = 0
                 building.alpha = 1
             }
+            // And it burns brightest of anything on screen: a source is where
+            // the network comes from, and the overlay is largely a question
+            // about distance from one.
+            if let glow = node.childNode(withName: Self.glowNodeName) as? SKSpriteNode {
+                glow.color = buildingColor ?? color
+                glow.alpha = 0.7
+            }
+            invalidate(node, Self.glowNodeName)
         }
 
         // The ground is recoloured rather than rebuilt, so its own key has to
