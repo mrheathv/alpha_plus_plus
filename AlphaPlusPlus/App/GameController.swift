@@ -725,6 +725,10 @@ final class GameController: ObservableObject {
         newlyUnlockedZones = Unlocks.newlyUnlocked(crossing: population, from: peakPopulation)
         peakPopulation = max(peakPopulation, population)
         recordHistorySnapshot()
+        // The city just moved under a pointer that has not. A panel showing
+        // last tick's answer is worse than one showing none, because it looks
+        // live.
+        refreshInspection()
     }
 
     private func recordHistorySnapshot() {
@@ -785,6 +789,39 @@ final class GameController: ObservableObject {
     /// still a first-guess rate, same as everything else in this file, but
     /// one checked against real simulated numbers rather than a guess made
     /// in the abstract.
+    /// The lot the pointer is over, and what the inspector says about it.
+    ///
+    /// **Cached rather than derived in the view.** `TileReport.make` builds a
+    /// `ZoneDistanceField` when it is not handed one — a whole-map distance
+    /// transform — and a SwiftUI body that called it directly would pay for
+    /// that on every mouse move *and* on every published change from anywhere
+    /// else in the controller. Recomputed here instead exactly twice: when the
+    /// pointer crosses onto a different lot, and when the city ticks
+    /// underneath a stationary pointer.
+    @Published private(set) var inspectedReport: TileReport?
+
+    private var inspectedPosition: GridPosition?
+
+    /// Point the inspector at a lot, or at nothing.
+    ///
+    /// Takes the position rather than the report so the "has it actually
+    /// changed" check lives in one place: `mouseMoved` fires far faster than
+    /// the pointer crosses tiles, and rebuilding the report on every event
+    /// would be most of a tick's work several times a second.
+    func inspect(at position: GridPosition?) {
+        guard position != inspectedPosition else { return }
+        inspectedPosition = position
+        refreshInspection()
+    }
+
+    private func refreshInspection() {
+        guard let inspectedPosition, map.contains(inspectedPosition) else {
+            inspectedReport = nil
+            return
+        }
+        inspectedReport = TileReport.make(at: inspectedPosition, in: map)
+    }
+
     /// How many separate blocks are on fire right now. Drives the cockpit's
     /// fire alert — see `Fire`.
     var burningBlocks: Int { Fire.count(in: map) }

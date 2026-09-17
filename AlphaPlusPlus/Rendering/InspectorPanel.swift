@@ -47,6 +47,18 @@ struct InspectorPanel: View {
             }
             .frame(width: 210, alignment: .leading)
         }
+        // **Its own opaque ground, unlike every other panel.** `RetroPanel`
+        // fills at 55% so the dashboard reads as one continuous surface, which
+        // is right for a panel sitting on the dashboard's own background. This
+        // one floats over the *map* — a lit neon city that would show straight
+        // through a paragraph of 10-point text. The live render made that
+        // immediately obvious and nothing else would have: over the plain
+        // background of the component sheet it looks perfect.
+        .background(
+            ChamferedRectangle()
+                .fill(RetroUITheme.background.opacity(0.93))
+                .shadow(color: .black.opacity(0.6), radius: 10)
+        )
     }
 
     // MARK: - Header
@@ -155,8 +167,12 @@ struct InspectorPanel: View {
     /// wrong underneath a warning about something that has not happened.
     @ViewBuilder private var warnings: some View {
         let worn = report.infrastructureCondition < 0.7
-        if report.isExposedToFire || report.isExposedToCrime || worn {
+        let commute = InspectorText.commute(for: report)
+        if report.isExposedToFire || report.isExposedToCrime || worn || commute != nil {
             VStack(alignment: .leading, spacing: 4) {
+                if let commute {
+                    RetroBadge(text: "⚠ \(commute)", accent: .orange)
+                }
                 if report.isExposedToFire {
                     RetroBadge(text: "⚠ No fire cover", accent: .orange)
                 }

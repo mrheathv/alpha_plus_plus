@@ -60,6 +60,7 @@ struct GameView: View {
                 }
             }
             .frame(minWidth: 760, minHeight: 420)
+            .overlay(alignment: .topTrailing) { inspector }
             dashboard
         }
         .onChange(of: controller.cityGeneration) {
@@ -136,6 +137,35 @@ struct GameView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RetroUITheme.background)
             .overlay(alignment: .bottom) { neonSeam }
+    }
+
+    /// The hover inspector, over the map's top-right corner.
+    ///
+    /// **Over the map rather than in the dashboard**, on two counts. The
+    /// dashboard is full — it was already split off from the toolbar once
+    /// because a single row carrying ten things had no give left — and an
+    /// inspector belongs beside the thing it inspects, so the eye travels a
+    /// short distance from the lot to the answer about it.
+    ///
+    /// **Docked rather than following the pointer.** A panel that chased the
+    /// cursor would jitter as it moved, would cover the very lot being
+    /// inspected, and would fall off the window edge near the map's corners —
+    /// and this one carries a paragraph of text, which is the worst possible
+    /// content for a target that keeps moving. Top-trailing specifically,
+    /// because the tool rail is top-leading and the map's tallest buildings
+    /// draw upward: the top-right is the emptiest part of an isometric
+    /// diamond.
+    ///
+    /// `allowsHitTesting(false)` so it never eats a click meant for the map
+    /// underneath — the panel appears exactly where a player might be about
+    /// to build, and a read-only readout must not become an obstacle.
+    @ViewBuilder private var inspector: some View {
+        if let report = controller.inspectedReport {
+            InspectorPanel(report: report)
+                .padding(RetroMetrics.gutter)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
     }
 
     /// Everything the city tells *you*, below the map.

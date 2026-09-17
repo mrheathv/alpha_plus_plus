@@ -147,10 +147,15 @@ enum Traffic {
         let drivable = Set(map.tiles.filter { isRoadLike($0.zone) }.map(\.position))
         guard !drivable.isEmpty else { return TrafficLoad() }
 
-        var jobs = jobSites(in: map, drivable: drivable)
-        guard !jobs.isEmpty else { return TrafficLoad() }
-
         var load = TrafficLoad()
+        // Routed *before* the early return below, so a city with housing and
+        // no jobs reports its homes as jobless rather than as unknown — which
+        // is the single most useful thing the inspector can say about a city
+        // that has only zoned housing.
+        load.beginRouting()
+
+        var jobs = jobSites(in: map, drivable: drivable)
+        guard !jobs.isEmpty else { return load }
         for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .residential && tile.density > 0 {
             let homeFrontage = frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable)
             guard !homeFrontage.isEmpty else { continue } // transit-only access: no road trips generated
@@ -177,6 +182,14 @@ enum Traffic {
                 candidates.append(JobCandidate(jobIndex: index, frontageCell: nearest.0, distance: nearest.1))
             }
             guard let chosen = chooseJob(from: candidates, homeSeed: tile.position) else { continue } // no reachable job has room
+            // **The router already knew this and was discarding it.** Whether
+            // a home found work is decided right here, on the line above, and
+            // until now nothing kept the answer — so "can the people who live
+            // here reach a job?" was a question the simulation computed every
+            // tick and could not be asked. It is the one thing about a
+            // residential lot that no overlay shows and no other field
+            // implies.
+            load.recordEmployed(tile.position)
 
             let path = reconstructPath(to: chosen.frontageCell, parent: parent)
             for (index, step) in path.enumerated() {
@@ -446,6 +459,38 @@ struct TrafficLoad: Equatable, Codable, Sendable {
     func netHeadingIsPositive(at position: GridPosition, horizontal: Bool) -> Bool {
         let net = horizontal ? netHeadingXByTile[position, default: 0] : netHeadingYByTile[position, default: 0]
         return net >= 0
+    }
+
+    /// Homes whose commute found a job with room, by building anchor.
+    ///
+    /// `Optional` for save compatibility rather than for meaning: `CityMap`
+    /// decodes through the synthesised `Codable` conformance, which throws on
+    /// a missing key, so every non-optional field added here breaks saves
+    /// written before it (see `CitySave.minimumSupportedFormatVersion`). This
+    /// one is genuinely optional anyway — a map that has never had
+    /// `computeLoad` run against it does not know who is employed, and `nil`
+    /// says exactly that rather than claiming everyone is jobless.
+    private var employedHomes: Set<GridPosition>?
+
+    /// Did the people living at this building find work they can reach?
+    ///
+    /// `nil` when no routing has happened yet — a fresh map, or one built by
+    /// hand in a test. Records the *successes* rather than the failures on
+    /// purpose: a city with no jobs at all returns early from `computeLoad`
+    /// before any home is considered, and a set of failures would come back
+    /// empty and report full employment.
+    func commuteFound(at position: GridPosition) -> Bool? {
+        employedHomes.map { $0.contains(position) }
+    }
+
+    /// Marks that routing ran, so "nobody found work" is distinguishable
+    /// from "nobody has looked yet".
+    fileprivate mutating func beginRouting() {
+        employedHomes = employedHomes ?? []
+    }
+
+    fileprivate mutating func recordEmployed(_ position: GridPosition) {
+        employedHomes = (employedHomes ?? []).union([position])
     }
 
     fileprivate mutating func add(_ amount: Int, at position: GridPosition, heading: GridPosition?) {

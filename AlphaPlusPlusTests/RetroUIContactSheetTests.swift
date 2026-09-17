@@ -32,6 +32,11 @@ final class RetroUIContactSheetTests: XCTestCase {
     func testRenderLiveGameView() throws {
         let controller = GameController()
         controller.selectTool(.commercial)
+        // With the pointer over a lot, so the inspector is in the picture. It
+        // overlays the map's top-right corner, which is exactly the sort of
+        // placement that looks fine in isolation and covers something it
+        // should not once it is in the real view.
+        controller.inspect(at: GridPosition(x: 4, y: 4))
         try render(name: "retro-live", content:
             GameView(controller: controller).frame(width: 1400, height: 760))
     }

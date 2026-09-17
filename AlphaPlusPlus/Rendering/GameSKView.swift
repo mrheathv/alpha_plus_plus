@@ -40,7 +40,15 @@ final class GameSKView: SKView {
         // rather than needing this method to recompute `rect` by hand.
         let newTrackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            // **`.mouseEnteredAndExited` was missing**, which made
+            // `mouseExited` below dead code: AppKit only delivers the events a
+            // tracking area asks for, so the "cursor left the grid" cleanup
+            // had never once run and the placement preview stayed stuck
+            // wherever the cursor last was inside the grid. Harmless-looking
+            // for an outline; not harmless for the inspector panel, which
+            // would sit there describing a lot the player is no longer
+            // pointing at.
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
             owner: self,
             userInfo: nil
         )

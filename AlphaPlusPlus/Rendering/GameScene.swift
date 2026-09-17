@@ -577,8 +577,13 @@ final class GameScene: SKScene {
     func updatePlacementPreview(at event: NSEvent) {
         guard let position = gridPosition(of: event) else {
             placementPreviewNode.isHidden = true
+            controller.inspect(at: nil)
             return
         }
+        // The inspector rides the preview's tracking, which already computes
+        // exactly the grid cell it needs. `inspect(at:)` no-ops unless the
+        // pointer has actually crossed onto a different lot.
+        controller.inspect(at: position)
 
         // Laying a pipe (or a power line) never conflicts with anything
         // already on the surface — there's no "blocked" state to warn
@@ -617,6 +622,7 @@ final class GameScene: SKScene {
     /// what *would* happen" preview would be redundant/confusing).
     func clearPlacementPreview() {
         placementPreviewNode.isHidden = true
+        controller.inspect(at: nil)
     }
 
     /// Briefly flash a tile red to explain why a click did nothing: the

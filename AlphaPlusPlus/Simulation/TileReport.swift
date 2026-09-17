@@ -74,6 +74,15 @@ struct TileReport: Equatable {
     /// beside it reports 1 — there is nothing there to be worn.
     let infrastructureCondition: Double
 
+    /// For housing: did this building's commute reach a job with room?
+    ///
+    /// `nil` for anything that is not occupied housing, and for a map that has
+    /// not routed yet. The one fact about a residential lot that no overlay
+    /// shows and nothing else implies — a block can have water, power, every
+    /// service and prime land and still be full of people with nowhere to
+    /// work, and until now the game computed that every tick and told nobody.
+    let commuteFound: Bool?
+
     /// Whether a hazard could strike here at all: `CityHazards` only rolls
     /// against blocks its covering service does not reach, so these are
     /// exactly "the police/fire brigade are too far away".
@@ -144,6 +153,9 @@ struct TileReport: Equatable {
             pollution: footprint.map { map.pollution.level(at: $0) }.max() ?? 0,
             congestion: roadCongestion(around: footprint, in: map),
             infrastructureCondition: condition,
+            commuteFound: anchor.zone == .residential && anchor.density > 0
+                ? map.trafficLoad.commuteFound(at: anchor.position)
+                : nil,
             // Exactly `CityHazards`' own condition for whether a risk can fire
             // at all, so "exposed" here and "a hazard can strike" there cannot
             // come apart.

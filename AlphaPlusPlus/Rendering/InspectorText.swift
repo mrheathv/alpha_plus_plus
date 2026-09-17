@@ -176,6 +176,21 @@ enum InspectorText {
         }
     }
 
+    /// What to say about this block's commute, or `nil` when there is
+    /// nothing to say — which is most of the time, and is why this is a
+    /// separate line rather than part of the headline.
+    ///
+    /// **Not promoted to the headline**, even though it is often the most
+    /// interesting thing on the panel. Unemployment does not stop a lot
+    /// growing — it feeds `Demand`, which is a city-wide pressure — so putting
+    /// it where the blocking gate goes would claim a causation the simulation
+    /// does not have. It belongs with the other things that are true about the
+    /// lot but not currently stopping it.
+    static func commute(for report: TileReport) -> String? {
+        guard let found = report.commuteFound else { return nil }
+        return found ? nil : "Nobody here can reach a job"
+    }
+
     /// "Level 3 of 5", or nothing at all for something that does not grow.
     static func level(for report: TileReport) -> String? {
         guard report.maxDensity > 0 else { return nil }

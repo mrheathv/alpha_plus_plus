@@ -16,7 +16,7 @@ final class InspectorTextTests: XCTestCase {
             hasWater: false, hasPower: false,
             policeCoverage: 0, fireCoverage: 0, schoolCoverage: 0, hospitalCoverage: 0,
             landValue: landValue, pollution: 0, congestion: 0, infrastructureCondition: 1,
-            isExposedToCrime: false, isExposedToFire: false
+            commuteFound: nil, isExposedToCrime: false, isExposedToFire: false
         )
     }
 

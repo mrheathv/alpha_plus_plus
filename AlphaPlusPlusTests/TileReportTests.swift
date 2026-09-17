@@ -314,6 +314,93 @@ final class TileReportTests: XCTestCase {
                              "a lot on a commuter route reports no congestion")
     }
 
+    // MARK: - Can the people who live here reach work?
+
+    /// The signal the router already computed every tick and discarded.
+    func testHousingKnowsWhetherItsCommuteFoundAJob() {
+        var map = CityMap(width: 16, height: 8)
+        for x in 0 ..< 14 { map[GridPosition(x: x, y: 2)].zone = .road }
+        map.placeBuilding(zone: .residential, origin: origin)
+        for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 3 }
+
+        // No jobs anywhere: `computeLoad` returns before it routes a single
+        // commute, which is exactly why the flag records employment rather
+        // than unemployment — a set of failures would come back empty here and
+        // report full employment in a city with no work in it at all.
+        map.trafficLoad = Traffic.computeLoad(for: map)
+        XCTAssertEqual(TileReport.make(at: origin, in: map).commuteFound, false,
+                       "a city with no jobs at all reported its residents employed")
+
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 10, y: 0))
+        for cell in map.footprintCells(origin: GridPosition(x: 10, y: 0), size: 2) {
+            map[cell].density = 5
+        }
+        map.trafficLoad = Traffic.computeLoad(for: map)
+        XCTAssertEqual(TileReport.make(at: origin, in: map).commuteFound, true,
+                       "a home with a reachable job reported nobody could get to work")
+    }
+
+    /// `nil` means "not asked", and has to stay distinguishable from `false`.
+    func testTheCommuteAnswerIsAbsentWhereItWouldBeMeaningless() {
+        var map = lot(.commercial, density: 3)
+        map.trafficLoad = Traffic.computeLoad(for: map)
+        XCTAssertNil(TileReport.make(at: origin, in: map).commuteFound,
+                     "a shop was asked whether its residents can reach work")
+
+        let unbuilt = lot(.residential, density: 0)
+        XCTAssertNil(TileReport.make(at: origin, in: unbuilt).commuteFound,
+                     "an empty lot reported on the commute of nobody")
+
+        // And a map that has never routed says nothing rather than claiming
+        // everyone is out of work.
+        let neverTicked = lot(.residential, density: 3)
+        XCTAssertNil(TileReport.make(at: origin, in: neverTicked).commuteFound,
+                     "a map that has never routed a commute claimed to know the answer")
+    }
+
+    // MARK: - The controller's side
+
+    func testTheControllerRebuildsTheReportOnlyWhenTheLotChanges() {
+        var map = lot(density: 2)
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 6, y: 0))
+        let controller = GameController(map: map, rng: AlwaysZeroRNG(),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        XCTAssertNil(controller.inspectedReport, "something is inspected before anything was hovered")
+
+        controller.inspect(at: origin)
+        XCTAssertEqual(controller.inspectedReport?.zone, .residential)
+
+        // The far cell of the same 2×2 lot is the same building, and has to
+        // give the same answer.
+        controller.inspect(at: GridPosition(x: 1, y: 1))
+        XCTAssertEqual(controller.inspectedReport?.density, 2)
+
+        controller.inspect(at: GridPosition(x: 6, y: 0))
+        XCTAssertEqual(controller.inspectedReport?.zone, .commercial)
+
+        controller.inspect(at: nil)
+        XCTAssertNil(controller.inspectedReport, "the panel stayed up after the cursor left the map")
+    }
+
+    /// A stationary pointer over a city that is ticking has to keep up. A
+    /// panel showing last tick's answer is worse than one showing none,
+    /// because it looks live.
+    func testAStationaryPointerSeesTheCityChangeUnderIt() {
+        var map = lot(density: 0)
+        map.cityDemand = CityDemand(residential: 1, commercial: 1, industrial: 1)
+        let controller = GameController(map: map, rng: AlwaysZeroRNG(),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        controller.inspect(at: origin)
+        let before = controller.inspectedReport
+
+        for _ in 0 ..< CitySimulator.constructionTicks(toReach: 1) + 1 {
+            controller.advanceSimulation()
+        }
+
+        XCTAssertNotEqual(controller.inspectedReport, before,
+                          "the inspector is still describing the city as it was")
+    }
+
     /// Hovering bare ground has to produce something rather than crashing or
     /// lying — a hover tool that goes blank over a third of the map is worse
     /// than none.

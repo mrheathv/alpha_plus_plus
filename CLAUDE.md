@@ -1915,6 +1915,62 @@ player to stop reading it. Exposure warnings ("no fire cover") sit at the
 bottom rather than in the headline, because an uncovered block is not broken —
 it is at risk, and promoting that would bury the thing that actually is wrong.
 
+### Phase 3 (done): hover, and the answer the router was throwing away
+
+The inspector rides the placement preview's existing mouse tracking, which
+already computes the grid cell it needs. `GameController.inspect(at:)` no-ops
+unless the pointer has crossed onto a *different* lot, and the report is cached
+on the controller rather than derived in the view — `TileReport.make` builds a
+whole-map distance field when it is not handed one, and a SwiftUI body calling
+it directly would pay for that on every mouse move and on every published
+change from anywhere else. It is rebuilt exactly twice: when the pointer moves
+to another lot, and when the city ticks under a stationary pointer. A panel
+showing last tick's answer is worse than one showing none, because it looks
+live.
+
+**`mouseExited` had never once run.** `GameSKView`'s tracking area asked for
+`.mouseMoved` and not `.mouseEnteredAndExited`, and AppKit only delivers the
+events a tracking area asks for — so the "cursor left the grid" cleanup was
+dead code and the placement preview stayed stuck wherever the cursor last was.
+Tolerable for an outline; not for a panel that would sit there describing a lot
+the player is no longer pointing at.
+
+#### "Can the people who live here reach a job?"
+
+`Traffic.computeLoad` routes every home to the nearest job *with room left*,
+and the line that decides whether one was found ends `else { continue } // no
+reachable job has room`. The answer was computed every tick and discarded. It
+is now kept on `TrafficLoad`, and it is the one fact about a residential lot
+that no overlay shows and nothing else implies — a block can have water, power,
+every service and prime land and still be full of people with nowhere to work.
+
+Two details worth keeping:
+
+- **It records the successes, not the failures.** `computeLoad` returns early
+  when a city has no job sites at all, before any home is considered, so a set
+  of failures would come back empty and report full employment in a city that
+  has none. Recording employment and marking that routing *ran* makes "nobody
+  found work" distinguishable from "nobody has looked yet".
+- **It is not the headline.** Unemployment does not stop a lot growing — it
+  feeds `Demand`, which is city-wide — so putting it where the blocking gate
+  goes would claim a causation the simulation does not have. It sits with the
+  other warnings.
+
+The field is `Optional`, which is what keeps it off
+`CitySave.minimumSupportedFormatVersion`: `decodeIfPresent` handles it for
+free, and "this map has not routed yet" is a real state rather than a
+compatibility dodge.
+
+#### One thing only the live render could catch
+
+The panel floats over the map, and `RetroPanel` fills at 55% opacity — right
+for a panel on the dashboard's own background, wrong for one over a lit neon
+city, which showed straight through a paragraph of 10-point text. It looked
+perfect in the component sheet's plain surroundings. The inspector carries its
+own opaque ground and a drop shadow now, because legibility over arbitrary
+content is a property of *this* panel rather than of where it happens to be
+placed.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water
