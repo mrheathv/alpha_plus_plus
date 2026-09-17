@@ -632,8 +632,58 @@ final class IsometricCityTests: XCTestCase {
         XCTAssertGreaterThan(sheet.count, 0)
     }
 
-    private func render(_ map: CityMap, tileWidth: CGFloat, overlay: OverlayMode = .none) throws -> NSImage {
+    /// **How much of the city does building height hide?**
+    ///
+    /// `Isometric.project` moves the screen down by `tileHeight / 2` per step
+    /// of `x + y` and up by `heightUnit` per unit of `z`. At the shipping
+    /// values — `tileHeight / 2` is 16 and `heightUnit` is 32 — **one storey
+    /// displaces two grid rows**, so a tier-4 building of height 2.5 stands in
+    /// front of five rows of city. That is the street network, and the traffic
+    /// on it, for a block in every direction.
+    ///
+    /// SimCity 4 keeps its road grid readable at any density, and the reason
+    /// is not setback — this project's massing already leaves a margin — it is
+    /// that its buildings are far shorter relative to the grid they sit on.
+    /// Height is the knob, and this render is the way to pick it: the same
+    /// city three times, so the trade between drama and legibility is visible
+    /// rather than argued about.
+    func testRenderHeightBudget() throws {
+        let map = Self.city()
+        let tileWidth: CGFloat = 44
         let projection = Self.projection(tileWidth: tileWidth)
+        // **Rows, not points.** `heightUnit` scales with tile size, so a fixed
+        // point value means different things at different zooms — the first
+        // version of this render fixed the points and varied the zoom, which
+        // quietly compared the shipping look against two exaggerations of it
+        // and made today's setting look far worse than it is. What is actually
+        // constant, and what actually decides how much a building hides, is
+        // the ratio of `heightUnit` to half a tile's height.
+        let shippingRows = projection.heightUnit / (projection.tileHeight / 2)
+        var panels: [(String, NSImage)] = []
+        for rows in [shippingRows, 1.5, 1.0] {
+            let unit = rows * projection.tileHeight / 2
+            let label = abs(rows - shippingRows) < 0.01
+                ? String(format: "%.1f rows per storey — what ships today", rows)
+                : String(format: "%.1f rows per storey", rows)
+            panels.append((label, try render(map, tileWidth: tileWidth, heightUnit: unit)))
+        }
+        let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the height panels")
+        let destination = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/ContactSheet/isometric-height.png")
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try sheet.write(to: destination)
+        print("📏 Height budget: \(destination.path)")
+        XCTAssertGreaterThan(sheet.count, 0)
+    }
+
+    private func render(
+        _ map: CityMap, tileWidth: CGFloat, overlay: OverlayMode = .none, heightUnit: CGFloat? = nil
+    ) throws -> NSImage {
+        var projection = Self.projection(tileWidth: tileWidth)
+        if let heightUnit { projection.heightUnit = heightUnit }
         let bounds = projection.contentBounds(of: map)
         let margin: CGFloat = 24
         let headroom = 4 * projection.heightUnit
