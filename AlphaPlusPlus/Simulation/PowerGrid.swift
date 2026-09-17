@@ -101,14 +101,17 @@ enum PowerGrid {
         return PowerSupply(reachableLines: reachable, directlyServed: direct)
     }
 
-    /// Is any tile sharing an edge with `position` a supplied power line?
-    /// The exact shape `Water.hasSupply(at:in:)` already uses — a
-    /// building doesn't need to *be* a power line, just touch one that's
-    /// actually connected.
+    /// Is this tile, or one sharing an edge with it, a supplied power line —
+    /// or is it simply close enough to a plant? The exact shape
+    /// `Water.hasSupply(at:in:)` already uses.
     static func hasSupply(at position: GridPosition, in map: CityMap) -> Bool {
         // Same two routes as `Water.hasSupply(at:in:)`, for the same reason:
         // a generator dropped next to a few houses has to light them without
         // the player first discovering the Power overlay and drawing lines.
+        // The tile itself counts too — see `Water.hasSupply(at:in:)` for why
+        // "under" and "beside" behaving differently was a rule nobody could
+        // have inferred.
+        if map.powerSupply.isSupplied(at: position) { return true }
         if position.orthogonalNeighbors().contains(where: { map.powerSupply.isSupplied(at: $0) }) {
             return true
         }

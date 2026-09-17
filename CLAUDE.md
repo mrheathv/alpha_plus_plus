@@ -2153,6 +2153,23 @@ run, and the magnified crop then showed the effect plainly. **When a render
 disagrees with the code, measure the render before changing the code** — the
 small crop was the unreliable instrument, not the renderer.
 
+### And one rule nobody could have inferred
+
+`hasSupply` checked a tile's orthogonal neighbours and never the tile itself,
+so a conduit laid *under* a building supplied it only by accident: every
+growable zone is 2×2, and one footprint cell is adjacent to another. It would
+have failed silently on anything 1×1.
+
+"Under" and "beside" behaving differently, for no reason a player could work
+out, is the kind of rule that makes a mechanic feel arbitrary — and it is
+exactly the sort of thing an unreadable overlay hides. Making the network
+visible is what surfaced it. The tile now counts as well as its neighbours, in
+both utilities; an orphaned conduit still supplies nothing, since the fix is
+about where a *live* conduit counts.
+
+Practically this changes almost nothing — the zones it could affect are all
+2×2 — which is the point: it removes an arbitrary rule at no gameplay cost.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

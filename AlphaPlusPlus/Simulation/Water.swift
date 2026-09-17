@@ -187,6 +187,16 @@ enum Water {
         // Either route works: touching a pipe that traces back to a source, or
         // simply being close enough to one (`directSupplyRadius`). The second
         // is what makes "put a pump next to the houses" do something.
+        // **The tile itself counts, not only its neighbours.** This checked
+        // adjacency alone, which made a conduit laid *under* a building do
+        // nothing on its own merits — it happened to work anyway, because
+        // every growable zone is 2×2 and one footprint cell is adjacent to
+        // another, and it would have silently failed for anything 1×1. "Under"
+        // and "beside" behaving differently for no reason a player could infer
+        // is the kind of rule that makes a mechanic feel arbitrary, and the
+        // overlay work that surfaced it made the inconsistency visible without
+        // making it explicable.
+        if map.waterSupply.isSupplied(at: position) { return true }
         if position.orthogonalNeighbors().contains(where: { map.waterSupply.isSupplied(at: $0) }) {
             return true
         }
