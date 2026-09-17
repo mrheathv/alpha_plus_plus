@@ -61,6 +61,23 @@ struct GameView: View {
             }
             .frame(minWidth: 760, minHeight: 420)
             .overlay(alignment: .topTrailing) { inspector }
+            // **Focus on the map, not on the window.** `onKeyPress` needs a
+            // focusable view, and putting it here rather than on the whole
+            // `VStack` is what makes the City Hall sheet behave: a sheet takes
+            // focus, so WASD stops steering the camera the moment a panel is
+            // open, with no explicit "is a sheet up" check to forget about.
+            .focusable()
+            .focusEffectDisabled()
+            .focused($mapHasFocus)
+            // **Focused on appear**, or the feature is broken on launch: a
+            // focusable view is not a focused one, and WASD would do nothing
+            // until the player happened to click the map. Nobody discovers a
+            // keyboard control they have to earn first.
+            .onAppear { mapHasFocus = true }
+            .onKeyPress(phases: [.down, .up]) { press in handle(press) }
+            // A key held down when the window loses focus never sends its
+            // `.up`, which would leave the camera sliding forever.
+            .onChange(of: heldKeys.isEmpty) { syncKeyboardPan() }
             dashboard
         }
         .onChange(of: controller.cityGeneration) {
@@ -97,6 +114,13 @@ struct GameView: View {
         // depend on the player's own Light/Dark Mode setting.
         .sheet(isPresented: $controller.isShowingCityPanel) {
             CityPanel(controller: controller) { controller.isShowingCityPanel = false }
+        }
+        .onChange(of: controller.isShowingCityPanel) {
+            // Any key still held when the sheet opened never sends its `.up`,
+            // so the camera would slide forever behind the panel.
+            heldKeys.removeAll()
+            syncKeyboardPan()
+            if !controller.isShowingCityPanel { mapHasFocus = true }
         }
         .preferredColorScheme(.dark)
     }
@@ -137,6 +161,58 @@ struct GameView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RetroUITheme.background)
             .overlay(alignment: .bottom) { neonSeam }
+    }
+
+    // MARK: - Keyboard
+
+    /// Which pan keys are down right now.
+    ///
+    /// Tracked rather than acted on directly because holding a key should pan
+    /// *continuously*: `onKeyPress` would otherwise deliver one event, pause
+    /// for the OS key-repeat delay, and then repeat at the system rate, which
+    /// reads as a stutter. `GameScene` integrates a velocity per frame
+    /// instead — see `KeyboardControls.panPointsPerSecond`.
+    @State private var heldKeys: Set<KeyEquivalent> = []
+
+    /// Whether the map is what the keyboard is talking to. Given back to the
+    /// map whenever a sheet closes, since a dismissed City Hall would
+    /// otherwise leave the camera unsteerable with no visible reason why.
+    @FocusState private var mapHasFocus: Bool
+
+    private func handle(_ press: KeyPress) -> KeyPress.Result {
+        guard let command = KeyboardControls.command(for: press.key) else { return .ignored }
+
+        guard KeyboardControls.isHeld(command) else {
+            // A toggle fires once, on the way down. Acting on `.up` as well
+            // would undo it the instant the player lifted the key.
+            if press.phase == .down, case .togglePause = command {
+                controller.isRunning.toggle()
+            }
+            return .handled
+        }
+
+        if press.phase == .down {
+            heldKeys.insert(press.key)
+        } else {
+            heldKeys.remove(press.key)
+        }
+        syncKeyboardPan()
+        return .handled
+    }
+
+    /// Sums every held direction into one velocity for the scene.
+    ///
+    /// Summing rather than taking the latest is what makes two keys at once
+    /// travel diagonally, and what makes pressing opposite keys cancel out
+    /// rather than fighting.
+    private func syncKeyboardPan() {
+        var pan = CGVector.zero
+        for key in heldKeys {
+            guard case let .pan(dx, dy) = KeyboardControls.command(for: key) else { continue }
+            pan.dx += dx
+            pan.dy += dy
+        }
+        scene?.keyboardPan = pan
     }
 
     /// The hover inspector, over the map's top-right corner.
@@ -190,6 +266,13 @@ struct GameView: View {
                     // not go looking in a menu for it.
                     Button("City Hall…") { controller.isShowingCityPanel = true }
                         .buttonStyle(RetroButtonStyle(accent: RetroUITheme.secondaryAccent))
+                    // A keyboard control nobody is told about is a keyboard
+                    // control nobody uses. One line, under the button the
+                    // space bar duplicates, which is where a player looking
+                    // for a faster way to do this would already be looking.
+                    Text("Space to pause · WASD or arrows to pan")
+                        .font(.system(size: 9))
+                        .foregroundStyle(RetroUITheme.textSecondary)
                 }
             }
 

@@ -2007,6 +2007,53 @@ The overlay picker is driven by `OverlayMode.allCases`, so adding the two cases
 was the whole UI change; and the render picks them up automatically now that
 both it and `GameScene` share `IsoTileRenderer.paint`.
 
+### Keyboard navigation
+
+WASD and the arrow keys pan; space pauses. `KeyboardControls` is the mapping,
+split out from `GameView` so it is one table rather than a chain of comparisons
+inside a view modifier — and so it can be tested, since `onKeyPress` cannot be
+driven from a unit test but "does W pan north" should not need a human at a
+keyboard to find out.
+
+**Held keys are tracked and the camera integrates a velocity per frame**, which
+is the difference between a camera you steer and one you nudge. Acting on the
+key events directly would move once, pause for the OS key-repeat delay, then
+repeat at the system rate — a stutter. Three details fall out of doing it
+properly:
+
+- **Panning runs before the pause check** in `update(_:)`. Looking around a
+  stopped city is most of what pausing is *for*, and sharing the simulation's
+  clock would freeze the camera exactly when a player has stopped to look at
+  something.
+- **The velocity is normalised**, so holding two keys does not travel 1.41x
+  faster than holding one. That is the oldest bug in this genre of code and it
+  is invisible until someone notices the map slides faster diagonally.
+- **It scales with the camera's zoom**, so a key covers the same fraction of
+  the screen however far out you are — otherwise panning crawls when zoomed
+  out, which is exactly when you are trying to cross the map.
+
+Space is a one-shot on the way down. Treating it as held would flip the
+simulation on and off many times a second and leave it wherever the last repeat
+landed.
+
+Three things this needed that are easy to miss:
+
+- **`.focusable()` is not focused.** WASD did nothing until the player clicked
+  the map, and nobody discovers a keyboard control they have to earn first. The
+  map takes focus on appear, and takes it back when the City Hall sheet closes.
+- **A key held when focus moves away never sends its `.up`**, so the camera
+  would slide forever behind an open sheet. Held keys are cleared when one
+  opens.
+- **Putting `.focusable()` on the map rather than the window** is what makes
+  the sheet behave: a sheet takes focus, so WASD stops steering the moment a
+  panel is open, with no "is a sheet up" check to forget about later.
+
+The two new overlay buttons pushed the dashboard's Alerts panel narrow enough
+to truncate its text to "Next: Police Stati…", so `RetroSegmentedPicker` wraps
+at six. Every overlay added makes that row wider, and the tool rail above the
+map has already learned this lesson twice: a row that grows every time a
+feature lands needs a wrap in it, not a bigger window.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

@@ -232,6 +232,46 @@ final class GameScene: SKScene {
         clampCameraToMap()
     }
 
+    // MARK: - Test seams
+    //
+    // Three read-only windows onto state that is otherwise private, so the
+    // keyboard tests can assert on where the camera actually went rather than
+    // on whether a method was called. Named `…ForTesting` so nothing in the
+    // app reaches for them by accident.
+
+    var cameraPositionForTesting: CGPoint { cameraNode.position }
+    var controllerForTesting: GameController { controller }
+    var cameraClampBoundsForTesting: CGRect {
+        projection.contentBounds(of: map).insetBy(
+            dx: -projection.tileWidth * 2, dy: -projection.tileHeight * 2
+        )
+    }
+
+    /// Which way the keyboard is currently steering, in camera terms: `dy`
+    /// positive is up the screen. Zero when nothing is held.
+    ///
+    /// A *velocity* the frame loop integrates, not a position — see
+    /// `KeyboardControls.panPointsPerSecond` for why holding a key has to be
+    /// smooth rather than a series of nudges paced by the OS key-repeat rate.
+    var keyboardPan: CGVector = .zero
+
+    /// Applies `keyboardPan` for one frame.
+    ///
+    /// Scaled by the camera's own zoom so a key press covers the same
+    /// *fraction of the screen* however far out you are. Without it panning
+    /// crawls when zoomed out — which is exactly when you are trying to cross
+    /// the map — and skitters when zoomed in.
+    private func applyKeyboardPan(elapsed: TimeInterval) {
+        guard keyboardPan != .zero else { return }
+        let distance = KeyboardControls.panPointsPerSecond * CGFloat(elapsed) * cameraNode.xScale
+        // Normalised, so travelling diagonally is not 1.41x faster than
+        // travelling straight — the classic bug of adding two axes together.
+        let length = (keyboardPan.dx * keyboardPan.dx + keyboardPan.dy * keyboardPan.dy).squareRoot()
+        cameraNode.position.x += keyboardPan.dx / length * distance
+        cameraNode.position.y += keyboardPan.dy / length * distance
+        clampCameraToMap()
+    }
+
     /// Keep the camera over the map.
     ///
     /// **This never existed top-down and it should have.** Panning was
@@ -285,8 +325,22 @@ final class GameScene: SKScene {
     /// interval from `controller` (instead of a fixed constant) each frame
     /// means changing the speed picker mid-game takes effect on the very
     /// next check, with nothing to reset.
+    /// Scene time of the previous frame, for the elapsed-time term in
+    /// keyboard panning. Separate from `lastTickTime` below, which is reset
+    /// whenever the simulation pauses — the camera keeps moving when the city
+    /// does not, and sharing one clock would freeze panning exactly when a
+    /// player has paused to go and look at something.
+    private var lastFrameTime: TimeInterval?
+
     override func update(_ currentTime: TimeInterval) {
         super.update(currentTime)
+
+        // Before the pause check, deliberately. Looking around a stopped city
+        // is most of what pausing is for.
+        if let lastFrameTime {
+            applyKeyboardPan(elapsed: min(currentTime - lastFrameTime, 0.1))
+        }
+        lastFrameTime = currentTime
 
         guard controller.isRunning else {
             // Paused: forget when we last ticked, so resuming waits a full
