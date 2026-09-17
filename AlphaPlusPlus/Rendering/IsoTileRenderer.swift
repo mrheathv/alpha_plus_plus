@@ -722,22 +722,33 @@ struct IsoTileRenderer {
 
     /// Underground networks, drawn only in their own overlay — the one place a
     /// pipe or a power line is visible at all.
-    func syncBuriedMarker(on node: SKNode, tile: Tile, present: Bool, isPipe: Bool) {
+    func syncConduit(on node: SKNode, present: Bool, isPipe: Bool, mask: Int, live: Bool) {
         let name = isPipe ? Self.pipeNodeName : Self.powerNodeName
-        let key = "\(tile.zone.rawValue)|\(present)"
+        let key = present ? "\(mask)|\(live)" : "none"
         guard !isUpToDate(node, name, key) else { return }
         markUpToDate(node, name, key)
         node.childNode(withName: name)?.removeFromParent()
-        guard present else { return }
+        guard present, let rendered = textures.conduit(isPipe: isPipe, mask: mask, live: live) else { return }
 
-        let size = CGFloat(tile.zone.footprintSize)
-        let marker = SKShapeNode(path: projection.tileDiamond(x: 0, y: 0, size: size, inset: 0.32))
-        marker.name = name
-        marker.fillColor = (isPipe ? RenderPalette.pipeMarkerColor : RenderPalette.powerLineMarkerColor)
-            .withAlphaComponent(0.9)
-        marker.strokeColor = .clear
-        marker.zPosition = 0.5
-        node.addChild(marker)
+        let line = SKSpriteNode(texture: rendered.texture, size: rendered.size)
+        line.name = name
+        line.position = rendered.offset
+        // Additive, like the lane lines: a straight run brightens where tiles
+        // meet and reads as one continuous length of live wire rather than a
+        // chain of separately-lit squares. A dead conduit is drawn dark, so
+        // adding it contributes almost nothing — which is exactly right.
+        line.blendMode = live ? .add : .alpha
+        // **Above every building on the map, not just above this tile.**
+        // Tile nodes are depth-sorted, so at any ordinary `zPosition` a
+        // conduit is hidden by whatever stands in front of it — which for a
+        // buried network is most of the city, and which made the water
+        // overlay a picture of pipes you could not see. In its own overlay
+        // the network is a *schematic*: the one thing the player came here to
+        // look at, drawn over the city rather than inside it. A thousand
+        // clears the largest depth any map can produce (`Isometric.depth`
+        // tops out near twice the map's dimension).
+        line.zPosition = 1_000
+        node.addChild(line)
     }
 
     /// How tall the building on a tile stands, in tile units — needed to put

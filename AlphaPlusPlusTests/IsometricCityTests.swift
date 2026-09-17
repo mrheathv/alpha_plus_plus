@@ -130,6 +130,14 @@ final class IsometricCityTests: XCTestCase {
         for y in 8 ... 11 { map[GridPosition(x: 3, y: y)].hasPipe = true }
         for y in 1 ... 8 { map[GridPosition(x: 16, y: y)].hasPowerLine = true }
         for x in 10 ... 16 { map[GridPosition(x: x, y: 8)].hasPowerLine = true }
+        // A run of pipe that reaches nothing, because "did that connect?" is
+        // the only question a player is asking while laying it — and a fixture
+        // where every conduit is live cannot show whether the answer is
+        // visible. Same reason this fixture had to grow a partial network in
+        // the first place.
+        for y in 2 ... 6 { map[GridPosition(x: 18, y: y)].hasPipe = true }
+        for x in 15 ... 18 { map[GridPosition(x: x, y: 2)].hasPipe = true }
+
         map.waterSupply = Water.computeSupply(for: map)
         map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
         // And the cached fields the heatmaps read. `CityMap` defaults these to
@@ -487,6 +495,72 @@ final class IsometricCityTests: XCTestCase {
                           "a safe factory on uncovered ground is being tinted with the ground")
     }
 
+    // MARK: - Buried conduits
+
+    /// **"Did that connect?" is the only question a player asks while laying
+    /// pipe**, and until this it had no answer on screen: an orphaned run and
+    /// a live one were drawn identically. The supply computation has known
+    /// every tick since pipes existed.
+    func testALiveConduitIsDrawnDifferentlyFromAnOrphanedOne() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let node = renderer.makeNode(for: Tile(position: GridPosition(x: 1, y: 1)))
+        func conduit() -> SKSpriteNode? {
+            node.childNode(withName: "isoPipe") as? SKSpriteNode
+        }
+
+        renderer.syncConduit(on: node, present: true, isPipe: true, mask: 3, live: false)
+        let dead = conduit()?.texture
+        XCTAssertNotNil(dead, "an orphaned pipe was not drawn at all")
+
+        renderer.syncConduit(on: node, present: true, isPipe: true, mask: 3, live: true)
+        XCTAssertNotNil(conduit()?.texture)
+        XCTAssertNotEqual(conduit()?.texture, dead,
+                          "a pipe that reaches a tower looks the same as one that reaches nothing")
+    }
+
+    /// The conduit is the thing the player came to this overlay to see, so it
+    /// is drawn over the city rather than inside it — at any ordinary
+    /// `zPosition` the depth sort hides a buried network behind whatever
+    /// stands in front of it, which is most of a city.
+    func testAConduitDrawsOverTheBuildingsInFrontOfIt() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let node = renderer.makeNode(for: Tile(position: GridPosition(x: 1, y: 1)))
+        renderer.syncConduit(on: node, present: true, isPipe: false, mask: 5, live: true)
+        let conduit = node.childNode(withName: "isoPowerLine")
+        XCTAssertNotNil(conduit)
+        XCTAssertGreaterThan(conduit?.zPosition ?? 0, 200,
+                             "a buried conduit sorts among the buildings that hide it")
+    }
+
+    /// A lone tile of conduit is the first thing anyone places and the one
+    /// most likely to be orphaned, so it must not render as nothing.
+    func testALoneConduitTileIsStillVisible() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let node = renderer.makeNode(for: Tile(position: GridPosition(x: 1, y: 1)))
+        renderer.syncConduit(on: node, present: true, isPipe: true, mask: 0, live: false)
+        XCTAssertNotNil(node.childNode(withName: "isoPipe"), "an isolated pipe drew nothing")
+    }
+
+    /// Cached on what it looks like, so a refresh does not rebuild it — and
+    /// *not* cached so hard that going live leaves it looking dead.
+    func testAConduitRebuildsWhenItGoesLiveAndNotOtherwise() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let node = renderer.makeNode(for: Tile(position: GridPosition(x: 1, y: 1)))
+
+        renderer.syncConduit(on: node, present: true, isPipe: true, mask: 3, live: false)
+        let first = node.childNode(withName: "isoPipe")
+        renderer.syncConduit(on: node, present: true, isPipe: true, mask: 3, live: false)
+        XCTAssertTrue(first === node.childNode(withName: "isoPipe"),
+                      "an unchanged conduit was rebuilt")
+
+        renderer.syncConduit(on: node, present: true, isPipe: true, mask: 3, live: true)
+        XCTAssertFalse(first === node.childNode(withName: "isoPipe"),
+                       "a pipe that just came alive is still drawn dead")
+
+        renderer.syncConduit(on: node, present: false, isPipe: true, mask: 0, live: false)
+        XCTAssertNil(node.childNode(withName: "isoPipe"), "a removed pipe is still drawn")
+    }
+
     /// What a fully built-out map actually costs the renderer.
     ///
     /// The number that matters is **nodes in the scene**, not nodes per
@@ -719,6 +793,24 @@ final class IsometricCityTests: XCTestCase {
             if let paint = IsoTileRenderer.paint(for: overlay, at: position, in: map, using: nil) {
                 renderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor)
+            }
+            // The buried layers, which are only ever drawn in their own
+            // overlay — and which this render did not draw at all, so the one
+            // picture of the water overlay anybody had was a picture with no
+            // pipes in it.
+            if overlay == .water {
+                renderer.syncConduit(
+                    on: node, present: map[position].hasPipe, isPipe: true,
+                    mask: Infrastructure.conduitMask(at: position, in: map, isPipe: true),
+                    live: map.waterSupply.isSupplied(at: position)
+                )
+            }
+            if overlay == .power {
+                renderer.syncConduit(
+                    on: node, present: map[position].hasPowerLine, isPipe: false,
+                    mask: Infrastructure.conduitMask(at: position, in: map, isPipe: false),
+                    live: map.powerSupply.isSupplied(at: position)
+                )
             }
             world.addChild(node)
         }

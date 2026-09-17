@@ -197,6 +197,38 @@ final class InfrastructureTests: XCTestCase {
         XCTAssertTrue(Infrastructure.hasFailed(tile))
     }
 
+    // MARK: - Drawing the network as a network
+
+    func testAConduitKnowsWhichNeighboursItJoins() {
+        var map = CityMap(width: 8, height: 8)
+        let centre = GridPosition(x: 4, y: 4)
+        map[centre].hasPipe = true
+        XCTAssertEqual(Infrastructure.conduitMask(at: centre, in: map, isPipe: true), 0,
+                       "a lone pipe reported neighbours it does not have")
+
+        map[GridPosition(x: 5, y: 4)].hasPipe = true   // east
+        map[GridPosition(x: 4, y: 5)].hasPipe = true   // north
+        XCTAssertEqual(Infrastructure.conduitMask(at: centre, in: map, isPipe: true), 1 | 4)
+
+        // The two layers are independent: a power line beside a pipe joins
+        // nothing, which is the whole reason they are separate networks.
+        map[GridPosition(x: 3, y: 4)].hasPowerLine = true
+        XCTAssertEqual(Infrastructure.conduitMask(at: centre, in: map, isPipe: true), 1 | 4,
+                       "a pipe connected itself to a power line")
+        // And the power layer sees only its own: west, where the line is, and
+        // nothing to the east or north where the pipes run.
+        XCTAssertEqual(Infrastructure.conduitMask(at: centre, in: map, isPipe: false), 2,
+                       "the two layers are not independent")
+    }
+
+    func testAConduitDoesNotJoinThroughTheMapEdge() {
+        var map = CityMap(width: 4, height: 4)
+        for x in 0 ..< 4 { map[GridPosition(x: x, y: 0)].hasPipe = true }
+        let corner = GridPosition(x: 0, y: 0)
+        XCTAssertEqual(Infrastructure.conduitMask(at: corner, in: map, isPipe: true), 1,
+                       "a conduit on the edge claimed a neighbour outside the map")
+    }
+
     // MARK: - The blackout cascade
 
     /// An overloaded grid used to be a flat state: it dropped, it stayed

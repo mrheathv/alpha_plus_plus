@@ -2054,6 +2054,67 @@ at six. Every overlay added makes that row wider, and the tool rail above the
 map has already learned this lesson twice: a row that grows every time a
 feature lands needs a wrap in it, not a bigger window.
 
+## Water and power, made legible (in progress)
+
+Reported from play: *"it really is difficult to tell where you're laying
+pipe/power lines and if that's going to help what is above it."* Rendering the
+water overlay confirmed it — you could see which *buildings* had water, and the
+pipe run itself was invisible.
+
+The rules, for reference, because they are more forgiving than they look and
+two of them are easy to confuse:
+
+- A **source** serves everything within Manhattan distance 4 of its footprint,
+  with no pipe at all — about 60 tiles. Added because playtesting found a new
+  player putting a pump next to their houses and nothing happening.
+- A **pipe** supplies any building orthogonally *adjacent* to it, provided that
+  pipe traces back to a source through a connected run. Pipes go beside a
+  block, not under it.
+
+So there are two supply mechanisms with different shapes, and neither was
+drawn. That is a lot to hold in your head about an invisible system.
+
+### Phase 1 (done): the network reads as a network
+
+Three things, all of which had the data already.
+
+**Conduits are drawn as a connected run.** `syncBuriedMarker` painted one muted
+disc per tile, so a ten-tile pipe read as ten faint dots.
+`IsoTextureCache.conduit(isPipe:mask:live:)` reuses `lane`'s rasteriser — a
+path from the tile centre to each connected neighbour, keyed on a sixteen-value
+mask — because a conduit and a road are the same drawing problem one layer
+apart. Sixteen masks × two kinds × live-or-dead is 64 textures against a cache
+already holding about fifty, and additive blending makes a straight run
+brighten where tiles meet, exactly like the street grid.
+
+**Live and dead look different.** A conduit that does not reach a source does
+nothing, and looked identical to one that does — so "did that connect?", the
+only question a player is actually asking while laying pipe, had no answer on
+screen. `WaterSupply.isSupplied(at:)` has known it every tick since pipes
+existed and nothing drew it. Live runs glow; orphaned ones are unlit wire.
+
+**The overlay draws the network *over* the city.** Tile nodes are depth-sorted,
+so at any ordinary `zPosition` a buried conduit is hidden behind whatever
+stands in front of it — which is most of a city, and which is why the pipes
+were invisible even once they were bright. In its own overlay the network is a
+schematic: the one thing the player came here to look at.
+
+Three tuning notes from the render, all caught by looking:
+
+- The first live colour was full-brightness, and additive overlap plus bloom
+  saturated the run to **white** — losing the one thing the colour carried,
+  which is which utility it is. Held below the ceiling, the sum lands on blue
+  or yellow instead of on paper.
+- `glowWidth` 5 made the run a smear that swamped the tiles either side. Same
+  mistake as putting `glowWidth` on individual windows, recorded above.
+- The first dead colour was 0.30 grey, which against this palette's near-black
+  ground is not "unlit wire", it is nothing at all — an orphaned run you cannot
+  see is the exact failure the distinction exists to fix.
+
+And the render fixture had to grow an orphaned run, for the reason it once had
+to grow pipes at all: a fixture where every conduit is live cannot show whether
+a dead one is visible.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

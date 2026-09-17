@@ -893,8 +893,8 @@ final class GameScene: SKScene {
         case .none:
             tileRenderer.restoreFromOverlay(on: node)
             tileRenderer.update(node, for: tile)
-            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: false, isPipe: true)
-            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: false, isPipe: false)
+            tileRenderer.syncConduit(on: node, present: false, isPipe: true, mask: 0, live: false)
+            tileRenderer.syncConduit(on: node, present: false, isPipe: false, mask: 0, live: false)
             syncLaneLine(at: position)
             // Damage is drawn on the anchor's node only, since that is the one
             // cell of a building that gets a node at all.
@@ -928,10 +928,21 @@ final class GameScene: SKScene {
             // still waits for the next tick to recompute it, same as for a
             // newly-placed tower.
             if controller.overlayMode == .water {
-                tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPipe, isPipe: true)
+                tileRenderer.syncConduit(
+                    on: node, present: tile.hasPipe, isPipe: true,
+                    mask: Infrastructure.conduitMask(at: position, in: map, isPipe: true),
+                    // Live means "this length of pipe traces back to a tower".
+                    // The supply computation has known it every tick since
+                    // pipes existed; nothing ever drew it.
+                    live: map.waterSupply.isSupplied(at: position)
+                )
             }
             if controller.overlayMode == .power {
-                tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPowerLine, isPipe: false)
+                tileRenderer.syncConduit(
+                    on: node, present: tile.hasPowerLine, isPipe: false,
+                    mask: Infrastructure.conduitMask(at: position, in: map, isPipe: false),
+                    live: map.powerSupply.isSupplied(at: position)
+                )
             }
         }
         syncTrafficAnimation(at: position)

@@ -72,6 +72,32 @@ enum RenderPalette {
     /// synthwave palette has no unpleasant colour in it by design. Borrowing
     /// industrial's own ember hue and souring it toward green keeps it in the
     /// family while still reading as contamination.
+    /// A buried conduit's line colour.
+    ///
+    /// **Hot when live, cold when not.** Power runs electric yellow and water
+    /// runs a bright cyan-blue — the two hues the retrowave palette has going
+    /// spare, and the two a player already associates with the things they
+    /// carry. An orphaned conduit drops to a dead slate with no bloom behind
+    /// it, so a run that fails to reach its source reads as unlit wire rather
+    /// than as a slightly different shade of the same thing.
+    static func conduitColor(isPipe: Bool, live: Bool) -> SKColor {
+        // **A dead conduit has to be visible as a dead conduit.** The first
+        // value here was 0.30 grey, which against this palette's near-black
+        // ground was not "unlit wire", it was nothing at all — and an orphaned
+        // run you cannot see is the exact failure the live/dead distinction
+        // exists to fix.
+        guard live else { return SKColor(srgbRed: 0.46, green: 0.47, blue: 0.56, alpha: 1.0) }
+        // **Deliberately short of full brightness.** These are drawn additively
+        // so a straight run brightens where tiles meet, and at 1.0 the overlap
+        // plus the bloom saturated the line to white — losing the one thing
+        // the colour was carrying, which is *which* utility this is. Held
+        // below the ceiling, the sum lands on a bright blue or a bright
+        // yellow instead of on paper.
+        return isPipe
+            ? SKColor(srgbRed: 0.10, green: 0.58, blue: 0.82, alpha: 1.0)
+            : SKColor(srgbRed: 0.78, green: 0.62, blue: 0.10, alpha: 1.0)
+    }
+
     /// The Crime and Fire Risk overlays' ground colour: how strongly a
     /// service reaches this tile, from unreached to right next door.
     ///

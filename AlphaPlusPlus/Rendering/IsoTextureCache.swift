@@ -42,7 +42,7 @@ final class IsoTextureCache {
     /// sprites, and sprites batch. The glow comes along inside the texture, so
     /// the retrowave bloom on the road grid costs nothing per tile at all.
     private struct Key: Hashable {
-        enum Kind: Hashable { case building, ground, lane, car }
+        enum Kind: Hashable { case building, ground, lane, car, conduit }
         var kind: Kind = .building
         let zone: ZoneType
         var tier: Int = 0
@@ -224,6 +224,60 @@ final class IsoTextureCache {
             lane.glowWidth = zone == .highway ? 5 : 4
             lane.lineCap = .round
             return lane
+        }
+    }
+
+    /// A buried pipe or power line, drawn as a connected run.
+    ///
+    /// **The same rasteriser as `lane`, deliberately.** A conduit and a road
+    /// are the same drawing problem — a network whose tile should join up with
+    /// its neighbours — and the buried layers had been drawing one muted disc
+    /// per tile instead, which reads as a row of dots rather than as a pipe.
+    /// Sixteen masks times two kinds times live-or-dead is sixty-four
+    /// textures, against a cache that already holds about fifty.
+    ///
+    /// `live` is the part that matters most. A conduit that does not trace
+    /// back to a source does nothing at all, and until now looked identical to
+    /// one that does — so "did that connect?", the only question a player is
+    /// actually asking while laying pipe, had no answer on screen.
+    /// `WaterSupply.isSupplied(at:)` has known it all along and nothing drew it.
+    func conduit(isPipe: Bool, mask: Int, live: Bool) -> Rendered? {
+        let key = Key(
+            kind: .conduit,
+            zone: isPipe ? .waterTower : .powerPlant,
+            tier: live ? 1 : 0,
+            variant: mask
+        )
+        return rendered(key) {
+            let path = CGMutablePath()
+            let centre = projection.project(0.5, 0.5, 0)
+            var drew = false
+            func arm(_ x: CGFloat, _ y: CGFloat) {
+                path.move(to: centre)
+                path.addLine(to: projection.project(x, y, 0))
+                drew = true
+            }
+            if mask & 1 != 0 { arm(1, 0.5) }
+            if mask & 2 != 0 { arm(0, 0.5) }
+            if mask & 4 != 0 { arm(0.5, 1) }
+            if mask & 8 != 0 { arm(0.5, 0) }
+            // A lone tile of pipe still has to be visible — it is the first
+            // thing a player places, and the one most likely to be orphaned.
+            if !drew { arm(1, 0.5); arm(0, 0.5) }
+
+            let line = SKShapeNode(path: path)
+            line.strokeColor = RenderPalette.conduitColor(isPipe: isPipe, live: live)
+            line.lineWidth = live ? 2.5 : 2
+            // Dead conduits get no bloom at all. The absence of glow is the
+            // signal — an unlit line among burning ones reads as "this one is
+            // not carrying anything" without needing a legend. And the live
+            // one's bloom is kept tight: at 5 the glow swamped the tiles
+            // either side and the run read as a white smear rather than a
+            // wire, which is the same mistake this project already made once
+            // putting `glowWidth` on individual windows.
+            line.glowWidth = live ? 3 : 0
+            line.lineCap = .round
+            return line
         }
     }
 

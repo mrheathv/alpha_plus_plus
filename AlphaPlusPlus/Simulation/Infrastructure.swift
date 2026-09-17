@@ -108,6 +108,27 @@ enum Infrastructure {
         tile.zone == .road || tile.zone == .highway || tile.hasPipe || tile.hasPowerLine
     }
 
+    /// Which orthogonal neighbours carry the same buried layer, as the bit
+    /// mask the renderer draws a connected run from.
+    ///
+    /// The same shape `Traffic.roadConnections` computes for the street grid,
+    /// and for the same reason: a conduit drawn as one disc per tile reads as
+    /// a row of dots, while one drawn as a line joining its neighbours reads
+    /// as a pipe. Roads solved this a phase ago; the buried layers never got
+    /// the benefit.
+    ///
+    /// East 1, west 2, north 4, south 8 — the layout `IsoTextureCache.lane`
+    /// already uses, so both can share one rasteriser.
+    static func conduitMask(at position: GridPosition, in map: CityMap, isPipe: Bool) -> Int {
+        func carries(_ dx: Int, _ dy: Int) -> Bool {
+            let neighbour = GridPosition(x: position.x + dx, y: position.y + dy)
+            guard map.contains(neighbour) else { return false }
+            return isPipe ? map[neighbour].hasPipe : map[neighbour].hasPowerLine
+        }
+        return (carries(1, 0) ? 1 : 0) | (carries(-1, 0) ? 2 : 0)
+            | (carries(0, 1) ? 4 : 0) | (carries(0, -1) ? 8 : 0)
+    }
+
     /// 1 for as-new, 0 for ruined.
     static func condition(of tile: Tile) -> Double {
         1 - (tile.wear ?? 0)
