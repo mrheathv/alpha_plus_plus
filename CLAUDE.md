@@ -1810,6 +1810,65 @@ and measured that way it is exact: **borrowing to the cap costs 37/tick against
 37 of interest.** That the quick profile is structurally marginal is a real
 finding, and it belongs to the rebalance.
 
+### Every overlay had been painting nothing at all
+
+Reported from play, twice over: *"I still can't figure out the power and water
+system. It was kind of working a few iterations ago where if a building had
+water it was blue in the water overlay."*
+
+`IsoTileRenderer.applyOverlay` recoloured the ground with
+
+```swift
+(node.childNode(withName: groundNodeName) as? SKShapeNode)?.fillColor = color
+```
+
+and the ground stopped being an `SKShapeNode` the day it was rasterised into a
+texture for the "everything repeated is a texture" pass. The cast returned
+`nil`, the tint became a silent no-op, and **every overlay in the game had been
+painting no data since** — the heatmaps hid the buildings and then coloured
+nothing, so land value, pollution and traffic were three blank grids.
+
+This is the third time this exact shape of bug has landed here, and the pattern
+is worth naming: **changing what a node *is* silently breaks every cast to what
+it was.** `SKAction.colorize` went dead on a plain `SKNode` after the same
+migration; the flashes kept compiling and stopped doing anything. Neither
+failed a test, because nothing was asserting on the *result* — only that the
+call had been made.
+
+Three things came out of fixing it.
+
+**Supply is a colour again, not a brightness.** `OverlayBuildings.dimmed(Double)`
+had the call site flatten "is this on the network" into an alpha before the
+renderer saw it, which left the renderer unable to say anything else about the
+two states. It is `connected(Bool)` now, so a supplied building is washed
+toward the utility's own colour and an unsupplied one toward near-black. Blue
+means it has water, which is what a player reads and what the top-down version
+did before the port.
+
+**The overlay decision lives in one place.** `GameScene` held a five-case
+switch and `IsometricCityTests`' render held a second copy — and the copy had
+only ever grown the water and power cases, so every heatmap rendered as an
+ordinary city and the render cheerfully reported three overlays were fine while
+they painted nothing. `IsoTileRenderer.paint(for:at:in:using:)` is a pure
+function both call. Same failure as the streetscape that painted its own flat
+tiles while the renderer had moved on: **a yardstick that reimplements the
+thing it measures always reports success.**
+
+**And the render fixture had one state, twice.** The overlay render used the
+bare city, which has no pipes and no power lines anywhere, so every building
+came back unsupplied. An overlay's whole job is telling two states apart, and a
+picture in which only one of them occurs cannot show whether it does. The
+fixture now lays a partial network — and computes `pollution` and
+`trafficLoad`, without which those heatmaps render a uniform black field that
+is indistinguishable from the bug.
+
+Two tests now assert the *colour arrives* rather than that the call happened,
+and that it goes away again — a city left permanently blue after a visit to the
+water overlay would look exactly like the overlay being stuck on. Note that
+`SKColor` equality is colour-space sensitive and SpriteKit converts what you
+assign to `SKSpriteNode.color` into device RGB, so those tests compare
+components rather than colours.
+
 ### Utilities looked broken, and were
 
 Two bugs, reported from play as "when you lay down a power line it is not clear

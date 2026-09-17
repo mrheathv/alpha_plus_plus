@@ -179,19 +179,89 @@ struct IsoTileRenderer {
         /// picture, and buildings on top of it are clutter.
         case hidden
         /// Water and power. You are routing a network around a city, so you
-        /// need to see the city — and *how brightly* a building is drawn is
-        /// what says whether it is connected.
+        /// need to see the city, and the one question you are asking of every
+        /// building in it is whether it is on the network.
         ///
-        /// A ground tint alone did not answer the question a player is
-        /// actually asking in these overlays, which is "is that building on my
-        /// network?" Lighting the connected ones and darkening the rest makes
-        /// the answer literal: lit means supplied.
-        case dimmed(Double)
+        /// **It carries the answer, not a brightness.** This used to be
+        /// `dimmed(Double)`, and the call site decided that a supplied
+        /// building got 0.85 alpha and an unsupplied one 0.22. Two problems
+        /// with that. Brightness alone is a weak channel — a dim building on a
+        /// dark map reads as "far away" or "not important", not as "this one
+        /// has no water" — and it left the renderer unable to say anything
+        /// *else* about the two states, because by the time it got here the
+        /// distinction had already been flattened into a number. Passing the
+        /// fact itself lets a supplied building be drawn in the utility's own
+        /// colour, which is the answer a player can actually read at a glance.
+        case connected(Bool)
         /// The utilities that feed the network you are looking at — a water
         /// tower in the water overlay, a power plant in the power overlay.
         /// These are the things the player is hunting for, so they stay at full
         /// brightness and keep their light pool.
         case highlighted
+    }
+
+    /// What an overlay does to one tile: how to treat its building, and the
+    /// colour to paint its ground.
+    struct OverlayPaint {
+        let buildings: OverlayBuildings
+        let color: SKColor
+    }
+
+    /// The whole overlay decision, in one place.
+    ///
+    /// **It lives here because it had already drifted.** `GameScene` held this
+    /// as a five-case switch and `IsometricCityTests`' render held a second
+    /// copy — and the copy only ever grew the water and power cases, so every
+    /// heatmap rendered as an ordinary city and the render quietly reported
+    /// that three overlays looked fine while they were painting nothing at
+    /// all. That is the same failure this project has recorded before, when
+    /// the streetscape painted its own flat tiles while the renderer had moved
+    /// on: **a yardstick that reimplements the thing it measures always
+    /// reports success.** A pure function of the map is something both callers
+    /// can share, which is the only version of this that cannot drift again.
+    ///
+    /// Returns `nil` for `.none`, which is not an overlay but the absence of
+    /// one — the normal view rebuilds its decorations rather than replacing
+    /// them, so it has no paint to describe.
+    static func paint(
+        for mode: OverlayMode,
+        at position: GridPosition,
+        in map: CityMap,
+        // Optional for the same reason `LandValue.value` takes it that way:
+        // the field is precomputed once per full refresh and absent when a
+        // single tile is refreshed on its own.
+        using distances: ZoneDistanceField?
+    ) -> OverlayPaint? {
+        switch mode {
+        case .none:
+            return nil
+        case .landValue:
+            return OverlayPaint(buildings: .hidden, color: RenderPalette.landValueColor(
+                for: LandValue.value(at: position, in: map, using: distances)))
+        case .pollution:
+            return OverlayPaint(buildings: .hidden, color: RenderPalette.pollutionColor(
+                for: map.pollution.level(at: position)))
+        case .traffic:
+            return OverlayPaint(buildings: .hidden, color: RenderPalette.trafficColor(
+                for: Traffic.congestion(at: position, in: map)))
+        case .water:
+            // A water tower in the water overlay is the thing the player is
+            // hunting for, so it keeps its own colours while everything else
+            // is recoloured by whether it is on the network.
+            let supplied = Water.hasSupply(at: position, in: map)
+            let isSource = map[position].zone == .waterTower || map[position].zone == .waterPump
+            return OverlayPaint(
+                buildings: isSource ? .highlighted : .connected(supplied),
+                color: RenderPalette.waterColor(for: supplied)
+            )
+        case .power:
+            let supplied = PowerGrid.hasSupply(at: position, in: map)
+            let isSource = map[position].zone == .powerPlant || map[position].zone == .generator
+            return OverlayPaint(
+                buildings: isSource ? .highlighted : .connected(supplied),
+                color: RenderPalette.powerColor(for: supplied)
+            )
+        }
     }
 
     /// Paint a tile as a flat data channel instead of as a building.
@@ -219,25 +289,55 @@ struct IsoTileRenderer {
             node.childNode(withName: Self.glowNodeName)?.removeFromParent()
             invalidate(node, Self.buildingNodeName)
             invalidate(node, Self.glowNodeName)
-        case .dimmed(let alpha):
-            node.childNode(withName: Self.buildingNodeName)?.alpha = alpha
+        case .connected(let isSupplied):
+            // **Tinted, not merely dimmed.** A supplied building is washed
+            // toward the utility's own colour and left bright; an unsupplied
+            // one is washed toward the "no supply" near-black and dimmed. So
+            // the water overlay answers its question the way a player expects
+            // it to — blue means it has water — rather than asking them to
+            // judge one building's brightness against another's.
+            if let building = node.childNode(withName: Self.buildingNodeName) as? SKSpriteNode {
+                building.color = color
+                building.colorBlendFactor = 0.85
+                building.alpha = isSupplied ? 1 : 0.5
+            }
             node.childNode(withName: Self.glowNodeName)?.removeFromParent()
             invalidate(node, Self.glowNodeName)
         case .highlighted:
-            node.childNode(withName: Self.buildingNodeName)?.alpha = 1
+            // The utility feeding the network you are looking at. No tint at
+            // all: these are the things the player is hunting for, and the
+            // point is that they stand out from everything this overlay has
+            // just recoloured.
+            if let building = node.childNode(withName: Self.buildingNodeName) as? SKSpriteNode {
+                building.colorBlendFactor = 0
+                building.alpha = 1
+            }
         }
 
         // The ground is recoloured rather than rebuilt, so its own key has to
         // go too or the tint would survive leaving the overlay.
         invalidate(node, Self.groundNodeName)
-        (node.childNode(withName: Self.groundNodeName) as? SKShapeNode)?.fillColor = color
+        // **An `SKSpriteNode`, and it has not been a shape node since the
+        // ground was rasterised.** This line read `as? SKShapeNode` from
+        // before that change, so the cast quietly returned nil and *every*
+        // overlay in the game had been tinting nothing at all — the heatmaps
+        // hid the buildings and then painted no data, leaving a blank grid.
+        // Same family as `SKAction.colorize` doing nothing on a plain
+        // `SKNode`, which this project has already recorded once: changing
+        // what a node *is* silently breaks every cast to what it was.
+        if let ground = node.childNode(withName: Self.groundNodeName) as? SKSpriteNode {
+            ground.color = color
+            ground.colorBlendFactor = 1
+        }
     }
 
-    /// Undo an overlay's alpha changes when returning to Normal view. The
-    /// building node itself is cached, so it is dimmed in place rather than
-    /// rebuilt — which means something has to put it back.
+    /// Undo an overlay's changes when returning to Normal view. The building
+    /// node is cached, so it is recoloured in place rather than rebuilt —
+    /// which means something has to put it back.
     func restoreFromOverlay(on node: SKNode) {
-        node.childNode(withName: Self.buildingNodeName)?.alpha = 1
+        guard let building = node.childNode(withName: Self.buildingNodeName) as? SKSpriteNode else { return }
+        building.alpha = 1
+        building.colorBlendFactor = 0
     }
 
     // MARK: - Markers

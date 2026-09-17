@@ -112,6 +112,35 @@ final class IsometricCityTests: XCTestCase {
         return map
     }
 
+    /// `city()` with a network that reaches *some* of it.
+    ///
+    /// **The overlay render used to use the bare city, which has no pipes and
+    /// no power lines at all** — so every building came back unsupplied and
+    /// the picture showed one state, twice. An overlay's whole job is telling
+    /// two states apart, and a render in which only one of them occurs cannot
+    /// show whether it does. Same trap as the streetscape that painted its own
+    /// flat tiles while the renderer had moved on: a yardstick that cannot
+    /// express the thing it measures always reports success.
+    private static func cityWithPartialUtilities() -> CityMap {
+        var map = city()
+        // A pipe run west from the tower at (11, 11), and a power line run
+        // south from the plant at (16, 1) — each reaching part of the city and
+        // leaving the rest dry or dark.
+        for x in 0 ... 11 { map[GridPosition(x: x, y: 11)].hasPipe = true }
+        for y in 8 ... 11 { map[GridPosition(x: 3, y: y)].hasPipe = true }
+        for y in 1 ... 8 { map[GridPosition(x: 16, y: y)].hasPowerLine = true }
+        for x in 10 ... 16 { map[GridPosition(x: x, y: 8)].hasPowerLine = true }
+        map.waterSupply = Water.computeSupply(for: map)
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
+        // And the cached fields the heatmaps read. `CityMap` defaults these to
+        // empty, so without this the pollution overlay renders a uniform black
+        // field — which looks exactly like the overlay being broken, and was
+        // indistinguishable from it while it actually was.
+        map.pollution = Pollution.compute(for: map)
+        map.trafficLoad = Traffic.computeLoad(for: map)
+        return map
+    }
+
     private static func positions(of map: CityMap) -> [GridPosition] {
         (0 ..< map.height).flatMap { y in (0 ..< map.width).map { GridPosition(x: $0, y: y) } }
     }
@@ -221,6 +250,93 @@ final class IsometricCityTests: XCTestCase {
 
         renderer.update(node, for: tile)
         XCTAssertTrue(hasBuilding(), "leaving the overlay did not bring the building back")
+    }
+
+    /// **An overlay has to actually paint its data.**
+    ///
+    /// This is the regression test for a bug that ran silently for the whole
+    /// isometric era: `applyOverlay` recoloured the ground through
+    /// `as? SKShapeNode`, and the ground stopped being a shape node the day it
+    /// was rasterised into a texture. The cast returned nil, the tint was a
+    /// no-op, and *every* overlay in the game painted nothing — the heatmaps
+    /// hid the buildings and then showed a blank grid. Nothing failed, because
+    /// nothing was checking that the colour arrived.
+    ///
+    /// So this asserts the colour, not the call. Same lesson as the flashes
+    /// that went dead when `SKAction.colorize` met a plain `SKNode`: changing
+    /// what a node *is* breaks every cast to what it was, and only a test that
+    /// reads the result notices.
+    /// Compares colours by their components.
+    ///
+    /// `SKColor` equality is colour-space sensitive, and SpriteKit converts
+    /// what you assign to `SKSpriteNode.color` into device RGB — so a tint
+    /// that arrived perfectly intact compares unequal to the `sRGB` value that
+    /// was handed to it. The numbers are the thing under test, not the
+    /// profile.
+    private func assertSameColor(
+        _ actual: SKColor?, _ expected: SKColor, _ message: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard let actual, let a = actual.usingColorSpace(.deviceRGB),
+              let b = expected.usingColorSpace(.deviceRGB) else {
+            return XCTFail("\(message) — no colour at all", file: file, line: line)
+        }
+        XCTAssertEqual(a.redComponent, b.redComponent, accuracy: 0.001, message, file: file, line: line)
+        XCTAssertEqual(a.greenComponent, b.greenComponent, accuracy: 0.001, message, file: file, line: line)
+        XCTAssertEqual(a.blueComponent, b.blueComponent, accuracy: 0.001, message, file: file, line: line)
+    }
+
+    func testAnOverlayActuallyTintsTheGround() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let tile = Tile(position: GridPosition(x: 2, y: 2), zone: .residential, density: 3)
+        let node = renderer.makeNode(for: tile)
+
+        func groundColor() -> SKColor? {
+            guard let ground = node.childNode(withName: "isoGround") as? SKSpriteNode,
+                  ground.colorBlendFactor > 0 else { return nil }
+            return ground.color
+        }
+        XCTAssertNil(groundColor(), "an untinted tile is already carrying an overlay colour")
+
+        renderer.applyOverlay(on: node, buildings: .hidden, color: .green)
+        assertSameColor(groundColor(), .green, "the overlay tinted nothing")
+    }
+
+    /// And the utility overlays answer with a *colour*, which is the thing a
+    /// player reads — "blue means it has water" — rather than a brightness
+    /// they would have to compare against a neighbour.
+    ///
+    /// The partner risk to the one above: a tint that arrives and never
+    /// leaves. A city that stayed blue after a visit to the water overlay
+    /// would look exactly like the overlay being stuck on.
+    func testAUtilityOverlayColoursBuildingsAndThenGivesThemBack() {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let tile = Tile(position: GridPosition(x: 2, y: 2), zone: .residential, density: 3)
+        let node = renderer.makeNode(for: tile)
+
+        func building() -> SKSpriteNode? {
+            node.childNode(withName: IsoTileRenderer.buildingNodeName) as? SKSpriteNode
+        }
+        XCTAssertEqual(building()?.colorBlendFactor, 0, "precondition: already tinted")
+
+        let supplied = RenderPalette.waterColor(for: true)
+        renderer.applyOverlay(on: node, buildings: .connected(true), color: supplied)
+        assertSameColor(building()?.color, supplied, "a supplied building was not coloured")
+        XCTAssertGreaterThan(building()?.colorBlendFactor ?? 0, 0.5,
+                             "the colour is there but too faint to read as the answer")
+        XCTAssertEqual(building()?.alpha, 1)
+
+        // Unsupplied: same channel, opposite end — dark, not merely a
+        // different shade of the same brightness.
+        renderer.applyOverlay(on: node, buildings: .connected(false),
+                              color: RenderPalette.waterColor(for: false))
+        XCTAssertLessThan(building()?.alpha ?? 1, 1, "an unsupplied building is drawn just as brightly")
+
+        renderer.restoreFromOverlay(on: node)
+        renderer.update(node, for: tile)
+        XCTAssertEqual(building()?.colorBlendFactor, 0,
+                       "the city stayed tinted after leaving the overlay")
+        XCTAssertEqual(building()?.alpha, 1)
     }
 
     // MARK: - Construction sites
@@ -405,9 +521,16 @@ final class IsometricCityTests: XCTestCase {
     /// routing from actually stood. Nothing failed; there was simply no picture
     /// of it anywhere. There is one now.
     func testRenderOverlays() throws {
-        let map = Self.city()
+        let map = Self.cityWithPartialUtilities()
         var panels: [(String, NSImage)] = []
-        for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power)] {
+        // The heatmaps are here too, and they are the reason this render
+        // matters. They were the *worst* casualty of the dead ground tint —
+        // `.hidden` removes every building and then the data colour never
+        // arrived, so land value, pollution and traffic were three blank
+        // grids. A render showing only the utility overlays could not have
+        // caught that, because those at least still had buildings in them.
+        for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power),
+                        ("land value", .landValue), ("pollution", .pollution)] {
             panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
         }
         let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the overlay panels")
@@ -450,25 +573,14 @@ final class IsometricCityTests: XCTestCase {
             }
             renderer.syncConstructionSite(on: node, tile: tile)
             renderer.syncFireMarker(on: node, tile: tile)
-            switch overlay {
-            case .water:
-                renderer.applyOverlay(
-                    on: node,
-                    buildings: [.waterTower, .waterPump].contains(tile.zone)
-                        ? .highlighted
-                        : .dimmed(Water.hasSupply(at: position, in: map) ? 0.85 : 0.22),
-                    color: RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
-                )
-            case .power:
-                renderer.applyOverlay(
-                    on: node,
-                    buildings: [.powerPlant, .generator].contains(tile.zone)
-                        ? .highlighted
-                        : .dimmed(PowerGrid.hasSupply(at: position, in: map) ? 0.85 : 0.22),
-                    color: RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
-                )
-            default:
-                break
+            // **The shared decision, not a second copy of it.** This used
+            // to be its own `switch` over the overlay modes, and it only ever
+            // grew the water and power cases — so the heatmaps rendered as an
+            // ordinary city and the picture cheerfully reported that three
+            // overlays were fine while they painted nothing. See
+            // `IsoTileRenderer.paint`.
+            if let paint = IsoTileRenderer.paint(for: overlay, at: position, in: map, using: nil) {
+                renderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color)
             }
             world.addChild(node)
         }

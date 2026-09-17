@@ -806,16 +806,16 @@ final class GameScene: SKScene {
         zone == .powerPlant || zone == .generator
     }
 
-    /// How brightly a building is drawn in a utility overlay — which is the
-    /// overlay's real answer to "is this on my network?".
+    /// How a building is drawn in a utility overlay — the overlay's real
+    /// answer to "is this on my network?".
     ///
-    /// The source of the network stays at full brightness, because that is the
-    /// thing the player is hunting for. Everything else is lit if it is
-    /// supplied and dark if it is not, so connecting a building visibly turns
-    /// it on.
+    /// The source of the network is `.highlighted` and keeps its own colours,
+    /// because that is the thing the player is hunting for. Everything else
+    /// carries the answer itself rather than a brightness, so the renderer can
+    /// paint a supplied building in the utility's colour — see
+    /// `IsoTileRenderer.OverlayBuildings.connected`.
     private static func overlayBuildings(isSource: Bool, isSupplied: Bool) -> IsoTileRenderer.OverlayBuildings {
-        if isSource { return .highlighted }
-        return .dimmed(isSupplied ? 0.85 : 0.22)
+        isSource ? .highlighted : .connected(isSupplied)
     }
 
     func refresh(_ position: GridPosition) {
@@ -851,46 +851,27 @@ final class GameScene: SKScene {
                 hasWaterSupply: Water.hasSupply(at: position, in: map),
                 hasPowerSupply: PowerGrid.hasSupply(at: position, in: map)
             )
-        case .landValue:
-            tileRenderer.applyOverlay(on: node, buildings: .hidden, color: RenderPalette.landValueColor(
-                for: LandValue.value(at: position, in: map, using: overlayDistances)))
-        case .pollution:
-            tileRenderer.applyOverlay(on: node, buildings: .hidden, color: RenderPalette.pollutionColor(
-                for: map.pollution.level(at: position)))
-        case .traffic:
-            tileRenderer.applyOverlay(on: node, buildings: .hidden, color: RenderPalette.trafficColor(
-                for: Traffic.congestion(at: position, in: map)))
-        case .water:
-            // A water tower in the water overlay is the thing the player is
-            // hunting for, so it stays bright while everything else dims —
-            // the port dropped the top-down renderer's dimmed-building pass
-            // entirely, which left these overlays a flat supply-coloured field
-            // with no way to tell where the utilities you are routing from
-            // actually are.
-            tileRenderer.applyOverlay(
-                on: node,
-                buildings: Self.overlayBuildings(
-                    isSource: Self.suppliesWater(tile.zone),
-                    isSupplied: Water.hasSupply(at: position, in: map)
-                ),
-                color: RenderPalette.waterColor(for: Water.hasSupply(at: position, in: map))
-            )
-            // Reads `hasPipe` directly rather than the cached
-            // `map.waterSupply`, so a pipe you just laid shows up right away —
-            // the *supply* colouring above still only updates once the next
-            // tick recomputes it, same as for a newly-placed water tower.
-            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPipe, isPipe: true)
-        case .power:
-            tileRenderer.applyOverlay(
-                on: node,
-                buildings: Self.overlayBuildings(
-                    isSource: Self.suppliesPower(tile.zone),
-                    isSupplied: PowerGrid.hasSupply(at: position, in: map)
-                ),
-                color: RenderPalette.powerColor(for: PowerGrid.hasSupply(at: position, in: map))
-            )
-            // Same "read the layer directly, not the cached supply" reasoning.
-            tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPowerLine, isPipe: false)
+        default:
+            // One call for every overlay, from the shared decision in
+            // `IsoTileRenderer.paint` — see its doc comment for why this
+            // stopped being a switch here.
+            if let paint = IsoTileRenderer.paint(
+                for: controller.overlayMode, at: position, in: map, using: overlayDistances
+            ) {
+                tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color)
+            }
+            // The buried layers stay here: they are drawn *on top of* the
+            // overlay rather than being part of it, and they read `hasPipe` /
+            // `hasPowerLine` directly rather than the cached supply, so a line
+            // you just laid shows up right away — the supply colouring above
+            // still waits for the next tick to recompute it, same as for a
+            // newly-placed tower.
+            if controller.overlayMode == .water {
+                tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPipe, isPipe: true)
+            }
+            if controller.overlayMode == .power {
+                tileRenderer.syncBuriedMarker(on: node, tile: tile, present: tile.hasPowerLine, isPipe: false)
+            }
         }
         syncTrafficAnimation(at: position)
     }
