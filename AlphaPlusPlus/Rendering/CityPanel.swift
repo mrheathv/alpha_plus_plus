@@ -136,7 +136,7 @@ struct CityPanel: View {
                               detail: "cap $\(controller.maxBondBalance)",
                               accent: controller.bondBalance > 0 ? .orange : RetroUITheme.primaryAccent)
                 RetroStatTile(label: "Interest", value: "-$\(controller.bondInterest)",
-                              detail: "per tick", accent: .red)
+                              detail: "per day", accent: .red)
                 Spacer(minLength: 0)
             }
             HStack(spacing: 8) {
@@ -214,7 +214,7 @@ struct CityPanel: View {
             line("Bond interest", "-\(controller.bondInterest)")
             line("Ordinances", "-\(controller.map.ordinances.totalUpkeepCost(population: controller.population))")
             Divider().overlay(RetroUITheme.textSecondary.opacity(0.3))
-            line("Net per tick", "\(controller.netRevenue >= 0 ? "+" : "")\(controller.netRevenue)",
+            line("Net per day", "\(controller.netRevenue >= 0 ? "+" : "")\(controller.netRevenue)",
                  emphasised: true)
         }
         .font(.callout)

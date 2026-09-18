@@ -110,6 +110,22 @@ struct CityMap: Equatable, Codable, Sendable {
     /// simulation reads it, via `Demand.compute(for:)`.
     var regionalEconomy = RegionalEconomy()
 
+    /// How many days old the city is.
+    ///
+    /// **One clock, read through one seam.** `RegionalEconomy.elapsed` has
+    /// counted ticks since the city was founded since the day it was written,
+    /// and it is already saved — so the calendar reads that rather than
+    /// introducing a second counter beside it. Two copies of the same fact is
+    /// precisely the mistake this project keeps paying for, and a date that
+    /// disagreed with the economy's own clock would be the next one.
+    ///
+    /// Everything outside `CityMap` goes through here, so only this line knows
+    /// where the number actually lives.
+    var elapsedDays: Int { regionalEconomy.elapsed }
+
+    /// What day it is — see `CityDate`, and note that one tick is one day.
+    var date: CityDate { CityDate(day: elapsedDays) }
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width

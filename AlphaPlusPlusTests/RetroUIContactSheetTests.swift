@@ -30,7 +30,14 @@ final class RetroUIContactSheetTests: XCTestCase {
     /// has no window here), which is fine: the map has its own renders, and
     /// what this is checking is the chrome around it.
     func testRenderLiveGameView() throws {
-        let controller = GameController()
+        // A city a couple of years old, so the date readout shows a real date
+        // rather than the founding day — the case where every field is at its
+        // shortest and nothing can be seen to overflow. Set rather than
+        // ticked: eight hundred ticks of a live simulation cost this render
+        // twenty seconds to produce a string.
+        var map = CityMap(width: MapSize.medium.dimension, height: MapSize.medium.dimension)
+        map.regionalEconomy = RegionalEconomy(elapsed: 800)
+        let controller = GameController(map: map)
         controller.selectTool(.commercial)
         // With the pointer over a lot, so the inspector is in the picture. It
         // overlays the map's top-right corner, which is exactly the sort of

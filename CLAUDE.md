@@ -2229,6 +2229,74 @@ around 370, so a hospital never appears in a short session at that size — whic
 is a reasonable thing to revisit if they feel absent in play, but it is an
 unlock-threshold question rather than a missing feature.
 
+## The transportation module (in progress)
+
+Transit was two lines of simulation: `CitySimulator.hasAccess` counts a stop as
+road access, and `LandValue` treats it as an amenity with a falloff. A bus stop
+did not take a single car off the road — `Traffic.isRoadLike` is `road ||
+highway` and nothing in the routing has ever heard of `.publicTransit`. Subway
+differed from a bus stop only in radius and price, so the two were the same
+tool twice.
+
+The plan is a real module: player-drawn bus and subway routes with ridership,
+in the spirit of Cities: Skylines. Three decisions keep it tractable — **the
+route is the infrastructure** (a bus route runs on roads, a subway route
+tunnels, so there is no separate track layer to draw), **no transfers in v1**
+(a trip rides if one line serves both ends, because multi-leg journeys are a
+routing problem that would dominate the work), and **ridership is an index
+lookup, not a search** (tile → which routes cover it, then a set intersection
+per commute, because `Traffic.computeLoad` is already ~90% of tick cost).
+
+### Phase 0 (done): the city has a calendar
+
+The cockpit said "+$1,798/tick". Nobody lives in ticks — people build things in
+weeks and watch economies turn over years — and a city builder that cannot say
+how old your city is has made its own bookkeeping the player's problem.
+
+**One tick is one day**, and that was not chosen to make a nice number. Nearly
+every constant already in the simulation lands on a sensible real duration
+under it:
+
+| | ticks | as days |
+|---|---|---|
+| a storey of construction | 8–40 | 8–40 days |
+| bare ground → max density | 125 | ~4 months |
+| a city settling | ~160 | ~5 months |
+| the regional boom/bust cycle | 293–421 | **10–14 months** |
+| one hazard per building | ~250 | ~8 months |
+
+The economy turning over on roughly an annual cycle is the reading that settled
+it. At normal speed a year is about six minutes of play.
+
+Four decisions worth keeping:
+
+- **No hours**, and for a better reason than resolution. There is no sub-day
+  grain, but more to the point this city is permanently night by design — a
+  clock showing the time of day would promise a day/night cycle the art
+  direction deliberately does not have.
+- **One clock.** `RegionalEconomy.elapsed` has counted days since founding
+  since it was written and is already saved, so `CityMap.elapsedDays` reads
+  that rather than introducing a second counter beside it. Two copies of the
+  same fact drifting apart is the mistake this project keeps paying for; a
+  calendar disagreeing with the economy's own clock would have been the next
+  one. Only one line in `CityMap` knows where the number lives.
+- **The player-facing text changed; the internals did not.**
+  `declineChancePerTick`, `wearPerTick` and forty-odd others keep their names.
+  Renaming them all is churn with real risk and no gain while the mapping is
+  exactly 1:1 — `CityDate` states it once.
+- **Founded in 1985.** The art direction is retrowave, so the city is dated as
+  the decade it is dressed as.
+
+`CityDateTests` also pins the mapping itself: if a construction time or the
+regional cycle ever moves far enough that "one tick is one day" stops reading
+as a sensible duration, the test says so rather than letting the fiction quietly
+rot.
+
+One honest wrinkle: a fire burns for about four ticks, which now reads as four
+days. That is long for a fire. SimCity has the same oddity, and retuning a
+balance constant to suit a naming change is the wrong way round — but it is the
+one place the day reading strains.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

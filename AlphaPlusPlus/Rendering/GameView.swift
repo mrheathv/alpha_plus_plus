@@ -278,12 +278,20 @@ struct GameView: View {
 
             RetroPanel(title: "City", accent: RetroUITheme.primaryAccent) {
                 HStack(alignment: .top, spacing: 16) {
+                    // **The date, first.** The cockpit used to say
+                    // "+$1,798/tick", which is the simulation's own
+                    // bookkeeping leaking into the game — nobody lives in
+                    // ticks. One tick is one day (see `CityDate`), so the city
+                    // can simply say what day it is and how long it has been
+                    // going.
+                    statTile(label: "Date", value: CalendarText.full(controller.map.date),
+                             detail: CalendarText.age(controller.map.date), color: .purple)
                     statTile(label: "Population", value: "\(controller.population)",
                              history: controller.history.map(\.population), color: .green)
                     statTile(label: "Jobs", value: "\(controller.jobs)",
                              history: controller.history.map(\.jobs), color: .cyan)
                     statTile(label: "Treasury", value: "$\(controller.treasury)",
-                             detail: "\(netRevenueLabel)/tick",
+                             detail: "\(netRevenueLabel)/day",
                              history: controller.history.map(\.treasury), color: .yellow)
                         .help(budgetBreakdown)
                 }
@@ -615,8 +623,11 @@ struct GameView: View {
         return net < 0 ? "-$\(-net)" : "+$\(net)"
     }
 
+    /// `history` defaults to empty: the date has no sparkline, because a
+    /// number that only ever counts up by one draws a straight line and says
+    /// nothing.
     private func statTile(label: String, value: String, detail: String? = nil,
-                          history: [Int], color: Color) -> some View {
+                          history: [Int] = [], color: Color) -> some View {
         RetroStatTile(label: label, value: value, detail: detail, history: history, accent: color)
     }
 

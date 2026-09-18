@@ -34,7 +34,9 @@ struct InspectorPanel: View {
                     RetroMeter(
                         label: "Progress",
                         fill: Double(total - remaining) / Double(total),
-                        detail: "",
+                        // A wait is the one number a player most wants in
+                        // their own units rather than the simulation's.
+                        detail: "\(CalendarText.days(remaining)) left",
                         accent: accent
                     )
                 }
