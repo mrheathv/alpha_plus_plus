@@ -34,14 +34,23 @@ final class ToolCategoryTests: XCTestCase {
 
     /// An entry that costs something must say so, or the player finds out by
     /// being charged.
+    ///
+    /// The network half of this used to read "every non-zone tool shows a
+    /// cost", which was true while pipes and power lines were the only ones —
+    /// and the route tools are genuinely free, because the stations carried
+    /// the cost and drawing the line is the free act of saying which of them
+    /// are on one. The premise moved rather than the assertion being wrong, so
+    /// it is stated rather than relaxed: a free tool has to be a route tool.
     func testPlaceableEntriesCarryTheirCost() {
         for entry in ToolCategory.allEntries {
-            guard let zone = entry.zone else {
+            if let zone = entry.zone {
+                XCTAssertEqual(entry.cost, zone.placementCost > 0 ? zone.placementCost : nil,
+                               "\(entry.title) shows a cost that is not what it charges")
+            } else if entry.overlay?.routeMode != nil {
+                XCTAssertNil(entry.cost, "\(entry.title) charges for drawing a line")
+            } else {
                 XCTAssertNotNil(entry.cost, "\(entry.title) is a network tool with no cost shown")
-                continue
             }
-            XCTAssertEqual(entry.cost, zone.placementCost > 0 ? zone.placementCost : nil,
-                           "\(entry.title) shows a cost that is not what it charges")
         }
     }
 

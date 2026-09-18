@@ -804,6 +804,15 @@ final class IsometricCityTests: XCTestCase {
                         ("bus", .bus), ("subway", .subway)] {
             panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
         }
+        // And one with a line half-drawn, because the editor's whole feedback
+        // is that the map changes as you click — a picture of finished routes
+        // cannot show whether an unfinished one is distinguishable from them.
+        panels.append(("bus — drawing a line", try render(
+            map, tileWidth: 26, overlay: .bus,
+            draft: TransitRouteDraft(mode: .bus, stops: [
+                GridPosition(x: 1, y: 3), GridPosition(x: 16, y: 11), GridPosition(x: 8, y: 3),
+            ])
+        )))
         let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the overlay panels")
         let destination = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -864,7 +873,8 @@ final class IsometricCityTests: XCTestCase {
     }
 
     private func render(
-        _ map: CityMap, tileWidth: CGFloat, overlay: OverlayMode = .none, heightUnit: CGFloat? = nil
+        _ map: CityMap, tileWidth: CGFloat, overlay: OverlayMode = .none,
+        heightUnit: CGFloat? = nil, draft: TransitRouteDraft? = nil
     ) throws -> NSImage {
         var projection = Self.projection(tileWidth: tileWidth)
         if let heightUnit { projection.heightUnit = heightUnit }
@@ -929,8 +939,8 @@ final class IsometricCityTests: XCTestCase {
         // The route diagram, which is not per-tile and cannot be: a line spans
         // arbitrary distance, so there is no one tile it hangs off. Drawn
         // through the same call `GameScene` makes.
-        if overlay == .bus || overlay == .subway,
-           let diagram = renderer.transitDiagram(for: overlay == .bus ? .bus : .subway, in: map) {
+        if let mode = overlay.routeMode,
+           let diagram = renderer.transitDiagram(for: mode, in: map, drawing: draft) {
             diagram.zPosition = 2_000
             world.addChild(diagram)
         }

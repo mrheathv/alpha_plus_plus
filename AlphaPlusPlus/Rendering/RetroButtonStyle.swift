@@ -22,18 +22,36 @@ struct RetroButtonStyle: ButtonStyle {
         let isSelected: Bool
         @State private var isHovered = false
 
+        /// **A neon sign that cannot be pressed has to look unlit.**
+        ///
+        /// `.disabled(_:)` greys a stock AppKit button for free, and did
+        /// nothing at all here — every colour in this style comes from
+        /// `accent`, so a disabled Finish button burned exactly as brightly as
+        /// a working one. The render caught it: a panel whose whole job is
+        /// saying "this line is not finishable yet" had its one unavailable
+        /// control indistinguishable from the two beside it.
+        @Environment(\.isEnabled) private var isEnabled
+
         /// How hard the sign burns. Selected is bright and stays bright;
         /// hovering lifts an unselected button most of the way there, which is
-        /// what makes the row feel alive under the cursor.
+        /// what makes the row feel alive under the cursor. A disabled one does
+        /// not answer the cursor at all, which is half of what says it is
+        /// dead.
         private var glow: Double {
+            guard isEnabled else { return 0 }
             if isSelected { return isHovered ? 1.0 : 0.9 }
             return isHovered ? 0.7 : 0.35
         }
 
+        /// Dark enough to read as switched off against the panel, not so dark
+        /// that the label stops being legible — the control still has to say
+        /// *which* thing is unavailable.
+        private var dimmed: Double { isEnabled ? 1 : 0.32 }
+
         var body: some View {
             configuration.label
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isSelected ? Color.black : accent)
+                .foregroundStyle(isSelected && isEnabled ? Color.black : accent.opacity(dimmed))
                 .padding(.horizontal, RetroMetrics.chipPaddingH)
                 .padding(.vertical, RetroMetrics.chipPaddingV)
                 .background(
@@ -41,15 +59,17 @@ struct RetroButtonStyle: ButtonStyle {
                     // tech-panel corner, and the cheapest single thing that
                     // stops this reading as a dark-mode macOS button.
                     ChamferedRectangle()
-                        .fill(isSelected ? accent : Color.black.opacity(isHovered ? 0.3 : 0.45))
+                        .fill(isSelected && isEnabled
+                            ? accent
+                            : Color.black.opacity(isHovered && isEnabled ? 0.3 : 0.45))
                 )
-                .overlay(ChamferedRectangle().stroke(accent, lineWidth: 1.4))
+                .overlay(ChamferedRectangle().stroke(accent.opacity(dimmed), lineWidth: 1.4))
                 // Two shadows: a tight one that reads as the tube's own edge,
                 // and a wide faint one that reads as light spilling onto the
                 // panel behind it. One shadow can be a glow or a bloom; neon is
                 // both at once, which is why every building on the map draws a
                 // crisp stroke over a blurred copy of itself.
-                .shadow(color: accent.opacity(glow), radius: isSelected ? 4 : 2)
+                .shadow(color: accent.opacity(glow), radius: isSelected && isEnabled ? 4 : 2)
                 .shadow(color: accent.opacity(glow * 0.55), radius: isSelected || isHovered ? 12 : 7)
                 .opacity(configuration.isPressed ? 0.75 : 1.0)
                 // The native controls this replaced took an explicit `.frame`

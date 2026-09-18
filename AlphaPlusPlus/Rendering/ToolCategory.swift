@@ -54,7 +54,17 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
         case .zones:
             return [.zone(.residential), .zone(.commercial), .zone(.industrial)]
         case .transport:
-            return [.zone(.road), .zone(.publicTransit), .zone(.highway), .zone(.subway)]
+            // Each station beside the lines it can be strung into, in unlock
+            // order: a stop is useless until something calls at it, and a
+            // route is undrawable until there are stations to call at.
+            return [
+                .zone(.road), .zone(.publicTransit),
+                .network(.bus, title: "Bus Route", cost: nil, accentZone: .publicTransit,
+                         unlockedBy: .publicTransit),
+                .zone(.highway), .zone(.subway),
+                .network(.subway, title: "Subway Route", cost: nil, accentZone: .subway,
+                         unlockedBy: .subway),
+            ]
         case .utilities:
             return [
                 .zone(.waterPump), .zone(.generator),
@@ -118,10 +128,21 @@ struct ToolbarEntry: Identifiable, Hashable {
     let action: Action
     let title: String
     let cost: Int?
+
     /// Whose colour this borrows. A network tool has no `ZoneType` of its own,
     /// so it takes the one belonging to the utility it feeds — a pipe glows
     /// like a water tower, which is the thing it connects.
     let accentZone: ZoneType
+
+    /// The zone whose unlock this button waits on.
+    ///
+    /// A zone button obviously waits on itself. A *network* button did not
+    /// have an answer at all until routes arrived — pipes and power lines are
+    /// available from tick one — and a Bus Route tool offered before there can
+    /// be a single bus stop to click is a control with nothing to act on,
+    /// which is the shape of problem the starter utilities exist to fix. `nil`
+    /// means always available.
+    let unlockedBy: ZoneType?
 
     var id: Action { action }
 
@@ -140,12 +161,17 @@ struct ToolbarEntry: Identifiable, Hashable {
             action: .zone(zone),
             title: RenderPalette.displayName(for: zone),
             cost: zone.placementCost > 0 ? zone.placementCost : nil,
-            accentZone: zone
+            accentZone: zone,
+            unlockedBy: zone
         )
     }
 
-    static func network(_ overlay: OverlayMode, title: String, cost: Int, accentZone: ZoneType) -> ToolbarEntry {
-        ToolbarEntry(action: .network(overlay), title: title, cost: cost, accentZone: accentZone)
+    static func network(
+        _ overlay: OverlayMode, title: String, cost: Int?, accentZone: ZoneType,
+        unlockedBy: ZoneType? = nil
+    ) -> ToolbarEntry {
+        ToolbarEntry(action: .network(overlay), title: title, cost: cost,
+                     accentZone: accentZone, unlockedBy: unlockedBy)
     }
 
     /// The bulldozer, which belongs to no group: it stays on screen at all

@@ -93,6 +93,51 @@ final class RetroUIContactSheetTests: XCTestCase {
         )
     }
 
+    /// **Every state the route editor can be in, side by side** — for the
+    /// same reason the inspector gets this treatment. The panel is two
+    /// completely different faces, a list and an editor, and each of those has
+    /// states a player must be able to tell apart at a glance: a line with no
+    /// riders yet against a line whose station has been demolished, a draft
+    /// that can be finished against one that cannot.
+    func testRenderTransitPanelStates() throws {
+        var map = CityMap(width: 30, height: 12)
+        for x in 0 ..< 30 { map[GridPosition(x: x, y: 0)].zone = .road }
+        let stops = [GridPosition(x: 2, y: 2), GridPosition(x: 12, y: 2), GridPosition(x: 24, y: 2)]
+        for stop in stops { map.placeBuilding(zone: .publicTransit, origin: stop) }
+        let running = map.transit.add(mode: .bus, stops: [stops[0], stops[1]])
+        let broken = map.transit.add(mode: .bus, stops: [stops[2], GridPosition(x: 28, y: 2)])
+        let short = map.transit.add(mode: .bus, stops: [stops[0]])
+        let routes = map.transit.routes(mode: .bus)
+
+        func panel(_ draft: TransitRouteDraft?) -> TransitPanel {
+            TransitPanel(
+                mode: .bus, routes: routes, draft: draft,
+                workingStops: [running: 2, broken: 1, short: 1],
+                // A line that has not been routed yet reports "no data"
+                // rather than zero, which are different facts.
+                ridership: { $0 == running ? 1_284 : nil },
+                onBegin: {}, onEdit: { _ in }, onDelete: { _ in },
+                onUndo: {}, onCommit: {}, onCancel: {}
+            )
+        }
+
+        try render(name: "retro-transit", content:
+            VStack(alignment: .leading, spacing: 14) {
+                Text("TRANSIT — EVERY STATE")
+                    .font(.system(size: 13, weight: .bold)).tracking(2)
+                    .foregroundStyle(RetroUITheme.textPrimary)
+                HStack(alignment: .top, spacing: 12) {
+                    panel(nil)
+                    panel(TransitRouteDraft(mode: .bus))
+                    panel(TransitRouteDraft(mode: .bus, stops: [stops[0]]))
+                    panel(TransitRouteDraft(mode: .bus, editing: running, stops: Array(stops.prefix(3))))
+                }
+            }
+            .padding(20)
+            .background(RetroUITheme.background)
+        )
+    }
+
     /// One real `TileReport` per interesting `LotStatus`, built by putting a
     /// city into the state rather than by hand-assembling a report — a
     /// hand-made report could describe a city that cannot exist.

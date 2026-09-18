@@ -2450,6 +2450,82 @@ serve it now, measured in stops.
 Job sites with no road frontage were being dropped for the mirror-image reason
 ("no road access: not a reachable job at all") and are kept for the same one.
 
+### Phase 2 (done): drawing a line
+
+**You build a route by clicking the stations on it**, while its own view is up
+— the same contract pipes and power lines have had since they existed, and the
+reason the Bus and Subway views were worth building before the editor rather
+than after it. Picking the tool raises the view and starts a line; clicking a
+station appends it; clicking the one you just added takes it off again.
+
+Four decisions worth recording:
+
+- **Undo is in the same gesture as the mistake.** Clicking the last stop
+  removes it, so correcting a misclick does not mean finding a button. It has
+  to be *the last one* rather than any stop already on the line, though —
+  "click to toggle" would make the common correction work and make a circular
+  route impossible to express at all.
+- **A drag adds nothing.** Every other tool in the game paints, and a route is
+  a short ordered list of buildings rather than something you paint: a drag
+  across a station would have added it once per frame.
+- **Editing an existing line is the same gesture as drawing a new one.**
+  `TransitRouteDraft` carries the route it is a revision of, so adding a stop
+  to something you already have is not a second mode with its own rules.
+- **The draft is drawn on the map**, dashed and in the amber a construction
+  scaffold already uses — this game has picked a colour and a texture for "not
+  finished" and this is the same idea. Without it the editor is a list of stops
+  in a panel and a map that looks no different after a click than before one,
+  which throws away the reason to build a route by clicking at all.
+
+The panel floats over the map rather than opening as a sheet, because building
+a route means clicking the map — City Hall can be a sheet precisely because
+nothing in it needs the city visible. Top-leading, since the inspector already
+owns top-trailing.
+
+#### Ridership is the readout
+
+A route panel that only listed lines would say nothing a glance at the map does
+not. The number a player steers by is how many people actually used the thing
+they paid for, and one tick being one day means what the router counted this
+tick *is* the day's ridership — no conversion anywhere, which is the dividend
+from the calendar work.
+
+A line showing no riders has two very different causes and the panel names
+which: "needs another stop" against "a station on this line is gone". That is
+what `workingStopCounts` exists for — `stops.count` is what was drawn, and
+`Transit` decides what works.
+
+#### Two things the render caught
+
+- **A disabled neon button looked identical to a working one.** `.disabled(_:)`
+  greys a stock AppKit control for free and did nothing at all here, because
+  every colour in `RetroButtonStyle` comes from its accent — so the one panel
+  whose job is saying "this line is not finishable yet" had its unavailable
+  Finish button burning exactly as brightly as Cancel beside it. It reads
+  `\.isEnabled` now, which fixes every button in the app rather than this one.
+- **The draft lost its stops to the routes already running.** A draft calls at
+  the same handful of buildings the finished lines do, and the finished diagram
+  is drawn after it, so at every shared station the running line's own mark
+  painted over the draft's. The draft sorts above them now.
+
+And one bug the render could not have caught, because it needs two views:
+switching from Bus to Subway with a line half-drawn showed the *bus* draft in
+the Subway panel, offering to finish it there. The draft survives the switch on
+purpose — you come back to it — but the other view has no business in it.
+
+#### A test whose premise moved
+
+`ToolCategoryTests` asserted that every non-zone tool shows a cost, which was
+true for as long as pipes and power lines were the only ones. A route is
+genuinely free: the stations carried the cost, and drawing the line is the free
+act of saying which of them are on one.
+
+Worth noting because this project's standing rule for a test that starts
+failing is to ask whether the thing moved or the yardstick did — and both
+answers have come up here before. This time the thing moved, so the assertion
+is *restated* ("a free tool has to be a route tool") rather than relaxed into
+one that would no longer notice a pipe tool quietly losing its price.
+
 #### Deliberately not yet
 
 A route has no capacity and no operating cost, so more lines are currently free

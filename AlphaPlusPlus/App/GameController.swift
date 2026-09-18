@@ -380,6 +380,90 @@ final class GameController: ObservableObject {
 
     // MARK: - Transit routes (drawn, not placed — see `TransitRoute`)
 
+    /// The line being drawn right now, if any — see `TransitRouteDraft`.
+    ///
+    /// Held here rather than in the view for the reason `inspectedReport` is:
+    /// the scene and the panel both need it (one to take clicks into it, the
+    /// other to show it and to finish it), and two copies of an edit in
+    /// progress is the sort of thing that goes out of step the first time
+    /// either side changes.
+    @Published private(set) var routeDraft: TransitRouteDraft?
+
+    /// Starts a new line, and raises the view that makes the stations
+    /// clickable — the same "selecting the tool puts you in the mode" contract
+    /// pipes and power lines already have.
+    func beginTransitRoute(mode: TransitRoute.Mode) {
+        overlayMode = mode == .bus ? .bus : .subway
+        routeDraft = TransitRouteDraft(mode: mode)
+    }
+
+    /// Reopens an existing line for editing, seeded with the stops it already
+    /// has. Deliberately the same draft type as a new one: adding a stop to a
+    /// line you already have should be the same gesture as drawing it.
+    func editTransitRoute(id: TransitRoute.ID) {
+        guard let route = map.transit.route(id: id) else { return }
+        overlayMode = route.mode == .bus ? .bus : .subway
+        routeDraft = TransitRouteDraft(mode: route.mode, editing: id, stops: route.stops)
+    }
+
+    /// A click on the map while a draft is open.
+    ///
+    /// Returns what happened so the scene can answer the click — a station
+    /// added or taken off, or the flash that says this was not something a
+    /// line can call at.
+    @discardableResult
+    func addStopToRoute(at position: GridPosition) -> TransitRouteDraft.StopOutcome {
+        guard var draft = routeDraft, map.contains(position) else { return .notAStation }
+        let station = map[position].buildingOrigin
+        guard map[station].zone == draft.mode.stationZone else { return .notAStation }
+        let outcome = draft.toggle(station)
+        routeDraft = draft
+        return outcome
+    }
+
+    func undoLastStop() {
+        routeDraft?.undoLastStop()
+    }
+
+    /// Writes the draft back to the city. A no-op below two stops, which is
+    /// the one thing a line cannot be.
+    @discardableResult
+    func commitTransitRoute() -> TransitRoute.ID? {
+        guard let draft = routeDraft, draft.isCommittable else { return nil }
+        let id: TransitRoute.ID
+        if let editing = draft.editing {
+            map.transit.setStops(draft.stops, forRoute: editing)
+            id = editing
+        } else {
+            id = map.transit.add(mode: draft.mode, stops: draft.stops)
+        }
+        routeDraft = nil
+        return id
+    }
+
+    func cancelTransitRoute() {
+        routeDraft = nil
+    }
+
+    /// How many of each line's stops are actually in service.
+    ///
+    /// Not `stops.count`: a stop whose station has been bulldozed is still on
+    /// the route and calls at nothing (see `TransitNetwork`), and a line short
+    /// of two working stops carries nobody. The panel needs the difference to
+    /// say *why* a line it is listing shows no riders — "a station on this
+    /// line is gone" and "needs another stop" are different jobs for the
+    /// player.
+    func workingStopCounts() -> [TransitRoute.ID: Int] {
+        var counts: [TransitRoute.ID: Int] = [:]
+        for route in map.transit.routes {
+            counts[route.id] = route.stops.filter { stop in
+                map.contains(stop) && map[stop].isBuildingAnchor
+                    && map[stop].zone == route.mode.stationZone
+            }.count
+        }
+        return counts
+    }
+
     /// Start a new line. Free: the player already paid for the stations, and
     /// what a route adds is the claim that they are on the same line.
     ///
@@ -517,9 +601,15 @@ final class GameController: ObservableObject {
     /// is a rule no test can reach.
     func selectTool(_ zone: ZoneType) {
         selectedTool = zone
-        if overlayMode == .water || overlayMode == .power {
+        // Picking a zone leaves any overlay that takes clicks of its own,
+        // otherwise choosing Residential with the Water overlay up drops you
+        // into an invisible mode where clicks lay pipe. The transit views are
+        // the same kind of thing now, and a half-drawn line has no meaning
+        // once you have stopped drawing it.
+        if OverlayMode.clickEditing.contains(overlayMode) {
             overlayMode = .none
         }
+        routeDraft = nil
     }
 
     /// Bumped when something outside the view asks for a single simulation

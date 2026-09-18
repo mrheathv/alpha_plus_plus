@@ -61,6 +61,7 @@ struct GameView: View {
             }
             .frame(minWidth: 760, minHeight: 420)
             .overlay(alignment: .topTrailing) { inspector }
+            .overlay(alignment: .topLeading) { transitEditor }
             // **Focus on the map, not on the window.** `onKeyPress` needs a
             // focusable view, and putting it here rather than on the whole
             // `VStack` is what makes the City Hall sheet behave: a sheet takes
@@ -100,6 +101,14 @@ struct GameView: View {
         // triggers its own explicit follow-up right at its call site.
         .onChange(of: controller.overlayMode) {
             scene?.refreshAll()
+        }
+        // The route diagram draws the line being drawn, and the panel's own
+        // buttons — Undo, Cancel, Finish — change it without a click ever
+        // reaching the map. Without this the draft on screen would only ever
+        // update when you clicked a station, so pressing Cancel would leave a
+        // dashed line lying across the city.
+        .onChange(of: controller.routeDraft) {
+            scene?.refreshTransitDiagram()
         }
         // The Simulation menu can't reach the scene, so it bumps a counter and
         // this turns it into a real tick — which flashes hazards the way an
@@ -241,6 +250,40 @@ struct GameView: View {
                 .padding(RetroMetrics.gutter)
                 .allowsHitTesting(false)
                 .transition(.opacity)
+        }
+    }
+
+    /// The route editor, over the map's top-left corner.
+    ///
+    /// Only while one of its own views is up, which is also when clicking a
+    /// station means something — so the panel and the mode it belongs to
+    /// appear and disappear together, and there is never a Finish button on
+    /// screen for a gesture the map is not accepting.
+    ///
+    /// Unlike the inspector this one *takes* clicks: it has buttons. It sits
+    /// under the tool rail rather than in it for the same reason the inspector
+    /// is not in the dashboard — a control for the thing you are doing belongs
+    /// next to where you are doing it.
+    @ViewBuilder private var transitEditor: some View {
+        if let mode = controller.overlayMode.routeMode {
+            TransitPanel(
+                mode: mode,
+                routes: controller.map.transit.routes(mode: mode),
+                // A bus draft is not the Subway view's business. Switching
+                // views with a line half-drawn keeps the draft — you come back
+                // to it — but the other view must not offer to finish it.
+                draft: controller.routeDraft?.mode == mode ? controller.routeDraft : nil,
+                workingStops: controller.workingStopCounts(),
+                ridership: { controller.map.trafficLoad.ridership(onRoute: $0) },
+                onBegin: { controller.beginTransitRoute(mode: mode) },
+                onEdit: { controller.editTransitRoute(id: $0) },
+                onDelete: { controller.removeTransitRoute(id: $0) },
+                onUndo: { controller.undoLastStop() },
+                onCommit: { controller.commitTransitRoute() },
+                onCancel: { controller.cancelTransitRoute() }
+            )
+            .padding(RetroMetrics.gutter)
+            .transition(.opacity)
         }
     }
 
@@ -577,13 +620,30 @@ struct GameView: View {
                 action: { controller.selectTool(zone) }
             )
         case .network(let overlay):
+            let unlocked = entry.unlockedBy.map { controller.isUnlocked($0) } ?? true
             RetroToolChip(
                 title: entry.title,
                 cost: entry.cost,
                 accent: RetroUITheme.accent(for: entry.accentZone),
                 isSelected: controller.overlayMode == overlay,
+                lockedBy: unlocked ? nil : entry.unlockedBy.map {
+                    "\(controller.residentsNeeded(for: $0)) more residents"
+                },
                 action: {
-                    controller.overlayMode = (controller.overlayMode == overlay) ? .none : overlay
+                    guard unlocked else { return }
+                    if controller.overlayMode == overlay {
+                        controller.overlayMode = .none
+                        controller.cancelTransitRoute()
+                    } else {
+                        controller.overlayMode = overlay
+                        // A route tool that raised its view and left you with
+                        // no line to draw would be a mode with nothing in it.
+                        // Picking it *is* starting a line, the way picking Pipe
+                        // is starting to lay pipe.
+                        if let mode = overlay.routeMode, controller.map.transit.routes(mode: mode).isEmpty {
+                            controller.beginTransitRoute(mode: mode)
+                        }
+                    }
                 }
             )
         }

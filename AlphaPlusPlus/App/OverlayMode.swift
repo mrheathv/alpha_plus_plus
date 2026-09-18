@@ -39,6 +39,26 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    /// The views where a click on the map edits something instead of placing
+    /// the selected tool: Water and Power lay their buried layers, Bus and
+    /// Subway add a stop to the line being drawn.
+    ///
+    /// A named set rather than a condition spelled out at each site. It was
+    /// `overlayMode == .water || overlayMode == .power` in six places before
+    /// transit arrived, and a seventh and eighth of those is how one gets
+    /// forgotten — leaving a mode where clicks silently do the wrong thing,
+    /// which is exactly the bug this exclusivity exists to prevent.
+    static let clickEditing: Set<OverlayMode> = [.water, .power, .bus, .subway]
+
+    /// The line a click in this view is drawing, if it is drawing one.
+    var routeMode: TransitRoute.Mode? {
+        switch self {
+        case .bus: return .bus
+        case .subway: return .subway
+        default: return nil
+        }
+    }
+
     var displayName: String {
         switch self {
         case .none: return "Normal"

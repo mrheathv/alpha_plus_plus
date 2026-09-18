@@ -157,6 +157,55 @@ final class TransitOverlayTests: XCTestCase {
         }
     }
 
+    // MARK: - The line being drawn
+
+    /// **The editor's feedback is the map.** Clicking a station has to change
+    /// the picture, or building a route is a list of coordinates in a panel.
+    func testADraftIsDrawnBeforeItIsFinished() throws {
+        var map = city()
+        for stop in [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)] {
+            map.placeBuilding(zone: .publicTransit, origin: stop)
+        }
+        let renderer = IsoTileRenderer(projection: projection)
+        XCTAssertNil(renderer.transitDiagram(for: .bus, in: map), "precondition: something was already drawn")
+
+        let draft = TransitRouteDraft(mode: .bus, stops: [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)])
+        let diagram = try XCTUnwrap(renderer.transitDiagram(for: .bus, in: map, drawing: draft))
+        XCTAssertEqual(named(IsoTileRenderer.transitDraftName, in: diagram), 1)
+        XCTAssertEqual(named(IsoTileRenderer.transitLineName, in: diagram), 0,
+                       "an uncommitted draft was drawn as a running line")
+    }
+
+    /// A draft for the other kind of line is not this view's business.
+    func testABusDraftDoesNotAppearInTheSubwayView() throws {
+        var map = city()
+        for stop in [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)] {
+            map.placeBuilding(zone: .publicTransit, origin: stop)
+        }
+        let draft = TransitRouteDraft(mode: .bus, stops: [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)])
+        let renderer = IsoTileRenderer(projection: projection)
+
+        XCTAssertNil(renderer.transitDiagram(for: .subway, in: map, drawing: draft))
+    }
+
+    /// A line being edited is drawn once, as the draft — otherwise its old
+    /// shape sits underneath the new one and the two disagree about where the
+    /// route goes.
+    func testAnEditedLineIsNotDrawnTwice() throws {
+        var map = city()
+        let stops = [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3), GridPosition(x: 20, y: 3)]
+        let id = line(.bus, in: &map, at: [stops[0], stops[1]])
+        map.placeBuilding(zone: .publicTransit, origin: stops[2])
+
+        let renderer = IsoTileRenderer(projection: projection)
+        let draft = TransitRouteDraft(mode: .bus, editing: id, stops: stops)
+        let diagram = try XCTUnwrap(renderer.transitDiagram(for: .bus, in: map, drawing: draft))
+
+        XCTAssertEqual(named(IsoTileRenderer.transitDraftName, in: diagram), 1)
+        XCTAssertEqual(named(IsoTileRenderer.transitLineName, in: diagram), 0,
+                       "the line being edited is still drawn in its old shape underneath")
+    }
+
     // MARK: -
 
     /// `SKColor` equality is colour-space sensitive — SpriteKit converts what

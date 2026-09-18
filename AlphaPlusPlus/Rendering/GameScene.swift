@@ -426,6 +426,9 @@ final class GameScene: SKScene {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        // A route is drawn by naming buildings, not by painting tiles, so a
+        // drag across a station must not add it once per frame.
+        guard controller.routeDraft == nil else { return }
         place(with: event)
     }
 
@@ -455,6 +458,24 @@ final class GameScene: SKScene {
                     flashInsufficientFunds(at: step)
                     break // same tile-price-doesn't-change-mid-stroke reasoning as below
                 }
+            }
+            lastPaintPosition = position
+            return
+        }
+        // The Bus and Subway views are the same idea one layer up: while a
+        // line is being drawn, a click names a station rather than placing
+        // whatever the toolbar has armed. Single clicks only — a route is a
+        // short ordered list of buildings, not something you paint, and a drag
+        // across a station would add it several times over.
+        if let mode = controller.overlayMode.routeMode, controller.routeDraft?.mode == mode {
+            switch controller.addStopToRoute(at: position) {
+            case .added, .removed:
+                syncTransitDiagram()
+            case .notAStation:
+                // The same mark a blocked placement gets, for the same reason:
+                // the click did nothing and the player needs to know it was
+                // the target rather than the tool.
+                flashBlockedPlacement(at: position)
             }
             lastPaintPosition = position
             return
@@ -1033,6 +1054,10 @@ final class GameScene: SKScene {
     /// so the churn this would be protecting against does not exist — and the
     /// thing that decides the diagram's appearance is the whole network, which
     /// is not a cheap key to compare.
+    func refreshTransitDiagram() {
+        syncTransitDiagram()
+    }
+
     private func syncTransitDiagram() {
         transitDiagramNode.removeAllChildren()
         let mode: TransitRoute.Mode
@@ -1041,7 +1066,9 @@ final class GameScene: SKScene {
         case .subway: mode = .subway
         default: return
         }
-        guard let diagram = tileRenderer.transitDiagram(for: mode, in: map) else { return }
+        guard let diagram = tileRenderer.transitDiagram(
+            for: mode, in: map, drawing: controller.routeDraft
+        ) else { return }
         transitDiagramNode.addChild(diagram)
     }
 

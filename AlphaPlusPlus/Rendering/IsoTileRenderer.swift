@@ -904,12 +904,71 @@ struct IsoTileRenderer {
     /// halo around it and the marks along it.
     static let transitLineName = "transitLine"
     static let transitStopName = "transitStop"
+    static let transitDraftName = "transitDraft"
 
-    func transitDiagram(for mode: TransitRoute.Mode, in map: CityMap) -> SKNode? {
+    func transitDiagram(
+        for mode: TransitRoute.Mode, in map: CityMap, drawing draft: TransitRouteDraft? = nil
+    ) -> SKNode? {
         let color = RenderPalette.transitLineColor(for: mode)
         let container = SKNode()
+        // A draft for the *other* kind of line is not this view's business.
+        let draft = draft?.mode == mode ? draft : nil
+
+        // **The line being drawn is drawn.** Without it the editor is a list
+        // of stops in a panel and a map that looks no different after a click
+        // than before it — and the whole reason to build a route by clicking
+        // stations rather than picking them from a menu is to see the shape
+        // the line makes across the city.
+        if let stops = draft?.stops, !stops.isEmpty {
+            let marks = SKNode()
+            marks.name = Self.transitDraftName
+            // Above the finished lines, which are added after it. The render
+            // showed why: where a draft calls at a station an existing route
+            // already uses — which is most of them, since both are built out
+            // of the same handful of buildings — the running line's own stop
+            // mark painted over the draft's, and the line you were drawing
+            // lost its stops to the ones you drew last week.
+            marks.zPosition = 10
+            let points = stops.map {
+                projection.centerPoint(ofFootprintOrigin: $0, size: mode.stationZone.footprintSize)
+            }
+            if points.count >= 2 {
+                let path = CGMutablePath()
+                path.move(to: points[0])
+                for point in points.dropFirst() { path.addLine(to: point) }
+                let line = SKShapeNode(path: path)
+                line.strokeColor = NeonStyle.scaffoldColor
+                line.lineWidth = 2
+                line.lineCap = .round
+                line.lineJoin = .round
+                // Dashed, and in the amber a construction scaffold already
+                // uses: this is the one line on the diagram that is not a
+                // route yet, and "not finished" is a state this game has
+                // already picked a colour and a texture for.
+                if let dashed = line.path?.copy(dashingWithPhase: 0, lengths: [7, 5]) {
+                    line.path = dashed
+                }
+                marks.addChild(line)
+            }
+            for (index, point) in points.enumerated() {
+                let pip = SKShapeNode(circleOfRadius: max(projection.tileWidth * 0.14, 4))
+                pip.position = point
+                pip.fillColor = NeonStyle.scaffoldColor
+                pip.strokeColor = RenderPalette.background
+                pip.lineWidth = 1.5
+                // The stop you would take off by clicking again sits on top,
+                // so an accidental double-click is visibly undoable.
+                pip.zPosition = index == points.count - 1 ? 1 : 0
+                marks.addChild(pip)
+            }
+            container.addChild(marks)
+        }
 
         for route in map.transit.routes(mode: mode) {
+            // A line being edited is drawn as the draft above, not twice —
+            // otherwise its old shape sits under the new one and the two
+            // disagree about where the route goes.
+            if let draft, draft.editing == route.id { continue }
             // The same "what works, not what was drawn" filter
             // `Transit.coverage` applies — a stop whose station has been
             // bulldozed is not on the map, so it must not be on the diagram
