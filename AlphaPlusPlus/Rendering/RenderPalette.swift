@@ -100,6 +100,28 @@ enum RenderPalette {
         return background.blended(withFraction: direct ? 0.22 : 0.48, of: hue) ?? waterUnsupplied
     }
 
+    /// The Problems overlay's ground colour: how badly a lot wants looking
+    /// at.
+    ///
+    /// A heatmap rather than the lit/dark language the utility overlays use.
+    /// Those answer a yes/no about each building; this one ranks four states,
+    /// and "how bad" is a gradient — which is what a heatmap is for, and why
+    /// this overlay hides the buildings the way land value and pollution do.
+    static func problemColor(for severity: LotStatus.Severity) -> SKColor {
+        switch severity {
+        // Bright, because the whole point is a lot that catches your eye from
+        // across the map without being hunted for. The first values were half
+        // this and the render showed the cost: a correct picture nobody would
+        // notice they were being shown. Everything fine stays at the
+        // background, so the only marks on screen are the ones that want
+        // something.
+        case .fine: return background
+        case .blocked: return SKColor(srgbRed: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        case .failing: return SKColor(srgbRed: 1.0, green: 0.26, blue: 0.42, alpha: 1.0)
+        case .critical: return SKColor(srgbRed: 1.0, green: 0.68, blue: 0.15, alpha: 1.0)
+        }
+    }
+
     /// A buried conduit's line colour.
     ///
     /// **Hot when live, cold when not.** Power runs electric yellow and water

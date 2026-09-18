@@ -76,6 +76,40 @@ enum LotStatus: Equatable {
     /// gate. `demand` is what the city currently feels, −1 to 1.
     case readyToGrow(demand: Double)
 
+    /// How much a lot wants the player's attention.
+    ///
+    /// **Because the inspector answers the wrong half of the question.** It
+    /// tells you what is wrong with the lot under the pointer, which is only
+    /// useful once you already know which lot to point at — and the only way
+    /// to find that out was to hover over every block in the city, faster than
+    /// the simulation was changing them. Ranking the states is what lets a
+    /// whole city be scanned at once.
+    enum Severity: Int, Comparable {
+        /// Nothing to do. Growing, built out, or mid-construction.
+        case fine
+        /// Stuck: it wants something the player has to go and build.
+        case blocked
+        /// Getting worse on its own.
+        case failing
+        /// On fire. The only state that spreads while you read about it.
+        case critical
+
+        static func < (lhs: Severity, rhs: Severity) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    var severity: Severity {
+        switch self {
+        case .burning:
+            return .critical
+        case .noRoadAccess, .beingAbandoned, .decliningToSustainable, .damaged:
+            return .failing
+        case .needsLandValue, .needsWater, .needsPower, .needsSchool:
+            return .blocked
+        case .notGrowable, .atMaximumDensity, .underConstruction, .readyToGrow:
+            return .fine
+        }
+    }
+
     /// Is this lot actively losing ground, as opposed to merely stuck?
     ///
     /// The distinction the player cares about most: "this will not improve"
@@ -101,8 +135,11 @@ extension CitySimulator {
     /// land value, both utilities and school coverage on every tile of every
     /// tick, which is not a price a per-tick sweep should pay for a panel that
     /// is usually closed.
+    /// `distances` is optional for the same reason `LandValue.value`'s is: a
+    /// caller asking about one lot has no reason to build a whole-map field,
+    /// and a caller sweeping the map has every reason not to build it twice.
     static func status(
-        of tile: Tile, in map: CityMap, using distances: ZoneDistanceField
+        of tile: Tile, in map: CityMap, using distances: ZoneDistanceField? = nil
     ) -> LotStatus {
         guard tile.zone.maxDensity > 0 else { return .notGrowable }
         let footprint = map.footprintCells(origin: tile.buildingOrigin, size: tile.zone.footprintSize)
@@ -157,7 +194,7 @@ extension CitySimulator {
 
     /// Is a school close enough to unlock the top tier for this footprint?
     static func hasSchooling(
-        _ footprint: [GridPosition], in map: CityMap, using distances: ZoneDistanceField
+        _ footprint: [GridPosition], in map: CityMap, using distances: ZoneDistanceField? = nil
     ) -> Bool {
         footprint.contains { cell in
             LandValue.falloffValue(
@@ -171,7 +208,7 @@ extension CitySimulator {
     /// Is the service a damaged block is waiting on actually reaching it?
     static func isRepairCovered(
         _ footprint: [GridPosition], by service: ZoneType,
-        in map: CityMap, using distances: ZoneDistanceField
+        in map: CityMap, using distances: ZoneDistanceField? = nil
     ) -> Bool {
         footprint.contains { cell in
             LandValue.falloffValue(

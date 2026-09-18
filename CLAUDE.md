@@ -2320,6 +2320,52 @@ second, a year is six minutes, and `RegionalEconomy`'s cycle turns over in five
 to seven. `.slow` only doubles that, which is not much of a slow for systems
 that operate over hundreds of days.
 
+## The Problems view, and slowing the clock down
+
+Reported from play: *"everything is happening so fast, there's no way to check
+on all the issues the buildings are having."* That is two problems wearing one
+coat, and only one of them is pacing.
+
+**The inspector answers the wrong half of the question.** It says what is wrong
+with the lot under the pointer, which only helps once you know which lot to
+point at — and the only way to find that out was to hover over every block in
+the city, faster than the simulation was changing them. With four hundred lots
+that is hopeless at *any* speed.
+
+`LotStatus.Severity` ranks every state the gate chain already produces — fine,
+blocked, failing, critical — and the **Problems** overlay paints the whole city
+by it at once. A count in Alerts says how many blocks want looking at and names
+the view that shows where. Nothing else was needed: the ranking is a property
+of a type that already existed, which is the dividend from extracting the gate
+chain in the first place.
+
+Two things the render decided:
+
+- **A tint could not get bright enough.** `RetroShader` costs up to 40% of
+  brightness at the map's edges, so a lot painted in *pure* red still came out
+  a muted maroon — a correct picture nobody would notice they were being shown.
+  Additive light is the one thing that survives a vignette, which is why every
+  other urgent mark in this game is made of it. The overlay flags a lot with a
+  glow pool rather than a fill, and `OverlayBuildings.flagged` exists to say
+  so.
+- **"Fine" has to mean *nothing at all* on screen.** Healthy lots are painted
+  the background and get no glow, so the only marks anywhere are the ones that
+  want something. A view that flags every lot flags nothing.
+
+### And the clock was too fast
+
+The systems this game grew are all long-horizon — a storey takes 8 to 40 days,
+maintenance and the regional cycle run over hundreds — and at one second a day
+the whole range was compressed into minutes: a complete boom and bust inside
+five, a decision and its consequence inside eight seconds. `.slow` doubling
+`.normal` was not much of a slow for any of that.
+
+Now roughly a 2× ladder at 4.0 / 2.0 / 0.75 seconds a day. A year is twelve
+minutes at normal, the economy turns over in twenty, and `.slow` is genuinely a
+watch-the-city-breathe speed. `ProblemsOverlayTests` pins the ratio and the
+range rather than the raw numbers, so the next time these move the test says
+whether they still mean what they claim.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water

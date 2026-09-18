@@ -20,9 +20,21 @@ enum SimulationSpeed: String, CaseIterable, Identifiable, Hashable {
     /// every other placeholder economy number in this project so far.
     var tickInterval: TimeInterval {
         switch self {
-        case .slow: return 2.0
-        case .normal: return 1.0
-        case .fast: return 0.35
+        // **Slowed across the board**, reported from play as "everything is
+        // happening so fast". The systems this game grew are all long-horizon
+        // — a storey takes 8 to 40 days, maintenance and the regional cycle
+        // run over hundreds — and at one second a day the whole range was
+        // compressed into minutes: a boom and bust inside five, a decision and
+        // its consequence inside eight seconds. `.slow` doubling `.normal` was
+        // not much of a slow for any of that.
+        //
+        // Now roughly a 2x ladder with `.normal` at two seconds a day: a year
+        // is twelve minutes, the economy turns over in twenty, and `.slow` is
+        // genuinely a watch-the-city-breathe speed rather than a slightly
+        // patient one.
+        case .slow: return 4.0
+        case .normal: return 2.0
+        case .fast: return 0.75
         }
     }
 

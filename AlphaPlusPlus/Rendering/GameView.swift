@@ -350,6 +350,26 @@ struct GameView: View {
         .overlay(alignment: .top) { neonSeam }
     }
 
+    /// "14 blocks need attention" — and, when something is failing rather
+    /// than merely stuck, said louder.
+    ///
+    /// Counts rather than a list, because a list of four hundred lots is not
+    /// an improvement on hovering over four hundred lots. The number tells you
+    /// whether to look; the Problems view tells you where.
+    @ViewBuilder private var attentionBadge: some View {
+        let counts = controller.lotsNeedingAttention()
+        let failing = (counts[.failing] ?? 0) + (counts[.critical] ?? 0)
+        let blocked = counts[.blocked] ?? 0
+        if failing > 0 {
+            RetroBadge(text: "▼ \(failing) block\(failing == 1 ? "" : "s") failing · see Problems",
+                       accent: .red, isUrgent: true)
+        }
+        if blocked > 0 {
+            RetroBadge(text: "\(blocked) block\(blocked == 1 ? "" : "s") stuck · see Problems",
+                       accent: RetroUITheme.secondaryAccent)
+        }
+    }
+
     /// What the region outside the city is doing, under the RCI bars it is
     /// pushing on.
     ///
@@ -438,6 +458,10 @@ struct GameView: View {
             if controller.isPowerOutageActive {
                 RetroBadge(text: "⚠ Outage — grid unpowered", accent: .red, isUrgent: true)
             }
+            // How many blocks want looking at, and the overlay that shows
+            // *which*. A count with no way to act on it would be worse than
+            // silence, so the badge names the view that answers it.
+            attentionBadge
             if let earned = controller.newlyUnlockedZones.first {
                 RetroBadge(text: "Unlocked: \(RenderPalette.displayName(for: earned))", accent: .green)
             } else if let next = nextUnlock {

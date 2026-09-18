@@ -20,6 +20,10 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     /// the coverage on the ground and the *risk* on the buildings.
     case police
     case fire
+    /// Every block that wants attention, ranked — see `LotStatus.Severity`.
+    /// The answer to "which of my four hundred lots has a problem", which
+    /// until now could only be found by hovering over them one at a time.
+    case problems
 
     var id: String { rawValue }
 
@@ -36,6 +40,7 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
         // a map of the problem, and the problem is what you act on.
         case .police: return "Crime"
         case .fire: return "Fire Risk"
+        case .problems: return "Problems"
         }
     }
 }

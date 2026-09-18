@@ -759,7 +759,7 @@ final class IsometricCityTests: XCTestCase {
         // caught that, because those at least still had buildings in them.
         for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power),
                         ("land value", .landValue), ("pollution", .pollution),
-                        ("crime", .police), ("fire risk", .fire)] {
+                        ("crime", .police), ("fire risk", .fire), ("problems", .problems)] {
             panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
         }
         let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the overlay panels")

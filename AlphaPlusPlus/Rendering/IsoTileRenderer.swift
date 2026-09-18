@@ -178,6 +178,10 @@ struct IsoTileRenderer {
         /// Heatmaps — land value, pollution, traffic. The data *is* the
         /// picture, and buildings on top of it are clutter.
         case hidden
+        /// A heatmap that also needs to *shout* — the Problems view, where the
+        /// point is a lot catching your eye from across the map without being
+        /// hunted for. `nil` means this lot is fine and gets nothing at all.
+        case flagged(SKColor?)
         /// Water and power. You are routing a network around a city, so you
         /// need to see the city, and the one question you are asking of every
         /// building in it is whether it is on the network.
@@ -287,6 +291,21 @@ struct IsoTileRenderer {
                     ? RenderPalette.conduitColor(isPipe: true, live: true)
                     : RenderPalette.unlitBuilding
             )
+        case .problems:
+            // Buildings hidden, like every other heatmap: the data *is* the
+            // picture here, and a lot's ground diamond is its footprint — so a
+            // red diamond names the block as precisely as the building on it
+            // would, without anything standing in front of anything else.
+            let tile = map[position]
+            let status = CitySimulator.status(of: map[tile.buildingOrigin], in: map, using: distances)
+            return OverlayPaint(
+                buildings: .flagged(
+                    status.severity == .fine
+                        ? nil
+                        : RenderPalette.problemColor(for: status.severity)
+                ),
+                color: RenderPalette.problemColor(for: status.severity)
+            )
         case .police, .fire:
             // **The ground says where the service reaches; the buildings say
             // who is actually in danger.** Those are different sets and a map
@@ -359,6 +378,34 @@ struct IsoTileRenderer {
             node.childNode(withName: Self.glowNodeName)?.removeFromParent()
             invalidate(node, Self.buildingNodeName)
             invalidate(node, Self.glowNodeName)
+        case .flagged(let flag):
+            // Hidden like any heatmap, but the lot *glows* rather than merely
+            // being coloured in.
+            //
+            // **Because a tint cannot get bright enough.** `RetroShader` puts
+            // scanlines and a vignette over the whole scene, which costs up to
+            // 40% of brightness at the edges of the map — so a lot painted in
+            // pure red still came out a muted maroon, and the render showed a
+            // correct picture nobody would notice they were being shown.
+            // Additive light is the one thing that survives a vignette, which
+            // is why every other urgent mark in this game (fire, supply,
+            // lane lines) is made of it.
+            node.childNode(withName: Self.buildingNodeName)?.removeFromParent()
+            invalidate(node, Self.buildingNodeName)
+            node.childNode(withName: Self.glowNodeName)?.removeFromParent()
+            invalidate(node, Self.glowNodeName)
+            guard let flag else { break }
+            let pool = SKSpriteNode(texture: NeonStyle.glowTexture)
+            pool.name = Self.glowNodeName
+            pool.color = flag
+            pool.colorBlendFactor = 1
+            pool.blendMode = .add
+            pool.alpha = 0.7
+            pool.size = CGSize(width: projection.tileWidth * 2.2,
+                               height: projection.tileHeight * 2.2)
+            pool.position = projection.project(0.5, 0.5, 0)
+            pool.zPosition = 0.2
+            node.addChild(pool)
         case .connected(let isSupplied):
             // **The network lights the buildings on it.**
             //

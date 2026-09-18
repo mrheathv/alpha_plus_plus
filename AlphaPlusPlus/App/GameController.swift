@@ -822,6 +822,30 @@ final class GameController: ObservableObject {
         inspectedReport = TileReport.make(at: inspectedPosition, in: map)
     }
 
+    /// How many lots want the player's attention, by how badly.
+    ///
+    /// **The overview the inspector could not give.** Hovering answers "what
+    /// is wrong with this lot", which only helps once you know which lot to
+    /// point at — and finding that out meant checking every block in the city,
+    /// faster than the simulation was changing them. Reported from play as
+    /// "everything is happening so fast, there's no way to check on all the
+    /// issues the buildings are having", which is a discovery problem wearing
+    /// a pacing problem's clothes.
+    ///
+    /// Computed on demand rather than cached: it sweeps the map, so it is a
+    /// tick's worth of work, and it is read once per dashboard refresh rather
+    /// than per tile.
+    func lotsNeedingAttention() -> [LotStatus.Severity: Int] {
+        let distances = ZoneDistanceField.compute(for: map)
+        var counts: [LotStatus.Severity: Int] = [:]
+        for tile in map.tiles where tile.isBuildingAnchor && tile.zone.maxDensity > 0 {
+            let severity = CitySimulator.status(of: tile, in: map, using: distances).severity
+            guard severity != .fine else { continue }
+            counts[severity, default: 0] += 1
+        }
+        return counts
+    }
+
     /// How many separate blocks are on fire right now. Drives the cockpit's
     /// fire alert — see `Fire`.
     var burningBlocks: Int { Fire.count(in: map) }
