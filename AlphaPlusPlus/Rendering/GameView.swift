@@ -255,6 +255,32 @@ struct GameView: View {
                     .buttonStyle(RetroButtonStyle(
                         accent: controller.isRunning ? .orange : .green, isSelected: true
                     ))
+                    // **On screen, not only in a menu.** The speed control
+                    // has existed and worked since the simulation clock did,
+                    // bound in the menu bar and nowhere else — the last of the
+                    // things this project already had to drag out of a menu
+                    // once, when tax, funding, ordinances and debt were all
+                    // menu-only and the whole economic half of the game was
+                    // invisible to anyone who did not go looking.
+                    //
+                    // Next to Play because it *is* Play: how fast is the same
+                    // question as whether.
+                    // **Both rows are labelled, and they have to be.** Adding
+                    // the speed control put two pickers next to each other
+                    // whose selected chip both read "Normal" — one meaning 1×
+                    // speed and the other meaning no overlay. The render made
+                    // that obvious instantly; unlabelled, the pair is a wall
+                    // of eleven identical buttons with the same word lit twice
+                    // in it. The overlay row had been unlabelled since it was
+                    // written and got away with it only by being alone.
+                    RetroSectionLabel(text: "Speed")
+                    RetroSegmentedPicker(
+                        options: SimulationSpeed.allCases,
+                        label: \.displayName,
+                        selection: $controller.simulationSpeed,
+                        accent: controller.isRunning ? .orange : RetroUITheme.textSecondary
+                    )
+                    RetroSectionLabel(text: "View")
                     RetroSegmentedPicker(
                         options: OverlayMode.allCases,
                         label: \.displayName,

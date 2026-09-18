@@ -2297,6 +2297,29 @@ days. That is long for a fire. SimCity has the same oddity, and retuning a
 balance constant to suit a naming change is the wrong way round — but it is the
 one place the day reading strains.
 
+### The speed control was built the whole time
+
+`SimulationSpeed` has had slow/normal/fast wired to the scene clock since the
+clock existed, bound in the menu bar and **nowhere else**. It was the last
+survivor of a problem this file already records once: tax, funding, ordinances
+and debt were all menu-only, "which made the whole economic half of the game
+invisible to anyone who did not go looking in a menu for it." A control nobody
+can see is a control nobody has.
+
+It sits next to Play now, because how fast is the same question as whether.
+
+**And putting it there immediately broke something else.** Two pickers ended up
+side by side whose selected chip both read "Normal" — one meaning 1× speed, the
+other meaning no overlay — in a panel with no labels on either row. The overlay
+row had been unlabelled since it was written and had got away with it purely by
+being alone; eleven identical buttons with the same word lit twice in them is
+not a row anyone reads. Both rows are labelled now, Speed and View.
+
+Worth noting for pacing: at `.normal` one tick is one second, so a day is a
+second, a year is six minutes, and `RegionalEconomy`'s cycle turns over in five
+to seven. `.slow` only doubles that, which is not much of a slow for systems
+that operate over hundreds of days.
+
 ### Every overlay had been painting nothing at all
 
 Reported from play, twice over: *"I still can't figure out the power and water
