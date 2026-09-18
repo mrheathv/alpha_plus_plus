@@ -23,6 +23,14 @@ import Foundation
 /// the nearest matching job) — this is a deliberate departure from genre
 /// convention, not a gap relative to it.
 ///
+/// **A commute that can ride does not drive.** Where one of the player's
+/// transit routes serves both a home and the job its residents commute to,
+/// the trip rides it: no road load anywhere along the way, and the route
+/// counts the riders. That is the one thing transit does to this file, and it
+/// is deliberately the only thing — the job lottery is untouched, so a bus
+/// line changes how people get to work and not who employs them. See
+/// `Transit` for the coverage index and the no-transfer rule.
+///
 /// It's visualized (`RenderPalette.trafficColor(for:)`, the "Show Traffic"
 /// overlay) before it changes any other mechanic, same order `LandValue`
 /// was introduced in: see it first, decide what it should affect once it's
@@ -53,6 +61,14 @@ enum Traffic {
     /// for one `computeLoad` call, not something any caller needs to hold
     /// onto the way `TrafficLoad` itself is.
     private struct JobSite {
+        /// Every cell the building occupies — what transit coverage is asked
+        /// about, since a line reaches a *place*, not a driveway.
+        let cells: [GridPosition]
+
+        /// The drivable tiles it fronts. Empty for a job reachable only by
+        /// transit, which is a real state now that a route can carry a
+        /// commute: such a site simply never appears among the driving
+        /// candidates, because no path reaches it.
         let frontage: Set<GridPosition>
         var remainingCapacity: Int
     }
@@ -143,9 +159,15 @@ enum Traffic {
     /// roadmap's genre parity check). Commercial and industrial are both
     /// valid job destinations with no distinction between them, matching
     /// `GameController.jobs` already summing both the same way.
+    ///
+    /// Transit enters in two places and nowhere else: a block with no street
+    /// of its own picks its job off the lines that serve it rather than
+    /// generating no trip at all, and any chosen commute a single line can
+    /// carry rides instead of driving. See this file's top-of-file comment.
     static func computeLoad(for map: CityMap) -> TrafficLoad {
         let drivable = Set(map.tiles.filter { isRoadLike($0.zone) }.map(\.position))
-        guard !drivable.isEmpty else { return TrafficLoad() }
+        let coverage = Transit.coverage(for: map)
+        guard !drivable.isEmpty || !coverage.isEmpty else { return TrafficLoad() }
 
         var load = TrafficLoad()
         // Routed *before* the early return below, so a city with housing and
@@ -157,30 +179,32 @@ enum Traffic {
         var jobs = jobSites(in: map, drivable: drivable)
         guard !jobs.isEmpty else { return load }
         for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .residential && tile.density > 0 {
+            let homeCells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
+            let homeStops = coverage.stops(reaching: homeCells)
             let homeFrontage = frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable)
-            guard !homeFrontage.isEmpty else { continue } // transit-only access: no road trips generated
 
-            // The *whole* reachable network from this home, not just the
-            // nearest job — `chooseJob` needs every reachable candidate's
-            // distance to weigh against each other, which stopping early
-            // at the first job with room (the old approach) can't provide.
-            let (distance, parent) = reachableTiles(from: homeFrontage, over: drivable)
-
-            var candidates: [JobCandidate] = []
-            for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
-                // A job can front more than one drivable tile; this home's
-                // distance to it is the closest of those it actually reached.
-                // `sortedByPosition` rather than iterating the `Set` directly:
-                // when two frontage cells are equidistant, `min(by:)` keeps
-                // whichever it saw first, so `Set` iteration order would decide
-                // the route — and that is not stable between two `Set`
-                // instances holding the same elements. See
-                // `reachableTiles(from:over:)` for the full story.
-                guard let nearest = job.frontage.sortedByPosition()
-                    .compactMap({ cell in distance[cell].map { (cell, $0) } })
-                    .min(by: { $0.1 < $1.1 }) else { continue }
-                candidates.append(JobCandidate(jobIndex: index, frontageCell: nearest.0, distance: nearest.1))
+            // Two candidate lists, never mixed, because their distances mean
+            // different things — road hops against stops on a line. A block
+            // on a street picks a job the way it always has; a block reachable
+            // only by transit picks one off the lines that serve it, which is
+            // the case that used to generate no trips at all and therefore
+            // reported everyone living there as unable to find work.
+            var parents: [GridPosition: GridPosition] = [:]
+            let candidates: [JobCandidate]
+            if !homeFrontage.isEmpty {
+                // The *whole* reachable network from this home, not just the
+                // nearest job — `chooseJob` needs every reachable candidate's
+                // distance to weigh against each other, which stopping early
+                // at the first job with room (the old approach) can't provide.
+                let reachable = reachableTiles(from: homeFrontage, over: drivable)
+                parents = reachable.parent
+                candidates = drivingCandidates(among: jobs, reachedBy: reachable.distance)
+            } else if !homeStops.isEmpty {
+                candidates = ridingCandidates(among: jobs, from: homeStops, over: coverage)
+            } else {
+                continue // no street and no line: this block generates no trips
             }
+
             guard let chosen = chooseJob(from: candidates, homeSeed: tile.position) else { continue } // no reachable job has room
             // **The router already knew this and was discarding it.** Whether
             // a home found work is decided right here, on the line above, and
@@ -191,16 +215,28 @@ enum Traffic {
             // implies.
             load.recordEmployed(tile.position)
 
-            let path = reconstructPath(to: chosen.frontageCell, parent: parent)
-            for (index, step) in path.enumerated() {
-                // The step *after* this one is the direction a car sitting
-                // on this tile, mid-commute, is actually headed -- nil for
-                // the path's last step (the job site's own frontage cell),
-                // which has no "next" to head toward.
-                let heading = index + 1 < path.count
-                    ? GridPosition(x: path[index + 1].x - step.x, y: path[index + 1].y - step.y)
-                    : nil
-                load.add(tile.density, at: step, heading: heading)
+            // **The lottery decided where they work; transit decides how they
+            // get there.** Asked after the choice rather than before it on
+            // purpose: a bus line is not supposed to change who employs you,
+            // it is supposed to take your car off the road. Keeping the two
+            // separate is also what stops a route quietly becoming a
+            // land-use lever nobody asked for.
+            if let ride = coverage.connection(from: homeStops, to: coverage.stops(reaching: jobs[chosen.jobIndex].cells)) {
+                // One tick is one day, so this is the day's ridership — the
+                // number the route panel reports, no conversion anywhere.
+                load.recordRiders(tile.density, on: ride.route)
+            } else if let destination = chosen.frontageCell {
+                let path = reconstructPath(to: destination, parent: parents)
+                for (index, step) in path.enumerated() {
+                    // The step *after* this one is the direction a car sitting
+                    // on this tile, mid-commute, is actually headed -- nil for
+                    // the path's last step (the job site's own frontage cell),
+                    // which has no "next" to head toward.
+                    let heading = index + 1 < path.count
+                        ? GridPosition(x: path[index + 1].x - step.x, y: path[index + 1].y - step.y)
+                        : nil
+                    load.add(tile.density, at: step, heading: heading)
+                }
             }
             // Claimed *after* routing, by the home's own density — a
             // level-5 home uses five times the room a level-1 home does,
@@ -210,6 +246,45 @@ enum Traffic {
         return load
     }
 
+    /// Every job with room that this home can drive to, at its road distance.
+    private static func drivingCandidates(
+        among jobs: [JobSite], reachedBy distance: [GridPosition: Int]
+    ) -> [JobCandidate] {
+        var candidates: [JobCandidate] = []
+        for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
+            // A job can front more than one drivable tile; this home's
+            // distance to it is the closest of those it actually reached.
+            // `sortedByPosition` rather than iterating the `Set` directly:
+            // when two frontage cells are equidistant, `min(by:)` keeps
+            // whichever it saw first, so `Set` iteration order would decide
+            // the route — and that is not stable between two `Set`
+            // instances holding the same elements. See
+            // `reachableTiles(from:over:)` for the full story.
+            guard let nearest = job.frontage.sortedByPosition()
+                .compactMap({ cell in distance[cell].map { (cell, $0) } })
+                .min(by: { $0.1 < $1.1 }) else { continue }
+            candidates.append(JobCandidate(jobIndex: index, distance: nearest.1, frontageCell: nearest.0))
+        }
+        return candidates
+    }
+
+    /// Every job with room that a single line already serving this home also
+    /// serves, at how many stops apart the two ends are.
+    ///
+    /// No search: `homeStops` and each job's coverage are both index lookups,
+    /// and `connection` is a set intersection over them. That is the whole
+    /// reason transit could be added to the most expensive loop in the game.
+    private static func ridingCandidates(
+        among jobs: [JobSite], from homeStops: [TransitRoute.ID: Int], over coverage: TransitCoverage
+    ) -> [JobCandidate] {
+        var candidates: [JobCandidate] = []
+        for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
+            guard let ride = coverage.connection(from: homeStops, to: coverage.stops(reaching: job.cells)) else { continue }
+            candidates.append(JobCandidate(jobIndex: index, distance: ride.stops, frontageCell: nil))
+        }
+        return candidates
+    }
+
     /// One reachable job a home's lottery could draw: which job (`jobIndex`
     /// into `computeLoad(for:)`'s own `jobs` array), the closest of that
     /// job's frontage cells this home actually reached (`frontageCell`,
@@ -217,8 +292,16 @@ enum Traffic {
     /// to get there (`distance`, what `chooseJob(from:homeSeed:)` weighs).
     private struct JobCandidate {
         let jobIndex: Int
-        let frontageCell: GridPosition
+
+        /// How far away the job is, in whatever unit the candidate was found
+        /// by — road hops for a driving candidate, stops for a riding one.
+        /// The two are never mixed in one lottery (see `computeLoad`), so
+        /// `chooseJob` never has to compare a hop against a stop.
         let distance: Int
+
+        /// Where on the road network this commute ends, and `nil` when it has
+        /// no road leg at all.
+        let frontageCell: GridPosition?
     }
 
     /// Which job a home actually commutes to: a distance-weighted lottery
@@ -269,9 +352,16 @@ enum Traffic {
     private static func jobSites(in map: CityMap, drivable: Set<GridPosition>) -> [JobSite] {
         var sites: [JobSite] = []
         for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .commercial || tile.zone == .industrial) && tile.density > 0 {
-            let siteFrontage = frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable)
-            guard !siteFrontage.isEmpty else { continue } // no road access: not a reachable job at all
-            sites.append(JobSite(frontage: siteFrontage, remainingCapacity: tile.density * jobCapacityPerDensityLevel))
+            // A site with no road frontage used to be dropped here as "not a
+            // reachable job at all", which stopped being true the moment a
+            // route could carry someone to it. It is kept and left
+            // unreachable by car instead — no path reaches an empty frontage,
+            // so the driving lottery skips it exactly as before.
+            sites.append(JobSite(
+                cells: map.footprintCells(origin: tile.position, size: tile.zone.footprintSize),
+                frontage: frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable),
+                remainingCapacity: tile.density * jobCapacityPerDensityLevel
+            ))
         }
         return sites
     }
@@ -483,10 +573,44 @@ struct TrafficLoad: Equatable, Codable, Sendable {
         employedHomes.map { $0.contains(position) }
     }
 
+    /// How many riders each route carried, by route id.
+    ///
+    /// **A day's ridership, with no conversion anywhere**, because one tick is
+    /// one day (`CityDate`) — the number the player reads is the number the
+    /// router produced.
+    ///
+    /// `Optional` for the same save-compatibility reason `employedHomes` is,
+    /// and genuinely optional for the same reason too: a map that has never
+    /// been routed does not know what its lines carried, and `nil` says that
+    /// rather than claiming every route is empty.
+    ///
+    /// Kept here, on the routing *result*, rather than on `TransitNetwork`
+    /// beside the routes themselves. Ridership is an output; the route is
+    /// state the player authored. Storing it on the route would mean editing
+    /// a line carried a stale number along with it, and would put a value
+    /// that changes every tick into the thing that is saved.
+    private var ridershipByRoute: [TransitRoute.ID: Int]?
+
+    /// How many people rode this line today, or `nil` if routing has not run.
+    func ridership(onRoute id: TransitRoute.ID) -> Int? {
+        ridershipByRoute.map { $0[id, default: 0] }
+    }
+
+    /// How many people rode anything today, or `nil` if routing has not run.
+    var totalRidership: Int? {
+        ridershipByRoute.map { $0.values.reduce(0, +) }
+    }
+
+    fileprivate mutating func recordRiders(_ amount: Int, on route: TransitRoute.ID) {
+        ridershipByRoute = ridershipByRoute ?? [:]
+        ridershipByRoute?[route, default: 0] += amount
+    }
+
     /// Marks that routing ran, so "nobody found work" is distinguishable
     /// from "nobody has looked yet".
     fileprivate mutating func beginRouting() {
         employedHomes = employedHomes ?? []
+        ridershipByRoute = ridershipByRoute ?? [:]
     }
 
     fileprivate mutating func recordEmployed(_ position: GridPosition) {

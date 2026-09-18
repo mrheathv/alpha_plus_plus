@@ -353,6 +353,13 @@ final class GameController: ObservableObject {
     /// overhead layers (see `Tile.hasPipe`'s own doc comment).
     private func clearBuilding(at origin: GridPosition) {
         let size = map[origin].zone.footprintSize
+        // A line cannot call at a station that is not there any more. The
+        // *route* survives the loss of a stop — see `TransitNetwork`'s own doc
+        // comment — it just stops carrying anyone if that leaves it with
+        // fewer than two places to go.
+        if TransitRoute.Mode.allCases.contains(where: { $0.stationZone == map[origin].zone }) {
+            map.transit.removeStop(at: origin)
+        }
         for cell in map.footprintCells(origin: origin, size: size) {
             let buried = map[cell].hasPipe || map[cell].hasPowerLine
             map[cell] = Tile(
@@ -369,6 +376,31 @@ final class GameController: ObservableObject {
                 wear: buried ? map[cell].wear : nil
             )
         }
+    }
+
+    // MARK: - Transit routes (drawn, not placed — see `TransitRoute`)
+
+    /// Start a new line. Free: the player already paid for the stations, and
+    /// what a route adds is the claim that they are on the same line.
+    ///
+    /// Returns the new route's id so a caller — the editor, in phase 2 — can
+    /// keep working on the thing it just made.
+    @discardableResult
+    func addTransitRoute(mode: TransitRoute.Mode, stops: [GridPosition] = []) -> TransitRoute.ID {
+        map.transit.add(mode: mode, stops: stops)
+    }
+
+    func removeTransitRoute(id: TransitRoute.ID) {
+        map.transit.remove(id: id)
+    }
+
+    /// Replaces a line's stops wholesale rather than offering insert/remove.
+    /// A route is an *ordered* list, so nearly every edit — dragging a stop
+    /// to a new place in the running order, dropping one from the middle — is
+    /// a new list anyway, and one setter is one thing for the editor to
+    /// undo.
+    func setTransitStops(_ stops: [GridPosition], forRoute id: TransitRoute.ID) {
+        map.transit.setStops(stops, forRoute: id)
     }
 
     // MARK: - Pipes (an underground layer, edited via the Water overlay)

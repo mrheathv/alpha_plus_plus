@@ -2320,6 +2320,83 @@ second, a year is six minutes, and `RegionalEconomy`'s cycle turns over in five
 to seven. `.slow` only doubles that, which is not much of a slow for systems
 that operate over hundreds of days.
 
+### Phase 1 (done): a line, and the trip that rides it
+
+**The route is the infrastructure.** There is no track layer to draw and no
+vehicles to place: a bus route runs on the roads that are already there, a
+subway tunnels under whatever is above it, and what the player authors is
+*which stations are on the same line*. So `TransitRoute` holds an ordered list
+of positions rather than a path, and the stations keep carrying the cost, the
+unlock, the upkeep and the land-value amenity they always did. Drawing a route
+is free; the decision it expresses is where you already spent the money.
+
+**A commute that can ride does not drive.** `Traffic.computeLoad` runs its job
+lottery exactly as before, and *then* asks whether one route serves both the
+home and the job it picked. If one does, the trip rides: no road load anywhere
+along the way, and the route counts the riders.
+
+Asking after the lottery rather than before it is the load-bearing bit. A bus
+line is supposed to change how people get to work, not who employs them —
+folding transit into the choice of destination would quietly make a route a
+land-use lever nobody asked for, and would put hops and stops into the same
+weighting where they mean different things.
+
+**Ridership is an index lookup, not a search**, and that is what made the
+feature affordable at all. `computeLoad` is already ~90% of a tick because it
+runs a breadth-first search per home; a second network searched per trip would
+have doubled the most expensive thing in the game. Instead every station stamps
+its catchment once into `TransitCoverage`, and "can these two places ride the
+same line?" is a dictionary lookup and a set intersection.
+
+**No transfers in v1**, and it is one function — `TransitCoverage.connection`
+looks for a route present at both ends and nothing else. Multi-leg journeys are
+a routing problem in their own right, and would dominate the module while being
+nearly invisible next to the thing a player actually watches, which is whether
+their line carries anyone. Stated once rather than assumed in several places.
+
+Three things worth recording:
+
+- **What was drawn and what works are different types.** `TransitNetwork` is
+  the player's authored state; `Transit` reads the map and decides what any of
+  it currently does — a stop whose station was bulldozed, a bus route listing a
+  subway entrance, a line left with one stop. Same split the conduit overlay
+  already draws between a pipe that exists and a pipe that is live, and there
+  for the same reason: "I never built that" and "that stopped working" are
+  different problems. Bulldozing a station drops it from the lines that called
+  there and keeps the lines, because losing a route for rearranging your own
+  city is a punishment; losing its *service* is just the consequence.
+- **A catchment is not a land-value falloff.** The obvious move was to reuse
+  `LandValue.transitFalloffDistance`, and it measures a different question —
+  how far the amenity is *felt* as desirability, not whether the people who
+  live here can use the thing. Tying them would make a balance change to one a
+  silent change to the other. `Transit.busCatchment` is 4, matching
+  `Water.directSupplyRadius`, which is this game's existing answer to "near
+  enough to count"; the subway's is twice it, a ratio rather than a tuned
+  number, since balance belongs to phase 4.
+- **One station is not a line.** Without a two-stop minimum a single stop would
+  carry every commute inside its own catchment, for the price of one building
+  and no route worth the name.
+
+#### The hole it closed
+
+A home with no road frontage generated no trips at all — `computeLoad` dropped
+it with a comment reading "transit-only access: no road trips generated". That
+was harmless while nothing could carry those people, and stopped being harmless
+the moment the inspector started reporting who found work: a block that
+`CitySimulator.hasAccess` had happily let grow off a transit stop reported
+every resident as unable to reach a job. It picks its job off the lines that
+serve it now, measured in stops.
+
+Job sites with no road frontage were being dropped for the mirror-image reason
+("no road access: not a reachable job at all") and are kept for the same one.
+
+#### Deliberately not yet
+
+A route has no capacity and no operating cost, so more lines are currently free
+relief. Both are balance, which is phase 4 — and both want measuring against a
+real city rather than guessing, the way every other constant here was settled.
+Trams are deferred on the player's own call.
+
 ## The Problems view, and slowing the clock down
 
 Reported from play: *"everything is happening so fast, there's no way to check

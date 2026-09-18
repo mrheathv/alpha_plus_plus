@@ -110,6 +110,28 @@ struct CityMap: Equatable, Codable, Sendable {
     /// simulation reads it, via `Demand.compute(for:)`.
     var regionalEconomy = RegionalEconomy()
 
+    /// The bus and subway lines the player has drawn — see `TransitRoute`.
+    ///
+    /// **Stored optional, read non-optional.** `CityMap` decodes through the
+    /// synthesised `Codable` conformance, which throws on a missing key even
+    /// where the property has a default, so every non-optional field added
+    /// here has broken every save written before it (`CitySave
+    /// .minimumSupportedFormatVersion` records the four that already did).
+    /// `decodeIfPresent` handles an optional for free, so an existing city
+    /// loads and simply has no routes.
+    ///
+    /// This is save compatibility rather than meaning, though — "no transit
+    /// network" and "an empty one" are the same city — so the optionality
+    /// stops here and nothing outside this file ever sees it. The one visible
+    /// consequence is that a map decoded from an older save is `!=` one that
+    /// has had an empty network assigned, despite behaving identically.
+    private var transitNetwork: TransitNetwork?
+
+    var transit: TransitNetwork {
+        get { transitNetwork ?? TransitNetwork() }
+        set { transitNetwork = newValue }
+    }
+
     /// How many days old the city is.
     ///
     /// **One clock, read through one seam.** `RegionalEconomy.elapsed` has
