@@ -157,6 +157,47 @@ final class IsometricCityTests: XCTestCase {
         // single state twice — the trap this fixture already had to be fixed
         // for once, when it had no pipes in it.
         map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 3, y: 6))
+
+        // Stations, and lines drawn through them. A station displaces a whole
+        // lot rather than one corner of one: leaving the other three cells
+        // still pointing at a building that is no longer there is exactly the
+        // inconsistent state `CityMap.placeBuilding`'s doc comment warns about,
+        // and it would show up as a floating half-building rather than as
+        // anything failing.
+        func station(_ mode: TransitRoute.Mode, at origin: GridPosition) -> GridPosition {
+            let lot = map[origin].buildingOrigin
+            for cell in map.footprintCells(origin: lot, size: map[lot].zone.footprintSize) {
+                map[cell] = Tile(position: cell)
+            }
+            map.placeBuilding(zone: mode.stationZone, origin: origin)
+            return origin
+        }
+
+        // Two bus lines sharing an interchange, so the diagram has to show
+        // more than one line and show them meeting; and a subway across the
+        // map, whose catchment is twice a bus stop's and has to look it.
+        let west = station(.bus, at: GridPosition(x: 1, y: 3))
+        let central = station(.bus, at: GridPosition(x: 8, y: 3))
+        let interchange = station(.bus, at: GridPosition(x: 13, y: 8))
+        let southEast = station(.bus, at: GridPosition(x: 16, y: 11))
+        map.transit.add(mode: .bus, stops: [west, central, interchange])
+        map.transit.add(mode: .bus, stops: [interchange, southEast])
+
+        let underNorth = station(.subway, at: GridPosition(x: 3, y: 1))
+        let underSouth = station(.subway, at: GridPosition(x: 18, y: 11))
+        map.transit.add(mode: .subway, stops: [underNorth, underSouth])
+
+        // A line whose station has been demolished. The route survives with
+        // one stop and carries nobody — and a fixture where every line works
+        // cannot show whether a broken one is distinguishable from a working
+        // one, which is the same trap this fixture had to be fixed for twice
+        // already (no pipes at all, then no orphaned run).
+        map.transit.add(mode: .bus, stops: [GridPosition(x: 3, y: 11), central])
+
+        // Recomputed last: the stations displaced real lots, so the traffic
+        // above was routed through a city that no longer exists — and with
+        // lines in place it is the ridership-bearing version anyway.
+        map.trafficLoad = Traffic.computeLoad(for: map)
         return map
     }
 
@@ -759,7 +800,8 @@ final class IsometricCityTests: XCTestCase {
         // caught that, because those at least still had buildings in them.
         for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power),
                         ("land value", .landValue), ("pollution", .pollution),
-                        ("crime", .police), ("fire risk", .fire), ("problems", .problems)] {
+                        ("crime", .police), ("fire risk", .fire), ("problems", .problems),
+                        ("bus", .bus), ("subway", .subway)] {
             panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
         }
         let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the overlay panels")
@@ -843,6 +885,7 @@ final class IsometricCityTests: XCTestCase {
 
         let world = SKNode()
         world.position = origin
+        let transitCoverage = Transit.coverage(for: map)
         for position in Self.positions(of: map) where map[position].isBuildingAnchor {
             let tile = map[position]
             let node = renderer.makeNode(for: tile)
@@ -858,7 +901,8 @@ final class IsometricCityTests: XCTestCase {
             // ordinary city and the picture cheerfully reported that three
             // overlays were fine while they painted nothing. See
             // `IsoTileRenderer.paint`.
-            if let paint = IsoTileRenderer.paint(for: overlay, at: position, in: map, using: nil) {
+            if let paint = IsoTileRenderer.paint(for: overlay, at: position, in: map,
+                                                using: nil, transit: transitCoverage) {
                 renderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor)
             }
@@ -881,6 +925,14 @@ final class IsometricCityTests: XCTestCase {
                 )
             }
             world.addChild(node)
+        }
+        // The route diagram, which is not per-tile and cannot be: a line spans
+        // arbitrary distance, so there is no one tile it hangs off. Drawn
+        // through the same call `GameScene` makes.
+        if overlay == .bus || overlay == .subway,
+           let diagram = renderer.transitDiagram(for: overlay == .bus ? .bus : .subway, in: map) {
+            diagram.zPosition = 2_000
+            world.addChild(diagram)
         }
         scene.addChild(world)
 

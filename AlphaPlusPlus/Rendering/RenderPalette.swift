@@ -122,6 +122,30 @@ enum RenderPalette {
         }
     }
 
+    /// The neon a transit line is drawn in.
+    ///
+    /// Borrowed from the station's own zone colour rather than picked fresh,
+    /// so the line running across the map is the same hue as the buildings it
+    /// calls at — sky blue for buses, violet for the subway. That is what lets
+    /// a player glance at a station in Normal view and know which of the two
+    /// overlays it belongs to.
+    static func transitLineColor(for mode: TransitRoute.Mode) -> SKColor {
+        fullColor(for: mode.stationZone)
+    }
+
+    /// The Bus/Subway overlays' ground: within walking distance of the line,
+    /// or not.
+    ///
+    /// Two states where water has three, because transit has no equivalent of
+    /// the pipe-versus-radius distinction — a station either reaches you or it
+    /// does not. Built the same way `supplyGroundColor` is, blending the
+    /// line's own hue into the night rather than naming a third colour, so the
+    /// four network overlays keep reading as one family.
+    static func transitGroundColor(for mode: TransitRoute.Mode, served: Bool) -> SKColor {
+        guard served else { return waterUnsupplied }
+        return background.blended(withFraction: 0.42, of: transitLineColor(for: mode)) ?? waterUnsupplied
+    }
+
     /// A buried conduit's line colour.
     ///
     /// **Hot when live, cold when not.** Power runs electric yellow and water

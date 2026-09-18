@@ -53,6 +53,18 @@ final class GameScene: SKScene {
     /// retro shader treatment everything else on the map gets.
     private let placementPreviewNode = SKShapeNode()
 
+    /// The Bus/Subway overlays' route diagram — see
+    /// `IsoTileRenderer.transitDiagram(for:in:)`.
+    ///
+    /// A sibling of `tileLayer` rather than something hung off a tile, for the
+    /// reason `placementPreviewNode` documents (it survives
+    /// `rebuildEntireGrid()`) and one more: a route spans arbitrary tiles, so
+    /// there is no one tile it belongs to. Its `zPosition` has to clear
+    /// **1,000**, not the map's depth range — a buried conduit already sits at
+    /// 1,000 *inside* `tileLayer` to draw over the city, and SpriteKit sorts
+    /// on accumulated z, so a sibling at 1 would be painted over by a pipe.
+    private let transitDiagramNode = SKNode()
+
     /// A soft, warm glow parked at a fixed point in world space, well
     /// below the map's own bottom edge — the retrowave "sun behind the
     /// skyline" motif every reference image this project's art pass has
@@ -171,6 +183,9 @@ final class GameScene: SKScene {
         // map's width plus height — a preview at 5 would sit behind most of
         // the city on any map bigger than a few tiles.
         placementPreviewNode.zPosition = 10_000
+        transitDiagramNode.zPosition = 2_000
+        retroEffectLayer.addChild(transitDiagramNode)
+
         retroEffectLayer.addChild(placementPreviewNode)
 
         sunGlowNode.texture = Self.sunGlowTexture
@@ -916,7 +931,8 @@ final class GameScene: SKScene {
             // `IsoTileRenderer.paint` — see its doc comment for why this
             // stopped being a switch here.
             if let paint = IsoTileRenderer.paint(
-                for: controller.overlayMode, at: position, in: map, using: overlayDistances
+                for: controller.overlayMode, at: position, in: map,
+                using: overlayDistances, transit: overlayTransitCoverage
             ) {
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor)
@@ -981,14 +997,52 @@ final class GameScene: SKScene {
     /// cheap; being wrong is not.
     private var overlayDistances: ZoneDistanceField?
 
+    /// `overlayDistances`' counterpart for the transit overlays, held for
+    /// exactly as long and absent for the same reason.
+    private var overlayTransitCoverage: TransitCoverage?
+
     func refreshAll() {
-        if controller.overlayMode == .landValue {
+        // **Every overlay that reads distances, not just land value.** This
+        // said `== .landValue` when land value was the only one, and by the
+        // time Crime, Fire Risk and Problems arrived it was quietly making
+        // each of them rebuild a whole-map distance field *per tile* — the
+        // `O(tiles²)` cost `ZoneDistanceField` exists to delete, paid on the
+        // render thread. Cheaper to compute one field for any overlay than to
+        // keep a list of which ones happen to need it.
+        if controller.overlayMode != .none {
             overlayDistances = ZoneDistanceField.compute(for: map)
         }
-        defer { overlayDistances = nil }
+        if controller.overlayMode == .bus || controller.overlayMode == .subway {
+            overlayTransitCoverage = Transit.coverage(for: map)
+        }
+        defer {
+            overlayDistances = nil
+            overlayTransitCoverage = nil
+        }
+        syncTransitDiagram()
         for position in tileNodes.keys {
             refresh(position)
         }
+    }
+
+    /// Draws the route diagram when one of its overlays is up, and takes it
+    /// down otherwise.
+    ///
+    /// Rebuilt wholesale rather than cached on a key, unlike every per-tile
+    /// decoration: there are a handful of routes against thousands of tiles,
+    /// so the churn this would be protecting against does not exist — and the
+    /// thing that decides the diagram's appearance is the whole network, which
+    /// is not a cheap key to compare.
+    private func syncTransitDiagram() {
+        transitDiagramNode.removeAllChildren()
+        let mode: TransitRoute.Mode
+        switch controller.overlayMode {
+        case .bus: mode = .bus
+        case .subway: mode = .subway
+        default: return
+        }
+        guard let diagram = tileRenderer.transitDiagram(for: mode, in: map) else { return }
+        transitDiagramNode.addChild(diagram)
     }
 
     // MARK: - Traffic animation

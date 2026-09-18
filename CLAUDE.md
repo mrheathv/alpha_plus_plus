@@ -2377,6 +2377,66 @@ Three things worth recording:
   carry every commute inside its own catchment, for the price of one building
   and no route worth the name.
 
+#### A view each for bus and subway
+
+The player's call, and the right one. They are two networks you plan
+separately — a bus line is cheap, local and threaded through streets you
+already have; a subway is expensive, wide-reaching and worth building before
+the city that justifies it — and one combined view would overlap their
+catchments into a single "somewhere near transit" wash that answers neither
+"where should the next bus stop go" nor "is the subway worth extending". Every
+other overlay in the game shows one network or one channel.
+
+Both are built to the shape Water and Power already established, deliberately
+down to the highlighted source: **lit means served**, the ground carries the
+catchment, and the stations keep their own colours because they are what the
+player is hunting for. A fourth network overlay is only worth having if
+learning one of them is learning all of them.
+
+Over the top goes the route diagram, and it is **schematic rather than
+geographic**: a straight run from station to station, not a trace of the roads
+a bus would use. That is the honest drawing of what a route is here — there is
+no track layer, and a line following streets would be a picture of a path
+nothing in the simulation stores. Every transit map worth reading is a diagram
+for the same reason. It is one node for the whole network rather than one per
+tile, because a line spans arbitrary distance and there is no tile it belongs
+to; with a handful of routes against thousands of tiles, `SKShapeNode`'s
+refusal to batch costs nothing here.
+
+Three things the render decided, and one it caught:
+
+- **The line's core is not additive.** Drawn additively over its own additive
+  halo it saturated to a white-pink filament, and the line stopped carrying the
+  one thing its colour is for. That is *exactly* the mistake recorded one
+  section above for the first conduits — "additive overlap plus bloom saturated
+  the run to white" — repeated within the same feature. The bloom is the
+  additive half; the line itself stays the hue it was given.
+- **A hollow ring reads as a hole in the line**, not as a station, at the
+  eleven points one is actually drawn at. A dark band with a lit dot inside it
+  — how a transit map draws an interchange — survives the size.
+- **A catchment is not a land-value falloff**, so the ground is painted from
+  `Transit.busCatchment` rather than `LandValue.transitFalloffDistance`. The
+  same separation phase 1 drew, now visible: the Subway view's field is
+  obviously twice the Bus view's.
+
+**And the Overlay menu crashed the app on its tenth entry.** It built each
+shortcut as `Character("\(index)")`, which is fine for one digit and a fatal
+error for two, so adding Bus and Subway took the whole app down at launch — in
+a `CommandMenu`, which this file already records as failing *silently*. Only
+the render caught it, because a test target that never builds the menu never
+runs the line. `overlayShortcut(for:)` returns `nil` past the digits, and
+`OverlayModeTests` walks `allCases` so the next overlay added cannot bring it
+back.
+
+One perf bug came out of the same pass. `refreshAll` computed its
+`ZoneDistanceField` only `if overlayMode == .landValue`, which was true when
+land value was the only overlay that read one — and by the time Crime, Fire
+Risk and Problems arrived it was quietly making each of them rebuild a
+whole-map field *per tile*, the `O(tiles²)` cost `ZoneDistanceField` exists to
+delete, paid on the render thread. It is computed for any overlay now: cheaper
+than keeping a list of which ones happen to need it, and a list like that is
+exactly what goes stale.
+
 #### The hole it closed
 
 A home with no road frontage generated no trips at all — `computeLoad` dropped

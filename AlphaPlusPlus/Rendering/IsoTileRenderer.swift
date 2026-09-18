@@ -256,7 +256,12 @@ struct IsoTileRenderer {
         // Optional for the same reason `LandValue.value` takes it that way:
         // the field is precomputed once per full refresh and absent when a
         // single tile is refreshed on its own.
-        using distances: ZoneDistanceField?
+        using distances: ZoneDistanceField?,
+        // Same contract: stamped once for a whole sweep, computed here when a
+        // single tile is asked about on its own. It is not filtered by mode —
+        // `TransitCoverage` knows which line is which, so the Bus overlay
+        // cannot be handed the subway's answers by a caller that got it wrong.
+        transit: TransitCoverage? = nil
     ) -> OverlayPaint? {
         switch mode {
         case .none:
@@ -334,6 +339,26 @@ struct IsoTileRenderer {
                 buildingColor: safe
                     ? RenderPalette.fullColor(for: service)
                     : RenderPalette.waterColor(for: false)
+            )
+        case .bus, .subway:
+            // Deliberately the same shape as water and power, down to the
+            // highlighted source: **lit means served**, and a player who has
+            // learned one of the four network overlays has learned all of
+            // them. What changes per overlay is the hue and what "served"
+            // means, never the reading.
+            let routeMode: TransitRoute.Mode = mode == .bus ? .bus : .subway
+            let coverage = transit ?? Transit.coverage(for: map)
+            let served = coverage.isServed(at: position, by: routeMode)
+            // The stations are what the player is hunting for here — they are
+            // the only thing a route can be built out of — so they keep their
+            // own colours, the way a tower does in the water overlay.
+            let isStation = map[position].zone == routeMode.stationZone
+            return OverlayPaint(
+                buildings: isStation ? .highlighted : .connected(served),
+                color: RenderPalette.transitGroundColor(for: routeMode, served: served),
+                buildingColor: served
+                    ? RenderPalette.transitLineColor(for: routeMode)
+                    : RenderPalette.unlitBuilding
             )
         case .power:
             let supplied = PowerGrid.hasSupply(at: position, in: map)
@@ -855,6 +880,107 @@ struct IsoTileRenderer {
         // tops out near twice the map's dimension).
         line.zPosition = 1_000
         node.addChild(line)
+    }
+
+    /// Every working line of one mode, drawn as a diagram over the city.
+    ///
+    /// **Schematic, not geographic.** The line runs straight from station to
+    /// station rather than tracing the streets a bus would actually use, and
+    /// that is the honest drawing of what a route *is* here: this module has
+    /// no track layer, and what the player authored is the claim that these
+    /// stations are on one line. A bus route drawn along roads would be a
+    /// picture of a path nothing in the simulation stores. Every transit map
+    /// worth reading is a diagram for the same reason, and a straight neon run
+    /// between lit nodes is about as retrowave as this project gets.
+    ///
+    /// **One node for the whole thing, not one per tile.** A route spans
+    /// arbitrary distance, so it cannot be a tile-local mask the way a conduit
+    /// is; and since there are a handful of routes rather than thousands of
+    /// tiles, `SKShapeNode`'s refusal to batch costs nothing here.
+    ///
+    /// Returns `nil` when the mode has nothing in service, so a caller can
+    /// skip adding an empty node.
+    /// The crisp core of a route's line — named so a test can tell it from the
+    /// halo around it and the marks along it.
+    static let transitLineName = "transitLine"
+    static let transitStopName = "transitStop"
+
+    func transitDiagram(for mode: TransitRoute.Mode, in map: CityMap) -> SKNode? {
+        let color = RenderPalette.transitLineColor(for: mode)
+        let container = SKNode()
+
+        for route in map.transit.routes(mode: mode) {
+            // The same "what works, not what was drawn" filter
+            // `Transit.coverage` applies — a stop whose station has been
+            // bulldozed is not on the map, so it must not be on the diagram
+            // either, or the line would be drawn to a place with nothing
+            // there.
+            let working = route.stops.filter {
+                map.contains($0) && map[$0].isBuildingAnchor && map[$0].zone == mode.stationZone
+            }
+            guard working.count >= TransitRoute.minimumStops else { continue }
+
+            let path = CGMutablePath()
+            for (index, stop) in working.enumerated() {
+                let point = projection.centerPoint(ofFootprintOrigin: stop, size: mode.stationZone.footprintSize)
+                if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            }
+
+            // Two passes rather than `glowWidth`, the same trick the buildings
+            // and the sparkline use: a wide faint copy under a crisp core.
+            // `glowWidth` on a line this long was what made the first conduits
+            // "a smear that swamped the tiles either side".
+            let halo = SKShapeNode(path: path)
+            halo.strokeColor = color.withAlphaComponent(0.26)
+            halo.lineWidth = 10
+            halo.lineCap = .round
+            halo.lineJoin = .round
+            halo.blendMode = .add
+            container.addChild(halo)
+
+            // **The core is not additive, and the render is why.** Drawn
+            // additively over its own halo it saturated to a white-pink
+            // filament and the line stopped carrying the one thing its colour
+            // is for — which is exactly the mistake recorded for the first
+            // conduits, whose "additive overlap plus bloom saturated the run
+            // to white". The bloom around it is the additive half; the line
+            // itself stays the hue it was given.
+            let line = SKShapeNode(path: path)
+            line.name = Self.transitLineName
+            line.strokeColor = color
+            line.lineWidth = 2.5
+            line.lineCap = .round
+            line.lineJoin = .round
+            container.addChild(line)
+
+            // A node at every stop, because a line with no marks on it says
+            // how the route runs but not where you can get on it — and where
+            // you can get on it is the thing the player is placing.
+            //
+            // A dark ring with a lit centre, the way a transit map draws an
+            // interchange: the dark band separates the stop from the line
+            // running through it, and the lit dot is what survives being
+            // eleven points across. A hollow ring read as a *hole* in the
+            // line at this size, which is the opposite of a station.
+            for stop in working {
+                let center = projection.centerPoint(ofFootprintOrigin: stop, size: mode.stationZone.footprintSize)
+                let radius = max(projection.tileWidth * 0.20, 5)
+                let ring = SKShapeNode(circleOfRadius: radius)
+                ring.name = Self.transitStopName
+                ring.position = center
+                ring.strokeColor = color
+                ring.lineWidth = 2
+                ring.fillColor = RenderPalette.background
+                container.addChild(ring)
+
+                let dot = SKShapeNode(circleOfRadius: radius * 0.45)
+                dot.position = center
+                dot.strokeColor = .clear
+                dot.fillColor = color
+                container.addChild(dot)
+            }
+        }
+        return container.children.isEmpty ? nil : container
     }
 
     /// How tall the building on a tile stands, in tile units — needed to put

@@ -94,10 +94,7 @@ struct AlphaPlusPlusApp: App {
             CommandMenu("Overlay") {
                 ForEach(Array(OverlayMode.allCases.enumerated()), id: \.element) { index, mode in
                     Button(mode.displayName) { document.controller.overlayMode = mode }
-                        .keyboardShortcut(
-                            KeyEquivalent(Character("\(index)")),
-                            modifiers: .command
-                        )
+                        .keyboardShortcut(Self.overlayShortcut(for: index))
                 }
             }
 
@@ -125,6 +122,26 @@ struct AlphaPlusPlusApp: App {
             }
         }
     }
+
+    /// Cmd-0 through Cmd-9 for the first ten overlays, and nothing for any
+    /// after that.
+    ///
+    /// **This crashed the app**, and only a render caught it. The menu built
+    /// its shortcut as `Character("\(index)")`, which is fine for one digit
+    /// and a fatal error for two — so the tenth overlay added to
+    /// `OverlayMode` would have taken the whole app down at launch, in a
+    /// `CommandMenu` whose problems this project has already recorded as
+    /// failing silently. Adding Bus and Subway was that tenth.
+    ///
+    /// Returning `nil` rather than inventing a shortcut: the digits are the
+    /// only key space this menu can claim without colliding with Cmd-B, Cmd-S
+    /// and the rest, and an overlay reachable only by clicking is a great deal
+    /// better than one that does not launch.
+    static func overlayShortcut(for index: Int) -> KeyboardShortcut? {
+        guard (0 ... 9).contains(index) else { return nil }
+        return KeyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .command)
+    }
+
 }
 
 /// Wraps `GameView` with the things that belong to the *document* rather than
@@ -152,4 +169,5 @@ struct RootView: View {
                 Text(document.errorMessage ?? "")
             }
     }
+
 }

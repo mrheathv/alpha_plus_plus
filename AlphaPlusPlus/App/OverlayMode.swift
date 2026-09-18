@@ -24,6 +24,18 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     /// The answer to "which of my four hundred lots has a problem", which
     /// until now could only be found by hovering over them one at a time.
     case problems
+    /// Bus and subway get a view each rather than sharing one.
+    ///
+    /// They are two networks a player plans separately — a bus line is cheap,
+    /// local and drawn along streets you already have, a subway is expensive,
+    /// wide-reaching and worth building before the city that justifies it —
+    /// and one combined view would overlap their catchments into a single
+    /// "somewhere near transit" wash that answers neither "where should the
+    /// next bus stop go" nor "is the subway worth extending". Every other
+    /// overlay in this list shows one network or one channel; these are no
+    /// exception.
+    case bus
+    case subway
 
     var id: String { rawValue }
 
@@ -41,6 +53,8 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
         case .police: return "Crime"
         case .fire: return "Fire Risk"
         case .problems: return "Problems"
+        case .bus: return "Bus"
+        case .subway: return "Subway"
         }
     }
 }

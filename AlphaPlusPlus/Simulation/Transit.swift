@@ -60,6 +60,7 @@ enum Transit {
     /// mechanical change rather than a design one.
     static func coverage(for map: CityMap) -> TransitCoverage {
         var byTile: [GridPosition: [TransitRoute.ID: Int]] = [:]
+        var modes: [TransitRoute.ID: TransitRoute.Mode] = [:]
 
         for route in map.transit.routes {
             // Only stops that are still a station of this route's own kind.
@@ -92,8 +93,9 @@ enum Transit {
                     }
                 }
             }
+            modes[route.id] = route.mode
         }
-        return TransitCoverage(byTile: byTile)
+        return TransitCoverage(byTile: byTile, modeByRoute: modes)
     }
 }
 
@@ -108,17 +110,34 @@ struct TransitCoverage: Equatable, Sendable {
     /// tile -> (route id -> index of the nearest stop of that route).
     private var byTile: [GridPosition: [TransitRoute.ID: Int]] = [:]
 
+    /// Which kind of line each id belongs to.
+    ///
+    /// Carried here rather than left for callers to look up on the network,
+    /// because the alternative was a `mode:` parameter on
+    /// `Transit.coverage(for:)` — and then every caller would hold a coverage
+    /// silently filtered to one mode, with nothing stopping the Bus overlay
+    /// from being handed the subway's. Routing wants all of it (a trip rides
+    /// whatever serves both ends) and the overlays want one at a time, so the
+    /// filtering belongs at the point of the question.
+    private var modeByRoute: [TransitRoute.ID: TransitRoute.Mode] = [:]
+
     init() {}
 
-    fileprivate init(byTile: [GridPosition: [TransitRoute.ID: Int]]) {
+    fileprivate init(
+        byTile: [GridPosition: [TransitRoute.ID: Int]],
+        modeByRoute: [TransitRoute.ID: TransitRoute.Mode]
+    ) {
         self.byTile = byTile
+        self.modeByRoute = modeByRoute
     }
 
     var isEmpty: Bool { byTile.isEmpty }
 
-    /// Is anything at all serving this tile? What the overlay paints.
-    func isServed(at position: GridPosition) -> Bool {
-        byTile[position] != nil
+    /// Is anything serving this tile — or, given a mode, anything of that kind?
+    func isServed(at position: GridPosition, by mode: TransitRoute.Mode? = nil) -> Bool {
+        guard let here = byTile[position] else { return false }
+        guard let mode else { return true }
+        return here.keys.contains { modeByRoute[$0] == mode }
     }
 
     /// Every route reaching this tile, and how far along each one it is.
