@@ -4541,9 +4541,50 @@ title screen you cannot return to is a splash screen. "Continue" appears only
 once there is a city worth returning to — on a first launch the map is empty
 and it would be a third button saying "New City".
 
-Still open in this phase: the app icon, which predates the entire art
-direction and was an explicit exception to the grayboxing rule at the time,
-and a screenshot camera.
+#### The app icon
+
+The icon that shipped predates the entire art direction — this file records
+it as an explicit exception to the grayboxing rule at the time, on the
+grounds that an icon is chrome *around* the game rather than game art. That
+was fair then and stopped being fair the day the game became isometric: the
+old icon is a **flat front-elevation skyline**, which is precisely the "two
+viewpoints in one picture" mismatch the whole projection change existed to
+fix. It was a picture of a game this is not.
+
+What survives is the sun, because the sun was always right — and it is now
+literally the same sun as `TitleScreen`, slats and all. What replaces the
+skyline is a handful of isometric blocks drawn from `RenderPalette`'s own
+zone colours, as near-black faces with a neon edge, which is how the game
+draws every building.
+
+**It simplifies as it shrinks**, which is the part that makes it an icon
+rather than a picture. Five towers overlap into an indistinct dark smudge at
+16 and 32 pixels, so below 64 it draws **one**, silhouetted against the disc;
+the slats drop out below 64 too, and the neon edge below 48. Same argument
+`NeonStyle.minimumDetailSize` makes about facade details: a mark that cannot
+be drawn big enough is cut, not shrunk.
+
+**Generated rather than authored.** An icon has to be a raster asset, which
+makes it the one place this project cannot avoid shipping PNGs — but it does
+not have to make them a mystery. `AppIconTests` writes every size in the
+asset catalogue from code, into the source tree deliberately: the drawing is
+deterministic, so the bytes only change when the art does, and a palette edit
+shows up as a diff on the icon. The icon cannot silently fall out of step
+with the game the way the one it replaces did.
+
+Two mistakes worth recording, because both are the *same* mistake made twice
+in two different APIs:
+
+- **The slats were punched with `.clear` inside a clip**, which does not
+  reveal the sky — it removes the pixels, and the icon came back striped with
+  holes. Exactly what `TitleScreen` had just recorded about its own
+  `.destinationOut` attempt. Subtracting the slats from the disc's `CGPath`
+  is one call and cannot fail quietly.
+- **Only the sky was painted.** Everything below the horizon was left
+  untouched, which in a bitmap with an alpha channel is not "dark", it is
+  *nothing* — the first icon had a white bottom half.
+
+Still open in this phase: a screenshot camera.
 
 ## Looking at the art without playing to it
 
