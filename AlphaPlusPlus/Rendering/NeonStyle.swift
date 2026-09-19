@@ -66,6 +66,11 @@ enum NeonStyle {
     /// paler version of the building's neon.
     static let litAccent = SKColor(srgbRed: 0.55, green: 0.98, blue: 1.0, alpha: 0.95)
 
+    /// Standing water — a park's pond, and anything else that should read as a
+    /// surface rather than a light. Deeper and bluer than `litAccent`, which
+    /// is the glow *of* a window rather than a thing you could fall into.
+    static let waterAccent = SKColor(srgbRed: 0.10, green: 0.52, blue: 0.95, alpha: 0.95)
+
     /// Two hues, not three. A third, dimmer, desaturated "cool white" used to
     /// sit here, and across a facade of small panes it averaged the whole grid
     /// toward grey — the opposite of what a neon look wants. Cool and warm
@@ -159,6 +164,68 @@ enum NeonStyle {
         shapes.forEach(container.addChild)
         return container
     }
+
+    /// **The sunset, as a flame.** A vertical gradient running white-hot at
+    /// the base through yellow and orange to hot magenta at the tip, cut by
+    /// horizontal slats that widen as they rise.
+    ///
+    /// This is the one mark in the game drawn in the *whole* retrowave
+    /// palette rather than a single hue, and that is what makes it work as a
+    /// hazard mark. `emberColor` alone could not: an industrial building is
+    /// already orange, so an orange flame on a factory was a mark competing
+    /// with its own background — the failure this file records for the road
+    /// button that came out black on black. A gradient cannot be swallowed by
+    /// any one zone, because no zone owns more than one end of it.
+    ///
+    /// The slats are the sunset's own signature, run upside down. On a
+    /// synthwave sun they widen toward the *bottom*, where the disc meets the
+    /// horizon; on a flame they widen toward the top, where it breaks up into
+    /// the air. Same motif, and it happens to be what fire actually does.
+    ///
+    /// Used as an `SKShapeNode.fillTexture`, which maps it across the node's
+    /// bounding box — so the plume's own path decides the silhouette and this
+    /// decides only what fills it. Set `fillColor` to white at the call site,
+    /// since the fill colour multiplies the texture.
+    static let sunsetFlameTexture: SKTexture = {
+        let width = 64, height = 160
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return SKTexture() }
+
+        // Bottom to top: the hot core, then the sunset above it. The last stop
+        // fades to nothing so the tip dissolves rather than ending on a line.
+        let components: [CGFloat] = [
+            1.00, 0.98, 0.90, 1.00,   // white-hot
+            1.00, 0.88, 0.35, 1.00,   // yellow
+            1.00, 0.45, 0.12, 1.00,   // ember orange
+            1.00, 0.15, 0.55, 0.95,   // hot magenta
+            0.60, 0.10, 0.90, 0.00,   // violet, gone
+        ]
+        guard let gradient = CGGradient(colorSpace: colorSpace, colorComponents: components,
+                                        locations: [0, 0.11, 0.38, 0.76, 1], count: 5) else {
+            return SKTexture()
+        }
+        context.drawLinearGradient(
+            gradient, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 0, y: CGFloat(height)),
+            options: []
+        )
+
+        // The slats, punched out rather than painted over, so whatever is
+        // behind the flame shows through the gaps.
+        context.setBlendMode(.clear)
+        var y = CGFloat(height) * 0.22
+        var thickness: CGFloat = 1.5
+        while y < CGFloat(height) {
+            context.fill(CGRect(x: 0, y: y, width: CGFloat(width), height: thickness))
+            y += thickness + CGFloat(height) * 0.052
+            thickness *= 1.55
+        }
+
+        guard let image = context.makeImage() else { return SKTexture() }
+        return SKTexture(cgImage: image)
+    }()
 
     /// A soft radial-gradient sprite, white fading to transparent, generated
     /// once and tinted per use.

@@ -142,9 +142,41 @@ enum ServiceMassing {
                     .lit(NeonStyle.emberColor))
     }
 
-    /// A shelter: a canopy on posts over a lit bench. One tile, so it says one
-    /// thing.
+    /// **Three shelters, one mark.** A bus stop is 1×1 and the cheapest
+    /// transit building in the game, so a corridor ends up carrying a dozen
+    /// of them — which puts it in the same position as the park: a *service*
+    /// numerous enough that repetition reads as wallpaper rather than as
+    /// identity.
+    ///
+    /// What never varies is the mark itself: a flat canopy standing on posts
+    /// over something lit. That is what has to stay constant for a player
+    /// scanning a street for coverage gaps, and it is what keeps a bus stop
+    /// apart from the tram's kerbed island and the subway's lit mouth. What
+    /// varies is the shelter *around* it.
     private static func transitStop(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        switch random.int(in: 0 ... 2) {
+        case 0: openShelter(footprint, &massing, &random)
+        case 1: backedShelter(footprint, &massing, &random)
+        default: twinShelter(footprint, &massing, &random)
+        }
+        // A flag at the kerb on about half of them. A companion mark rather
+        // than a fourth form: it changes the silhouette — a thin vertical
+        // beside a horizontal canopy — without touching what makes the
+        // building a bus stop, which is the canopy itself.
+        if random.chance(0.5) {
+            let pole = CGFloat(random.value(in: 0.6 ... 0.78))
+            massing.add(.box(Box(x: 0.08, y: footprint / 2 - 0.03, z: 0,
+                                 width: 0.06, depth: 0.06, height: pole)))
+            massing.add(.box(Box(x: 0.04, y: footprint / 2 - 0.05, z: pole,
+                                 width: 0.15, depth: 0.1, height: 0.05)),
+                        .lit(NeonStyle.litAccent))
+        }
+    }
+
+    /// Four posts, a flat canopy, a lit bench under it.
+    private static func openShelter(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {
         let margin: CGFloat = 0.18
@@ -164,35 +196,99 @@ enum ServiceMassing {
                     .lit(NeonStyle.litAccent))
     }
 
-    /// **A long shed over two lit platforms**, which is the one silhouette
-    /// in this game's vocabulary that reads as a railway. The tram is a kerbed
-    /// island with a mast and the subway is a headhouse with a lit mouth; this
-    /// is wide, spans its whole 2×2 lot, and shows the platforms either side
-    /// of a raised roof — so all four transit buildings stay apart while
-    /// scanning for coverage, which is what these icons are for.
+    /// A back wall carrying a lit advertising panel, with the canopy
+    /// cantilevered forward off it onto two posts. The solid wall is what
+    /// separates this from the open shelter at any zoom: half the silhouette
+    /// is filled in rather than open sky.
+    private static func backedShelter(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.18
+        let width = footprint - margin * 2
+        let height = CGFloat(random.value(in: 0.48 ... 0.62))
+        let wall = Box(x: margin, y: margin, z: 0,
+                       width: width, depth: 0.08, height: height)
+        massing.add(.box(wall))
+        // The ad panel — the one lit mark, on the face that looks at the
+        // camera, sized to fill most of the wall rather than to be a poster
+        // on it. `minimumDetailSize`'s rule: one bold mark beats four small.
+        massing.panels.append(Panel(box: wall, face: .right, u0: 0.12, u1: 0.88,
+                                    v0: 0.18, v1: 0.88, color: NeonStyle.litAccent))
+        for end in [CGFloat(0), 1] {
+            massing.add(.box(Box(x: margin + end * (width - 0.07),
+                                 y: margin + width - 0.07,
+                                 z: 0, width: 0.07, depth: 0.07, height: height)))
+        }
+        massing.add(.box(Box(x: margin - 0.05, y: margin - 0.05, z: height,
+                             width: width + 0.1, depth: width + 0.1, height: 0.06)))
+    }
+
+    /// Two canopies end to end — a busy stop, where a second bus waits behind
+    /// the first. Lower than the others so the pair does not read as one tall
+    /// block, and the gap between them is what makes it count as two.
+    private static func twinShelter(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.14
+        let span = footprint - margin * 2
+        let bay = (span - 0.1) / 2
+        let height = CGFloat(random.value(in: 0.36 ... 0.46))
+        for half in [CGFloat(0), 1] {
+            let y = margin + half * (bay + 0.1)
+            for end in [CGFloat(0), 1] {
+                massing.add(.box(Box(x: margin + end * (span - 0.06), y: y + bay / 2 - 0.03,
+                                     z: 0, width: 0.06, depth: 0.06, height: height)))
+            }
+            massing.add(.box(Box(x: margin - 0.04, y: y, z: height,
+                                 width: span + 0.08, depth: bay, height: 0.06)))
+            massing.add(.box(Box(x: margin + 0.08, y: y + 0.05, z: 0.03,
+                                 width: span - 0.16, depth: bay - 0.1, height: 0.07)),
+                        .lit(NeonStyle.litAccent))
+        }
+    }
+
+    /// **Three station halls, one mark.** A rail station is 2×2 and expensive,
+    /// so a city holds two or three — it owes the player identity rather than
+    /// variety, and that identity is *long lit platforms*, which nothing else
+    /// in this game's vocabulary has. What varies is what stands over them:
+    /// a pitched train shed, a head building with a flat canopy, or nothing
+    /// at all because the line is up on a viaduct.
     private static func trainShed(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        switch random.int(in: 0 ... 2) {
+        case 0: pitchedShed(footprint, &massing, &random)
+        case 1: terminus(footprint, &massing, &random)
+        default: viaduct(footprint, &massing, &random)
+        }
+    }
+
+    /// Two lit platforms running the length of the lot. Every rail station
+    /// starts here; the three forms differ in what they put above.
+    private static func platforms(
+        _ margin: CGFloat, _ span: CGFloat, _ depth: CGFloat, _ z: CGFloat,
+        _ massing: inout BuildingMassing
+    ) {
+        for side in [CGFloat(0), 1] {
+            let y = margin + side * (span - depth)
+            massing.add(.box(Box(x: margin, y: y, z: z,
+                                 width: span, depth: depth, height: 0.12)))
+            massing.add(.box(Box(x: margin + 0.05, y: y + 0.04, z: z + 0.12,
+                                 width: span - 0.1, depth: depth - 0.08, height: 0.03)),
+                        .lit(NeonStyle.litAccent))
+        }
+    }
+
+    /// The classic: a ridge spanning both platforms, standing clear of them so
+    /// the roof reads as a roof rather than as a third storey.
+    private static func pitchedShed(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {
         let margin: CGFloat = 0.12
         let span = footprint - margin * 2
-        let platformDepth = CGFloat(random.value(in: 0.34 ... 0.44))
+        platforms(margin, span, CGFloat(random.value(in: 0.34 ... 0.44)), 0, &massing)
 
-        // Two platforms with lit edges, the length of the shed.
-        for side in [CGFloat(0), 1] {
-            let y = margin + side * (span - platformDepth)
-            massing.add(.box(Box(x: margin, y: y, z: 0,
-                                 width: span, depth: platformDepth, height: 0.12)))
-            massing.add(.box(Box(x: margin + 0.05, y: y + 0.04, z: 0.12,
-                                 width: span - 0.1, depth: platformDepth - 0.08, height: 0.03)),
-                        .lit(NeonStyle.litAccent))
-        }
-
-        // The shed: a ridge spanning both platforms, standing clear of them
-        // so the roof reads as a roof rather than as a third storey.
         let eaves = CGFloat(random.value(in: 0.46 ... 0.62))
-        let ridge = Ridge(x: margin - 0.04, y: margin - 0.04, z: eaves,
-                          width: span + 0.08, depth: span + 0.08,
-                          height: CGFloat(random.value(in: 0.28 ... 0.40)))
         for corner in [(CGFloat(0), CGFloat(0)), (1, 0), (0, 1), (1, 1)] {
             massing.add(.box(Box(
                 x: margin + corner.0 * (span - 0.09),
@@ -200,43 +296,209 @@ enum ServiceMassing {
                 z: 0, width: 0.09, depth: 0.09, height: eaves
             )))
         }
-        massing.add(.ridge(ridge))
+        massing.add(.ridge(Ridge(x: margin - 0.04, y: margin - 0.04, z: eaves,
+                                 width: span + 0.08, depth: span + 0.08,
+                                 height: CGFloat(random.value(in: 0.28 ... 0.40)))))
     }
 
-    /// **A raised platform under a pole**, which is a tram stop's identity
-    /// mark the world over and — more to the point here — nothing else in
-    /// this game's vocabulary. A bus stop is four legs and a flat canopy; a
-    /// subway is a headhouse with a lit mouth. This is a low kerbed island
-    /// with a lit edge and a single mast standing off it, so the three read
-    /// apart at a glance while scanning a corridor for coverage gaps, which
-    /// is what these icons are for.
+    /// A head building at one end with the platforms running out of it under a
+    /// flat canopy. The tallest of the three, and the only one with windows —
+    /// which is what makes it read as a place you walk into.
+    private static func terminus(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.12
+        let span = footprint - margin * 2
+        let head = CGFloat(random.value(in: 0.42 ... 0.58))
+        let hall = Box(x: margin, y: margin, z: 0, width: span, depth: head,
+                       height: CGFloat(random.value(in: 0.85 ... 1.15)))
+        massing.add(.box(hall))
+        windows(on: hall, rows: 2, columns: 4, chance: 0.75, &massing, &random)
+        doorway(on: hall, width: 0.3, &massing)
+        // A clerestory band along the top, which is what a concourse has and a
+        // shed does not.
+        massing.add(.box(Box(x: hall.x - 0.05, y: hall.y - 0.05, z: hall.height,
+                             width: hall.width + 0.1, depth: hall.depth + 0.1, height: 0.07)))
+
+        // The platforms occupy what is left, under a flat canopy on posts.
+        let yard = span - head - 0.06
+        platforms(margin, span, yard / 2 - 0.03, 0, &massing)
+        let canopy = CGFloat(random.value(in: 0.5 ... 0.66))
+        for corner in [(CGFloat(0), CGFloat(0)), (1, 0), (0, 1), (1, 1)] {
+            massing.add(.box(Box(
+                x: margin + corner.0 * (span - 0.08),
+                y: margin + head + 0.06 + corner.1 * Swift.max(0.01, yard - 0.08),
+                z: 0, width: 0.08, depth: 0.08, height: canopy
+            )))
+        }
+        massing.add(.box(Box(x: margin - 0.04, y: margin + head + 0.02, z: canopy,
+                             width: span + 0.08, depth: yard + 0.08, height: 0.06)))
+    }
+
+    /// The line up on arches, with the platforms a storey above the street.
+    /// No roof at all — the height *is* the silhouette, and it is the one
+    /// station you can see over a block of flats.
+    private static func viaduct(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.12
+        let span = footprint - margin * 2
+        let deck = CGFloat(random.value(in: 0.62 ... 0.85))
+        let depth = CGFloat(random.value(in: 0.32 ... 0.42))
+
+        // Piers: two rows of them, under where each platform lands, so the
+        // structure reads as carrying the deck rather than standing beside it.
+        let piers = random.int(in: 3 ... 4)
+        for side in [CGFloat(0), 1] {
+            let y = margin + side * (span - depth) + depth / 2
+            for pier in 0 ..< piers {
+                let t = CGFloat(pier) / CGFloat(piers - 1)
+                massing.add(.cylinder(Cylinder(
+                    x: margin + 0.1 + t * (span - 0.2), y: y,
+                    z: 0, radius: 0.07, height: deck
+                )))
+            }
+        }
+        massing.add(.box(Box(x: margin - 0.03, y: margin - 0.03, z: deck - 0.1,
+                             width: span + 0.06, depth: span + 0.06, height: 0.1)))
+        platforms(margin, span, depth, deck, &massing)
+        // A sign mast on the deck, so the station is findable when the camera
+        // is far enough out that the platforms have stopped resolving.
+        massing.add(.box(Box(x: margin + 0.06, y: margin + span / 2 - 0.035,
+                             z: deck + 0.12, width: 0.07, depth: 0.07, height: 0.3)))
+        massing.add(.box(Box(x: margin, y: margin + span / 2 - 0.06,
+                             z: deck + 0.4, width: 0.22, depth: 0.12, height: 0.06)),
+                    .lit(NeonStyle.litAccent))
+    }
+
+    /// **Three tram stops, one mark.** A tram stop is 1×1 and strung along a
+    /// route in numbers, so it has the park's problem rather than the fire
+    /// station's. What stays constant is a low kerbed island with a lit edge
+    /// and a mast standing off it — nothing else in this game has that, which
+    /// is what keeps it apart from the bus canopy and the subway's lit mouth.
+    /// What varies is how many islands there are and what the mast carries.
     private static func tramPlatform(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        switch random.int(in: 0 ... 2) {
+        case 0: islandStop(footprint, &massing, &random)
+        case 1: pairedIslands(footprint, &massing, &random)
+        default: screenedIsland(footprint, &massing, &random)
+        }
+    }
+
+    /// One island with a lit edge and a mast — the plain version.
+    private static func islandStop(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {
         let margin = CGFloat(random.value(in: 0.16 ... 0.24))
         let length = footprint - margin * 2
         let width = CGFloat(random.value(in: 0.30 ... 0.42))
-        let island = Box(x: margin, y: (footprint - width) / 2, z: 0,
-                         width: length, depth: width, height: 0.1)
-        massing.add(.box(island))
-        // The lit edge: the one mark that survives being twenty points across,
-        // and the reason the platform reads as a platform rather than a kerb.
-        massing.add(.box(Box(x: margin + 0.04, y: (footprint - width) / 2 + 0.04, z: 0.1,
-                             width: length - 0.08, depth: width - 0.08, height: 0.03)),
-                    .lit(NeonStyle.litAccent))
-        // And the mast, at the near end so it sorts in front of the platform
-        // rather than through it — the same rule the firehouse tower had to
-        // learn when it came out looking like an industrial chimney.
-        let mast = CGFloat(random.value(in: 0.55 ... 0.72))
-        massing.add(.box(Box(x: margin + 0.05, y: (footprint - width) / 2 + width / 2 - 0.035,
-                             z: 0, width: 0.07, depth: 0.07, height: mast)))
-        massing.add(.box(Box(x: margin - 0.02, y: (footprint - width) / 2 + width / 2 - 0.06,
-                             z: mast, width: 0.2, depth: 0.12, height: 0.05)),
+        island(margin, (footprint - width) / 2, length, width, &massing)
+        mast(margin + 0.05, (footprint - width) / 2 + width / 2, &massing, &random)
+    }
+
+    /// Two narrow islands either side of the centre line, with a catenary
+    /// boom reaching across both.
+    ///
+    /// The gap down the middle was the first version's only mark, and the
+    /// contact sheet showed why that was not enough: two 0.2-wide islands a
+    /// fifth of a tile apart merge into one island the moment the camera
+    /// pulls back, so all three tram stops read as the same drawing. The boom
+    /// is a **horizontal above the roofline** — a line at the top of the
+    /// silhouette where the other two have only a mast head — and that
+    /// survives the downsample, which is the whole of `minimumDetailSize`'s
+    /// argument applied to massing rather than to marks.
+    private static func pairedIslands(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin = CGFloat(random.value(in: 0.13 ... 0.19))
+        let length = footprint - margin * 2
+        let width = CGFloat(random.value(in: 0.17 ... 0.23))
+        let gap = CGFloat(random.value(in: 0.18 ... 0.26))
+        for side in [CGFloat(0), 1] {
+            island(margin, footprint / 2 - gap / 2 - width + side * (gap + width),
+                   length, width, &massing)
+        }
+        let pole = CGFloat(random.value(in: 0.66 ... 0.82))
+        massing.add(.box(Box(x: margin + 0.04, y: footprint / 2 - 0.035, z: 0,
+                             width: 0.07, depth: 0.07, height: pole)))
+        // The boom, running the length of the stop over both islands, with the
+        // lit wire slung under it.
+        let reach = gap + width * 2 + 0.12
+        massing.add(.box(Box(x: margin + 0.04, y: footprint / 2 - reach / 2, z: pole - 0.06,
+                             width: 0.06, depth: reach, height: 0.06)))
+        massing.add(.box(Box(x: margin + 0.05, y: footprint / 2 - reach / 2 + 0.03,
+                             z: pole - 0.1, width: 0.04, depth: reach - 0.06, height: 0.03)),
                     .lit(NeonStyle.litAccent))
     }
 
-    /// A station entrance: a headhouse with a lit mouth and a canopy over it.
+    /// One island with a glass screen down its back — a shelter without a
+    /// canopy, which is what keeps it a tram stop rather than a bus one.
+    private static func screenedIsland(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin = CGFloat(random.value(in: 0.16 ... 0.22))
+        let length = footprint - margin * 2
+        let width = CGFloat(random.value(in: 0.30 ... 0.40))
+        let y = (footprint - width) / 2
+        island(margin, y, length, width, &massing)
+        // Tall enough that the slab, not the mast, is the tallest thing in
+        // the silhouette — which is what tells this one apart from the plain
+        // island at the zoom the game is actually played at.
+        let screen = Box(x: margin + 0.04, y: y + width - 0.06, z: 0.1,
+                         width: length - 0.08, depth: 0.05,
+                         height: CGFloat(random.value(in: 0.46 ... 0.58)))
+        massing.add(.box(screen))
+        massing.panels.append(Panel(box: screen, face: .right, u0: 0.1, u1: 0.9,
+                                    v0: 0.15, v1: 0.85, color: NeonStyle.litAccent))
+        mast(margin + 0.05, y + width / 2, &massing, &random)
+    }
+
+    /// A kerb with a lit edge on top. The lit edge is the one mark that
+    /// survives being twenty points across, and the reason the platform reads
+    /// as a platform rather than as a kerb.
+    private static func island(
+        _ x: CGFloat, _ y: CGFloat, _ length: CGFloat, _ width: CGFloat,
+        _ massing: inout BuildingMassing
+    ) {
+        massing.add(.box(Box(x: x, y: y, z: 0, width: length, depth: width, height: 0.1)))
+        massing.add(.box(Box(x: x + 0.04, y: y + 0.04, z: 0.1,
+                             width: length - 0.08, depth: Swift.max(0.02, width - 0.08),
+                             height: 0.03)),
+                    .lit(NeonStyle.litAccent))
+    }
+
+    /// The mast, at the near end so it sorts in front of the platform rather
+    /// than through it — the same rule the firehouse tower had to learn when
+    /// it came out looking like an industrial chimney.
+    private static func mast(
+        _ x: CGFloat, _ y: CGFloat,
+        _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let height = CGFloat(random.value(in: 0.55 ... 0.72))
+        massing.add(.box(Box(x: x, y: y - 0.035, z: 0, width: 0.07, depth: 0.07, height: height)))
+        massing.add(.box(Box(x: x - 0.07, y: y - 0.06, z: height,
+                             width: 0.2, depth: 0.12, height: 0.05)),
+                    .lit(NeonStyle.litAccent))
+    }
+
+    /// **Three entrances, one mark.** A subway entrance is 1×1 and a line is
+    /// a row of them, so it earns forms for the same reason the park and the
+    /// tram stop do. The constant is a **lit mouth at ground level** — the
+    /// hole you walk into — which nothing else in the game draws.
     private static func subwayEntrance(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        switch random.int(in: 0 ... 2) {
+        case 0: headhouse(footprint, &massing, &random)
+        case 1: stairwell(footprint, &massing, &random)
+        default: entranceTower(footprint, &massing, &random)
+        }
+    }
+
+    /// A headhouse with a lit mouth and a canopy over it.
+    private static func headhouse(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {
         let margin = CGFloat(random.value(in: 0.2 ... 0.3))
@@ -250,6 +512,52 @@ enum ServiceMassing {
         }
         massing.add(.box(Box(x: box.x - 0.08, y: box.y - 0.08, z: box.height,
                              width: box.width + 0.16, depth: box.depth + 0.16, height: 0.06)))
+    }
+
+    /// An open stair going down: a balustrade around a lit well, with a sign
+    /// standing beside it. The only transit building with *no* mass above the
+    /// kerb, which is exactly what makes it read as a hole in the pavement.
+    private static func stairwell(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin = CGFloat(random.value(in: 0.2 ... 0.28))
+        let span = footprint - margin * 2
+        // The lit well first, so the balustrade sorts in front of it.
+        massing.add(.box(Box(x: margin + 0.06, y: margin + 0.06, z: 0,
+                             width: span - 0.12, depth: span - 0.12, height: 0.05)),
+                    .lit(NeonStyle.litAccent))
+        let rail = CGFloat(random.value(in: 0.16 ... 0.22))
+        for side in 0 ..< 4 {
+            let horizontal = side % 2 == 0
+            let far = side >= 2
+            massing.add(.box(Box(
+                x: margin + (horizontal ? 0 : far ? span - 0.05 : 0),
+                y: margin + (horizontal ? (far ? span - 0.05 : 0) : 0),
+                z: 0, width: horizontal ? span : 0.05, depth: horizontal ? 0.05 : span,
+                height: rail
+            )))
+        }
+        mast(margin - 0.04, margin + span / 2, &massing, &random)
+    }
+
+    /// A narrow tower with the mouth at its foot and a lit crown on top — the
+    /// version that stands up over a dense block, where a headhouse would be
+    /// lost between two towers.
+    private static func entranceTower(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin = CGFloat(random.value(in: 0.3 ... 0.38))
+        let shaft = Box(x: margin, y: margin, z: 0,
+                        width: footprint - margin * 2, depth: footprint - margin * 2,
+                        height: CGFloat(random.value(in: 0.8 ... 1.05)))
+        massing.add(.box(shaft))
+        for face in [Panel.Face.right, .left] {
+            massing.panels.append(Panel(box: shaft, face: face, u0: 0.2, u1: 0.8,
+                                        v0: 0, v1: 0.3, color: NeonStyle.litAccent))
+        }
+        massing.add(.box(Box(x: shaft.x - 0.05, y: shaft.y - 0.05, z: shaft.height,
+                             width: shaft.width + 0.1, depth: shaft.depth + 0.1, height: 0.07)),
+                    .lit(NeonStyle.litAccent))
     }
 
     /// A tank on legs — the silhouette that carries this zone, and one the
@@ -316,56 +624,125 @@ enum ServiceMassing {
         }
     }
 
-    /// A low wide schoolhouse with a gable and a bell tower.
+    /// **Four kinds of park, not one lawn at four sizes.**
     ///
-    /// Civic buildings get silhouettes nothing else in the game uses, because
-    /// they are the two zones a player most needs to pick out while scanning
-    /// for coverage gaps.
-    /// A park: the only thing on this map that is not a building.
+    /// A park is 1×1 and cheap, so a city ends up with a great many of them —
+    /// which puts it on the wrong side of the rule that lets a *service* get
+    /// away with little variety. "A city has two fire stations" is why a
+    /// firehouse only owes the player an identity; it is simply not true of
+    /// the things you thread between every other block, and a row of identical
+    /// lawns reads as wallpaper exactly the way a row of identical houses
+    /// would.
     ///
-    /// **Drawn short and soft on purpose.** Every other civic block is a
-    /// lit box with windows, and a park has to read as the *absence* of that
-    /// from across the map — so it is a low hedge line, a few trees, and
-    /// nothing above knee height. It also has to survive being 1×1, which is a
-    /// quarter of the area every other service gets: at that size there is
-    /// room for exactly one idea, and the idea is "trees".
+    /// The four stay apart in **silhouette** rather than in planting — trees,
+    /// water, a roof, a flat court — because that is what survives being
+    /// twenty points across. Each still sits on the same low kerb, which is
+    /// what stops any of them reading as bare ground with something dropped
+    /// on it.
     ///
-    /// Trees are a trunk and a canopy, both cylinders, because a cylinder's
-    /// top is a real ellipse catching light in this projection — the same
-    /// thing that lets an industrial tank read as a drum rather than a box.
+    /// **No lit mark on the ground, and none needed.** `Panel` only draws on
+    /// the two visible *walls* — there is no top face to paint a path on — but
+    /// what keeps a park readable once the camera pulls back is
+    /// `syncGroundGlow`, which already throws a pool of the zone's colour onto
+    /// every service lot. A park's pool is the only green one on the map.
     private static func park(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {
         let margin: CGFloat = 0.12
         let span = footprint - margin * 2
-
-        // A low kerb around the lawn, which is what stops a park reading as
-        // bare ground with something dropped on it.
         massing.add(.box(Box(x: margin, y: margin, z: 0,
                              width: span, depth: span, height: 0.06)))
 
-        // Two or three trees, placed off-centre so no two parks line up.
-        for _ in 0 ..< random.int(in: 2 ... 3) {
+        switch random.int(in: 0 ... 3) {
+        case 0: grove(margin, span, &massing, &random)
+        case 1: pond(margin, span, &massing, &random)
+        case 2: pavilion(margin, span, &massing, &random)
+        default: court(margin, span, &massing, &random)
+        }
+    }
+
+    /// Trees, which is what a park looks like from a distance.
+    private static func grove(
+        _ margin: CGFloat, _ span: CGFloat,
+        _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        for _ in 0 ..< random.int(in: 2 ... 4) {
             let inset = margin + 0.14
             let free = Swift.max(0.01, span - 0.28)
             let x = inset + CGFloat(random.value(in: 0 ... 1)) * free
             let y = inset + CGFloat(random.value(in: 0 ... 1)) * free
             let height = CGFloat(random.value(in: 0.34 ... 0.52))
-            let trunk = Cylinder(x: x, y: y, z: 0.06, radius: 0.028, height: height * 0.45)
-            massing.add(.cylinder(trunk))
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0.06, radius: 0.028, height: height * 0.45)))
             massing.add(.cylinder(Cylinder(
                 x: x, y: y, z: 0.06 + height * 0.45,
                 radius: CGFloat(random.value(in: 0.1 ... 0.15)), height: height * 0.55
             )))
         }
+    }
 
-        // **No lit mark on the ground, and none needed.** `Panel` only draws
-        // on the two visible *walls* — there is no top face to paint a path
-        // on — but the thing that keeps a park readable once the camera pulls
-        // back is `syncGroundGlow`, which already throws a pool of the zone's
-        // colour onto every service lot. A park's pool is the only green one
-        // on the map, so it reads as a park from further out than the trees
-        // survive, which is exactly the job.
+    /// A lit pool with a bank around it — the one park with no vertical mass
+    /// at all, which is what makes it unmistakable from across the map even
+    /// though it is the quietest thing on it.
+    private static func pond(
+        _ margin: CGFloat, _ span: CGFloat,
+        _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let inset = CGFloat(random.value(in: 0.14 ... 0.22))
+        let water = Box(x: margin + inset, y: margin + inset, z: 0.06,
+                        width: span - inset * 2, depth: span - inset * 2, height: 0.035)
+        massing.add(.box(water), .lit(NeonStyle.waterAccent))
+        for _ in 0 ..< random.int(in: 1 ... 2) {
+            let x = margin + CGFloat(random.value(in: 0.03 ... 0.1))
+            let y = margin + CGFloat(random.value(in: 0.1 ... 0.85)) * Swift.max(0.01, span)
+            let height = CGFloat(random.value(in: 0.28 ... 0.42))
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0.06, radius: 0.025, height: height * 0.45)))
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0.06 + height * 0.45,
+                                           radius: 0.1, height: height * 0.55)))
+        }
+    }
+
+    /// A bandstand: a lit deck under a pitched roof on posts. The only park
+    /// with a roof, and the tallest of the four.
+    private static func pavilion(
+        _ margin: CGFloat, _ span: CGFloat,
+        _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let inset = CGFloat(random.value(in: 0.16 ... 0.26))
+        let width = span - inset * 2
+        let deck = Box(x: margin + inset, y: margin + inset, z: 0.06,
+                       width: width, depth: width, height: 0.05)
+        massing.add(.box(deck), .lit(NeonStyle.litAccent))
+        let posts = CGFloat(random.value(in: 0.3 ... 0.42))
+        for corner in [(CGFloat(0), CGFloat(0)), (1, 0), (0, 1), (1, 1)] {
+            massing.add(.box(Box(
+                x: deck.x + corner.0 * (width - 0.055),
+                y: deck.y + corner.1 * (width - 0.055),
+                z: 0.11, width: 0.055, depth: 0.055, height: posts
+            )))
+        }
+        massing.add(.ridge(Ridge(x: deck.x - 0.05, y: deck.y - 0.05, z: 0.11 + posts,
+                                 width: width + 0.1, depth: width + 0.1,
+                                 height: CGFloat(random.value(in: 0.14 ... 0.22)))))
+    }
+
+    /// A ball court: a lit slab between two posts. Flat like the pond and
+    /// man-made like the pavilion, which is what keeps it apart from both.
+    private static func court(
+        _ margin: CGFloat, _ span: CGFloat,
+        _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let inset = CGFloat(random.value(in: 0.1 ... 0.16))
+        let slab = Box(x: margin + inset, y: margin + inset, z: 0.06,
+                       width: span - inset * 2, depth: span - inset * 2, height: 0.04)
+        massing.add(.box(slab), .lit(NeonStyle.litAccent))
+        let posts = CGFloat(random.value(in: 0.26 ... 0.4))
+        for end in [CGFloat(0), 1] {
+            massing.add(.box(Box(
+                x: slab.x + slab.width / 2 - 0.03,
+                y: slab.y + end * Swift.max(0.01, slab.depth - 0.06),
+                z: 0.1, width: 0.06, depth: 0.06, height: posts
+            )))
+        }
     }
 
     private static func school(

@@ -1000,13 +1000,16 @@ one sprite.
 
 But a cache only helps if it *hits*, and every lot has a different seed — so
 caching per lot would store one texture per building and hit never. The seed is
-therefore **quantised**: a lot picks one of sixteen looks for its zone and tier
-rather than one of unboundedly many.
+therefore **quantised**: a lot picks one of `variantCount` looks for its zone
+and tier rather than one of unboundedly many.
 
 That is a real reduction in variety. It is also exactly the target this file
 asks for ("ten or more distinct looks per zone per tier"), and what is lost is
-the difference between sixteen looks and thousands — imperceptible on a map
-showing a hundred lots at once, against a map that draws at all. The
+the difference between that and thousands — imperceptible on a map showing a
+hundred lots at once, against a map that draws at all. `variantCount` started
+at sixteen and is thirty-two; see "More buildings, and a fire that is on
+theme" below for why that number, and not a generator, was the thing holding
+variety back. The
 quantisation lives in the cache, not the generators, so `IndustrialMassing` and
 friends stay pure functions of a seed and the contact sheet keeps showing
 genuinely unbounded variety.
@@ -3769,6 +3772,124 @@ order to *scale* by it but then left the icon at its origin, so short buildings
 hung a quarter of a lot below their tile, overlapping the neighbour. It now
 recentres on the measured frame as well, which is why every building on the
 contact sheet suddenly sits square in its cell.
+
+## More buildings, and a fire that is on theme
+
+Two halves of one request: more variety in what a city is made of, and a fire
+that looks like it belongs in this game.
+
+### The ceiling was the cache, not the generators
+
+The obvious move was to write more forms for the growable zones. Measuring
+first said not to. Counting *distinct* massings over the seeds the game
+actually uses — `IsoTextureCache.canonicalSeed`, not arbitrary ones — the
+three growable zones came back at **14–16 out of a possible 16**. The
+generators were not the constraint; `variantCount` was, and every extra branch
+written into `ResidentialMassing` would have been quantised straight back out
+again.
+
+`variantCount` is **32** now. Raising it costs textures and nothing else: a
+built-out 40×40 city went from 48 to **93 textures with the node count
+unchanged at 2,177**, because a texture is shared by every lot that draws it
+and a lot is one sprite either way. At 32 the generators still do not
+saturate — R/C/I read 21–32 distinct — so this is headroom, not a new ceiling.
+
+### The gap was the services you build in numbers
+
+With the cache opened up, the same count named the real problem. Police 26,
+hospital 25, generator 24, power plant 22 — a service a city has two of, doing
+fine. And then **park 4, bus stop 3, tram stop 3, subway 3, rail station 3**.
+
+Those are exactly the buildings a city has *dozens* of, and they were flat for
+one reason: each varied its dimensions and nothing else. This file already
+states the rule — **"varying numbers is not variety; varying the building
+is"** — and it had been applied to the growable zones and never to the
+services that tile a map alongside them.
+
+The variety bar being lower for services is still right, and it is why the
+fire station was left alone. What was wrong was treating "service" as one
+category. A city has two fire stations and thirty bus stops; the second is in
+the park's position, not the firehouse's.
+
+Each now picks a **form** first:
+
+| | forms |
+|---|---|
+| park | a grove, a lit pond, a bandstand, a ball court |
+| bus stop | an open shelter, one with a backed ad wall, a twin-bay shelter — half of them with a flag at the kerb |
+| tram stop | one island, paired islands under a catenary boom, an island with a screen wall |
+| subway | a headhouse, an open stairwell, an entrance tower |
+| rail station | a pitched train shed, a terminus with a head building, an elevated viaduct |
+
+Measured over the same 32 seeds: park 4 → **11**, bus 3 → **11**, tram 3 →
+**9**, subway 3 → **9**, rail 3 → **15**.
+
+**What stays fixed is the identity mark**, which is what these icons are for —
+a player scanning a corridor for coverage gaps has to know what they are
+looking at before they notice it is a different one. A bus stop is always a
+canopy on posts; a tram stop is always a kerbed island with a lit edge and a
+mast; a subway always has a lit mouth at ground level; a rail station always
+has long lit platforms. The forms vary everything else.
+
+Three things the contact sheet decided, and the counter could not:
+
+- **Two of the tram forms did not read apart at all.** Paired islands 0.2 tile
+  wide with a fifth of a tile between them merge into one island the moment
+  the camera pulls back, so the count said three forms and the picture showed
+  one. The fix was a **catenary boom** — a horizontal at the top of the
+  silhouette, where the other two have only a mast head. `minimumDetailSize`'s
+  argument applies to massing exactly as it does to marks: a distinction that
+  cannot survive the downsample is not a distinction.
+- **The screen wall had to out-top the mast.** At its first height it was a
+  detail on an island; taller than the mast it is the tallest thing in the
+  silhouette, and that is what tells it apart.
+- **The pond is the best of the four parks** and it is the one with no
+  vertical mass at all — a lit blue surface where everything else in the game
+  is a lit edge. `NeonStyle.waterAccent` exists for it: deeper and bluer than
+  `litAccent`, which is the glow *of* a window rather than a thing you could
+  fall into.
+
+### The fire is a sunset now
+
+`emberColor` alone never worked and this file has said so since fire spread
+landed: an industrial building is already orange, so an orange flame on a
+factory is a mark competing with its own background. The answer then was to
+give fire a *silhouette* no zone has — a plume above the roofline — which
+fixed legibility and left the colour problem in place.
+
+`NeonStyle.sunsetFlameTexture` fixes the colour by refusing to pick one. The
+plume is filled with the whole retrowave ramp — white-hot at the base through
+yellow and ember to hot magenta at the tip — cut by horizontal slats. **A
+gradient cannot be swallowed by any one zone, because no zone owns more than
+one end of it.**
+
+It is also the synthwave sun, run upside down: on the sun the slats widen
+toward the bottom where the disc meets the horizon, on a flame they widen
+toward the top where it breaks up into the air. Same motif, and it happens to
+be what fire actually does. The most urgent thing on the map is now drawn in
+the palette the rest of the map is dressed in, rather than in a warning colour
+borrowed from somewhere else.
+
+Around it: two additive pools rather than one — a wide magenta halo with the
+ember pool burning inside it, so the lot haloes in two colours and stays
+legible on any ground in the game — and four embers rising on their own beats.
+This is the one place in the renderer where additive light summing to white is
+the *intended* result rather than the bug recorded three times over in the
+conduit, route and tram-track passes: a fire has a white-hot centre.
+
+Two corrections the magnified render made, neither of which the code could
+have flagged:
+
+- **It was as wide as it was tall, and read as a lamp on the roof.** Narrower,
+  taller, and closed across a notch between two licks instead of a straight
+  line, it reads as something coming *out* of the building. Proportion is what
+  carries the mark, since at the zoom this game is played at the gradient
+  inside it is four pixels wide.
+- **The white core blew out the bottom third of the gradient** — 0.7 of a tile
+  at alpha 0.95 flattened the flame's hottest section, and the roof under it,
+  to paper. Half the size at 0.6 alpha keeps the ramp visible and still reads
+  white-hot.
+
 
 ## Looking at the art without playing to it
 

@@ -18,16 +18,30 @@ import SpriteKit
 ///
 /// That is a real reduction in variety and worth being honest about. It is also
 /// the target CLAUDE.md actually asks for — "ten or more distinct looks per
-/// zone per tier" — and sixteen clears it. What is lost is the difference
-/// between sixteen looks and thousands, which no player can perceive on a map
-/// where a hundred lots are visible at once; what is gained is that the map
-/// draws at all. The quantisation lives here rather than in the generators, so
-/// `IndustrialMassing` and friends stay pure functions of a seed and the
-/// contact sheet keeps showing genuinely unbounded variety.
+/// zone per tier" — and `variantCount` clears it twice over. What is lost is
+/// the difference between that and thousands, which no player can perceive on
+/// a map where a hundred lots are visible at once; what is gained is that the
+/// map draws at all. The quantisation lives here rather than in the
+/// generators, so `IndustrialMassing` and friends stay pure functions of a
+/// seed and the contact sheet keeps showing genuinely unbounded variety.
 final class IsoTextureCache {
 
     /// How many distinct looks a zone and tier gets.
-    static let variantCount = 16
+    ///
+    /// **This is the ceiling on variety, not the generators.** Counting
+    /// distinct massings over exactly these seeds found the three growable
+    /// zones pinned at 14–16 of a possible 16 — so every extra branch written
+    /// into a generator was being quantised straight back out again, and the
+    /// way to buy more buildings was to raise this number rather than to
+    /// write more art.
+    ///
+    /// Raising it costs textures and nothing else: a texture is shared by
+    /// every lot that draws it, and a lot is one sprite either way. 16 → 32
+    /// took a built-out 40×40 city from 48 textures to 93 with the node count
+    /// unchanged at 2,177. The generators still do not saturate here (they
+    /// read 21–32 distinct), so there is headroom above this if it is ever
+    /// wanted.
+    static let variantCount = 32
 
     /// **Why this grew past buildings.** `SKShapeNode` does not batch — every
     /// one is its own draw call — and `glowWidth` on a shape is more expensive

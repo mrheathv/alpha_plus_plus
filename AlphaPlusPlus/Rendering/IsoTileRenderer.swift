@@ -651,6 +651,23 @@ struct IsoTileRenderer {
     /// key is just "is this burning" — so a fire that goes on burning is not
     /// restarted every tick, which would freeze the animation on its first
     /// frame forever.
+    /// **A fire is a sunset standing on a roof.**
+    ///
+    /// The mark keeps every property the first version earned the hard way —
+    /// a silhouette no zone has, standing *above* the roofline, because
+    /// height is the one dimension a building cannot compete on — and changes
+    /// what fills it. An ember-orange flame was invisible on industry, which
+    /// is already orange; a plume running white-hot at the base through
+    /// yellow and ember to hot magenta at the tip cannot be swallowed by any
+    /// zone, because no zone owns more than one end of that ramp.
+    ///
+    /// It is also, finally, *on theme*. This game's whole art direction is a
+    /// synthwave sunset over a neon grid, and the one thing it had no answer
+    /// for was the emergency that most wants your attention. The gradient and
+    /// its slats are the sunset motif turned upside down (see
+    /// `NeonStyle.sunsetFlameTexture`), so the most urgent thing on the map is
+    /// now drawn in the palette the rest of the map is dressed in rather than
+    /// in a warning colour borrowed from somewhere else.
     func syncFireMarker(on node: SKNode, tile: Tile) {
         let key = tile.isBurning ? "burning" : "none"
         guard !isUpToDate(node, Self.fireNodeName, key) else { return }
@@ -664,49 +681,77 @@ struct IsoTileRenderer {
         container.zPosition = 0.75
 
         let top = buildingTop(of: tile)
+        let centre = projection.project(size / 2, size / 2, 0)
 
-        // A pool of ember light on the lot, which is what carries once the
-        // camera is far enough out that nothing resolves.
+        // Two pools on the lot, which is what carries once the camera is far
+        // enough out that nothing resolves: a wide magenta one with the ember
+        // one burning inside it. One pool in one hue is the thing that went
+        // missing against industry; a ring of one colour around a core of
+        // another is legible on any ground in the game.
+        //
+        // Both blend additively, and they are *meant* to sum to white where
+        // they overlap — a fire has a white-hot centre. That is the one place
+        // in this renderer where additive saturation is the intended result
+        // rather than the bug recorded three times over in the conduit, route
+        // and tram-track passes.
+        let halo = SKSpriteNode(texture: NeonStyle.glowTexture)
+        halo.color = NeonStyle.signPalette[1]
+        halo.colorBlendFactor = 1
+        halo.blendMode = .add
+        halo.alpha = 0.34
+        halo.size = CGSize(width: projection.tileWidth * size * 2.6,
+                           height: projection.tileHeight * size * 2.6)
+        halo.position = centre
+        container.addChild(halo)
+
         let pool = SKSpriteNode(texture: NeonStyle.glowTexture)
         pool.color = NeonStyle.emberColor
         pool.colorBlendFactor = 1
         pool.blendMode = .add
-        pool.alpha = 0.5
-        pool.size = CGSize(width: projection.tileWidth * size * 1.9,
-                           height: projection.tileHeight * size * 1.9)
-        pool.position = projection.project(size / 2, size / 2, 0)
+        pool.alpha = 0.46
+        pool.size = CGSize(width: projection.tileWidth * size * 1.5,
+                           height: projection.tileHeight * size * 1.5)
+        pool.position = centre
         container.addChild(pool)
 
-        // **And a plume, because colour alone was not enough.** The first
-        // version was an ember-coloured glow and nothing else, and the city
-        // render showed exactly what is wrong with that: an industrial
-        // building is *already* orange, so a fire on one was indistinguishable
-        // from the building's own neon. Same mistake as the road button that
-        // came out black on black — a mark whose only channel is hue vanishes
-        // on anything that shares the hue.
+        // The plume. The path is the silhouette and the texture is the
+        // sunset; `fillColor` has to be white because a fill colour
+        // *multiplies* the fill texture, so anything else would tint the
+        // gradient and undo the point of having one.
         //
-        // So the fire gets a silhouette no zone has: a tall flame standing
-        // above the roofline, white at the base where it is hottest. Height is
-        // the one dimension a building cannot compete on, since the plume
-        // starts where the building stops.
-        let plumeHeight = Swift.max(1.2, top * 0.9)
+        // **Tall and narrow, with a notched foot.** The first pass at this
+        // was as wide as it was tall and closed across a flat bottom edge,
+        // and magnified it read as a lamp sitting on the roof rather than as
+        // something coming out of it. Proportion is what says "plume" — the
+        // mark has to be unmistakable in silhouette alone, since at the zoom
+        // this game is played at the gradient inside it is four pixels wide.
+        let plumeHeight = Swift.max(1.6, top * 1.15)
         let base = projection.project(size / 2, size / 2, top)
         let tip = projection.project(size / 2, size / 2, top + plumeHeight)
-        let halfWidth = projection.tileWidth * size * 0.2
+        let rise = tip.y - base.y
+        let halfWidth = projection.tileWidth * size * 0.15
         let flame = CGMutablePath()
         flame.move(to: CGPoint(x: base.x - halfWidth, y: base.y))
-        flame.addQuadCurve(to: tip, control: CGPoint(x: base.x - halfWidth * 1.1,
-                                                     y: base.y + (tip.y - base.y) * 0.65))
+        flame.addQuadCurve(to: tip, control: CGPoint(x: base.x - halfWidth * 1.15,
+                                                     y: base.y + rise * 0.55))
         flame.addQuadCurve(to: CGPoint(x: base.x + halfWidth, y: base.y),
-                           control: CGPoint(x: base.x + halfWidth * 1.1,
-                                            y: base.y + (tip.y - base.y) * 0.65))
+                           control: CGPoint(x: base.x + halfWidth * 1.15,
+                                            y: base.y + rise * 0.55))
+        // Back up to a notch between two licks, so the foot is not a straight
+        // line across the building's roof.
+        flame.addLine(to: CGPoint(x: base.x, y: base.y + rise * 0.14))
         flame.closeSubpath()
         let plume = SKShapeNode(path: flame)
-        plume.fillColor = NeonStyle.emberColor
-        plume.strokeColor = .white
+        plume.fillTexture = NeonStyle.sunsetFlameTexture
+        plume.fillColor = .white
+        // Magenta on the edge, because neon in this game is an *edge*
+        // treatment and the tip is the part that has to stay visible over a
+        // lit orange roof. The white stroke the first version used read as a
+        // highlight on the building rather than as a thing standing on it.
+        plume.strokeColor = NeonStyle.signPalette[1]
         plume.lineWidth = 2
-        plume.glowWidth = 3
-        plume.alpha = 0.9
+        plume.glowWidth = 4
+        plume.alpha = 0.95
         container.addChild(plume)
 
         // White-hot at the base of the plume. White is the one colour no zone
@@ -716,18 +761,60 @@ struct IsoTileRenderer {
         core.color = .white
         core.colorBlendFactor = 1
         core.blendMode = .add
-        core.alpha = 0.95
-        core.size = CGSize(width: projection.tileWidth * size * 0.7,
-                           height: projection.tileWidth * size * 0.7)
-        core.position = projection.project(size / 2, size / 2, top + plumeHeight * 0.15)
+        // Kept small and well under full brightness: the first version was
+        // 0.7 of a tile at alpha 0.95 and blew the whole base of the plume —
+        // and the roof under it — to flat white, which threw away the bottom
+        // third of the gradient it sits in front of.
+        core.alpha = 0.6
+        core.size = CGSize(width: projection.tileWidth * size * 0.42,
+                           height: projection.tileWidth * size * 0.42)
+        core.position = projection.project(size / 2, size / 2, top + plumeHeight * 0.1)
         container.addChild(core)
+
+        // Embers, rising and going out. Four, not forty: `minimumDetailSize`'s
+        // argument holds for moving marks too, and four sparks each carrying
+        // real weight beat a cloud of specks that averages into haze — which
+        // is what the plume is already doing, at a size that survives.
+        for index in 0 ..< 4 {
+            let ember = SKSpriteNode(texture: NeonStyle.glowTexture)
+            ember.color = index % 2 == 0 ? NeonStyle.signPalette[1] : NeonStyle.scaffoldColor
+            ember.colorBlendFactor = 1
+            ember.blendMode = .add
+            let span = projection.tileWidth * size * 0.13
+            ember.size = CGSize(width: span, height: span)
+            let drift = CGFloat(index) / 3 - 0.5
+            ember.position = CGPoint(x: base.x + drift * halfWidth * 1.4, y: base.y)
+            ember.alpha = 0
+            container.addChild(ember)
+
+            // Each on its own beat and its own delay, so they never rise as a
+            // rank — the same reason the flicker below sums three periods.
+            let rise = 0.9 + Double(index) * 0.23
+            ember.run(.repeatForever(.sequence([
+                .wait(forDuration: Double(index) * 0.31),
+                .group([
+                    .moveBy(x: drift * halfWidth * 1.8, y: (tip.y - base.y) * 1.15,
+                            duration: rise),
+                    .sequence([
+                        .fadeAlpha(to: 0.9, duration: rise * 0.25),
+                        .fadeAlpha(to: 0, duration: rise * 0.75),
+                    ]),
+                ]),
+                .move(to: CGPoint(x: base.x + drift * halfWidth * 1.4, y: base.y),
+                      duration: 0),
+            ])))
+        }
 
         // Three beats of different length, so the flicker never settles into a
         // pulse the eye can predict — the same reason the regional cycle sums
         // two periods rather than running one.
         pool.run(.repeatForever(.sequence([
-            .fadeAlpha(to: 0.28, duration: 0.31),
-            .fadeAlpha(to: 0.55, duration: 0.23),
+            .fadeAlpha(to: 0.26, duration: 0.31),
+            .fadeAlpha(to: 0.52, duration: 0.23),
+        ])))
+        halo.run(.repeatForever(.sequence([
+            .fadeAlpha(to: 0.2, duration: 0.47),
+            .fadeAlpha(to: 0.38, duration: 0.37),
         ])))
         core.run(.repeatForever(.sequence([
             .scale(to: 1.25, duration: 0.17),
@@ -735,7 +822,7 @@ struct IsoTileRenderer {
         ])))
         plume.run(.repeatForever(.sequence([
             .group([.scaleY(to: 1.18, duration: 0.19), .fadeAlpha(to: 1, duration: 0.19)]),
-            .group([.scaleY(to: 0.88, duration: 0.27), .fadeAlpha(to: 0.75, duration: 0.27)]),
+            .group([.scaleY(to: 0.88, duration: 0.27), .fadeAlpha(to: 0.78, duration: 0.27)]),
         ])))
         node.addChild(container)
     }
