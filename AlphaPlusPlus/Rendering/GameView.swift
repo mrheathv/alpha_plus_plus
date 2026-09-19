@@ -274,6 +274,7 @@ struct GameView: View {
                 // to it — but the other view must not offer to finish it.
                 draft: controller.routeDraft?.mode == mode ? controller.routeDraft : nil,
                 workingStops: controller.workingStopCounts(),
+                capacity: controller.routeCapacities(),
                 ridership: { controller.map.trafficLoad.ridership(onRoute: $0) },
                 onBegin: { controller.beginTransitRoute(mode: mode) },
                 onEdit: { controller.editTransitRoute(id: $0) },

@@ -10,6 +10,11 @@ final class TransitTests: XCTestCase {
 
     private let home = GridPosition(x: 0, y: 1)
     private let homeDensity = 3
+
+    /// Ridership is counted in *people*, not in the density units road load
+    /// uses — see `Traffic.computeLoad`. Spelled as the conversion rather than
+    /// as a number so the test says which currency it means.
+    private var homeRiders: Int { homeDensity * ZoneType.residential.populationPerDensityLevel }
     private let midStreet = GridPosition(x: 12, y: 0)
 
     /// One long street, a house at the left end and the town's only shop at
@@ -148,7 +153,7 @@ final class TransitTests: XCTestCase {
         let indirect = map.transit.add(mode: .bus, stops: [slowA, slowMiddle, slowB])
 
         let load = Traffic.computeLoad(for: map)
-        XCTAssertEqual(load.ridership(onRoute: direct), homeDensity)
+        XCTAssertEqual(load.ridership(onRoute: direct), homeRiders)
         XCTAssertEqual(load.ridership(onRoute: indirect), 0)
     }
 
@@ -174,7 +179,7 @@ final class TransitTests: XCTestCase {
         XCTAssertEqual(driving.totalRidership, 0)
 
         XCTAssertEqual(riding.load(at: midStreet), 0, "the commute still drives the whole street")
-        XCTAssertEqual(riding.ridership(onRoute: route), homeDensity)
+        XCTAssertEqual(riding.ridership(onRoute: route), homeRiders)
         XCTAssertEqual(riding.commuteFound(at: home), true, "riding to work is not working")
     }
 
@@ -218,7 +223,7 @@ final class TransitTests: XCTestCase {
 
         let served = Traffic.computeLoad(for: map)
         XCTAssertEqual(served.commuteFound(at: isolated), true)
-        XCTAssertEqual(served.ridership(onRoute: route), 4)
+        XCTAssertEqual(served.ridership(onRoute: route), 4 * ZoneType.residential.populationPerDensityLevel)
         XCTAssertEqual(served.load(at: midStreet), 0, "a transit-only commute put a car on the road")
     }
 
@@ -247,8 +252,9 @@ final class TransitTests: XCTestCase {
         let route = map.transit.add(mode: .bus, stops: [a, alsoNearHome, b])
 
         let load = Traffic.computeLoad(for: map)
-        XCTAssertEqual(load.ridership(onRoute: route), homeDensity + 2)
-        XCTAssertEqual(load.totalRidership, homeDensity + 2)
+        let expected = (homeDensity + 2) * ZoneType.residential.populationPerDensityLevel
+        XCTAssertEqual(load.ridership(onRoute: route), expected)
+        XCTAssertEqual(load.totalRidership, expected)
     }
 
     /// Routing has been non-deterministic once already, from `Set` iteration
@@ -269,13 +275,85 @@ final class TransitTests: XCTestCase {
 
     // MARK: - Routes as state the player owns
 
+    // MARK: - Capacity, and what makes a subway a subway
+
+    /// A line's ceiling scales with how long it is, so extending a route is a
+    /// real alternative to building a second one.
+    func testALongerLineCarriesMore() {
+        var map = street()
+        let a = nearHome(&map)
+        let b = nearShop(&map)
+        let middle = station(&map, at: GridPosition(x: 12, y: 3))
+
+        let short = map.transit.add(mode: .bus, stops: [a, b])
+        XCTAssertEqual(Transit.ratedCapacity(of: try! XCTUnwrap(map.transit.route(id: short)), in: map),
+                       2 * TransitRoute.Mode.bus.capacityPerStop)
+
+        map.transit.setStops([a, middle, b], forRoute: short)
+        XCTAssertEqual(Transit.ratedCapacity(of: try! XCTUnwrap(map.transit.route(id: short)), in: map),
+                       3 * TransitRoute.Mode.bus.capacityPerStop)
+    }
+
+    /// **The whole character of the two modes.** A bus shares the street and
+    /// crawls when it jams; a subway has its own tunnel and does not care.
+    /// Without this the subway is a bus with bigger numbers.
+    func testAJammedStreetSlowsABusAndNotASubway() {
+        for mode in TransitRoute.Mode.allCases {
+            var map = street()
+            let a = station(&map, at: GridPosition(x: 1, y: 1), mode: mode)
+            let b = station(&map, at: GridPosition(x: map.width - 2, y: 1), mode: mode)
+            let id = map.transit.add(mode: mode, stops: [a, b])
+            let route = try! XCTUnwrap(map.transit.route(id: id))
+            let clear = Transit.dailyCapacity(of: route, in: map)
+            XCTAssertEqual(clear, Transit.ratedCapacity(of: route, in: map), "\(mode) started out slowed")
+
+            // Jam the street the stations front. `computeLoad` is what
+            // normally fills this in; writing it directly is the only way to
+            // pin the *response* rather than re-measure the router.
+            map.trafficLoad = .jammed(everyRoadIn: map)
+            let jammed = Transit.dailyCapacity(of: route, in: map)
+            switch mode {
+            case .bus:
+                XCTAssertLessThan(jammed, clear, "a bus line ignored the traffic around it")
+                XCTAssertEqual(Double(jammed) / Double(clear), Transit.busJamFloor, accuracy: 0.02,
+                               "a jammed bus line did not settle on its floor")
+            case .subway:
+                XCTAssertEqual(jammed, clear, "a subway was slowed by traffic it runs underneath")
+            }
+        }
+    }
+
+    /// The floor exists because the loop has no bottom without one: a bus line
+    /// losing capacity pushes riders onto the roads that are jamming it.
+    func testAJammedBusLineStillCarriesSomebody() {
+        var map = street()
+        let a = nearHome(&map)
+        let b = nearShop(&map)
+        let id = map.transit.add(mode: .bus, stops: [a, b])
+        map.trafficLoad = .jammed(everyRoadIn: map)
+
+        XCTAssertGreaterThan(Transit.dailyCapacity(of: try! XCTUnwrap(map.transit.route(id: id)), in: map), 0)
+    }
+
+    /// A line that is not running carries nothing — and, in `GameController`,
+    /// bills for nothing either.
+    func testALineThatIsNotRunningHasNoCapacity() {
+        var map = street()
+        let a = nearHome(&map)
+        let id = map.transit.add(mode: .bus, stops: [a])
+
+        let route = try! XCTUnwrap(map.transit.route(id: id))
+        XCTAssertEqual(Transit.ratedCapacity(of: route, in: map), 0)
+        XCTAssertFalse(Transit.isRunning(route, in: map))
+    }
+
     func testBulldozingAStationTakesTheLineOutOfServiceButKeepsTheLine() {
         var map = street()
         let a = nearHome(&map)
         let b = nearShop(&map)
         let controller = GameController(map: map, rng: AlwaysZeroRNG(), peakPopulation: Unlocks.everythingUnlocked)
         let route = controller.addTransitRoute(mode: .bus, stops: [a, b])
-        XCTAssertEqual(Traffic.computeLoad(for: controller.map).ridership(onRoute: route), homeDensity)
+        XCTAssertEqual(Traffic.computeLoad(for: controller.map).ridership(onRoute: route), homeRiders)
 
         controller.bulldoze(at: a)
 

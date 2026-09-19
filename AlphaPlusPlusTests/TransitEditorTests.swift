@@ -119,7 +119,9 @@ final class TransitEditorTests: XCTestCase {
 
         let riding = Traffic.computeLoad(for: game.map)
         XCTAssertEqual(riding.load(at: GridPosition(x: 12, y: 3)), 0, "the commute still drives")
-        XCTAssertEqual(riding.ridership(onRoute: try XCTUnwrap(id)), 3)
+        XCTAssertEqual(riding.ridership(onRoute: try XCTUnwrap(id)),
+                       3 * ZoneType.residential.populationPerDensityLevel,
+                       "ridership is counted in people, the same units the panel prints")
     }
 
     // MARK: - Editing what is already there

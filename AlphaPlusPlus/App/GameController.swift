@@ -454,14 +454,19 @@ final class GameController: ObservableObject {
     /// line is gone" and "needs another stop" are different jobs for the
     /// player.
     func workingStopCounts() -> [TransitRoute.ID: Int] {
-        var counts: [TransitRoute.ID: Int] = [:]
-        for route in map.transit.routes {
-            counts[route.id] = route.stops.filter { stop in
-                map.contains(stop) && map[stop].isBuildingAnchor
-                    && map[stop].zone == route.mode.stationZone
-            }.count
+        map.transit.routes.reduce(into: [:]) { counts, route in
+            counts[route.id] = Transit.workingStops(of: route, in: map).count
         }
-        return counts
+    }
+
+    /// What each line can carry today — see `Transit.dailyCapacity`, which is
+    /// where the bus's congestion penalty lives. The panel reads this against
+    /// ridership, because "how close am I to the ceiling" is the question a
+    /// meter answers and a bare rider count does not.
+    func routeCapacities() -> [TransitRoute.ID: Int] {
+        map.transit.routes.reduce(into: [:]) { capacities, route in
+            capacities[route.id] = Transit.dailyCapacity(of: route, in: map)
+        }
     }
 
     /// Start a new line. Free: the player already paid for the stations, and
@@ -1012,6 +1017,20 @@ final class GameController: ObservableObject {
                 guard base > 0 else { continue }
                 total += Double(base) * fundingLevel(for: tile.zone)
             }
+        }
+        // Running the lines, on top of the stations they call at. A station is
+        // the shelter and is charged for above; this is the vehicles, so a
+        // stop nobody has put on a route costs only the lower figure and
+        // drawing a line is where the ongoing money goes.
+        //
+        // Charged on *working* stops, so a line whose station was demolished
+        // stops billing for a service it is not providing — the same fact
+        // `Transit.dailyCapacity` reads, from the same place.
+        for route in map.transit.routes {
+            guard Transit.isRunning(route, in: map) else { continue }
+            total += Double(Transit.workingStops(of: route, in: map).count)
+                * route.mode.upkeepPerStop
+                * fundingLevel(for: route.mode.stationZone)
         }
         return Int(total)
     }

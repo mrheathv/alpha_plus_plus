@@ -974,9 +974,7 @@ struct IsoTileRenderer {
             // bulldozed is not on the map, so it must not be on the diagram
             // either, or the line would be drawn to a place with nothing
             // there.
-            let working = route.stops.filter {
-                map.contains($0) && map[$0].isBuildingAnchor && map[$0].zone == mode.stationZone
-            }
+            let working = Transit.workingStops(of: route, in: map)
             guard working.count >= TransitRoute.minimumStops else { continue }
 
             let path = CGMutablePath()

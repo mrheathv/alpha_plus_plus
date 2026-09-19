@@ -35,6 +35,37 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
             case .subway: return .subway
             }
         }
+
+        /// People one stop's worth of this line carries in a day.
+        ///
+        /// Four to one, which is not a free choice: a subway reaches twice as
+        /// far in every direction (`Transit.subwayCatchment`), so it covers
+        /// four times the ground and has to be able to carry four times the
+        /// people living on it. Matched deliberately, so the subway is not
+        /// *relatively* more capacious per person reached — it is simply
+        /// bigger, and what it actually buys over a bus is reach in one line
+        /// and a tunnel of its own.
+        var capacityPerStop: Int {
+            switch self {
+            case .bus: return 30
+            case .subway: return 120
+            }
+        }
+
+        /// What running one stop's worth of this line costs per day.
+        ///
+        /// The station is the shelter and is already charged for
+        /// (`ZoneType.upkeepCost`); this is the vehicles running through it,
+        /// so a stop nobody has put on a line costs the lower figure. Sized
+        /// against the station's own upkeep — roughly half again — so putting
+        /// a stop into service is a real decision rather than a formality, and
+        /// a city cannot blanket the map in lines for free.
+        var upkeepPerStop: Double {
+            switch self {
+            case .bus: return 3
+            case .subway: return 12
+            }
+        }
     }
 
     /// Stable for the life of the city, and never reused — ridership is keyed

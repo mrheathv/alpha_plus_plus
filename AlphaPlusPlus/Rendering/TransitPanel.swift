@@ -16,6 +16,10 @@ struct TransitPanel: View {
     /// How many of each route's stops are actually in service — see
     /// `Transit.coverage(for:)` for why that is not simply `stops.count`.
     let workingStops: [TransitRoute.ID: Int]
+
+    /// What each line can carry today — see `Transit.dailyCapacity`, which is
+    /// where a bus line's congestion penalty is applied.
+    let capacity: [TransitRoute.ID: Int]
     let ridership: (TransitRoute.ID) -> Int?
 
     let onBegin: () -> Void
@@ -126,6 +130,20 @@ struct TransitPanel: View {
                 Text(fault)
                     .font(.system(size: 9))
                     .foregroundStyle(.orange)
+            } else if let riders = ridership(route.id), let seats = capacity[route.id], seats > 0 {
+                // **A fraction is a number; a meter is a status.** The same
+                // reasoning the utility load meters were built on: a full line
+                // turns people away, and "how close am I to the ceiling" is
+                // exactly what a bar that fills and reddens answers at a
+                // glance. It is also the one readout that says *build another
+                // line*, which is the decision this whole phase exists to
+                // create.
+                RetroMeter(
+                    label: "Riders",
+                    fill: Double(riders) / Double(seats),
+                    detail: "\(riders.formatted()) / \(seats.formatted()) a day",
+                    accent: accent
+                )
             } else {
                 Text(TransitText.ridership(ridership(route.id)))
                     .font(.system(size: 10))

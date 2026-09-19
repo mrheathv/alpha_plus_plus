@@ -2526,12 +2526,89 @@ answers have come up here before. This time the thing moved, so the assertion
 is *restated* ("a free tool has to be a route tool") rather than relaxed into
 one that would no longer notice a pipe tool quietly losing its price.
 
-#### Deliberately not yet
+### Phase 4 (done): what makes a subway a subway, and what it all costs
 
-A route has no capacity and no operating cost, so more lines are currently free
-relief. Both are balance, which is phase 4 — and both want measuring against a
-real city rather than guessing, the way every other constant here was settled.
-Trams are deferred on the player's own call.
+Bus and subway differed only in how far they reached and what they cost, which
+made the subway a bus with bigger numbers rather than a different answer to a
+different problem. **A bus shares the street.** Park a line along a jammed
+arterial and it crawls, exactly when the city needs it most; a subway has its
+own tunnel and does not care. That is the whole character of the two modes, and
+it reuses machinery that already existed — `Traffic.congestion`, read at the
+stops, because the line has no road path to read along (it is a schematic
+between stations).
+
+`Transit.busJamFloor` (0.3) exists for the reason
+`Infrastructure.ruinedCapacityFraction` does: a bus line losing capacity pushes
+riders onto the roads that are jamming it, and without a floor that loop has no
+bottom.
+
+**A route has a ceiling and an operating cost**, both per stop, so extending a
+line is a real alternative to building a second one and a city cannot blanket
+the map in lines for free. The station is the shelter and was already charged
+for; this is the vehicles running through it. Four to one on both counts,
+matching the subway's four-times catchment area — so a subway is not
+*relatively* more capacious per person reached, it is simply bigger, and what it
+buys is reach in one line plus the tunnel.
+
+**Ridership moved from density units to people.** Road load is an abstract
+weight and density is the right currency for it; ridership is a number the
+player reads, and "31 riders/day" for a line serving a neighbourhood of hundreds
+reads as broken. One tick being one day means the router's own count *is* the
+daily figure, with no conversion anywhere.
+
+#### Measured (64×64, 1,500 days)
+
+Four cities, same seed, same layout. `no stops` has no transit buildings at
+all; `idle` has the stations and no lines, which is exactly what transit was
+before this module.
+
+| network | lines | pop | congestion | riders/day | busiest line | net/day |
+|---|---|---|---|---|---|---|
+| no stops | 0 | 3,112 | 0.138 | 0 | — | **+124** |
+| idle | 0 | 2,668 | 0.179 | 0 | — | −329 |
+| bus | 22 | 2,908 | 0.122 | 812 | 73% | −276 |
+| subway | 22 | **3,080** | **0.037** | **2,744** | 42% | −1,791 |
+
+**Drawing the lines pays for itself**: against idle stations a bus network buys
+240 people and *improves* net revenue, and a subway network buys 412 and cuts
+congestion by four fifths. The mode distinction reads exactly as designed — the
+subway nearly eliminates congestion where the bus roughly halves the reduction,
+and the bus's own line is the one running near its ceiling.
+
+**The capacity number was found by measuring, not by reasoning.** Halving
+`capacityPerStop` from the first guess changed the outcome *not at all* —
+identical ridership to the digit — which is how a ceiling that looked generous
+turned out to be nowhere near reach. At the halved value the busiest bus line
+runs 73% full at 64×64 and 83% at 24×24: close enough to bind on a line drawn
+where people actually travel, loose enough that an ordinary one is not capped.
+The subway over the same stations sits at 42%, which is the honest signal that
+a subway *here* is an over-build.
+
+Worth recording that the total was the wrong statistic and the maximum was the
+right one. Mean utilisation across twenty arbitrary lines would have hidden one
+saturated route among nineteen empty ones, and "a mechanic that never binds" is
+something this project has shipped before — demand drifted toward abandonment
+for fifteen hundred ticks and never arrived.
+
+#### Still open: transit never beats having no stations at all
+
+Both networks are worse than the city that built nothing, by about 200 people
+and 400/day. Half of that gap is real upkeep and half is **displacement** — the
+harness assigns every lot, so each of the 44 stations demolishes a 2×2
+building, and 444 of the missing people are simply the buildings the stops
+replaced.
+
+That is a property of the fixture rather than of the mechanic, and the honest
+response is to say so rather than tune constants until a yardstick flatters the
+thing it measures. Two real questions it leaves, both outside this phase:
+whether a transit stop should be smaller or cheaper than a full lot, and
+whether congestion is weighted heavily enough for relieving it to be worth
+paying for. The harness also spreads traffic thin by construction —
+`roadSpacing` is 3 so that every lot touches a road — so the congestion figures
+here are a floor, and a player city with a few arterials concentrates it.
+
+Route capacity is not affected by funding, and trams are still deferred on the
+player's own call.
 
 ## The Problems view, and slowing the clock down
 

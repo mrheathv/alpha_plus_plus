@@ -44,12 +44,87 @@ enum Transit {
     /// than a constant nobody can reconstruct the reasoning for.
     static let subwayCatchment = busCatchment * 2
 
+    /// The stops on `route` that are still a station of its own kind.
+    ///
+    /// **The one definition of what a line actually calls at.** A stop whose
+    /// station has been bulldozed is still on the route and reaches nobody; a
+    /// bus route listing a subway entrance does not call there. Four separate
+    /// places needed that filter — coverage, capacity, the diagram and the
+    /// panel's fault line — and four copies of a rule is how this project has
+    /// been bitten before.
+    static func workingStops(of route: TransitRoute, in map: CityMap) -> [GridPosition] {
+        route.stops.filter { stop in
+            map.contains(stop)
+                && map[stop].isBuildingAnchor
+                && map[stop].zone == route.mode.stationZone
+        }
+    }
+
+    /// Is this line running at all?
+    static func isRunning(_ route: TransitRoute, in map: CityMap) -> Bool {
+        workingStops(of: route, in: map).count >= TransitRoute.minimumStops
+    }
+
     static func catchment(for mode: TransitRoute.Mode) -> Int {
         switch mode {
         case .bus: return busCatchment
         case .subway: return subwayCatchment
         }
     }
+
+    /// How many people a line carries in a day, at full rate.
+    ///
+    /// **Per stop, not per line**, so a longer route runs more vehicles and
+    /// carries more — which makes extending a line a real alternative to
+    /// building a second one, and stops a two-stop shuttle being as good as a
+    /// cross-town service.
+    static func ratedCapacity(of route: TransitRoute, in map: CityMap) -> Int {
+        let stops = workingStops(of: route, in: map)
+        guard stops.count >= TransitRoute.minimumStops else { return 0 }
+        return stops.count * route.mode.capacityPerStop
+    }
+
+    /// What it actually carries today, once the roads are taken into account.
+    ///
+    /// **This is the whole character of the two modes.** A bus shares the
+    /// street: park a line along a jammed arterial and it crawls, exactly when
+    /// the city needs it most. A subway has its own tunnel and does not care.
+    /// Until now the two differed only in how far they reached and what they
+    /// cost, which made the subway a bus with bigger numbers rather than a
+    /// different answer to a different problem.
+    ///
+    /// Congestion is measured at the stops rather than along the line, because
+    /// the line has no road path — it is a schematic between stations (see
+    /// `IsoTileRenderer.transitDiagram`). A stop on a jammed street is a
+    /// jammed stop, which is the part a rider actually experiences.
+    ///
+    /// Reads last tick's `trafficLoad`, since this is called *from*
+    /// `Traffic.computeLoad` while this tick's is still being built. A one
+    /// tick lag on a field that moves this slowly is invisible, and the
+    /// alternative is a circular definition.
+    static func dailyCapacity(of route: TransitRoute, in map: CityMap) -> Int {
+        let rated = ratedCapacity(of: route, in: map)
+        guard rated > 0, route.mode == .bus else { return rated }
+
+        let stops = workingStops(of: route, in: map)
+        let jams = stops.map { stop -> Double in
+            map.footprintCells(origin: stop, size: route.mode.stationZone.footprintSize)
+                .flatMap { $0.orthogonalNeighbors() }
+                .map { Traffic.congestion(at: $0, in: map) }
+                .max() ?? 0
+        }
+        let average = jams.reduce(0, +) / Double(jams.count)
+        return Int(Double(rated) * max(busJamFloor, 1 - average * busJamPenalty))
+    }
+
+    /// How much of a bus line's capacity fully jammed streets take away.
+    static let busJamPenalty = 0.7
+
+    /// And what it keeps regardless. A floor rather than nothing, for the same
+    /// reason `Infrastructure.ruinedCapacityFraction` is one: a bus line
+    /// pushing riders onto the roads that are jamming it is a loop, and
+    /// without a floor it is a spiral with no bottom.
+    static let busJamFloor = 0.3
 
     /// Stamps every working route's catchment onto the tiles it covers.
     ///
@@ -67,11 +142,7 @@ enum Transit {
             // A bus route does not call at a subway entrance, and a stop
             // whose station was bulldozed is a gap in the line rather than a
             // reason to throw the line away.
-            let working = route.stops.filter { stop in
-                map.contains(stop)
-                    && map[stop].isBuildingAnchor
-                    && map[stop].zone == route.mode.stationZone
-            }
+            let working = workingStops(of: route, in: map)
             guard working.count >= TransitRoute.minimumStops else { continue }
 
             let radius = catchment(for: route.mode)

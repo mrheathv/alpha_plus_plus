@@ -107,15 +107,20 @@ final class RetroUIContactSheetTests: XCTestCase {
         let running = map.transit.add(mode: .bus, stops: [stops[0], stops[1]])
         let broken = map.transit.add(mode: .bus, stops: [stops[2], GridPosition(x: 28, y: 2)])
         let short = map.transit.add(mode: .bus, stops: [stops[0]])
+        let full = map.transit.add(mode: .bus, stops: [stops[0], stops[2]])
         let routes = map.transit.routes(mode: .bus)
 
         func panel(_ draft: TransitRouteDraft?) -> TransitPanel {
             TransitPanel(
                 mode: .bus, routes: routes, draft: draft,
-                workingStops: [running: 2, broken: 1, short: 1],
+                workingStops: [running: 2, broken: 1, short: 1, full: 2],
+                capacity: [running: 2 * TransitRoute.Mode.bus.capacityPerStop,
+                           full: 2 * TransitRoute.Mode.bus.capacityPerStop],
                 // A line that has not been routed yet reports "no data"
-                // rather than zero, which are different facts.
-                ridership: { $0 == running ? 1_284 : nil },
+                // rather than zero, which are different facts — and one line
+                // is over its capacity, which is the state that tells a player
+                // to build another.
+                ridership: { $0 == running ? 74 : ($0 == full ? 138 : nil) },
                 onBegin: {}, onEdit: { _ in }, onDelete: { _ in },
                 onUndo: {}, onCommit: {}, onCancel: {}
             )

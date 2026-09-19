@@ -178,6 +178,15 @@ enum Traffic {
 
         var jobs = jobSites(in: map, drivable: drivable)
         guard !jobs.isEmpty else { return load }
+
+        // What each line can still carry today. Drawn down as trips are
+        // assigned, exactly the way a job site's room is — a full line stops
+        // being an option and its would-be riders drive instead, which is the
+        // pressure that makes a second line or a subway worth paying for.
+        var seats: [TransitRoute.ID: Int] = [:]
+        for route in map.transit.routes {
+            seats[route.id] = Transit.dailyCapacity(of: route, in: map)
+        }
         for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .residential && tile.density > 0 {
             let homeCells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
             let homeStops = coverage.stops(reaching: homeCells)
@@ -200,7 +209,7 @@ enum Traffic {
                 parents = reachable.parent
                 candidates = drivingCandidates(among: jobs, reachedBy: reachable.distance)
             } else if !homeStops.isEmpty {
-                candidates = ridingCandidates(among: jobs, from: homeStops, over: coverage)
+                candidates = ridingCandidates(among: jobs, from: homeStops, over: coverage, seats: seats)
             } else {
                 continue // no street and no line: this block generates no trips
             }
@@ -221,10 +230,22 @@ enum Traffic {
             // it is supposed to take your car off the road. Keeping the two
             // separate is also what stops a route quietly becoming a
             // land-use lever nobody asked for.
-            if let ride = coverage.connection(from: homeStops, to: coverage.stops(reaching: jobs[chosen.jobIndex].cells)) {
+            // **People, not density units.** Road load is an abstract weight
+            // and density is the right currency for it; ridership is a number
+            // the player reads, and "31 riders/day" for a line serving a
+            // neighbourhood of hundreds reads as broken. Same conversion
+            // `GameController.population` uses, so the two agree.
+            let riders = tile.density * ZoneType.residential.populationPerDensityLevel
+            if let ride = coverage.connection(from: homeStops, to: coverage.stops(reaching: jobs[chosen.jobIndex].cells)),
+               seats[ride.route, default: 0] > 0 {
                 // One tick is one day, so this is the day's ridership — the
                 // number the route panel reports, no conversion anywhere.
-                load.recordRiders(tile.density, on: ride.route)
+                load.recordRiders(riders, on: ride.route)
+                // Claimed after the fact and allowed to overshoot by one
+                // home's worth, the same way a job site's room is: splitting a
+                // single building's commute across two lines is detail this
+                // aggregate model deliberately does not carry.
+                seats[ride.route, default: 0] -= riders
             } else if let destination = chosen.frontageCell {
                 let path = reconstructPath(to: destination, parent: parents)
                 for (index, step) in path.enumerated() {
@@ -275,11 +296,18 @@ enum Traffic {
     /// and `connection` is a set intersection over them. That is the whole
     /// reason transit could be added to the most expensive loop in the game.
     private static func ridingCandidates(
-        among jobs: [JobSite], from homeStops: [TransitRoute.ID: Int], over coverage: TransitCoverage
+        among jobs: [JobSite], from homeStops: [TransitRoute.ID: Int], over coverage: TransitCoverage,
+        seats: [TransitRoute.ID: Int]
     ) -> [JobCandidate] {
+        // Only lines with room left. A block with no street of its own and a
+        // full line has genuinely nowhere to go, and reporting that honestly
+        // is what makes an overloaded network something the player can see in
+        // the inspector rather than only in a ridership figure.
+        let open = homeStops.filter { seats[$0.key, default: 0] > 0 }
+        guard !open.isEmpty else { return [] }
         var candidates: [JobCandidate] = []
         for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
-            guard let ride = coverage.connection(from: homeStops, to: coverage.stops(reaching: job.cells)) else { continue }
+            guard let ride = coverage.connection(from: open, to: coverage.stops(reaching: job.cells)) else { continue }
             candidates.append(JobCandidate(jobIndex: index, distance: ride.stops, frontageCell: nil))
         }
         return candidates
@@ -615,6 +643,20 @@ struct TrafficLoad: Equatable, Codable, Sendable {
 
     fileprivate mutating func recordEmployed(_ position: GridPosition) {
         employedHomes = (employedHomes ?? []).union([position])
+    }
+
+    /// A load with every road in `map` at capacity.
+    ///
+    /// For tests only, and it earns its place: `Transit.dailyCapacity` reads
+    /// congestion to decide how badly a bus line is slowed, and the only other
+    /// way to produce a jam is to build a city that jams — which would
+    /// re-measure the router rather than pin the *response* to it.
+    static func jammed(everyRoadIn map: CityMap) -> TrafficLoad {
+        var load = TrafficLoad()
+        for tile in map.tiles where tile.zone == .road || tile.zone == .highway {
+            load.loadByTile[tile.position] = 10_000
+        }
+        return load
     }
 
     fileprivate mutating func add(_ amount: Int, at position: GridPosition, heading: GridPosition?) {

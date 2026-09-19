@@ -195,6 +195,39 @@ enum PlaytestHarness {
         /// it on, industry is confined to the bottom of the map and housing
         /// and shops take the rest.
         var segregateIndustry: Bool = false
+
+        /// Whether to build a transit *network* — stations at
+        /// `transitSpacing`, over and above the single stop the service
+        /// rotation already places — and of what kind.
+        ///
+        /// Separate from `drawTransitRoutes` on purpose, because the
+        /// comparison that matters is a pair differing *only* in whether the
+        /// lines were drawn. The service rotation on its own puts one transit
+        /// stop per 36 lots, which on a 24×24 map is two stations and one
+        /// two-stop line — not a network, and not enough to measure anything
+        /// about one.
+        var transitStations: TransitRoute.Mode?
+
+        /// Lots between stations.
+        ///
+        /// Eight, measured rather than guessed: a stop's catchment is a
+        /// radius-`Transit.busCatchment` diamond, about forty tiles, which on
+        /// this lot grid is roughly ten lots. Closer than that and the
+        /// catchments overlap while the stations eat the tax base they exist
+        /// to serve — at four, a 24×24 city gave a quarter of its lots over to
+        /// bus stops and went bankrupt before a single line was drawn.
+        var transitSpacing: Int = 8
+
+        /// Whether those stations are wired into lines. The control leaves
+        /// this off: the stations are still built, still gate road access,
+        /// still count as an amenity — exactly as they did before routes
+        /// existed.
+        var drawTransitRoutes: Bool = false
+
+        /// How many stations go on one line before a new one is started.
+        /// Four is a plausible player network on these map sizes: long enough
+        /// to cross a district, short enough that a city gets several.
+        var stopsPerRoute: Int = 4
     }
 
     /// Lays out a city according to `spec`.
@@ -285,11 +318,25 @@ enum PlaytestHarness {
         // identically.
         var assignment = [ZoneType?](repeating: nil, count: lots.count)
         if spec.includeServices {
+            // The transit stop in the rotation becomes whichever kind the
+            // spec asks for, so a bus city and a subway city are the same
+            // layout with the stations swapped — not two different cities.
             let services: [ZoneType] = [
-                .policeStation, .fireStation, .publicTransit, .waterTower, .school, .hospital,
+                .policeStation, .fireStation, spec.transitStations?.stationZone ?? .publicTransit,
+                .waterTower, .school, .hospital,
             ]
             for index in stride(from: 0, to: lots.count, by: spec.serviceSpacing) {
                 assignment[index] = services[(index / spec.serviceSpacing) % services.count]
+            }
+        }
+
+        // A real transit network, laid over the top of the rotation. Written
+        // after it so a station always wins the lot: a city being measured for
+        // what its transit does must not have half its stops quietly replaced
+        // by a hospital.
+        if let mode = spec.transitStations {
+            for index in stride(from: 0, to: lots.count, by: spec.transitSpacing) {
+                assignment[index] = mode.stationZone
             }
         }
 
@@ -313,6 +360,21 @@ enum PlaytestHarness {
             guard footprint.count == zone.footprintSize * zone.footprintSize else { continue }
             guard footprint.allSatisfy({ map[$0].zone == .empty }) else { continue }
             map.placeBuilding(zone: zone, origin: origin)
+        }
+
+        // Lines last, over whatever stations actually went down — chained in
+        // row order, so each one runs across a band of the city the way a
+        // player drawing a cross-town service would.
+        if let mode = spec.transitStations, spec.drawTransitRoutes {
+            let stations = map.tiles
+                .filter { $0.isBuildingAnchor && $0.zone == mode.stationZone }
+                .map(\.position)
+                .sortedByPosition()
+            for chunk in stride(from: 0, to: stations.count, by: spec.stopsPerRoute) {
+                let stops = Array(stations[chunk ..< min(chunk + spec.stopsPerRoute, stations.count)])
+                guard stops.count >= TransitRoute.minimumStops else { continue }
+                map.transit.add(mode: mode, stops: stops)
+            }
         }
 
         return map
