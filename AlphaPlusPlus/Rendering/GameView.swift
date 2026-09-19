@@ -89,6 +89,12 @@ struct GameView: View {
             scene?.rebuildEntireGrid()
             scene?.centerCameraOnMap()
         }
+        .onChange(of: controller.restyleRequests) {
+            // A style change redraws the same city rather than a different
+            // one, so no recentre — the camera should not move under a player
+            // who is comparing two looks.
+            scene?.restyle()
+        }
         .onAppear {
             if scene == nil {
                 scene = GameScene(controller: controller)

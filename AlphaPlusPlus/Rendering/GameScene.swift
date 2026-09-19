@@ -956,6 +956,20 @@ final class GameScene: SKScene {
         positionSunGlow()
     }
 
+    /// Redraw the whole city in the current `VisualStyle`.
+    ///
+    /// A style change is not a map change, so it does not go through
+    /// `cityGeneration` — but it needs strictly more than a rebuild, because
+    /// the palette is baked into every cached texture. Purge first, then
+    /// rebuild, or the map comes back in exactly the style it was just
+    /// switched away from.
+    func restyle() {
+        tileRenderer.textures.purge()
+        backgroundColor = RenderPalette.background
+        rebuildEntireGrid()
+        refreshAll()
+    }
+
     /// How far around a placement `rebuildRegion(around:)` reaches.
     ///
     /// A placement can clear a building whose *anchor* sits outside the

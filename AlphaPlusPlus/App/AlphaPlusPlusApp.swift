@@ -81,6 +81,20 @@ struct AlphaPlusPlusApp: App {
 
                 Divider()
 
+                // The one art decision that cannot be settled by looking at a
+                // render: how a look *feels* while you are playing in it. See
+                // `VisualStyle`.
+                Picker("Visuals", selection: Binding(
+                    get: { document.controller.visualStyle },
+                    set: { document.controller.visualStyle = $0 }
+                )) {
+                    ForEach(VisualStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+
+                Divider()
+
                 Menu("New City") {
                     ForEach(MapSize.allCases) { size in
                         Button(size.displayName) {

@@ -47,8 +47,8 @@ enum NeonStyle {
     /// far enough out that a silhouette has stopped resolving, how hard a
     /// building glows still reads.
     static func glowIntensity(forTier tier: Int, liveliness: CGFloat = 1) -> CGFloat {
-        let base: CGFloat = [0.55, 0.78, 1.15][max(0, min(2, tier - 1))]
-        return base * liveliness
+        let ladder = VisualStyle.current.glowIntensity
+        return ladder[max(0, min(ladder.count - 1, tier - 1))] * liveliness
     }
 
     // MARK: - Palette

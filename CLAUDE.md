@@ -4109,6 +4109,89 @@ have flagged:
   white-hot.
 
 
+## The visual overhaul (in progress)
+
+Aimed at "App Store ready", and the first finding was that **the art
+direction is not the problem**. The neon isometric look is coherent and
+photographs well. Two things hold it back, and neither is the style:
+
+- **The city floats in a void.** It is a diamond island on flat near-black,
+  with no ground beyond it, no horizon and no context — a diagram on a
+  desktop rather than a place at night.
+- **The value structure is inverted.** Everything runs at peak saturation at
+  once, and the brightest thing in frame is the pavement.
+
+The plan is six phases, one commit each so any can be reverted on its own:
+value structure, a world beyond the map, terrain, contact and depth, life,
+and the frame (title screen, icon, screenshot camera). Terrain is the
+expensive one and is a player choice at new-game time rather than a change
+forced on every city — see below.
+
+### Phase 1 (done): the value ladder, and a switch to compare two of them
+
+A well-kept lane line drew at **alpha 1.0, additively, in full-saturation
+magenta, with a glow** — on about a third of the tiles in a normal grid. So
+the street grid was the brightest thing on the map everywhere at once and the
+buildings, which are the subject, had to compete with the road they stand on.
+
+This file already recorded that exact fix once, when the ground stopped being
+flat coloured tiles: *"the brightest thing in frame should be a building, not
+the pavement."* It drifted back. The ladder is now stated as data rather than
+as a sentence, so it can be asserted:
+
+| | |
+|---|---|
+| ground, asphalt | near-black — the bed everything else is bright against |
+| lane lines | dim neon: infrastructure, everywhere, must recede |
+| building silhouettes | the mid tones |
+| lit windows, signage | bright — the thing you are looking at |
+| fire, flagged problems | peak — nothing else is allowed up here |
+
+A highway keeps more of its brightness than a street, which is also the first
+time the two have differed by anything except hue and width: an arterial
+should read as the bigger road from across the map.
+
+**The contrast had to be bought at the bottom, not the top**, and finding out
+why is the useful part. `IsometricBuilding.glowLayer` ends in
+`alpha = min(1, 0.85 * intensity)`, so the channel saturates at an intensity
+of about 1.176. The first attempt raised the top tier from 1.15 to 1.40 and
+moved its alpha from 0.978 to 1.0 — which is to say it did nothing; only the
+glow's *width* kept scaling, and width is not brightness. So the top sits just
+under the clamp and the low tiers come down instead, widening the
+tier-3-to-tier-1 ratio from 2.1× to 2.8×. That is the better version of the
+idea anyway: a night skyline is mostly dim with a few things blazing.
+
+`VisualStyleTests` pins the clamp, and caught 1.18 being 0.3% over it.
+
+#### Why there is a switch
+
+How a look *feels* while you play in it is the one art question a render
+cannot answer, and it is not a question a test can settle either.
+`VisualStyle` holds two sets of numbers — `classic` is exactly what the game
+looked like before, `cinematic` is the graded version — and Simulation ▸
+Visuals flips between them live.
+
+Deliberately **not** the shape a permanent theming system would take. Two
+structural renderers kept alive forever would double the cost of every
+feature after them; this holds two sets of *numbers*, which is cheap, and is
+expected to collapse to one once the question is answered.
+
+**A style change needs more than a rebuild.** The palette is baked into every
+cached texture — that is the entire point of `IsoTextureCache` — so switching
+without purging would move the handful of values read live (a lane's alpha)
+and leave every building drawn in the style just switched away from. Nothing
+would *look* broken, which is worse: the toggle would appear to do almost
+nothing. `GameScene.restyle()` purges, rebuilds and refreshes, and does not
+recentre the camera, because the map has not changed and a camera that jumps
+under a player comparing two looks is its own bug.
+
+`VisualStyleTests` exists because this project has twice shipped a control
+that compiled and did nothing — `SKAction.colorize` on a plain node, and an
+overlay tint casting to a type the ground had stopped being. It asserts the
+street actually comes back dimmer, and that the cache hands back a *different*
+texture after a restyle rather than the one it baked in the old style.
+
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

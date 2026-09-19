@@ -97,6 +97,18 @@ final class IsoTextureCache {
         self.projection = projection
     }
 
+    /// Throw everything away and rasterise again.
+    ///
+    /// The palette is *baked* into every texture in here — that is the whole
+    /// point of the cache — so changing `VisualStyle` while a city is on
+    /// screen leaves every sprite drawn in the style that has just been
+    /// switched away from. Nothing would look wrong, which is worse: the
+    /// toggle would appear to do almost nothing, since only the handful of
+    /// values read live (a lane's `alpha`, a glow's blend) would move.
+    func purge() {
+        cache.removeAll()
+    }
+
     /// Which of the `variantCount` looks a lot gets.
     ///
     /// Mixed from the position rather than taken modulo it, so neighbouring

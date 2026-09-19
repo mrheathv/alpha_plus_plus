@@ -21,6 +21,11 @@ struct IsoTileRenderer {
     static let buildingNodeName = "isoBuilding"
     private static let laneNodeName = "isoLane"
 
+    /// The lane line's node name, for the style tests — which check that a
+    /// street actually comes back dimmer, rather than trusting that a
+    /// constant nobody reads changed.
+    static var laneNodeNameForTesting: String { laneNodeName }
+
     /// Whether a decoration is already showing what the data says, keyed on
     /// whatever determines its appearance.
     ///
@@ -1383,7 +1388,23 @@ struct IsoTileRenderer {
         // player needs for one they can get from the Roads meter. A dark
         // street in a lit grid reads as neglect at any zoom, which is the only
         // property that matters here.
-        lane.alpha = 0.35 + 0.65 * Double(step) / 4
+        //
+        // **Pavement is not the subject.** A well-kept lane used to draw at
+        // alpha 1.0 — full-saturation magenta, additively, with a glow, on
+        // about a third of the tiles on the map. That made the street grid
+        // the brightest thing in frame everywhere at once, and the buildings,
+        // which are what a player is actually looking at, had to compete with
+        // the road they stand on. This file has recorded that exact mistake
+        // before ("the brightest thing in frame should be a building, not the
+        // pavement") and it drifted back.
+        //
+        // A highway keeps more of its brightness than a street does, which is
+        // also the first time the two have differed by anything but hue and
+        // width: an arterial should read as the bigger road from across the
+        // map.
+        let lit = zone == .highway ? VisualStyle.current.highwayLaneAlpha
+                                   : VisualStyle.current.roadLaneAlpha
+        lane.alpha = lit * (0.35 + 0.65 * Double(step) / 4)
         lane.zPosition = 0.25
         node.addChild(lane)
     }

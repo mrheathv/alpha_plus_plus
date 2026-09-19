@@ -201,6 +201,27 @@ final class GameController: ObservableObject {
     /// would raise its own questions about what happens to existing tiles).
     @Published var selectedMapSize: MapSize = .small
 
+    /// Which look the map is drawn in.
+    ///
+    /// Lives on the controller rather than only as `VisualStyle.current` so
+    /// SwiftUI can bind a picker to it and the scene can be told to redraw;
+    /// the static is what the renderer's free functions actually read. Two
+    /// copies of one fact is the thing this project keeps paying for, so the
+    /// setter is the only writer of both and nothing else assigns the static.
+    @Published var visualStyle: VisualStyle = VisualStyle.current {
+        didSet {
+            guard visualStyle != oldValue else { return }
+            VisualStyle.current = visualStyle
+            restyleRequests += 1
+        }
+    }
+
+    /// Bumped when the map needs redrawing in a new style — the same shape
+    /// `cityGeneration` uses to get "rebuild your sprites" from here to the
+    /// scene, and deliberately *not* `cityGeneration` itself, which also
+    /// means "the tile count changed" and recentres the camera.
+    @Published private(set) var restyleRequests = 0
+
     /// Headline stats recorded after every `advanceSimulation()` step, so
     /// `GameView` can show a trend (`Sparkline`) instead of just the current
     /// instant. Capped at `maxHistoryLength` — a running city ticking forever
