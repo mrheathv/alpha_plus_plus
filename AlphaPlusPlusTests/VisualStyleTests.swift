@@ -103,6 +103,47 @@ final class VisualStyleTests: XCTestCase {
                        "re-picking the style already showing rebuilt the whole map")
     }
 
+    // MARK: - The land the city sits in
+
+    /// The city used to be a diamond island on flat black. Nothing in the
+    /// suite would notice that coming back: the city render builds its own
+    /// plain `SKScene` and calls the tile renderer directly, so scene-level
+    /// art is invisible to it.
+    func testTheMapSitsOnLandThatExtendsWellPastIt() {
+        let controller = GameController(map: cityWithAStreet(), rng: SeededRNG(seed: 4))
+        let scene = GameScene(controller: controller)
+        scene.size = CGSize(width: 600, height: 400)
+        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+
+        let backdrop = scene.backdropNodeForTesting
+        let map = Isometric().contentBounds(of: controller.map)
+        XCTAssertNotNil(backdrop.texture, "there is no land outside the map at all")
+        XCTAssertGreaterThan(backdrop.size.width, map.width * 1.5,
+                             "the surrounding land stops about where the map does, "
+                             + "so panning still finds the edge of the world")
+        XCTAssertLessThan(backdrop.zPosition, 0,
+                          "the backdrop is drawing over the city rather than behind it")
+    }
+
+    /// `rebuildEntireGrid` empties `tileLayer`, and the backdrop is a sibling
+    /// precisely so it survives that — the same arrangement the sun and the
+    /// placement preview already rely on.
+    func testTheLandSurvivesARebuild() {
+        let controller = GameController(map: cityWithAStreet(), rng: SeededRNG(seed: 4))
+        let scene = GameScene(controller: controller)
+        scene.size = CGSize(width: 600, height: 400)
+        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        let size = scene.backdropNodeForTesting.size
+        scene.restyle()
+        XCTAssertEqual(scene.backdropNodeForTesting.size, size,
+                       "a rebuild took the land out from under the city")
+        XCTAssertNotNil(scene.backdropNodeForTesting.texture)
+    }
+
     // MARK: - The ladder itself
 
     /// The point of the pass: pavement below buildings. Asserted on the

@@ -84,6 +84,29 @@ final class GameScene: SKScene {
     /// shader pass.
     private let sunGlowNode = SKSpriteNode()
 
+    /// **The land the city sits in.**
+    ///
+    /// Everything outside the map used to be the scene's flat background
+    /// colour, so a city read as a diamond island floating on nothing — a
+    /// diagram on a desktop rather than a place at night. The single biggest
+    /// thing holding the look back, and it is not a styling problem: there
+    /// was simply no world there.
+    ///
+    /// So the ground carries on past the map's edge: the same isometric grid,
+    /// unclaimed and unlit, fading out with distance. The city is then
+    /// somewhere *in* a landscape, and its boundary reads as where your land
+    /// stops rather than where the drawing stops.
+    ///
+    /// A sibling of `tileLayer` for the reasons `sunGlowNode` already
+    /// documents — it survives `rebuildEntireGrid()` and still takes the
+    /// retro shader pass — and sits below the sun, which bleeds up over it.
+    ///
+    /// **Bounded rather than infinite, and that is affordable because the
+    /// camera is clamped.** Panning cannot wander off into open space, so the
+    /// backdrop only has to cover the map plus a generous margin; it is one
+    /// sprite and one texture rather than a shader or a tile map.
+    private let backdropNode = SKSpriteNode()
+
     /// A radial gradient, white fading to transparent, tinted by
     /// `sunGlowNode.color` — the same "cache one shared gradient texture,
     /// tint and additively blend it per use" technique
@@ -194,6 +217,9 @@ final class GameScene: SKScene {
         sunGlowNode.blendMode = .add
         sunGlowNode.zPosition = -1
         retroEffectLayer.addChild(sunGlowNode)
+
+        backdropNode.zPosition = -2
+        retroEffectLayer.addChild(backdropNode)
 
         buildTileNodes()
         centerCameraOnMap()
@@ -943,6 +969,15 @@ final class GameScene: SKScene {
     /// the state a full one would. Exposed rather than made internal wholesale
     /// so the mutable bookkeeping itself stays private.
     var tileNodesForTesting: [GridPosition: SKNode] { tileNodes }
+
+    /// The surrounding land, for the test that it is actually there.
+    ///
+    /// Worth pinning because nothing else in the suite would notice it going:
+    /// `IsometricCityTests` renders through `IsoTileRenderer` on a plain
+    /// `SKScene` of its own, so it cannot see anything that lives at scene
+    /// level — the backdrop, or for that matter the sun, which has never
+    /// appeared in that render either.
+    var backdropNodeForTesting: SKSpriteNode { backdropNode }
     var tileLayerChildCountForTesting: Int { tileLayer.children.count }
 
     static var trafficCarNodeNameForTesting: String { trafficCarNodeName }
@@ -954,6 +989,7 @@ final class GameScene: SKScene {
         tileNodes.removeAll()
         buildTileNodes()
         positionSunGlow()
+        positionBackdrop()
     }
 
     /// Redraw the whole city in the current `VisualStyle`.
@@ -1053,6 +1089,125 @@ final class GameScene: SKScene {
         let diameter = max(content.width, content.height) * 1.6
         sunGlowNode.size = CGSize(width: diameter, height: diameter)
         sunGlowNode.position = CGPoint(x: content.midX, y: content.minY - diameter * 0.35)
+    }
+
+    /// How far past the map's own edge the land carries on, in tiles.
+    ///
+    /// Generous enough that the camera — clamped to the map's bounds, but
+    /// clamped *loosely*, so the corners stay reachable — can never pan far
+    /// enough to find the end of it.
+    private static let backdropMarginTiles = 36
+
+    /// How many tiles apart the surrounding grid is ruled — see
+    /// `positionBackdrop` for why this is not 1.
+    private static let backdropGridPitch = 4
+
+    /// Rebuilds the surrounding land for the current map.
+    ///
+    /// The grid is drawn by projecting real tile coordinates rather than by
+    /// working out where the lines would fall on screen. Same rule the
+    /// streetscape render had to learn: a second implementation of the
+    /// projection would line up until the day it did not, and a backdrop
+    /// grid a half-tile out of step with the city standing on it is worse
+    /// than no grid at all.
+    private func positionBackdrop() {
+        let margin = CGFloat(Self.backdropMarginTiles)
+        let low = -margin, highX = CGFloat(map.width) + margin, highY = CGFloat(map.height) + margin
+
+        // The projected extent of that extended grid — its four corners are
+        // the four corners of the tile range.
+        let corners = [
+            projection.project(low, low, 0), projection.project(highX, low, 0),
+            projection.project(highX, highY, 0), projection.project(low, highY, 0),
+        ]
+        let minX = corners.map(\.x).min()!, maxX = corners.map(\.x).max()!
+        let minY = corners.map(\.y).min()!, maxY = corners.map(\.y).max()!
+        let bounds = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+
+        // Drawn well below 1:1. A faint grid fading into the dark is the one
+        // thing in this renderer that genuinely does not need crisp pixels,
+        // and a 64×64 map's surroundings at full scale would be a 30 MB
+        // texture to say something almost invisible.
+        let scale = Swift.min(1, 1_200 / Swift.max(bounds.width, bounds.height))
+        let pixelWidth = Int(bounds.width * scale), pixelHeight = Int(bounds.height * scale)
+        guard pixelWidth > 4, pixelHeight > 4,
+              let context = CGContext(
+                data: nil, width: pixelWidth, height: pixelHeight, bitsPerComponent: 8,
+                bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return }
+
+        // Into texture space: the projection's origin is somewhere inside
+        // `bounds`, and CGContext counts up from the bottom-left.
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -bounds.minX, y: -bounds.minY)
+
+        // The surface first. Drawn as the projected quad of the extended tile
+        // range rather than as the whole texture rect, so the land is a
+        // diamond of ground with the grid ruled across it — filling the
+        // rectangle would put four bright corners beyond where any tile is.
+        context.setFillColor(RenderPalette.unclaimedGround.cgColor)
+        context.beginPath()
+        context.move(to: corners[0])
+        for corner in corners.dropFirst() { context.addLine(to: corner) }
+        context.closePath()
+        context.fillPath()
+
+        // **Ruled every few tiles, not every tile.** Per-tile lines out here
+        // are not ground, they are a quilt: at the zoom a player actually
+        // plans at, a 36-tile margin of one-tile diamonds collapses into a
+        // moiré pattern that fights the city instead of sitting behind it.
+        // A coarse pitch reads as large unclaimed parcels, which is both
+        // calmer and closer to what it is meant to say.
+        //
+        // The same `minimumDetailSize` argument the buildings already follow:
+        // a mark too small to resolve does not add detail, it adds noise.
+        context.setStrokeColor(RenderPalette.unclaimedGrid.cgColor)
+        context.setLineWidth(1.2 / scale)
+        let pitch = CGFloat(Self.backdropGridPitch)
+        for x in stride(from: low, through: highX, by: pitch) {
+            context.move(to: projection.project(x, low, 0))
+            context.addLine(to: projection.project(x, highY, 0))
+        }
+        for y in stride(from: low, through: highY, by: pitch) {
+            context.move(to: projection.project(low, y, 0))
+            context.addLine(to: projection.project(highX, y, 0))
+        }
+        context.strokePath()
+
+        // Fade it out toward the edges, so the land reads as continuing into
+        // the dark rather than stopping at a rectangle. Multiplied into the
+        // alpha that is already there rather than painted over it, which is
+        // what keeps the grid lines themselves crisp where they are visible.
+        context.resetClip()
+        context.setBlendMode(.destinationIn)
+        let centre = CGPoint(x: bounds.midX, y: bounds.midY)
+        if let fade = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [
+                SKColor.white.cgColor,
+                SKColor.white.withAlphaComponent(0.55).cgColor,
+                SKColor.white.withAlphaComponent(0).cgColor,
+            ] as CFArray,
+            // Holds most of the way out and then falls off, rather than
+            // fading from the middle — the land nearest the city is the part
+            // doing the work, and a gradient that starts dropping at once
+            // takes it away exactly where it is wanted.
+            locations: [0, 0.72, 1]
+        ) {
+            context.drawRadialGradient(
+                fade, startCenter: centre, startRadius: 0,
+                endCenter: centre, endRadius: Swift.max(bounds.width, bounds.height) / 2,
+                options: []
+            )
+        }
+
+        guard let image = context.makeImage() else { return }
+        backdropNode.texture = SKTexture(cgImage: image)
+        backdropNode.colorBlendFactor = 0
+        backdropNode.size = bounds.size
+        backdropNode.position = CGPoint(x: bounds.midX, y: bounds.midY)
     }
 
     // MARK: - Refreshing from data

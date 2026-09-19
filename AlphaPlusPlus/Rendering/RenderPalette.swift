@@ -42,6 +42,24 @@ enum RenderPalette {
     /// reads as a surface sitting in the night rather than a hole in it.
     static let ground = SKColor(srgbRed: 0.078, green: 0.043, blue: 0.157, alpha: 1.0)
 
+    /// The land *outside* the map: the surface it is made of, and the grid
+    /// ruled across it.
+    ///
+    /// **A surface, not a wireframe.** The first attempt drew only the grid,
+    /// at an alpha low enough to be tasteful, and it disappeared — the city
+    /// still read as an island floating on black, which is the whole thing
+    /// this is here to fix. Lines hanging in space are not ground. What makes
+    /// somewhere look like somewhere is that it has a *value*, however dark,
+    /// which the neon then sits on top of.
+    ///
+    /// Both stay well under the city's own ground so the map still reads as
+    /// the lit, claimed part of a darker landscape — the moment the
+    /// surroundings are bright enough to look at, they compete with the city
+    /// standing on them, which is exactly the mistake the lane lines were
+    /// making across a third of the map.
+    static let unclaimedGround = SKColor(srgbRed: 0.068, green: 0.038, blue: 0.142, alpha: 1.0)
+    static let unclaimedGrid = SKColor(srgbRed: 0.40, green: 0.28, blue: 0.62, alpha: 0.16)
+
     /// How far a developed tile's ground is tinted toward its zone's own neon.
     ///
     /// Small on purpose, and smaller than it first looks like it should be.

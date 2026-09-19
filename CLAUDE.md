@@ -4192,6 +4192,65 @@ street actually comes back dimmer, and that the cache hands back a *different*
 texture after a restyle rather than the one it baked in the old style.
 
 
+### Phase 2 (done): the city sits in a landscape
+
+Everything outside the map was the scene's flat background colour, so a city
+read as a diamond island floating on nothing — a diagram on a desktop rather
+than a place at night. The single biggest thing holding the look back, and it
+was never a styling problem: there was no world there.
+
+The ground now carries on past the map's edge — the same isometric grid,
+unclaimed and unlit, fading out with distance. The city is somewhere *in* a
+landscape, and its boundary reads as where your land stops rather than where
+the drawing stops. It also finally gives the sun something to light: that
+glow has been parked below the map since the art pass and had nothing but
+void to bleed into.
+
+**Bounded rather than infinite, and that is affordable because the camera is
+already clamped.** Panning cannot wander off into open space, so the backdrop
+only has to cover the map plus a generous margin — one sprite and one
+texture, no shader and no tile map.
+
+The grid is drawn by **projecting real tile coordinates** rather than working
+out where the lines fall on screen. A second implementation of the projection
+would line up until the day it did not, and a backdrop grid a half-tile out
+of step with the city standing on it is worse than no grid at all.
+
+Three corrections, all of which needed a picture:
+
+- **Lines are not ground.** The first version drew only the grid, at an alpha
+  low enough to be tasteful, and it vanished — the city still floated. What
+  makes somewhere look like somewhere is that it has a *value*, however dark,
+  which the neon then sits on. It is a filled surface with a grid ruled
+  across it now.
+- **Ruled every four tiles, not every tile.** At the zoom a player plans at, a
+  36-tile margin of one-tile diamonds collapses into a moiré quilt that fights
+  the city instead of sitting behind it. The coarse pitch reads as large
+  unclaimed parcels. Same `minimumDetailSize` argument the buildings already
+  follow: a mark too small to resolve is not detail, it is noise.
+- **The fade holds and then drops** (`[0, 0.72, 1]`) rather than falling off
+  from the middle. The land nearest the city is the part doing the work.
+
+#### The city render cannot see scene-level art
+
+Worth recording because it cost a confused round-trip and it affects
+everything still to come in this pass. `IsometricCityTests.render` builds a
+**plain `SKScene`** of its own and calls `IsoTileRenderer` directly — it never
+constructs a `GameScene`. So it cannot show the backdrop, and it turns out it
+has never shown the sun either. Two rounds of tuning the backdrop produced
+pixel-identical renders before that was noticed.
+
+That is the same shape as the mock cockpit render this file already retired:
+*a reconstruction can drift from the thing it reconstructs, and neither
+fails.* The city render is still the right tool for **tiles and buildings**,
+which is what it draws. Anything that lives on `GameScene` — the backdrop, the
+sun, the camera, the shader pass — has to be judged on `ScenePlaytest`'s
+filmstrip, which photographs a real `GameScene` on a real `SKView`.
+
+`VisualStyleTests` now also asserts the land exists, extends well past the
+map, sits behind it, and survives `rebuildEntireGrid()` — none of which any
+existing test would have noticed going.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
