@@ -176,3 +176,71 @@ extension ScenePlaytestTests {
         }
     }
 }
+
+extension ScenePlaytestTests {
+
+    /// **A city changing, as a strip I can look at.**
+    ///
+    /// Every render this project had before this one was a still of a freshly
+    /// built scene — which is exactly the state none of the bugs play has
+    /// found can exist in. A pipe that is laid but not drawn, a building that
+    /// grows but is not redrawn, a run whose joints are stale: all of them are
+    /// facts about *what happened between two frames*, and a single frame has
+    /// no way to express one.
+    ///
+    /// The assertions above already say whether the picture agrees. This says
+    /// what it looks like, which is the half no assertion can carry.
+    func testFilmstripOfASession() {
+        // A denser city than the scripted sessions use: those are about
+        // whether the picture agrees, and this one is about whether I can read
+        // it, which needs something on the map worth reading.
+        var map = startedCity()
+        var index = 0
+        for y in stride(from: 1, to: 15, by: 3) {
+            for x in stride(from: 0, to: 21, by: 3) {
+                let origin = GridPosition(x: x, y: y)
+                guard map.footprintCells(origin: origin, size: 2)
+                    .allSatisfy({ map[$0].zone == .empty }) else { continue }
+                index += 1
+                let zone = [ZoneType.residential, .residential, .commercial, .industrial][index % 4]
+                map.placeBuilding(zone: zone, origin: origin)
+                for cell in map.footprintCells(origin: origin, size: 2) {
+                    map[cell].density = 1 + index % 3
+                }
+            }
+        }
+        let game = ScenePlaytest(map: map)
+        game.capture("a city, paused, as you find it")
+
+        game.look(at: .water)
+        game.capture("the water view — most of it wants a main")
+
+        game.dragInView(from: GridPosition(x: 1, y: 13), to: GridPosition(x: 1, y: 2))
+        game.capture("a trunk main up the west side")
+
+        game.dragInView(from: GridPosition(x: 1, y: 2), to: GridPosition(x: 20, y: 2))
+        game.capture("and east across the top, straight through the blocks")
+
+        game.look(at: .none)
+        game.play()
+        game.tick(6)
+        game.capture("six days later")
+
+        game.look(at: .water)
+        game.capture("the same view again, now that it is plumbed")
+
+        game.look(at: .problems)
+        game.capture("what is still wrong")
+
+        game.look(at: .none)
+        game.tick(10)
+        game.capture("ten more days")
+
+        game.pause()
+        game.drag(.road, from: GridPosition(x: 11, y: 0), to: GridPosition(x: 11, y: 15))
+        game.capture("a cross street, laid while paused")
+
+        game.writeFilmstrip(named: "scene-session")
+        game.check("the whole strip")
+    }
+}

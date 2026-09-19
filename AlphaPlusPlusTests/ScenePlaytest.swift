@@ -36,15 +36,99 @@ final class ScenePlaytest {
 
     private func record(_ action: String) { log.append(action) }
 
+    /// The view the scene is presented on — kept because a filmstrip frame is
+    /// `SKView.texture(from:)`, and it has to come from *this* view showing
+    /// *this* scene. Rendering a freshly built one instead would be a picture
+    /// of the thing the bugs are not in.
+    private let view: SKView
+
     init(map: CityMap, seed: UInt64 = 0xA1F4) {
         controller = GameController(map: map, rng: SeededRNG(seed: seed),
                                     peakPopulation: Unlocks.everythingUnlocked)
         scene = GameScene(controller: controller)
         scene.size = CGSize(width: 900, height: 700)
-        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view = SKView(frame: NSRect(origin: .zero, size: scene.size))
         view.presentScene(scene)
         scene.rebuildEntireGrid()
         scene.refreshAll()
+        scene.centerCameraOnMap()
+        frameTheWholeMap()
+    }
+
+    /// Pulls the camera back until the whole city is in shot.
+    ///
+    /// `centerCameraOnMap` points it at the middle and says nothing about
+    /// zoom, which for a filmstrip meant most of every frame was empty night.
+    /// A picture I am going to read has to be mostly city.
+    func frameTheWholeMap() {
+        let bounds = Isometric().contentBounds(of: controller.map)
+        let fit = max(bounds.width / scene.size.width, bounds.height / scene.size.height)
+        scene.camera?.setScale(max(fit * 1.08, 0.1))
+        scene.centerCameraOnMap()
+    }
+
+    // MARK: - Looking at it
+
+    private var filmstrip: [(String, NSImage)] = []
+
+    /// Photographs the city as it stands.
+    ///
+    /// **The point of the whole harness, from my side of it.** Everything else
+    /// here asserts; this is the only part that lets the picture be *looked
+    /// at* — and every render this project had before it was a still of a
+    /// freshly built scene, which is precisely the state none of these bugs
+    /// can exist in.
+    func capture(_ label: String) {
+        guard let texture = view.texture(from: scene, crop: CGRect(origin: .zero, size: scene.size))
+        else { return }
+        filmstrip.append((label, NSImage(cgImage: texture.cgImage(), size: scene.size)))
+    }
+
+    /// Writes the frames captured so far as one image, the way every other
+    /// contact sheet in this project is written.
+    @discardableResult
+    func writeFilmstrip(named name: String) -> URL? {
+        guard let data = Self.stack(filmstrip) else { return nil }
+        let destination = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/ContactSheet/\(name).png")
+        try? FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try? data.write(to: destination)
+        print("🎞  \(name): \(destination.path) (\(filmstrip.count) frames)")
+        return destination
+    }
+
+    private static func stack(_ frames: [(String, NSImage)]) -> Data? {
+        guard !frames.isEmpty else { return nil }
+        let captionHeight: CGFloat = 26, margin: CGFloat = 16
+        let width = (frames.map { $0.1.size.width }.max() ?? 0) + margin * 2
+        let height = frames.reduce(margin) { $0 + $1.1.size.height + captionHeight } + margin
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(width), pixelsHigh: Int(height),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = CGSize(width: width, height: height)
+        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        RenderPalette.background.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont(name: "Menlo-Bold", size: 13) ?? NSFont.boldSystemFont(ofSize: 13),
+            .foregroundColor: NSColor(white: 0.82, alpha: 1),
+        ]
+        var y = height - margin
+        for (label, image) in frames {
+            y -= captionHeight
+            label.draw(at: NSPoint(x: margin, y: y + 6), withAttributes: attributes)
+            y -= image.size.height
+            image.draw(in: NSRect(x: margin, y: y, width: image.size.width, height: image.size.height))
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
     }
 
     // MARK: - Playing

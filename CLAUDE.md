@@ -2107,6 +2107,34 @@ starts paused.
 Six seeds of three hundred steps — eighteen hundred actions — run clean after
 it. Short in the normal suite, long behind `PLAYTEST_FULL`.
 
+### And a strip I can actually look at
+
+Every render this project had before this one is a still of a **freshly built
+scene** — which is precisely the state none of these bugs can exist in. A pipe
+laid but not drawn, a building grown but not redrawn, a run whose joints are
+stale: all of them are facts about what happened *between two frames*, and one
+frame has no way to express one.
+
+`ScenePlaytest.capture` photographs the live scene mid-session —
+`SKView.texture(from:)` on the view the session is actually running on, camera
+and shader and all — and `writeFilmstrip` stacks the frames the way every other
+contact sheet here is stacked. Nine of them across a session: an empty city,
+the water view, a main going in, six days of growth, the same view again.
+
+Two things it needed before it was worth reading, both obvious only once there
+was a picture. The camera had to be **pulled back to fit the city**, because
+`centerCameraOnMap` says nothing about zoom and most of every frame was empty
+night. And the filmstrip needs a **denser fixture** than the scripted sessions
+use: those ask whether the picture agrees, this one asks whether I can read it,
+and that needs something on the map worth reading.
+
+What it shows, on its first run, is the thing I have never been able to see: a
+main running unbroken *through* the blocks, the corridor around it turning blue
+over six days as the lots connect — and two lots quietly declining to bare
+ground in the same six days for want of the water that never reached them.
+Correct, all of it, and not assertable in any form I would have thought to
+write.
+
 Two false positives came first, and both were worth the trip. A one-shot
 feedback flash is an animation **in flight**, not a fact about the city, so a
 rebuilt scene has none by definition and it has to be excluded. And the pause
