@@ -1176,6 +1176,37 @@ final class GameScene: SKScene {
         }
         context.strokePath()
 
+        // **The claimed land reads as a plate laid on the wild land.**
+        //
+        // The macro version of the same idea as a building's contact light:
+        // without it the map is simply a differently-coloured region of the
+        // same flat surface, and a city needs to look like it sits *on*
+        // somewhere. Filling the map's own diamond with a shadow set spills a
+        // soft dark fringe down-screen past its edge — the only part that
+        // shows, since the map's own tiles cover everything inside it.
+        //
+        // Drawn before the radial fade so the fringe fades out with the land
+        // it falls on rather than hanging on after it.
+        context.saveGState()
+        context.setBlendMode(.normal)
+        context.setShadow(
+            offset: CGSize(width: 0, height: -projection.tileHeight * 0.9),
+            blur: projection.tileHeight * 1.6,
+            color: SKColor.black.withAlphaComponent(0.75).cgColor
+        )
+        context.setFillColor(RenderPalette.unclaimedGround.cgColor)
+        let plate = [
+            projection.project(0, 0, 0), projection.project(CGFloat(map.width), 0, 0),
+            projection.project(CGFloat(map.width), CGFloat(map.height), 0),
+            projection.project(0, CGFloat(map.height), 0),
+        ]
+        context.beginPath()
+        context.move(to: plate[0])
+        for corner in plate.dropFirst() { context.addLine(to: corner) }
+        context.closePath()
+        context.fillPath()
+        context.restoreGState()
+
         // Fade it out toward the edges, so the land reads as continuing into
         // the dark rather than stopping at a rectangle. Multiplied into the
         // alpha that is already there rather than painted over it, which is

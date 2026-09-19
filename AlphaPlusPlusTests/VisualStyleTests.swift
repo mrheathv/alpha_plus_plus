@@ -144,6 +144,61 @@ final class VisualStyleTests: XCTestCase {
         XCTAssertNotNil(scene.backdropNodeForTesting.texture)
     }
 
+    // MARK: - Where a building meets the ground
+
+    private func node(for tile: Tile) -> SKNode {
+        IsoTileRenderer(projection: Isometric()).makeNode(for: tile)
+    }
+
+    private func sprite(_ name: String, on node: SKNode) -> SKSpriteNode? {
+        node.children.first { $0.name == name } as? SKSpriteNode
+    }
+
+    /// Contact is a *bright* mark here, not a shadow: this ground is already
+    /// near-black, so there is nothing to darken. At night a lit building
+    /// spills onto the pavement hardest at its feet.
+    func testABuiltLotLightsTheGroundAtItsFeet() {
+        var map = CityMap(width: 8, height: 8)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 2, y: 2))
+        for cell in map.footprintCells(origin: GridPosition(x: 2, y: 2), size: 2) {
+            map[cell].density = 4
+        }
+        let built = node(for: map[GridPosition(x: 2, y: 2)])
+
+        let contact = sprite(IsoTileRenderer.contactNodeNameForTesting, on: built)
+        let pool = sprite(IsoTileRenderer.glowNodeNameForTesting, on: built)
+        XCTAssertNotNil(contact, "a building is not lighting the ground it stands on")
+        XCTAssertNotNil(pool)
+
+        // The property that makes it contact rather than more ambience: it
+        // hugs the lot where the pool spills well past it.
+        XCTAssertLessThan(contact?.size.width ?? .infinity, (pool?.size.width ?? 0) * 0.7,
+                          "the contact light spills as wide as the district pool, "
+                          + "so it says nothing about where this building stands")
+        XCTAssertGreaterThan(contact?.zPosition ?? 0, pool?.zPosition ?? 0,
+                             "the contact light is under the pool that is meant to fade out of it")
+    }
+
+    func testBareGroundAndRoadsLightNothing() {
+        var map = CityMap(width: 8, height: 8)
+        map[GridPosition(x: 1, y: 1)].zone = .road
+        for position in [GridPosition(x: 0, y: 0), GridPosition(x: 1, y: 1)] {
+            let tile = node(for: map[position])
+            XCTAssertNil(sprite(IsoTileRenderer.contactNodeNameForTesting, on: tile),
+                         "\(map[position].zone) is lighting the ground as though a building stood on it")
+        }
+    }
+
+    /// A zoned lot with nothing built on it yet lights nothing either — the
+    /// spill belongs to a building, not to a claim.
+    func testAnEmptyZonedLotLightsNothing() {
+        var map = CityMap(width: 8, height: 8)
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 2, y: 2))
+        let tile = node(for: map[GridPosition(x: 2, y: 2)])
+        XCTAssertNil(sprite(IsoTileRenderer.contactNodeNameForTesting, on: tile),
+                     "a surveyed lot with no building on it is already lighting the pavement")
+    }
+
     // MARK: - The ladder itself
 
     /// The point of the pass: pavement below buildings. Asserted on the

@@ -20,11 +20,14 @@ struct IsoTileRenderer {
     /// sprite here" no longer answers that question.
     static let buildingNodeName = "isoBuilding"
     private static let laneNodeName = "isoLane"
+    private static let contactNodeName = "isoContact"
 
-    /// The lane line's node name, for the style tests — which check that a
-    /// street actually comes back dimmer, rather than trusting that a
-    /// constant nobody reads changed.
+    /// Node names the style tests need — which check that a street actually
+    /// comes back dimmer and that a building actually lights the ground it
+    /// stands on, rather than trusting that a constant nobody reads changed.
     static var laneNodeNameForTesting: String { laneNodeName }
+    static var contactNodeNameForTesting: String { contactNodeName }
+    static var glowNodeNameForTesting: String { glowNodeName }
 
     /// Whether a decoration is already showing what the data says, keyed on
     /// whatever determines its appearance.
@@ -76,6 +79,7 @@ struct IsoTileRenderer {
     func update(_ node: SKNode, for tile: Tile) {
         syncGround(on: node, tile: tile)
         syncGroundGlow(on: node, tile: tile)
+        syncContactLight(on: node, tile: tile)
         syncZoneMarker(on: node, tile: tile)
         syncBuilding(on: node, tile: tile)
     }
@@ -128,6 +132,51 @@ struct IsoTileRenderer {
         glow.position = projection.project(size / 2, size / 2, 0)
         glow.zPosition = 0.1
         node.addChild(glow)
+    }
+
+    /// **Where the building meets the ground.**
+    ///
+    /// Buildings were hovering. They had a wide, faint pool of their own
+    /// colour on the lot — 1.7× the footprint at alpha 0.13 — which reads as
+    /// district ambience, the light of a *neighbourhood*, and says nothing
+    /// about where any one building actually stands.
+    ///
+    /// **The obvious fix is wrong on this map.** Contact normally means a
+    /// shadow, and a shadow means darkening the ground — but this ground is
+    /// already near-black, so there is nothing to take away. At night the
+    /// real cue runs the other way: a lit building spills onto the pavement
+    /// hardest right at its feet. So contact here is a *bright* mark, tight
+    /// to the footprint, under the wide pool rather than instead of it. The
+    /// two together give the falloff — hot at the base, fading out across the
+    /// lot — that makes a thing look planted instead of pasted on.
+    ///
+    /// Same texture and blend mode as the pool, so the extra sprite per
+    /// building costs a node and no new draw call. It is a sprite rather than
+    /// part of the building's own texture because that texture is shared by
+    /// every lot drawing this variant, and the spill belongs to the lot.
+    private func syncContactLight(on node: SKNode, tile: Tile) {
+        let tier = RenderPalette.growthTier(for: tile.density)
+        let key = "\(tile.zone.rawValue)|\(tier)"
+        guard !isUpToDate(node, Self.contactNodeName, key) else { return }
+        markUpToDate(node, Self.contactNodeName, key)
+        node.childNode(withName: Self.contactNodeName)?.removeFromParent()
+        guard tile.zone != .empty, tile.zone != .road, tile.zone != .highway else { return }
+        guard tile.zone.maxDensity == 0 || tier > 0 else { return }
+
+        let contact = SKSpriteNode(texture: NeonStyle.glowTexture)
+        contact.name = Self.contactNodeName
+        contact.color = ZoneMassing.accent(for: tile.zone, density: tile.density)
+        contact.colorBlendFactor = 1
+        contact.blendMode = .add
+        contact.alpha = tile.zone.maxDensity > 0 ? 0.20 + 0.07 * CGFloat(tier) : 0.30
+        let size = CGFloat(tile.zone.footprintSize)
+        // Barely wider than the lot. The whole point is that it does *not*
+        // spill across the block the way the pool above it does.
+        contact.size = CGSize(width: projection.tileWidth * size * 1.02,
+                              height: projection.tileHeight * size * 1.02)
+        contact.position = projection.project(size / 2, size / 2, 0)
+        contact.zPosition = 0.2
+        node.addChild(contact)
     }
 
     /// Corner ticks on a lot you have zoned but which has not grown anything
@@ -432,6 +481,7 @@ struct IsoTileRenderer {
     static let overlayDisturbedNodes = [
         markerNodeName, laneNodeName, warningNodeName, damageNodeName,
         constructionNodeName, fireNodeName, buildingNodeName, glowNodeName,
+        contactNodeName,
     ]
 
     /// Forgets what this tile is showing, so the next refresh rebuilds all of

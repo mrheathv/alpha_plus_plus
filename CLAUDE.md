@@ -4251,6 +4251,49 @@ filmstrip, which photographs a real `GameScene` on a real `SKView`.
 map, sits behind it, and survives `rebuildEntireGrid()` — none of which any
 existing test would have noticed going.
 
+### Phase 4 (done): things sit on the ground
+
+Phase 2 gave the city land to stand on; this is what makes it look like it
+is standing on it, at two scales.
+
+**A building lights the ground at its feet.** Buildings had a wide, faint
+pool of their own colour — 1.7× the footprint at alpha 0.13 — which reads as
+the light of a *neighbourhood* and says nothing about where any one building
+stands. They hovered.
+
+The obvious fix is wrong on this map. Contact normally means a shadow, and a
+shadow means darkening the ground — but **this ground is already near-black,
+so there is nothing left to take away.** At night the real cue runs the other
+way: a lit building spills onto the pavement hardest right at its feet. So
+contact here is a *bright* mark, tight to the footprint (1.02×), under the
+wide pool rather than instead of it. The two together give the falloff — hot
+at the base, fading across the lot — that makes a thing look planted rather
+than pasted on. Same texture and blend mode as the pool, so it costs a node
+and no new draw call.
+
+Worth keeping as a general rule: **on a dark ground, occlusion has to be
+expressed as light rather than as shadow.**
+
+**And the claimed land reads as a plate laid on the wild land.** The macro
+version of the same idea: without it the map is a differently-coloured region
+of one flat surface. Filling the map's own diamond *with a shadow set* spills
+a soft dark fringe down-screen past its edge — the only part that shows,
+since the map's tiles cover everything inside it.
+
+That fill has to happen **before** the radial fade, and it is worth saying why
+out loud: the fade leaves the context in `.destinationIn`, so a plate drawn
+after it does not shade the land, it erases everything outside the plate. The
+first version did exactly that, described itself in a comment as being before
+the fade, and was not.
+
+Node cost went from ~2.6 to ~3.6 per lot, against the standing bound of 6.
+Shape nodes are unchanged at zero, which is the number that actually matters.
+
+**Atmospheric perspective was considered and dropped.** A distance fade is the
+textbook third cue, and on a map this size it trades a real gameplay property
+— being able to read the far side of your own city — for a subtle one.
+`RetroShader`'s vignette already supplies a little of it for free.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
