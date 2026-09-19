@@ -2007,6 +2007,38 @@ The overlay picker is driven by `OverlayMode.allCases`, so adding the two cases
 was the whole UI change; and the render picks them up automatically now that
 both it and `GameScene` share `IsoTileRenderer.paint`.
 
+### An overlay tints what is there; it never built anything
+
+Reported from play: new buildings, and buildings that had grown a storey, did
+not appear while a view was up — they arrived only when you flipped to Normal
+and back.
+
+`refresh` has two branches. Normal calls `tileRenderer.update`, which syncs the
+ground, the light pool and the *building*. Every overlay calls `applyOverlay`,
+which recolours or removes what it finds. Nothing in the second branch has ever
+created a building sprite, so a lot that changed under an overlay kept whatever
+it had — and returning to Normal ran `update`, which is why flipping fixed it.
+
+**The obvious fix does not work, and why it does not is the interesting part.**
+Calling `update` before `applyOverlay` would rebuild every sprite on the map
+every tick, because `applyOverlay` was clearing each cache key every time it
+ran. That invalidation was sound in itself — a stale key would mean returning
+to Normal restored nothing — but a key cleared every tick is a key that can
+never *hit*, so the caching that exists to stop the map blinking was doing
+nothing at all under an overlay.
+
+It is a **property of the view, not of a tile**, so it belongs on the view
+changing: `GameScene` remembers which overlay the tiles were drawn for and
+clears their keys once when it differs. `applyOverlay` removes nodes and leaves
+the keys alone. In between, the keys behave normally — a lot that grows
+rebuilds, a lot that does not costs a dictionary lookup — and `update` can be
+called under every overlay safely.
+
+Worth keeping as a shape: **invalidation belongs at the granularity of the
+thing that changed.** Per tile per tick was the wrong axis for a fact about
+which view is up, and it quietly cost both correctness (buildings never
+updated) and the performance the cache was there to buy.
+
 ### Pause stops the city, not the player
 
 Reported from play: the ambient traffic kept driving around a paused map.

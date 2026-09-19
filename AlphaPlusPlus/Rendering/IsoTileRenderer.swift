@@ -405,6 +405,32 @@ struct IsoTileRenderer {
         return wanted ? RenderPalette.utilityWanted : RenderPalette.unlitBuilding
     }
 
+    /// Everything an overlay removes, recolours or hides.
+    ///
+    /// **The list exists so the invalidation can happen once, when the view
+    /// changes, rather than once per tile per tick.** It used to be the
+    /// latter: `applyOverlay` cleared each cache key every time it ran, on the
+    /// entirely sound reasoning that a stale key would mean returning to
+    /// Normal restored nothing. But a key cleared every tick is a key that can
+    /// never *hit*, and that made it impossible to keep the buildings
+    /// themselves up to date — calling `update` first would have rebuilt every
+    /// sprite on the map every tick only for this to remove it again, which is
+    /// the churn "why the map blinked" records.
+    ///
+    /// Cleared on the transition instead (`invalidateOverlayNodes`), these
+    /// keys behave normally for as long as a view is up: a lot that grows
+    /// rebuilds, a lot that does not costs nothing.
+    static let overlayDisturbedNodes = [
+        markerNodeName, laneNodeName, warningNodeName, damageNodeName,
+        constructionNodeName, fireNodeName, buildingNodeName, glowNodeName,
+    ]
+
+    /// Forgets what this tile is showing, so the next refresh rebuilds all of
+    /// it. Called when the view changes — see `overlayDisturbedNodes`.
+    func invalidateOverlayNodes(on node: SKNode) {
+        for name in Self.overlayDisturbedNodes { invalidate(node, name) }
+    }
+
     /// Paint a tile as a flat data channel instead of as a building.
     ///
     /// **One call, not ten.** `GameScene`'s top-down overlay handling repeated
@@ -416,22 +442,14 @@ struct IsoTileRenderer {
     func applyOverlay(
         on node: SKNode, buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil
     ) {
-        for name in [Self.markerNodeName, Self.laneNodeName,
-                     Self.warningNodeName, Self.damageNodeName,
-                     Self.constructionNodeName, Self.fireNodeName] {
+        for name in Self.overlayDisturbedNodes where name != Self.buildingNodeName && name != Self.glowNodeName {
             node.childNode(withName: name)?.removeFromParent()
-            // Invalidated, not just removed: the cache key is what decides
-            // whether a decoration gets rebuilt, so leaving a stale key behind
-            // would mean switching back to Normal view restored nothing.
-            invalidate(node, name)
         }
 
         switch buildings {
         case .hidden:
             node.childNode(withName: Self.buildingNodeName)?.removeFromParent()
             node.childNode(withName: Self.glowNodeName)?.removeFromParent()
-            invalidate(node, Self.buildingNodeName)
-            invalidate(node, Self.glowNodeName)
         case .flagged(let flag):
             // Hidden like any heatmap, but the lot *glows* rather than merely
             // being coloured in.
@@ -445,9 +463,7 @@ struct IsoTileRenderer {
             // is why every other urgent mark in this game (fire, supply,
             // lane lines) is made of it.
             node.childNode(withName: Self.buildingNodeName)?.removeFromParent()
-            invalidate(node, Self.buildingNodeName)
             node.childNode(withName: Self.glowNodeName)?.removeFromParent()
-            invalidate(node, Self.glowNodeName)
             guard let flag else { break }
             let pool = SKSpriteNode(texture: NeonStyle.glowTexture)
             pool.name = Self.glowNodeName
@@ -507,7 +523,6 @@ struct IsoTileRenderer {
             } else {
                 node.childNode(withName: Self.glowNodeName)?.removeFromParent()
             }
-            invalidate(node, Self.glowNodeName)
         case .highlighted:
             // The utility feeding the network you are looking at. No tint at
             // all: these are the things the player is hunting for, and the

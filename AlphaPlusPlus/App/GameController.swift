@@ -828,6 +828,14 @@ final class GameController: ObservableObject {
     /// game starts paused, and a player who draws a tram line and watches the
     /// traffic overlay not budge until the next tick would reasonably
     /// conclude the mechanic is broken. That exact bug is recorded for pipes.
+    /// Sets a tile's density directly, for tests that need a city in a
+    /// particular state without growing one to reach it. `map` is
+    /// `private(set)`, deliberately — this is the one seam through it, and it
+    /// is named so nothing mistakes it for a simulation step.
+    func setDensityForTesting(_ density: Int, at position: GridPosition) {
+        map[position].density = density
+    }
+
     func recomputeTramTracks() {
         map.tramTracks = Transit.tramTracks(in: map)
     }

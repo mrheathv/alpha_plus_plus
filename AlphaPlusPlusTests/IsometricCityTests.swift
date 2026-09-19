@@ -332,8 +332,43 @@ final class IsometricCityTests: XCTestCase {
         renderer.applyOverlay(on: node, buildings: .hidden, color: .green)
         XCTAssertFalse(hasBuilding(), "the overlay left the building showing")
 
+        // **Two calls, and the second one is the contract.** `applyOverlay`
+        // used to clear the cache keys itself, every tile of every tick — so
+        // this restored in one call and the caching could never hit, which is
+        // what stopped a building that grew *under* an overlay from ever being
+        // redrawn. Clearing is a property of the *view* changing, so it moved
+        // to the view: `GameScene` does it once when the overlay does.
+        //
+        // Leaving this as a one-call round trip would have quietly asserted
+        // the old design back into place.
+        renderer.update(node, for: tile)
+        XCTAssertFalse(hasBuilding(), "a stale key is what stops a rebuild — it did not")
+
+        renderer.invalidateOverlayNodes(on: node)
         renderer.update(node, for: tile)
         XCTAssertTrue(hasBuilding(), "leaving the overlay did not bring the building back")
+    }
+
+    /// And the half that makes the move worth it: under an overlay that keeps
+    /// its buildings, an unchanged lot is *not* rebuilt.
+    ///
+    /// That property is the whole reason the cache keys exist ("why the map
+    /// blinked"), and the per-tick invalidation had been silently costing it
+    /// for as long as overlays have existed.
+    func testAnOverlayDoesNotRebuildAnUnchangedBuildingEveryTick() throws {
+        let renderer = IsoTileRenderer(projection: Self.projection(tileWidth: 32))
+        let tile = Tile(position: GridPosition(x: 2, y: 2), zone: .commercial, density: 5)
+        let node = renderer.makeNode(for: tile)
+
+        renderer.applyOverlay(on: node, buildings: .connected(true), color: .blue)
+        let first = try XCTUnwrap(node.childNode(withName: IsoTileRenderer.buildingNodeName))
+
+        for _ in 0 ..< 3 {
+            renderer.update(node, for: tile)
+            renderer.applyOverlay(on: node, buildings: .connected(true), color: .blue)
+        }
+        XCTAssertIdentical(first, node.childNode(withName: IsoTileRenderer.buildingNodeName),
+                           "the building was thrown away and rebuilt on every refresh")
     }
 
     /// **An overlay has to actually paint its data.**

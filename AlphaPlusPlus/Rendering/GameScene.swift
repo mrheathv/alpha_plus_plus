@@ -853,6 +853,8 @@ final class GameScene: SKScene {
     /// question about their children.
     var allTileNodesForTesting: [SKNode] { Array(tileNodes.values) }
 
+    func tileNodeForTesting(at position: GridPosition) -> SKNode? { tileNodes[position] }
+
     static var trafficCarNodeNameForTesting: String { trafficCarNodeName }
 
     func rebuildEntireGrid() {
@@ -1017,6 +1019,17 @@ final class GameScene: SKScene {
                 for: controller.overlayMode, at: anchor, in: map,
                 using: overlayDistances, transit: overlayTransitCoverage
             ) {
+                // **The building first, then the paint over it.** An overlay
+                // *tints* what is there; it has never built anything. So a lot
+                // that grew — or appeared — while a view was up kept whatever
+                // sprite it had, and only came right when the player flipped
+                // to Normal and back, which is how this was reported.
+                //
+                // Safe to call every tick now that the cache keys are cleared
+                // on the *view* changing rather than on every tile of every
+                // tick: an unchanged lot costs a dictionary lookup, and a
+                // changed one rebuilds exactly once.
+                tileRenderer.update(node, for: tile)
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor)
             }
@@ -1126,7 +1139,25 @@ final class GameScene: SKScene {
     /// exactly as long and absent for the same reason.
     private var overlayTransitCoverage: TransitCoverage?
 
+    /// Which view the tiles were last drawn for, so a change to it can clear
+    /// their cache keys — see `IsoTileRenderer.overlayDisturbedNodes`.
+    private var renderedOverlay: OverlayMode?
+
+    /// Forgets what every tile is showing when the player changes view.
+    ///
+    /// Once per change rather than once per tile per tick, which is what lets
+    /// the keys do their job in between — including keeping the buildings
+    /// current under an overlay that keeps them.
+    private func syncOverlayGeneration() {
+        guard renderedOverlay != controller.overlayMode else { return }
+        renderedOverlay = controller.overlayMode
+        for node in tileNodes.values {
+            tileRenderer.invalidateOverlayNodes(on: node)
+        }
+    }
+
     func refreshAll() {
+        syncOverlayGeneration()
         // **Every overlay that reads distances, not just land value.** This
         // said `== .landValue` when land value was the only one, and by the
         // time Crime, Fire Risk and Problems arrived it was quietly making
