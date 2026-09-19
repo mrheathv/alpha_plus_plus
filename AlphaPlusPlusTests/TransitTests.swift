@@ -81,9 +81,15 @@ final class TransitTests: XCTestCase {
             map.transit.add(mode: mode, stops: [a, b])
 
             let coverage = Transit.coverage(for: map)
+            // **Measured from the footprint, not the anchor.** A catchment is
+            // a walk from the *building*, so a 2×2 rail station reaches one
+            // tile further than a 1×1 stop with the same radius would — which
+            // is correct, and which this assertion assumed away until a
+            // station bigger than one tile existed to catch it.
+            let edge = 2 + mode.stationZone.footprintSize - 1
             let radius = Transit.catchment(for: mode)
-            XCTAssertTrue(coverage.isServed(at: GridPosition(x: 2, y: 2 + radius)), "\(mode)")
-            XCTAssertFalse(coverage.isServed(at: GridPosition(x: 2, y: 2 + radius + 1)), "\(mode)")
+            XCTAssertTrue(coverage.isServed(at: GridPosition(x: 2, y: edge + radius)), "\(mode)")
+            XCTAssertFalse(coverage.isServed(at: GridPosition(x: 2, y: edge + radius + 1)), "\(mode)")
         }
     }
 

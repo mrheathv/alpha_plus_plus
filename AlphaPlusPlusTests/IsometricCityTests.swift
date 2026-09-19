@@ -197,6 +197,12 @@ final class IsometricCityTests: XCTestCase {
         map.transit.add(mode: .tram, stops: [tramWest, tramMid, tramEast])
         map.tramTracks = Transit.tramTracks(in: map)
 
+        // And a regional line running off the east edge, so the render shows
+        // the one station that is 2×2 and the one line that leaves the map.
+        let railInner = station(.rail, at: GridPosition(x: 6, y: 13))
+        let railEdge = station(.rail, at: GridPosition(x: tilesWide - 2, y: 13))
+        map.transit.add(mode: .rail, stops: [railInner, railEdge])
+
         // A line whose station has been demolished. The route survives with
         // one stop and carries nobody — and a fixture where every line works
         // cannot show whether a broken one is distinguishable from a working
@@ -811,7 +817,8 @@ final class IsometricCityTests: XCTestCase {
         for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power),
                         ("land value", .landValue), ("pollution", .pollution),
                         ("crime", .police), ("fire risk", .fire), ("problems", .problems),
-                        ("bus", .bus), ("tram", .tram), ("subway", .subway)] {
+                        ("bus", .bus), ("tram", .tram), ("subway", .subway),
+                        ("regional rail", .rail)] {
             panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
         }
         // And one with a line half-drawn, because the editor's whole feedback

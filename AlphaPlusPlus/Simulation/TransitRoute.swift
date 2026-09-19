@@ -28,6 +28,7 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
         case bus
         case tram
         case subway
+        case rail
 
         /// Which building this mode's stations are made of.
         var stationZone: ZoneType {
@@ -35,6 +36,7 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
             case .bus: return .publicTransit
             case .tram: return .tramStop
             case .subway: return .subway
+            case .rail: return .railStation
             }
         }
 
@@ -52,6 +54,7 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
             case .bus: return 30
             case .tram: return 60
             case .subway: return 120
+            case .rail: return 300
             }
         }
 
@@ -68,6 +71,9 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
             case .bus: return 0.8
             case .tram: return 0.6
             case .subway: return 0.4
+            // Nothing else comes close, and nothing else has to: this is a
+            // mode for crossing the whole map and leaving it.
+            case .rail: return 0.2
             }
         }
 
@@ -86,6 +92,12 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
             // in the ride rather than the wait.
             case .tram: return 3
             case .subway: return 4
+            // **The long wait is the point.** A regional train runs a few
+            // times an hour, so it carries a fixed cost no local trip can
+            // justify — which is precisely what stops rail from simply being
+            // a better subway. Against the speed above, the crossover is
+            // somewhere past thirty tiles: roughly half a large map.
+            case .rail: return 9
             }
         }
 
@@ -102,6 +114,7 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
             case .bus: return 3
             case .tram: return 6
             case .subway: return 12
+            case .rail: return 25
             }
         }
     }

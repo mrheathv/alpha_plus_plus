@@ -73,6 +73,9 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
                 .zone(.subway),
                 .network(.subway, title: "Subway Route", cost: nil, accentZone: .subway,
                          unlockedBy: .subway),
+                .zone(.railStation),
+                .network(.rail, title: "Rail Route", cost: nil, accentZone: .railStation,
+                         unlockedBy: .railStation),
             ]
         case .utilities:
             return [

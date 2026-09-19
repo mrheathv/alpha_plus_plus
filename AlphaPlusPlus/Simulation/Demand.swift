@@ -137,8 +137,20 @@ enum Demand {
 
     static func compute(for map: CityMap) -> CityDemand {
         let population = map.totalDensity(of: .residential) * ZoneType.residential.populationPerDensityLevel
+        // **Jobs the city built, plus jobs it can reach.** A commuter rail
+        // line running off the map is a connection to the region, and the
+        // people who can catch it are employed by somewhere this simulation
+        // does not model — see `Transit.outsideJobs`, which bounds them by
+        // what the trains can actually carry.
+        //
+        // Counted on *both* sides deliberately. Residential demand rises,
+        // because there is work to move here for; commercial and industrial
+        // demand falls, because those residents are not available to fill a
+        // local job. That is the bedroom-community trade stated in one line:
+        // a rail connection buys population and costs local business.
         let jobs = map.totalDensity(of: .commercial) * ZoneType.commercial.jobsPerDensityLevel
             + map.totalDensity(of: .industrial) * ZoneType.industrial.jobsPerDensityLevel
+            + Transit.outsideJobs(in: map)
         let unfilledJobs = jobs - population
         let scale = scale(population: population, jobs: jobs)
         let commercialAndIndustrial = pressure(from: -unfilledJobs, scale: scale)

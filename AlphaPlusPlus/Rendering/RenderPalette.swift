@@ -143,7 +143,15 @@ enum RenderPalette {
     /// four network overlays keep reading as one family.
     static func transitGroundColor(for mode: TransitRoute.Mode, served: Bool) -> SKColor {
         guard served else { return waterUnsupplied }
-        return background.blended(withFraction: 0.42, of: transitLineColor(for: mode)) ?? waterUnsupplied
+        // **Scaled by how far the mode reaches.** A bus stop's catchment is a
+        // radius-4 diamond and a rail station's is radius-10, which is six
+        // times the area — so the same blend that reads as a pool of light
+        // under a bus stop reads as a flood under a terminus, and the route
+        // line disappears into its own coverage field. Tied to the catchment
+        // rather than tuned per mode, so a fifth mode cannot get this wrong.
+        let reach = Double(Transit.catchment(for: mode)) / Double(Transit.busCatchment)
+        let fraction = max(0.2, 0.42 / reach)
+        return background.blended(withFraction: fraction, of: transitLineColor(for: mode)) ?? waterUnsupplied
     }
 
     /// A buried conduit's line colour.
@@ -304,6 +312,20 @@ enum RenderPalette {
             return SKColor(srgbRed: 1.0, green: 0.25, blue: 0.75, alpha: 1.0)  // hot pink, "entertainment lights"
         case .subway:
             return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's sky blue, richer
+        case .railStation:
+            // Chartreuse — deliberately *outside* the blue-to-violet family
+            // the three urban modes share, because regional rail is the one
+            // that is not an urban mode. It reads as the odd one out, which
+            // is what it is. Checked against its neighbours the way the
+            // tram's teal was: `.park` is a cooler mint, and the land-value
+            // overlay's gold never appears beside a building.
+            //
+            // Held well below full brightness, which the render insisted on.
+            // At 0.85/1.0/0.25 this is by far the most luminous colour in the
+            // game, and its overlay's ground wash — spread over the widest
+            // catchment of any mode — flooded the map so thoroughly that the
+            // route line was lost inside its own coverage field.
+            return SKColor(srgbRed: 0.68, green: 0.82, blue: 0.16, alpha: 1.0)
         case .tramStop:
             // Deep teal. Picked against its two dangerous neighbours rather
             // than for its own sake: `.park` is a *warm* mint (0.18/0.92/0.55)
@@ -549,6 +571,7 @@ enum RenderPalette {
         case .highway: return "Highway"
         case .subway: return "Subway"
         case .tramStop: return "Tram Stop"
+        case .railStation: return "Rail Station"
         case .waterTower: return "Water Tower"
         }
     }

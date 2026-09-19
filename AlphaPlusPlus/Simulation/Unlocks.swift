@@ -86,6 +86,10 @@ enum Unlocks {
             return 700
         case .stadium:
             return 1_000
+        // Last, and past the stadium: a regional connection is what a city
+        // reaches for once it has outgrown what it can employ itself.
+        case .railStation:
+            return 1_500
         }
     }
 

@@ -2839,6 +2839,125 @@ the tram stop and the subway, because tools list in unlock order rather than
 pairing each cheap tool with its upgrade; `ToolCategoryTests` caught that
 immediately.
 
+### Phase 7 (done): commuter rail, and the first way out of the city
+
+The three urban modes all move people *within* the city. This one points off
+the map, and what it buys is somewhere for residents to work that the
+simulation does not have to build.
+
+**Run your line to the edge and it carries on into the region.** The geometry
+is the whole rule — a rail station within `Transit.regionalEdgeDistance` of the
+boundary makes its line regional, and then every stop on that line is a way
+out, because you board where you live and stay on. No new building, no separate
+switch, and discoverable by doing the obvious thing with a line that is built
+for long journeys.
+
+**The region is modelled as a job site you cannot drive to.** One more entry in
+the list `Traffic.computeLoad` already walks, with an empty frontage so no path
+ever reaches it. That was the cheap way in and also the honest one: every rule
+already there — the lottery, the capacity draw-down, riding against driving,
+ridership per leg — applies to it unchanged, and there are no off-map roads, so
+making the train the sole way out is what gives the connection its point.
+
+**Bounded by what the trains can carry**, which is the payoff for building
+capacity in phase 4: a regional connection is not a switch that turns outside
+work on, it is a pipe of a particular size. Want more of a bedroom community?
+Run more stops, or another line.
+
+And scaled by how the region itself is doing — the first time
+`RegionalEconomy` has reached a city through anything other than demand. That
+means a rail-connected city is *more* exposed to the regional cycle than one
+that is not: the region hits it once through demand and again through these
+jobs. That is the intended reading rather than an oversight. Tying your
+fortunes to the outside world is what connecting to it means.
+
+#### The bedroom-community trade, in one line of `Demand`
+
+Outside jobs are added to the job count, and counted on **both** sides
+deliberately. Residential demand rises, because there is work to move here for;
+commercial and industrial demand falls, because those residents are not
+available to fill a local job.
+
+So a rail connection buys population and costs local business. That is a
+genuine strategy rather than a bonus, and it is the only thing in this game
+that lets a city grow past what it can employ itself.
+
+#### Measured (24×24, 320 days, long commutes)
+
+| network | pop | congestion | riders/day | net/day |
+|---|---|---|---|---|
+| idle stops | 388 | 0.080 | 0 | +17 |
+| bus | 384 | 0.046 | 80 | −28 |
+| tram | 348 | 0.043 | 88 | −128 |
+| subway | 396 | 0.025 | 180 | −241 |
+| **rail** | **428** | **0.000** | 428 | −849 |
+
+The rail city is the **largest of the five** and the only one with no
+congestion at all, because a commute that leaves the map puts nothing on any
+street. It is also by far the most expensive to run, which is the trade: a
+bedroom community is a real place with a real bill.
+
+#### And what is *one* line worth?
+
+Every other scenario in the harness wires every station into a route, which
+measures what a network does and says nothing about the decision a player
+actually faces first. Regional rail is the sharpest case to ask it of, since it
+is the only thing in the game that raises residential demand without a building
+to fill the jobs — so `routeLimit` was added to build exactly one.
+
+| | pop | outside jobs | riders/day | net/day |
+|---|---|---|---|---|
+| no lines | 2,752 | 0 | 0 | −2,052 |
+| **one line** | 2,788 | 1,200 | **0** | −2,170 |
+| 22 lines | 3,664 | 24,000 | 3,552 | −6,705 |
+
+One line on a large map is a **small nudge**: +36 people, no riders at all, and
+118/day. Nobody rides it because four stops cover a sliver of a 64×64 city and
+the off-map leg costs 25 minutes on top of reaching the terminus — so a local
+job stays faster for almost everybody. The demand lever still fires, quietly.
+A whole network is transformative and ruinously expensive. That is the shape a
+progression should have.
+
+Worth recording the measurement that *looked* alarming first: at 24×24 one line
+gets the entire population gain and the second and third add nothing at all
+(428 either way), which reads as a lever that saturates immediately. It is an
+artifact of the profile rather than a finding — 1,200 outside jobs against a
+400-person city is three times its population, and a city that size would never
+unlock rail in play, since the unlock is 1,500 and the quick profile settles
+around 400. The harness bypasses unlocks; a player does not. **When a scenario
+measures a tool the city could not have built, the scenario is the thing that
+is wrong.**
+
+#### Where it sits, and why it is not just a better subway
+
+Fastest ride of the four and by a distance the longest wait — a regional train
+runs a few times an hour. That fixed cost is what no local trip can justify:
+the crossover against a subway lands somewhere past thirty tiles, roughly half
+a large map. The station is also the only transit building that is 2×2, and the
+land is part of the price: a bus shelter threads between blocks, a regional
+terminus takes a lot.
+
+#### Two things the render decided
+
+- **Chartreuse flooded the map.** At full brightness it is the most luminous
+  colour in the game, and its ground wash — spread over the widest catchment of
+  any mode — drowned the route line inside its own coverage field. The hue came
+  down, and `transitGroundColor` now **scales the blend by the mode's
+  catchment**: a radius-10 station covers six times the area of a radius-4 one,
+  so the same fraction that reads as a pool of light under a bus stop reads as
+  a flood under a terminus. Tied to the catchment rather than tuned per mode,
+  so a fifth cannot get it wrong.
+- **The station is a trainshed** — a long roof over two lit platforms, spanning
+  its whole lot. The tram is a kerbed island with a mast and the subway a
+  headhouse with a lit mouth, so all four stay apart while scanning a corridor
+  for gaps, which is what these icons are for.
+
+And one assertion that had quietly assumed something: the catchment test
+measured from a station's *anchor*, which is the same thing as its footprint
+only while every station is 1×1. A 2×2 station reaches one tile further, which
+is correct — a catchment is a walk from the building — and nothing had existed
+to catch it.
+
 ## The Problems view, and slowing the clock down
 
 Reported from play: *"everything is happening so fast, there's no way to check

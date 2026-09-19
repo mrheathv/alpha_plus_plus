@@ -12,6 +12,7 @@ enum TransitText {
         case .bus: return "Bus"
         case .tram: return "Tram"
         case .subway: return "Subway"
+        case .rail: return "Rail"
         }
     }
 

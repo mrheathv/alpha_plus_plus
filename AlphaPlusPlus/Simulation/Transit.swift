@@ -54,6 +54,22 @@ enum Transit {
     /// What a tram buys over a bus is the ride, not the reach.
     static let tramCatchment = 5
 
+    /// Widest of the four, because a rail station is something people travel
+    /// *to* — on foot, by bus, by tram — rather than something they happen to
+    /// walk past. It is also the only catchment big enough that siting one
+    /// station is a decision about a whole district.
+    static let railCatchment = 10
+
+    /// How close to the map's edge a rail station has to be for its line to
+    /// run off the map.
+    ///
+    /// **This is the whole regional mechanic, and it needs no new building.**
+    /// Run your line to the edge of the city and it carries on into the
+    /// region; stop short and it is an expensive subway. Two tiles rather
+    /// than one so that a station cannot fail to connect over a rounding
+    /// error in where a 2×2 footprint happens to sit.
+    static let regionalEdgeDistance = 2
+
     /// The stops on `route` that are still a station of its own kind.
     ///
     /// **The one definition of what a line actually calls at.** A stop whose
@@ -80,6 +96,7 @@ enum Transit {
         case .bus: return busCatchment
         case .tram: return tramCatchment
         case .subway: return subwayCatchment
+        case .rail: return railCatchment
         }
     }
 
@@ -102,7 +119,9 @@ enum Transit {
         switch mode {
         case .bus: return (busJamPenalty, busJamFloor)
         case .tram: return (0.25, 0.7)
-        case .subway: return (0, 1)
+        // Grade-separated, like the subway: a regional train has its own
+        // right of way and the city's traffic is not its problem.
+        case .subway, .rail: return (0, 1)
         }
     }
 
@@ -336,6 +355,71 @@ enum Transit {
         }
         return TransitCoverage(nodes: nodes, byTile: byTile)
     }
+
+    // MARK: - The region
+
+    /// Does this station sit close enough to the edge for its line to run off
+    /// the map?
+    static func isRegionalTerminus(_ station: GridPosition, in map: CityMap, size: Int) -> Bool {
+        let cells = map.footprintCells(origin: station, size: size)
+        return cells.contains { cell in
+            cell.x < regionalEdgeDistance || cell.y < regionalEdgeDistance
+                || cell.x >= map.width - regionalEdgeDistance
+                || cell.y >= map.height - regionalEdgeDistance
+        }
+    }
+
+    /// Every rail station whose line leaves the city.
+    ///
+    /// A *line* is regional if any of its stops reaches the edge — the train
+    /// runs off the map there — and then every station on it is a way out,
+    /// because you board wherever you live and stay on.
+    static func regionalTermini(in map: CityMap) -> [GridPosition] {
+        var termini: [GridPosition] = []
+        for route in map.transit.routes(mode: .rail) {
+            let stops = workingStops(of: route, in: map)
+            guard stops.count >= TransitRoute.minimumStops else { continue }
+            let size = TransitRoute.Mode.rail.stationZone.footprintSize
+            guard stops.contains(where: { isRegionalTerminus($0, in: map, size: size) }) else { continue }
+            termini.append(contentsOf: stops)
+        }
+        return termini.sortedByPosition()
+    }
+
+    /// How many people can work outside the city today.
+    ///
+    /// **Bounded by what the trains can carry**, which is the whole reason
+    /// the capacity mechanic was worth having: a regional connection is not a
+    /// switch that turns outside work on, it is a pipe of a particular size.
+    /// Want more of a bedroom community? Run more stops, or another line.
+    ///
+    /// Scaled by how the region itself is doing, which is the first time
+    /// `RegionalEconomy` has reached the city through anything other than
+    /// demand. That does mean a rail-connected city is *more* exposed to the
+    /// regional cycle than one that is not — the region hits it once through
+    /// demand and again through these jobs — and that is the intended
+    /// reading rather than an oversight: tying your fortunes to the outside
+    /// world is what connecting to it means.
+    static func outsideJobs(in map: CityMap) -> Int {
+        let capacity = map.transit.routes(mode: .rail).reduce(0) { total, route in
+            let stops = workingStops(of: route, in: map)
+            guard stops.count >= TransitRoute.minimumStops else { return total }
+            let size = TransitRoute.Mode.rail.stationZone.footprintSize
+            guard stops.contains(where: { isRegionalTerminus($0, in: map, size: size) }) else { return total }
+            return total + dailyCapacity(of: route, in: map)
+        }
+        guard capacity > 0 else { return 0 }
+        let mood = 1 + map.regionalEconomy.strength(for: .industrial)
+        return max(0, Int(Double(capacity) * mood))
+    }
+
+    /// How long the off-map half of an outside commute takes.
+    ///
+    /// Charged on top of the journey to the station, because otherwise the
+    /// terminus would read as a job sitting right there — and a regional
+    /// commute that costs no more than a walk to the platform would beat
+    /// every local job in the city.
+    static let outsideCommuteMinutes = 25.0
 
     /// The journey planner: every station-to-station cost in the city,
     /// transfers included, worked out once.

@@ -340,7 +340,7 @@ struct IsoTileRenderer {
                     ? RenderPalette.fullColor(for: service)
                     : RenderPalette.waterColor(for: false)
             )
-        case .bus, .tram, .subway:
+        case .bus, .tram, .subway, .rail:
             // Deliberately the same shape as water and power, down to the
             // highlighted source: **lit means served**, and a player who has
             // learned one of the four network overlays has learned all of

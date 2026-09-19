@@ -27,6 +27,7 @@ enum ServiceMassing {
         case .publicTransit: transitStop(footprint, &massing, &random)
         case .subway: subwayEntrance(footprint, &massing, &random)
         case .tramStop: tramPlatform(footprint, &massing, &random)
+        case .railStation: trainShed(footprint, &massing, &random)
         case .waterTower: waterTower(footprint, &massing, &random)
         case .waterPump: waterPump(footprint, &massing, &random)
         case .generator: generator(footprint, &massing, &random)
@@ -161,6 +162,45 @@ enum ServiceMassing {
         massing.add(.box(Box(x: margin + 0.1, y: margin + 0.1, z: 0.04,
                              width: width - 0.2, depth: width - 0.2, height: 0.09)),
                     .lit(NeonStyle.litAccent))
+    }
+
+    /// **A long shed over two lit platforms**, which is the one silhouette
+    /// in this game's vocabulary that reads as a railway. The tram is a kerbed
+    /// island with a mast and the subway is a headhouse with a lit mouth; this
+    /// is wide, spans its whole 2×2 lot, and shows the platforms either side
+    /// of a raised roof — so all four transit buildings stay apart while
+    /// scanning for coverage, which is what these icons are for.
+    private static func trainShed(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.12
+        let span = footprint - margin * 2
+        let platformDepth = CGFloat(random.value(in: 0.34 ... 0.44))
+
+        // Two platforms with lit edges, the length of the shed.
+        for side in [CGFloat(0), 1] {
+            let y = margin + side * (span - platformDepth)
+            massing.add(.box(Box(x: margin, y: y, z: 0,
+                                 width: span, depth: platformDepth, height: 0.12)))
+            massing.add(.box(Box(x: margin + 0.05, y: y + 0.04, z: 0.12,
+                                 width: span - 0.1, depth: platformDepth - 0.08, height: 0.03)),
+                        .lit(NeonStyle.litAccent))
+        }
+
+        // The shed: a ridge spanning both platforms, standing clear of them
+        // so the roof reads as a roof rather than as a third storey.
+        let eaves = CGFloat(random.value(in: 0.46 ... 0.62))
+        let ridge = Ridge(x: margin - 0.04, y: margin - 0.04, z: eaves,
+                          width: span + 0.08, depth: span + 0.08,
+                          height: CGFloat(random.value(in: 0.28 ... 0.40)))
+        for corner in [(CGFloat(0), CGFloat(0)), (1, 0), (0, 1), (1, 1)] {
+            massing.add(.box(Box(
+                x: margin + corner.0 * (span - 0.09),
+                y: margin + corner.1 * (span - 0.09),
+                z: 0, width: 0.09, depth: 0.09, height: eaves
+            )))
+        }
+        massing.add(.ridge(ridge))
     }
 
     /// **A raised platform under a pole**, which is a tram stop's identity

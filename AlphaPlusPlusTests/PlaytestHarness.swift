@@ -228,6 +228,14 @@ enum PlaytestHarness {
         /// Four is a plausible player network on these map sizes: long enough
         /// to cross a district, short enough that a city gets several.
         var stopsPerRoute: Int = 4
+
+        /// At most this many lines, or all of them.
+        ///
+        /// The generator wires *every* station into a route, which is a city
+        /// that has gone all-in on one mode — useful for measuring what a
+        /// network does and useless for measuring what a single line is
+        /// worth. A player builds one first.
+        var routeLimit: Int?
     }
 
     /// Lays out a city according to `spec`.
@@ -371,6 +379,7 @@ enum PlaytestHarness {
                 .map(\.position)
                 .sortedByPosition()
             for chunk in stride(from: 0, to: stations.count, by: spec.stopsPerRoute) {
+                if let limit = spec.routeLimit, map.transit.routes.count >= limit { break }
                 let stops = Array(stations[chunk ..< min(chunk + spec.stopsPerRoute, stations.count)])
                 guard stops.count >= TransitRoute.minimumStops else { continue }
                 map.transit.add(mode: mode, stops: stops)

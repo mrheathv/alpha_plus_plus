@@ -15,12 +15,13 @@ final class TransitBalanceTests: XCTestCase {
 
     /// Stations either way; `routes` is the only thing that differs.
     private func spec(
-        _ mode: TransitRoute.Mode?, routes: Bool, segregated: Bool = false
+        _ mode: TransitRoute.Mode?, routes: Bool, segregated: Bool = false, limit: Int? = nil
     ) -> PlaytestHarness.CitySpec {
         var spec = PlaytestHarness.spec()
         spec.transitStations = mode
         spec.drawTransitRoutes = routes
         spec.segregateIndustry = segregated
+        spec.routeLimit = limit
         return spec
     }
 
@@ -31,6 +32,7 @@ final class TransitBalanceTests: XCTestCase {
         let congestion: Double
         let ridership: Int
         let lines: Int
+        let outsideJobs: Int
 
         /// How full the *busiest* line is, not the average.
         ///
@@ -45,10 +47,11 @@ final class TransitBalanceTests: XCTestCase {
     }
 
     private func measure(
-        _ mode: TransitRoute.Mode?, routes: Bool = true, segregated: Bool = false
+        _ mode: TransitRoute.Mode?, routes: Bool = true, segregated: Bool = false,
+        limit: Int? = nil
     ) -> Outcome {
         let (controller, result) = PlaytestHarness.runScenario(
-            spec(mode, routes: routes, segregated: segregated), ticks: ticks
+            spec(mode, routes: routes, segregated: segregated, limit: limit), ticks: ticks
         )
         let map = controller.map
         let roads = map.tiles.filter { $0.zone == .road || $0.zone == .highway }
@@ -68,6 +71,7 @@ final class TransitBalanceTests: XCTestCase {
             congestion: congestion,
             ridership: map.trafficLoad.totalRidership ?? 0,
             lines: map.transit.routes.count,
+            outsideJobs: Transit.outsideJobs(in: map),
             busiestLoad: busiest
         )
     }
@@ -149,6 +153,7 @@ final class TransitBalanceTests: XCTestCase {
         let buses = measure(.bus, segregated: true)
         let trams = measure(.tram, segregated: true)
         let trains = measure(.subway, segregated: true)
+        let rail = measure(.rail, segregated: true)
 
         print("""
 
@@ -159,8 +164,15 @@ final class TransitBalanceTests: XCTestCase {
         | bus      | \(buses.lines) | \(buses.population) | \(String(format: "%.3f", buses.congestion)) | \(buses.ridership) | \(String(format: "%.0f%%", buses.busiestLoad * 100)) | \(buses.netRevenue) |
         | tram     | \(trams.lines) | \(trams.population) | \(String(format: "%.3f", trams.congestion)) | \(trams.ridership) | \(String(format: "%.0f%%", trams.busiestLoad * 100)) | \(trams.netRevenue) |
         | subway   | \(trains.lines) | \(trains.population) | \(String(format: "%.3f", trains.congestion)) | \(trains.ridership) | \(String(format: "%.0f%%", trains.busiestLoad * 100)) | \(trains.netRevenue) |
+        | rail     | \(rail.lines) | \(rail.population) | \(String(format: "%.3f", rail.congestion)) | \(rail.ridership) | \(String(format: "%.0f%%", rail.busiestLoad * 100)) | \(rail.netRevenue) |
 
         """)
+        // **A regional connection makes a city bigger than its own jobs.**
+        // Outside work raises residential demand, so the city grows past what
+        // it could employ itself — which is the bedroom-community strategy,
+        // and the only thing in this game that does it.
+        XCTAssertGreaterThan(rail.population, control.population,
+                             "a connection to the region bought no population at all")
 
         XCTAssertGreaterThan(buses.ridership, 0)
         XCTAssertGreaterThan(trams.ridership, buses.ridership,
@@ -235,5 +247,38 @@ final class TransitBalanceTests: XCTestCase {
         )
         XCTAssertGreaterThan(load.load(at: GridPosition(x: 20, y: 3)), 0,
                              "nobody drove, so the full line turned nobody away")
+    }
+}
+
+extension TransitBalanceTests {
+
+    /// **What is *one* line worth?**
+    ///
+    /// Every other scenario here wires every station into a route, which
+    /// measures what a network does and says nothing about the decision a
+    /// player actually faces first. A regional line is the sharpest case: it
+    /// is the one thing in the game that raises residential demand without a
+    /// building to fill the jobs, so if a single one of them is transformative
+    /// for pocket change then the lever is mis-sized.
+    func testWhatASingleRegionalLineIsWorth() {
+        let none = measure(.rail, routes: false, segregated: true)
+        let one = measure(.rail, segregated: true, limit: 1)
+        let everything = measure(.rail, segregated: true)
+
+        print("""
+
+        === One regional line against a whole network ===
+        | lines | pop | outside jobs | riders/day | net/day |
+        |-------|-----|--------------|------------|---------|
+        | \(none.lines) | \(none.population) | \(none.outsideJobs) | \(none.ridership) | \(none.netRevenue) |
+        | \(one.lines) | \(one.population) | \(one.outsideJobs) | \(one.ridership) | \(one.netRevenue) |
+        | \(everything.lines) | \(everything.population) | \(everything.outsideJobs) | \(everything.ridership) | \(everything.netRevenue) |
+
+        """)
+
+        XCTAssertEqual(none.outsideJobs, 0)
+        XCTAssertGreaterThan(one.outsideJobs, 0, "one line offered no outside work at all")
+        XCTAssertLessThan(one.outsideJobs, everything.outsideJobs,
+                          "one line was worth as much as the whole network")
     }
 }

@@ -76,6 +76,16 @@ enum Traffic {
         /// which is what keeps the transit half of the inner loop to a
         /// handful of array reads.
         let reach: [TransitCoverage.Reach]
+
+        /// Time on top of the journey to this site. Zero for a building; for
+        /// the region it is the off-map half of the trip, without which a
+        /// regional terminus would read as a job sitting right there.
+        let extraMinutes: Double
+
+        /// Is this the region rather than a building in the city? The one
+        /// thing the loop below needs to know it apart for, since a trip to
+        /// the region is still a trip and still rides a line.
+        let isOutsideTheCity: Bool
         var remainingCapacity: Int
     }
 
@@ -291,9 +301,12 @@ enum Traffic {
                     .compactMap { cell in hops[cell].map { (cell, $0) } }
                     .min { $0.1 < $1.1 }
                 let drive = nearest.map {
-                    (minutes: Double($0.1) * drivingMinutesPerTile * delay, frontageCell: $0.0)
+                    (minutes: Double($0.1) * drivingMinutesPerTile * delay + job.extraMinutes,
+                     frontageCell: $0.0)
                 }
-                let ride = network.journey(from: homeReach, to: job.reach)
+                let ride = network.journey(from: homeReach, to: job.reach).map {
+                    TransitGraph.Journey(minutes: $0.minutes + job.extraMinutes, legs: $0.legs)
+                }
                 guard let best = [drive?.minutes, ride?.minutes].compactMap({ $0 }).min() else { continue }
                 candidates.append(JobCandidate(jobIndex: index, minutes: best, drive: drive, ride: ride))
             }
@@ -468,7 +481,37 @@ enum Traffic {
                 cells: cells,
                 frontage: frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable),
                 reach: coverage.reaches(from: cells),
+                extraMinutes: 0,
+                isOutsideTheCity: false,
                 remainingCapacity: tile.density * jobCapacityPerDensityLevel
+            ))
+        }
+
+        // **The region, as a job site you cannot drive to.**
+        //
+        // Modelled as one more entry in this list rather than as a branch in
+        // the loop below, which is what makes it cost almost nothing: every
+        // rule already here — the lottery, the capacity draw-down, riding
+        // versus driving, ridership per leg — applies to it unchanged. Its
+        // frontage is deliberately empty, so no path ever reaches it and the
+        // only way out of the city is the train. There are no off-map roads
+        // in this game, and making the rail the sole way out is what gives a
+        // regional connection its point.
+        let outside = Transit.outsideJobs(in: map)
+        if outside > 0 {
+            let termini = Transit.regionalTermini(in: map)
+            let cells = termini.flatMap {
+                map.footprintCells(origin: $0, size: TransitRoute.Mode.rail.stationZone.footprintSize)
+            }
+            sites.append(JobSite(
+                cells: cells,
+                frontage: [],
+                reach: coverage.reaches(from: cells),
+                extraMinutes: Transit.outsideCommuteMinutes,
+                isOutsideTheCity: true,
+                // Held in the same density units every other site's room is,
+                // so the draw-down below needs no special case.
+                remainingCapacity: outside / ZoneType.residential.populationPerDensityLevel
             ))
         }
         return sites
