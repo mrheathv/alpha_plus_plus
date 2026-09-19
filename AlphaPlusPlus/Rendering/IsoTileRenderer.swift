@@ -20,13 +20,12 @@ struct IsoTileRenderer {
     /// sprite here" no longer answers that question.
     static let buildingNodeName = "isoBuilding"
     private static let laneNodeName = "isoLane"
-    private static let contactNodeName = "isoContact"
+    static let contactNodeName = "isoContact"
 
     /// Node names the style tests need — which check that a street actually
     /// comes back dimmer and that a building actually lights the ground it
     /// stands on, rather than trusting that a constant nobody reads changed.
     static var laneNodeNameForTesting: String { laneNodeName }
-    static var contactNodeNameForTesting: String { contactNodeName }
     static var glowNodeNameForTesting: String { glowNodeName }
 
     /// Whether a decoration is already showing what the data says, keyed on
@@ -176,7 +175,48 @@ struct IsoTileRenderer {
                               height: projection.tileHeight * size * 1.02)
         contact.position = projection.project(size / 2, size / 2, 0)
         contact.zPosition = 0.2
+        breathe(contact, tile: tile)
         node.addChild(contact)
+    }
+
+    /// **The city breathes.**
+    ///
+    /// A still city at night reads as a diorama, and what sells a place as
+    /// inhabited is that a few things change while everything else holds.
+    ///
+    /// **It is the light already there that moves, not a new mark.** The
+    /// first attempt hung a blinking beacon above every tall roof and it was
+    /// wrong twice over: it was indistinguishable from the building's own lit
+    /// crown, and at the zoom this game is played at the dot was about three
+    /// screen points — which `minimumDetailSize` says to *cut* rather than
+    /// shrink. Modulating a mark that is already a whole lot across survives
+    /// every zoom, and costs no node at all.
+    ///
+    /// A shop's sign works harder than a window does, so commerce flickers
+    /// faster and further; everything else is a slow swell you notice only
+    /// across a block. The beat and its phase come from the lot's own
+    /// position, so a row of towers does not pulse as one — the same reason
+    /// `BuildingRandom` seeds from position, and the same reason the fire's
+    /// flicker sums beats of different length.
+    ///
+    /// Kept deliberately shallow. This is meant to be felt rather than
+    /// watched: a map of lights visibly throbbing is a screensaver, not a
+    /// city.
+    private func breathe(_ light: SKSpriteNode, tile: Tile) {
+        guard tile.zone.maxDensity > 0 else { return }
+        var random = BuildingRandom(seed: tile.position, salt: 91)
+        let isSign = tile.zone == .commercial
+        let period = Double(random.value(in: isSign ? 1.1 ... 1.9 : 2.6 ... 4.2))
+        let depth: CGFloat = isSign ? 0.34 : 0.16
+        let base = light.alpha
+
+        light.run(.sequence([
+            .wait(forDuration: Double(random.value(in: 0 ... 1)) * period),
+            .repeatForever(.sequence([
+                .fadeAlpha(to: base * (1 - depth), duration: period * 0.55),
+                .fadeAlpha(to: Swift.min(1, base * (1 + depth)), duration: period * 0.45),
+            ])),
+        ]))
     }
 
     /// Corner ticks on a lot you have zoned but which has not grown anything

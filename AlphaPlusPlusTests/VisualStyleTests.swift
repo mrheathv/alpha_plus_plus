@@ -165,7 +165,7 @@ final class VisualStyleTests: XCTestCase {
         }
         let built = node(for: map[GridPosition(x: 2, y: 2)])
 
-        let contact = sprite(IsoTileRenderer.contactNodeNameForTesting, on: built)
+        let contact = sprite(IsoTileRenderer.contactNodeName, on: built)
         let pool = sprite(IsoTileRenderer.glowNodeNameForTesting, on: built)
         XCTAssertNotNil(contact, "a building is not lighting the ground it stands on")
         XCTAssertNotNil(pool)
@@ -184,7 +184,7 @@ final class VisualStyleTests: XCTestCase {
         map[GridPosition(x: 1, y: 1)].zone = .road
         for position in [GridPosition(x: 0, y: 0), GridPosition(x: 1, y: 1)] {
             let tile = node(for: map[position])
-            XCTAssertNil(sprite(IsoTileRenderer.contactNodeNameForTesting, on: tile),
+            XCTAssertNil(sprite(IsoTileRenderer.contactNodeName, on: tile),
                          "\(map[position].zone) is lighting the ground as though a building stood on it")
         }
     }
@@ -195,8 +195,62 @@ final class VisualStyleTests: XCTestCase {
         var map = CityMap(width: 8, height: 8)
         map.placeBuilding(zone: .commercial, origin: GridPosition(x: 2, y: 2))
         let tile = node(for: map[GridPosition(x: 2, y: 2)])
-        XCTAssertNil(sprite(IsoTileRenderer.contactNodeNameForTesting, on: tile),
+        XCTAssertNil(sprite(IsoTileRenderer.contactNodeName, on: tile),
                      "a surveyed lot with no building on it is already lighting the pavement")
+    }
+
+    /// A still city reads as a diorama. The light a lot throws swells and
+    /// fades so the map looks inhabited — and it is the light *already there*
+    /// that moves, because a new mark small enough to sit on a roof is about
+    /// three screen points at normal zoom, which is under
+    /// `NeonStyle.minimumDetailSize`.
+    func testABuiltLotsLightBreathes() {
+        var map = CityMap(width: 8, height: 8)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 2, y: 2))
+        for cell in map.footprintCells(origin: GridPosition(x: 2, y: 2), size: 2) {
+            map[cell].density = 4
+        }
+        let contact = sprite(IsoTileRenderer.contactNodeName,
+                             on: node(for: map[GridPosition(x: 2, y: 2)]))
+        XCTAssertTrue(contact?.hasActions() ?? false,
+                      "the city is holding perfectly still")
+    }
+
+    /// Neighbours must not pulse as one — a map blinking in lockstep is a
+    /// screensaver. Two lots the same in every way except position should get
+    /// different beats.
+    func testNeighboursDoNotBreatheInStep() {
+        var map = CityMap(width: 12, height: 8)
+        for origin in [GridPosition(x: 2, y: 2), GridPosition(x: 6, y: 2)] {
+            map.placeBuilding(zone: .residential, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 4 }
+        }
+        let renderer = IsoTileRenderer(projection: Isometric())
+        func beat(_ position: GridPosition) -> TimeInterval {
+            let node = renderer.makeNode(for: map[position])
+            let light = node.children.first { $0.name == IsoTileRenderer.contactNodeName }
+            return light?.action(forKey: "")?.duration ?? light?.children.first?.action(forKey: "")?.duration ?? 0
+        }
+        _ = beat(GridPosition(x: 2, y: 2))
+
+        // Compared on the seeded parameters rather than by reaching into
+        // SpriteKit's action tree, which is not introspectable enough to be
+        // worth the reach.
+        var left = BuildingRandom(seed: GridPosition(x: 2, y: 2), salt: 91)
+        var right = BuildingRandom(seed: GridPosition(x: 6, y: 2), salt: 91)
+        XCTAssertNotEqual(left.value(in: 0 ... 1), right.value(in: 0 ... 1),
+                          "two lots draw the same beat, so a row of them pulses as one")
+    }
+
+    /// The city breathing is the city being *inhabited*, so it stops when the
+    /// city does — the same side of the line as the traffic, and the opposite
+    /// side from a placement flash, which answers a click and has to keep
+    /// running while paused or it would never fade away.
+    func testTheBreathingStopsWhenTheCityDoes() {
+        XCTAssertTrue(
+            GameScene.simulationDrivenNodeNamesForTesting.contains(IsoTileRenderer.contactNodeName),
+            "a paused city is still breathing"
+        )
     }
 
     // MARK: - The ladder itself

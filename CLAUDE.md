@@ -4294,6 +4294,43 @@ textbook third cue, and on a map this size it trades a real gameplay property
 — being able to read the far side of your own city — for a subtle one.
 `RetroShader`'s vignette already supplies a little of it for free.
 
+### Phase 5 (done): the city breathes
+
+A still city at night reads as a diorama. What sells a place as inhabited is
+that some of it changes while the rest holds.
+
+**It is the light already there that moves, not a new mark**, and the first
+attempt getting that wrong is the useful part. It hung a small blinking
+beacon above every tall roof — an aviation light on housing and industry, a
+marquee on dense commerce — and it failed twice over:
+
+- **It was indistinguishable from the building's own lit crown.** A soft
+  additive blob on top of a tower that already ends in a lit crown is just
+  more crown.
+- **It was about three screen points.** At the zoom the game is actually
+  played at, a 0.12-tile dot is under `NeonStyle.minimumDetailSize`, which
+  says to **cut a mark that cannot be drawn big enough, not shrink it**. The
+  rule was written for facade details and applies identically here.
+
+So the pulse went onto the contact light instead — a mark that is already a
+whole lot across, survives every zoom, and costs no node at all. A shop's
+sign works harder than a window does, so commerce flickers faster and further
+(34%) than everything else (16%), which is a slow swell you notice across a
+block rather than on one building.
+
+The beat and its phase are seeded from the lot's own position, so a row of
+towers does not pulse as one. Same reason `BuildingRandom` seeds from
+position, and the same reason the fire's flicker sums beats of different
+length.
+
+Kept deliberately shallow: this is meant to be *felt* rather than watched. A
+map of lights visibly throbbing is a screensaver, not a city.
+
+The contact light joins `animatedBySimulation`, so it stops when the city
+does — the same side of that line as the traffic, and the opposite side from
+a placement flash, which answers a *click* and therefore has to keep running
+while paused or it would never fade away.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

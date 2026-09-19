@@ -390,6 +390,11 @@ final class GameScene: SKScene {
     /// answering the player do not.
     private static let animatedBySimulation: Set<String> = [
         trafficCarNodeName, IsoTileRenderer.fireNodeName,
+        // A lot's light breathing is the city being inhabited, so it stops
+        // when the city does — same side of the line as the traffic, and the
+        // opposite side from a placement flash, which answers a *click* and
+        // so has to keep running while paused or it would never fade away.
+        IsoTileRenderer.contactNodeName,
     ]
 
     /// Applies the current pause state to one tile's animations — for
