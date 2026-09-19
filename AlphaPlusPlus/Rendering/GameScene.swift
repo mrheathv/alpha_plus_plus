@@ -1015,6 +1015,27 @@ final class GameScene: SKScene {
     /// so the mutable bookkeeping itself stays private.
     var tileNodesForTesting: [GridPosition: SKNode] { tileNodes }
 
+    /// A PNG of the city as it stands.
+    ///
+    /// **Captured from the live view rather than an offscreen one**, and that
+    /// is a constraint rather than a preference: `presentScene` *replaces*
+    /// what a view is showing, so rendering this scene into a second view to
+    /// get a bigger image would swap the running game out from under the
+    /// player. This project has already shipped that bug once — the texture
+    /// cache borrowed `GameScene`'s own view and froze the map the first time
+    /// a building grew. A capture takes the backing scale it is given, which
+    /// on any Mac worth screenshotting on is already 2×.
+    ///
+    /// Includes the shader pass, because the scanlines and the vignette are
+    /// the look — a capture without them would be a picture of a frame the
+    /// game never draws, which is the same objection `ZoneStreetscapeTests`
+    /// records about rendering without the post-process.
+    func captureImage() -> Data? {
+        guard let view, let texture = view.texture(from: self) else { return nil }
+        let image = NSBitmapImageRep(cgImage: texture.cgImage())
+        return image.representation(using: .png, properties: [:])
+    }
+
     /// The surrounding land, for the test that it is actually there.
     ///
     /// Worth pinning because nothing else in the suite would notice it going:

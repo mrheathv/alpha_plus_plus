@@ -4584,7 +4584,41 @@ in two different APIs:
   untouched, which in a bitmap with an alpha channel is not "dark", it is
   *nothing* — the first icon had a white bottom half.
 
-Still open in this phase: a screenshot camera.
+#### The screenshot camera
+
+An App Store listing is mostly screenshots, and a screenshot of this game
+with the cockpit in it is a screenshot of a *toolbar* — the tool rail and the
+dashboard are between a third and a half of the window, and they are the half
+nobody is buying. **Screenshot Mode** (⇧⌘K) strips all of it, the inspector
+and route editor included: a panel floating over an otherwise clean frame is
+worse than the full cockpit, because it reads as something left switched on
+by accident.
+
+**Capture Screenshot…** (⇧⌘P) writes the PNG itself rather than leaving it to
+the OS, which is both higher fidelity than a window grab and the only route
+that works at all over the remote session this project is usually driven from
+— `screencapture` fails there, as does accessibility scripting against the
+menu bar.
+
+Two constraints worth recording:
+
+- **It captures from the live view, not an offscreen one.** Rendering this
+  scene into a second view to get a larger image would swap the running game
+  out from under the player: `presentScene` *replaces* what a view is
+  showing, and this project has already shipped that exact bug once, when the
+  texture cache borrowed `GameScene`'s own view and froze the map the first
+  time a building grew. A capture takes the backing scale it is given, which
+  on any Mac worth screenshotting on is already 2×.
+- **It includes the shader pass**, because the scanlines and the vignette
+  *are* the look. A capture without them would be a picture of a frame the
+  game never draws — the same objection `ZoneStreetscapeTests` records about
+  reviewing art without the post-process.
+
+The menu cannot reach the scene (it is private to `GameView`), so the command
+bumps `screenshotRequests` and the view does the work — the same shape
+`cityGeneration`, `manualAdvanceRequests` and `restyleRequests` already use.
+
+That completes phase 6, and with it the six-phase visual overhaul.
 
 ## Looking at the art without playing to it
 

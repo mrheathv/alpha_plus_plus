@@ -107,6 +107,23 @@ struct AlphaPlusPlusApp: App {
 
                 // A title screen you cannot get back to is a splash screen.
                 Button("Main Menu") { document.isShowingTitle = true }
+
+                Divider()
+
+                // **Both halves of taking a screenshot.** The toggle strips
+                // the chrome so the window is only city; the capture writes a
+                // PNG without going through the OS at all, which is both
+                // higher fidelity than a window grab and the only route that
+                // works when `screencapture` is unavailable — as it is over
+                // the remote session this project is usually driven from.
+                Toggle("Screenshot Mode", isOn: Binding(
+                    get: { document.controller.isScreenshotMode },
+                    set: { document.controller.isScreenshotMode = $0 }
+                ))
+                .keyboardShortcut("k", modifiers: [.command, .shift])
+
+                Button("Capture Screenshot…") { document.controller.requestScreenshot() }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
             }
 
             CommandMenu("Overlay") {

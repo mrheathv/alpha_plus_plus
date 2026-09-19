@@ -280,6 +280,46 @@ final class VisualStyleTests: XCTestCase {
                              "the badge is too small for the symbol inside it to resolve")
     }
 
+    // MARK: - The screenshot camera
+
+    /// An App Store listing is mostly screenshots, and the capture has to
+    /// actually produce an image — a menu item that quietly returns nil is
+    /// the exact shape of dead control this file exists to catch.
+    func testTheCityCanPhotographItself() {
+        let controller = GameController(map: cityWithAStreet(), rng: SeededRNG(seed: 4))
+        let scene = GameScene(controller: controller)
+        scene.size = CGSize(width: 640, height: 400)
+        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        scene.refreshAll()
+
+        let data = scene.captureImage()
+        XCTAssertNotNil(data, "the city would not photograph itself")
+        let image = NSBitmapImageRep(data: data ?? Data())
+        XCTAssertGreaterThanOrEqual(image?.pixelsWide ?? 0, Int(scene.size.width),
+                                    "the capture came back smaller than the window")
+    }
+
+    /// Screenshot mode is a mode, so it has to be one someone can leave.
+    func testScreenshotModeIsOffByDefaultAndReversible() {
+        let controller = GameController(map: cityWithAStreet(), rng: SeededRNG(seed: 4))
+        XCTAssertFalse(controller.isScreenshotMode)
+        controller.isScreenshotMode = true
+        controller.isScreenshotMode = false
+        XCTAssertFalse(controller.isScreenshotMode)
+    }
+
+    /// The menu cannot reach the scene, so it bumps a counter the view
+    /// watches — the same shape `cityGeneration` and `restyleRequests` use.
+    func testAskingForACaptureReachesTheView() {
+        let controller = GameController(map: cityWithAStreet(), rng: SeededRNG(seed: 4))
+        let before = controller.screenshotRequests
+        controller.requestScreenshot()
+        XCTAssertEqual(controller.screenshotRequests, before + 1,
+                       "the capture command does not reach the view that owns the scene")
+    }
+
     // MARK: - The ladder itself
 
     /// The point of the pass: pavement below buildings. Asserted on the

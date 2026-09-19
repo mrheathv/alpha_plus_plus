@@ -78,6 +78,32 @@ final class GameController: ObservableObject {
     /// zero consequence beyond "placement stops working," not a deliberate
     /// borrowing tool. `issueBond()`/`repayBond(_:)` are the only ways this
     /// changes.
+    /// Chrome off, city only.
+    ///
+    /// An App Store listing is mostly screenshots, and a screenshot of this
+    /// game with the cockpit in it is a screenshot of a *toolbar*. The tool
+    /// rail and the dashboard are between a third and a half of the window,
+    /// and they are the half nobody is buying.
+    ///
+    /// On the controller rather than the view for the same reason
+    /// `isShowingCityPanel` is: there are two routes to it, a menu item and a
+    /// keyboard shortcut, and a mode needs one owner. The inspector and the
+    /// route editor go with the rest of the chrome — they are panels, and a
+    /// panel floating over an otherwise clean frame is worse than the full
+    /// cockpit, because it reads as something left switched on by accident.
+    @Published var isScreenshotMode = false
+
+    /// Bumped when something outside the view asks for a capture.
+    ///
+    /// The same shape `manualAdvanceRequests` and `restyleRequests` already
+    /// use, and for the same reason: the scene is private to `GameView`, and
+    /// menus are built out where a view's state is out of reach.
+    @Published private(set) var screenshotRequests = 0
+
+    func requestScreenshot() {
+        screenshotRequests += 1
+    }
+
     /// Whether City Hall is open.
     ///
     /// On the controller rather than the document because there are two routes

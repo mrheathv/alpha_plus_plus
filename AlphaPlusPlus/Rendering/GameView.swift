@@ -51,7 +51,7 @@ struct GameView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            toolRail
+            if !controller.isScreenshotMode { toolRail }
             Group {
                 if let scene {
                     GameSpriteView(scene: scene)
@@ -60,8 +60,8 @@ struct GameView: View {
                 }
             }
             .frame(minWidth: 760, minHeight: 420)
-            .overlay(alignment: .topTrailing) { inspector }
-            .overlay(alignment: .topLeading) { transitEditor }
+            .overlay(alignment: .topTrailing) { if !controller.isScreenshotMode { inspector } }
+            .overlay(alignment: .topLeading) { if !controller.isScreenshotMode { transitEditor } }
             // **Focus on the map, not on the window.** `onKeyPress` needs a
             // focusable view, and putting it here rather than on the whole
             // `VStack` is what makes the City Hall sheet behave: a sheet takes
@@ -79,7 +79,7 @@ struct GameView: View {
             // A key held down when the window loses focus never sends its
             // `.up`, which would leave the camera sliding forever.
             .onChange(of: heldKeys.isEmpty) { syncKeyboardPan() }
-            dashboard
+            if !controller.isScreenshotMode { dashboard }
         }
         .onChange(of: controller.cityGeneration) {
             // A load can change the tile count, so the scene's sprites no
@@ -89,6 +89,7 @@ struct GameView: View {
             scene?.rebuildEntireGrid()
             scene?.centerCameraOnMap()
         }
+        .onChange(of: controller.screenshotRequests) { saveScreenshot() }
         .onChange(of: controller.restyleRequests) {
             // A style change redraws the same city rather than a different
             // one, so no recentre — the camera should not move under a player
@@ -166,6 +167,26 @@ struct GameView: View {
     /// width, and the readouts always lost because the tools are what a player
     /// clicks. They are different kinds of thing — one is a verb, the other is
     /// the city answering back — so they get different edges of the screen.
+    /// Writes a capture wherever the player says.
+    ///
+    /// A save panel rather than a fixed folder, because a screenshot is
+    /// something you are about to *do something with* — attach it, upload it,
+    /// put it in a listing — and having to go and find it first is the kind
+    /// of small tax that makes a feature not get used.
+    private func saveScreenshot() {
+        guard let data = scene?.captureImage() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        // Named for the city's own calendar, so a folder of captures sorts
+        // into the order the city grew in.
+        let date = controller.map.date
+        panel.nameFieldStringValue =
+            String(format: "Alpha++ %04d-%02d-%02d.png", date.year, date.month, date.dayOfMonth)
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? data.write(to: url)
+    }
+
     private var toolRail: some View {
         zoningRow
             .padding(.horizontal, RetroMetrics.gutter)
