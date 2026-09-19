@@ -326,7 +326,10 @@ enum LandValue {
     /// map. Keeping both behind a single function is what stops the fast path
     /// from quietly disagreeing with the slow one — and `LandValueTests` pins
     /// that agreement across a whole map rather than trusting it.
-    private static func distanceToNearest(
+    /// Internal rather than private since `ServiceCoverage` asks the same
+    /// question in tiles rather than as a falloff — it is still the one
+    /// definition, which is the property that matters.
+    static func distanceToNearest(
         _ zone: ZoneType,
         from position: GridPosition,
         in map: CityMap,

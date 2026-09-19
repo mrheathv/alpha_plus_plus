@@ -322,10 +322,14 @@ struct IsoTileRenderer {
             let risk = mode == .police ? CityHazards.crime : CityHazards.fire
             let tile = map[position]
             let service = risk.coveringService
-            let coverage = LandValue.falloffValue(
-                nearestZone: service,
-                falloffDistance: LandValue.serviceFalloffDistance,
-                at: position, in: map, using: distances
+            // **The ground now fades out exactly where protection stops.**
+            // This was painted from the land-value falloff, which reaches
+            // half again as far as a station actually protects — so the
+            // outer third of the glow a player uses to site the next station
+            // was promising cover that was not there. `ServiceCoverage`
+            // answers the question the view is actually asking.
+            let coverage = ServiceCoverage.strength(
+                at: position, from: service, in: map, using: distances
             )
             let safe = !CityHazards.isExposed(tile, to: risk, in: map, using: distances)
             return OverlayPaint(

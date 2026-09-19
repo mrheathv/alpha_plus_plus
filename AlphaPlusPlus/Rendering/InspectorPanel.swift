@@ -132,15 +132,15 @@ struct InspectorPanel: View {
         VStack(alignment: .leading, spacing: 5) {
             RetroSectionLabel(text: "Services in range")
             HStack(spacing: 5) {
-                pill("Police", on: report.policeCoverage >= CityHazards.crime.coverageThreshold,
+                pill("Police", on: report.servedByPolice,
                      accent: RetroUITheme.accent(for: .policeStation))
-                pill("Fire", on: report.fireCoverage >= CityHazards.fire.coverageThreshold,
+                pill("Fire", on: report.servedByFire,
                      accent: RetroUITheme.accent(for: .fireStation))
             }
             HStack(spacing: 5) {
-                pill("School", on: report.schoolCoverage >= CitySimulator.educationCoverageThreshold,
+                pill("School", on: report.servedBySchool,
                      accent: RetroUITheme.accent(for: .school))
-                pill("Hospital", on: report.hospitalCoverage >= CityHazards.fire.coverageThreshold,
+                pill("Hospital", on: report.servedByHospital,
                      accent: RetroUITheme.accent(for: .hospital))
             }
         }

@@ -201,30 +201,40 @@ final class TileReportTests: XCTestCase {
     func testTheReportedStatusPredictsWhatTheNextTickActuallyDoes() {
         let spec = PlaytestHarness.spec()
         let (controller, _) = PlaytestHarness.runScenario(spec, ticks: 0, seed: 77)
-        for _ in 0 ..< 120 { controller.advanceSimulation() }
-
-        let before = controller.map
-        let field = ZoneDistanceField.compute(for: before)
-        var rng = AlwaysZeroRNG() // every probability gate clears
-        let after = CitySimulator.advance(before, using: &rng)
 
         var checkedBlocked = 0
         var checkedReady = 0
-        for tile in before.tiles where tile.isBuildingAnchor && tile.zone.maxDensity > 0 {
-            let status = CitySimulator.status(of: tile, in: before, using: field)
-            let grew = after[tile.position].constructionRemaining != nil
-                && before[tile.position].constructionRemaining == nil
+        // **Sampled across the city's whole climb, not at one arbitrary
+        // moment.** This used to run 120 ticks and check once, and the
+        // precondition "at least one lot is merely waiting on demand" quietly
+        // stopped holding the moment services reached further and more lots
+        // could top out — a settled city is *all* `atMaximumDensity`, so the
+        // positive half of the agreement had nothing left to check. Where a
+        // city is in its growth is not something this test should depend on.
+        for _ in 0 ..< 3 {
+            for _ in 0 ..< 40 { controller.advanceSimulation() }
 
-            switch status {
-            case .readyToGrow:
-                checkedReady += 1
-                XCTAssertTrue(grew, "\(tile.position) was reported ready and did not start building")
-            case .needsLandValue, .needsWater, .needsPower, .needsSchool,
-                 .atMaximumDensity, .noRoadAccess, .beingAbandoned, .decliningToSustainable:
-                checkedBlocked += 1
-                XCTAssertFalse(grew, "\(tile.position) was reported blocked (\(status)) and grew anyway")
-            case .notGrowable, .damaged, .burning, .underConstruction:
-                continue
+            let before = controller.map
+            let field = ZoneDistanceField.compute(for: before)
+            var rng = AlwaysZeroRNG() // every probability gate clears
+            let after = CitySimulator.advance(before, using: &rng)
+
+            for tile in before.tiles where tile.isBuildingAnchor && tile.zone.maxDensity > 0 {
+                let status = CitySimulator.status(of: tile, in: before, using: field)
+                let grew = after[tile.position].constructionRemaining != nil
+                    && before[tile.position].constructionRemaining == nil
+
+                switch status {
+                case .readyToGrow:
+                    checkedReady += 1
+                    XCTAssertTrue(grew, "\(tile.position) was reported ready and did not start building")
+                case .needsLandValue, .needsWater, .needsPower, .needsSchool,
+                     .atMaximumDensity, .noRoadAccess, .beingAbandoned, .decliningToSustainable:
+                    checkedBlocked += 1
+                    XCTAssertFalse(grew, "\(tile.position) was reported blocked (\(status)) and grew anyway")
+                case .notGrowable, .damaged, .burning, .underConstruction:
+                    continue
+                }
             }
         }
         print("\nstatus agreement: \(checkedReady) ready lots, \(checkedBlocked) blocked lots")

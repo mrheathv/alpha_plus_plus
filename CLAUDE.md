@@ -1813,6 +1813,169 @@ and measured that way it is exact: **borrowing to the cap costs 37/tick against
 37 of interest.** That the quick profile is structurally marginal is a real
 finding, and it belongs to the rebalance.
 
+## How far a service reaches, and a quiet first season
+
+Both reported from play, and the second one turned out to be structural
+rather than a number needing a nudge.
+
+### Nothing burns in the first ninety days
+
+*"Perhaps we need to make it so there's no fires for at least the first few
+minutes — a player is probably building all new buildings and might not have
+made a fire station yet."*
+
+That is this project's own standing rule, unapplied: **every warning the game
+raises has to have an answer the player can act on right now.** It is why the
+starter utilities exist — a new city used to show "no water" badges while the
+tower was still locked at 100 residents. A fire on day three is the same bug
+wearing a different coat: the answer to a fire is a fire station, and a city
+with no residents has neither built one nor unlocked it.
+
+`CityHazards.gracePeriodDays` is 90. Days rather than an unlock check, for two
+reasons — a police or fire station unlocks at 40 residents, which a zoned city
+passes in a couple of weeks, so gating on the unlock alone would end the grace
+almost immediately and leave the reported problem exactly where it was; and a
+span of days is something the calendar can *say*, now that the city is founded
+in spring 1985 and dated. Three months is roughly three minutes at
+`SimulationSpeed.normal`, and comfortably shorter than the ~160 days a city
+takes to settle, so it quietens the opening rather than removing hazards from
+the early game.
+
+Fire *spread* is not separately gated: nothing can be alight to spread from.
+
+### The radius was one number doing two jobs
+
+*"The police and fire radius is a big problem in the gameplay."* Measured
+before touching it, which is what turned a balance complaint into a structural
+one.
+
+Protection was expressed as a threshold on a land-value gradient:
+
+```swift
+LandValue.falloffValue(nearestZone: service,
+                       falloffDistance: LandValue.serviceFalloffDistance,  // 12
+                       at: cell, in: map, using: distances) >= 0.3
+```
+
+Six copies of that — hazards, fire containment, the repair gate, schooling,
+hospital range, and a sixth inline in `CityHazards.apply`, in the same file as
+the doc comment explaining that a second copy of `isExposed` would drift. Four
+separately-named `0.3` constants, all equal by coincidence of everyone picking
+0.3, all resolving to the same thing: **a protected radius of 8 tiles.**
+
+Three problems fell out of that arithmetic, none of them visible as a number
+anyone had written down:
+
+- **A 64×64 map wanted 28 police stations and 28 fire stations** at perfect
+  packing, each a 2×2 building. That is not a decision, it is an obligation.
+- **Funding was a cliff, not a dial.** It multiplied into the value before the
+  comparison, so 1.0 → 0.5 took the radius from 8 to 4 — a 72% loss of *area*
+  — and any funding at or below 0.3 protected nothing anywhere, including the
+  station's own lot.
+- **The overlay overstated coverage by half.** The Crime and Fire Risk views
+  painted their ground from the same falloff, which runs to 12 — so the outer
+  third of the glow a player uses to site the next station was promising cover
+  that was not there.
+
+And underneath all three: `serviceFalloffDistance` is how far a station
+projects **land value**, an amenity felt as desirability. It was also, by
+accident, how far the station **protects**. There was no way to make a police
+station cover more ground without making it a bigger amenity, and no way to
+tune desirability without silently moving every hazard in the game. That is
+exactly the separation `Transit` already had to draw between a catchment and a
+land-value falloff — *"tying them would make a balance change to one a silent
+change to the other"* — never carried back here.
+
+`ServiceCoverage` is reach as a real distance in tiles, separate from land
+value, funding-scaled linearly. One concept, one knob:
+
+| | before | after |
+|---|---|---|
+| protected radius | 8 tiles | **14** |
+| tiles one station covers | 145 | **421** |
+| stations a 64×64 map wants | 28 of each | **~10 of each** |
+| 40×40 | 11 | ~4 |
+| half funding | radius 4 (area −72%) | radius 7 (area −75%… of a much larger circle, and linear) |
+| funding ≤ 0.3 | nothing protected at all | proportionally smaller, down to nothing at zero |
+
+`ServiceCoverageTests` pins the geometry, prints the station count into the
+build log, and asserts the two properties that were previously accidents:
+that `strength` is positive **exactly** where `serves` is true — so the
+overlay can never again depict a catchment it does not have — and that reach
+and the land-value falloff are not the same number.
+
+Two side effects worth naming, both improvements the refactor made structural
+rather than documented:
+
+- **The repair invariant is no longer a comment.** It used to read
+  "`repairCoverageThreshold` is deliberately the same number as
+  `CityHazards.Risk.coverageThreshold`", which is an instruction to a future
+  reader to keep two constants equal. Repair now asks `ServiceCoverage` the
+  same question the hazard asked, so the condition *is* "fix the gap that
+  caused this".
+- **The inspector's pills stopped thresholding a gradient.** They tested
+  `report.policeCoverage >= CityHazards.crime.coverageThreshold`, borrowing a
+  hazard constant as a display cutoff. Under the new model that would have lit
+  "Police" for the inner seven-tenths of a catchment and left the rest dark.
+  `TileReport` carries the boolean now; a reach is a yes/no, and the gradient
+  is for shading a map.
+
+#### What it did to the rest of the balance
+
+Every number went **up**, because coverage reaching further means more lots
+clear the school gate and reach the top tier. On the quick profile a settled
+city went from 388 residents to 456, and transit ridership rose across the
+board with it.
+
+One test failed on that, and it is worth recording because the answer was
+neither "the change is wrong" nor "relax the assertion".
+`testTransitEarnsItsKeepWhereTheCommuteIsLong` asserts a tram carries more
+than a bus over the same stations, and at 24×24 that flipped: 120 riders
+against 128, where before it read 88 against 80.
+
+Re-measured at the profile the claim was originally made on, it is untouched:
+
+| 64×64, 1500 days | riders/day | congestion | pop |
+|---|---|---|---|
+| idle stops | 0 | 0.211 | 3,012 |
+| bus | 1,912 | 0.139 | 3,528 |
+| **tram** | **3,464** | 0.117 | 3,576 |
+| subway | 6,352 | 0.038 | 4,056 |
+
+A 1.8× margin, essentially the 3,444 against 1,904 recorded when the tram
+landed. So the property is real and the quick profile simply cannot see it:
+three lines over a 24×24 town is not a network, and the tram's quarter-lane
+costs about as much as its speed buys back at that size. It is also a tool
+that city could not have built — a tram stop unlocks at 450 residents and the
+quick profile settles around 450.
+
+That is the **same** finding the rail scenario already recorded: *when a
+scenario measures a tool the city could not have built, the scenario is the
+thing that is wrong.* The tram/bus ordering is now asserted only under
+`PLAYTEST_FULL`, where it is a measurement rather than a coin flip; the
+subway/bus ordering, which holds at both sizes, still runs with the suite.
+
+Worth keeping generally, because it is the third time this has come up in a
+different costume: **a bound that holds by a few percent on numbers under a
+hundred is not a regression test, it is a coin toss with a comment on it.**
+
+#### And one fixture that had gone degenerate
+
+`testTheReportedStatusPredictsWhatTheNextTickActuallyDoes` grew a city for 120
+ticks and checked once, needing at least one lot that was merely *waiting on
+demand*. With services reaching further more lots could top out, so a settled
+city became all `atMaximumDensity` and the positive half of the agreement had
+nothing left to check — it failed on its own precondition, which is the good
+version of this failure. It samples across the city's whole climb now, since
+where a city happens to be in its growth is not something that test should
+depend on.
+
+Every hazard fixture also had to be aged past the grace period
+(`CityMap.agedPastTheHazardGracePeriod()`), which moves the clock rather than
+ticking the simulation — ticking to day 90 would grow, decline and possibly
+burn the very city the test is about to assert on.
+
+
 ## The inspector (in progress)
 
 The city runs about ten systems that interact, and the player's only window

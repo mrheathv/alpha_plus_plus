@@ -101,7 +101,7 @@ final class CivicServicesTests: XCTestCase {
                 map.placeBuilding(zone: .hospital, origin: GridPosition(x: 0, y: 4))
             }
             var rng = AlwaysZeroRNG() // every hazard roll succeeds
-            let (next, strikes) = CityHazards.apply([CityHazards.fire], to: map, using: &rng)
+            let (next, strikes) = CityHazards.apply([CityHazards.fire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
             XCTAssertFalse(strikes.isEmpty, "the fixture never caught fire")
             return next[GridPosition(x: 0, y: 0)].density
         }
@@ -125,7 +125,7 @@ final class CivicServicesTests: XCTestCase {
         map.placeBuilding(zone: .hospital, origin: GridPosition(x: 0, y: 4))
 
         var rng = AlwaysZeroRNG()
-        let (next, strikes) = CityHazards.apply([CityHazards.crime], to: map, using: &rng)
+        let (next, strikes) = CityHazards.apply([CityHazards.crime], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertFalse(strikes.isEmpty)
         XCTAssertEqual(CityHazards.crime.densityLoss, 1, "this test assumes crime costs one level")

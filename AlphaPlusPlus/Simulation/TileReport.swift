@@ -55,6 +55,20 @@ struct TileReport: Equatable {
     let schoolCoverage: Double
     let hospitalCoverage: Double
 
+    /// Whether each service actually *reaches* this lot.
+    ///
+    /// Separate from the gradients above, and not re-derived from them by
+    /// comparing against a threshold — which is what the inspector's pills
+    /// used to do, with `CityHazards.crime.coverageThreshold` borrowed as a
+    /// cutoff. A reach is a yes/no (`ServiceCoverage.serves`); the gradient
+    /// is for shading a map. Asking the second to answer the first is how the
+    /// panel came to light "Police" for the inner seven-tenths of a catchment
+    /// and leave the rest dark.
+    let servedByPolice: Bool
+    let servedByFire: Bool
+    let servedBySchool: Bool
+    let servedByHospital: Bool
+
     // MARK: - Surroundings
 
     /// How desirable this lot is, which is what gates every level above the
@@ -114,14 +128,18 @@ struct TileReport: Equatable {
         let anchor = map[tile.buildingOrigin]
         let footprint = map.footprintCells(origin: tile.buildingOrigin, size: anchor.zone.footprintSize)
 
+        // The *protection* the player is asking about, not the land value the
+        // station also happens to project — see `ServiceCoverage`. The two
+        // were one number until they were separated, which is why a block
+        // could read as having some police cover and still be robbed.
         func coverage(_ service: ZoneType) -> Double {
             footprint.map {
-                LandValue.falloffValue(
-                    nearestZone: service,
-                    falloffDistance: LandValue.serviceFalloffDistance,
-                    at: $0, in: map, using: field
-                )
+                ServiceCoverage.strength(at: $0, from: service, in: map, using: field)
             }.max() ?? 0
+        }
+
+        func served(_ service: ZoneType) -> Bool {
+            ServiceCoverage.serves(footprint, service, in: map, using: field)
         }
 
         let police = coverage(.policeStation)
@@ -153,6 +171,10 @@ struct TileReport: Equatable {
             fireCoverage: fire,
             schoolCoverage: coverage(.school),
             hospitalCoverage: coverage(.hospital),
+            servedByPolice: served(.policeStation),
+            servedByFire: served(.fireStation),
+            servedBySchool: served(.school),
+            servedByHospital: served(.hospital),
             landValue: footprint.map { LandValue.value(at: $0, in: map, using: field) }.max() ?? 0,
             pollution: footprint.map { map.pollution.level(at: $0) }.max() ?? 0,
             congestion: roadCongestion(around: footprint, in: map),

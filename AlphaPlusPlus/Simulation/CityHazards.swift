@@ -14,13 +14,16 @@ import Foundation
 enum CityHazards {
 
     /// One hazard rule: which zones it threatens, which service defends
-    /// against it, how little of that service counts as "unprotected," how
-    /// likely it is to strike an unprotected tile on a given step, and how
-    /// much density it costs when it does.
+    /// against it, how likely it is to strike an unprotected tile on a given
+    /// step, and how much density it costs when it does.
+    ///
+    /// How much of the service counts as "protected" is no longer a field
+    /// here: it was a threshold on a land-value gradient, and every system in
+    /// the game had its own separately-named copy of the same `0.3`. It is
+    /// one question with one answer now — see `ServiceCoverage`.
     struct Risk {
         let zones: Set<ZoneType>
         let coveringService: ZoneType
-        let coverageThreshold: Double
         let chancePerTick: Double
         let densityLoss: Int
     }
@@ -42,7 +45,7 @@ enum CityHazards {
     /// of those overlapping on the map every tick reads exactly as
     /// "flickering," not as the occasional, noticeable "oh no, a fire"
     /// event a hazard is supposed to be. The coverage gate below
-    /// (`coverageThreshold`) means this only ever fires on *already
+    /// (`ServiceCoverage`) means this only ever fires on *already
     /// under-covered* buildings, but real cities inevitably have some —
     /// map edges, gaps between service buildings — so the fix is the same
     /// shape as the two upstream in this pass: the rate itself, not just
@@ -52,7 +55,6 @@ enum CityHazards {
     static let fire = Risk(
         zones: [.industrial, .commercial],
         coveringService: .fireStation,
-        coverageThreshold: 0.3,
         chancePerTick: 0.005,
         densityLoss: 2
     )
@@ -65,7 +67,6 @@ enum CityHazards {
     static let crime = Risk(
         zones: [.residential, .commercial],
         coveringService: .policeStation,
-        coverageThreshold: 0.3,
         chancePerTick: 0.004,
         densityLoss: 1
     )
@@ -96,13 +97,38 @@ enum CityHazards {
     ///
     /// Processes each building once at its anchor (`Tile.isBuildingAnchor`),
     /// using the *best*-covered cell of its footprint against
-    /// `coverageThreshold` — a building is only "unprotected" if every
+    /// `ServiceCoverage.serves` — a building is only "unprotected" if every
     /// corner is — and, if a risk triggers, applies the same `densityLoss`
     /// to every cell in the footprint, so a 2×2 building never ends up with
     /// mismatched density across its own cells.
+    /// **Nothing burns or is burgled in the first season.**
+    ///
+    /// Reported from play: a new city catches fire while the player is still
+    /// laying their first roads, and the answer to a fire — a fire station —
+    /// is not something they have yet. That is precisely the rule this
+    /// project already wrote down for the starter utilities: *every warning
+    /// the game raises has to have an answer the player can act on right
+    /// now.* A city showing errors for a problem it is forbidden to fix is
+    /// the same bug wearing a different coat.
+    ///
+    /// Ninety days rather than a population or an unlock check, for two
+    /// reasons. A police station and a fire station unlock at 40 residents,
+    /// which a zoned city passes in a couple of weeks — so gating on the
+    /// unlock alone would end the grace almost immediately and leave the
+    /// reported problem in place. And a flat span of days is something the
+    /// calendar can *say*: the city is founded in spring 1985 and the first
+    /// hazard cannot land before that summer is out.
+    ///
+    /// Three months is also roughly three minutes at `SimulationSpeed.normal`
+    /// and comfortably shorter than the ~160 days a city takes to settle, so
+    /// this quietens the opening rather than removing hazards from the early
+    /// game.
+    static let gracePeriodDays = 90
+
     static func apply<RNG: RandomNumberGenerator>(_ risks: [Risk] = all, to map: CityMap, using rng: inout RNG) -> (map: CityMap, strikes: [Strike]) {
         var next = map
         var strikes: [Strike] = []
+        guard map.elapsedDays >= gracePeriodDays else { return (next, strikes) }
         // Same reasoning as `CitySimulator.advance`: one precomputed field for
         // the whole sweep instead of a full map scan per coverage query. See
         // `ZoneDistanceField`.
@@ -111,15 +137,15 @@ enum CityHazards {
             guard tile.density > 0 else { continue }
             let footprint = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
             for risk in risks where risk.zones.contains(tile.zone) {
-                let bestCoverage = footprint.map {
-                    LandValue.falloffValue(nearestZone: risk.coveringService, falloffDistance: LandValue.serviceFalloffDistance, at: $0, in: map, using: distances)
-                }.max() ?? 0
-                guard bestCoverage < risk.coverageThreshold else { continue }
+                // `isExposed` rather than a second copy of its condition.
+                // There *was* a second copy here — in the same file as the
+                // doc comment explaining that a second copy always drifts.
+                guard isExposed(tile, to: risk, in: map, using: distances) else { continue }
                 let chance = risk.chancePerTick * ordinanceMultiplier(for: risk, in: map)
                 guard Double.random(in: 0 ..< 1, using: &rng) < chance else { continue }
                 // A hospital in range halves what the hazard takes out. It
                 // does not stop the fire — coverage by the *relevant* service
-                // is what prevents a strike, and that is `coverageThreshold`
+                // is what prevents a strike, and that is `ServiceCoverage`
                 // above — but it is the difference between a setback and a
                 // block being flattened, which is what a health service is
                 // for. It also gives the hospital a role of its own rather
@@ -176,14 +202,7 @@ enum CityHazards {
     ) -> Bool {
         guard tile.density > 0, risk.zones.contains(tile.zone) else { return false }
         let footprint = map.footprintCells(origin: tile.buildingOrigin, size: tile.zone.footprintSize)
-        let best = footprint.map {
-            LandValue.falloffValue(
-                nearestZone: risk.coveringService,
-                falloffDistance: LandValue.serviceFalloffDistance,
-                at: $0, in: map, using: distances
-            )
-        }.max() ?? 0
-        return best < risk.coverageThreshold
+        return !ServiceCoverage.serves(footprint, risk.coveringService, in: map, using: distances)
     }
 
     /// What one strike of `risk` costs a building, hospital coverage
@@ -201,7 +220,7 @@ enum CityHazards {
     ) -> Int {
         // A hospital in range halves what the hazard takes out. It does not
         // stop the fire — coverage by the *relevant* service is what prevents
-        // a strike, and that is `coverageThreshold` — but it is the difference
+        // a strike, and that is `ServiceCoverage` — but it is the difference
         // between a setback and a block being flattened, which is what a
         // health service is for. It also gives the hospital a role of its own
         // rather than making it a second police station.
@@ -215,13 +234,7 @@ enum CityHazards {
         in map: CityMap,
         using distances: ZoneDistanceField
     ) -> Bool {
-        footprint.contains { cell in
-            LandValue.falloffValue(
-                nearestZone: .hospital,
-                falloffDistance: LandValue.serviceFalloffDistance,
-                at: cell, in: map, using: distances
-            ) >= 0.3
-        }
+        ServiceCoverage.serves(footprint, .hospital, in: map, using: distances)
     }
 
 }

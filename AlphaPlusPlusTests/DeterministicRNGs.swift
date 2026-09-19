@@ -223,3 +223,26 @@ struct ScriptedRNG: RandomNumberGenerator {
         return UInt64(fraction * Double(1 << 53))
     }
 }
+
+extension CityMap {
+
+    /// A map old enough for hazards to happen on.
+    ///
+    /// `CityHazards.gracePeriodDays` keeps a new city quiet for its first
+    /// season, because a fire the player cannot answer — the fire station
+    /// unlocks at 40 residents, and a brand-new city has none — is the same
+    /// bug as a "no water" warning with the tower still locked. Every fixture
+    /// about what a hazard *does* is therefore about a city past that point,
+    /// and a fresh `CityMap` starts on day zero.
+    ///
+    /// Advances the city's one clock (`RegionalEconomy.elapsed`, which
+    /// `elapsedDays` reads) rather than ticking the simulation, so the
+    /// fixture's buildings are exactly where the test put them. Ticking to
+    /// day 90 would grow, decline and possibly burn the very city the test is
+    /// about to make an assertion on.
+    func agedPastTheHazardGracePeriod() -> CityMap {
+        var map = self
+        map.regionalEconomy.elapsed = CityHazards.gracePeriodDays
+        return map
+    }
+}

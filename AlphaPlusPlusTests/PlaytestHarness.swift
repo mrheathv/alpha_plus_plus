@@ -62,7 +62,7 @@ enum PlaytestHarness {
     /// tuning. Enable the latter with `PLAYTEST_FULL=1` — via xcodebuild that
     /// is `TEST_RUNNER_PLAYTEST_FULL=1`, since xcodebuild only forwards
     /// environment variables carrying that prefix, which it strips.
-    enum Profile {
+    enum Profile: Equatable {
         /// Small and short: a regression guard that runs with the suite.
         case quick
         /// Full-size and long: what a real balance measurement uses.

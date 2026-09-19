@@ -14,7 +14,7 @@ final class CityHazardsTests: XCTestCase {
         map[GridPosition(x: 0, y: 1)].zone = .fireStation // distance 1 -> coverage ~0.917, well above the 0.3 threshold
 
         var rng = SystemRandomNumberGenerator()
-        let result = CityHazards.apply([CityHazards.fire], to: map, using: &rng)
+        let result = CityHazards.apply([CityHazards.fire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(result.map[position].density, 3)
         XCTAssertTrue(result.strikes.isEmpty)
@@ -31,11 +31,11 @@ final class CityHazardsTests: XCTestCase {
         // No fire station anywhere -> coverage is 0, below any threshold.
         let guaranteedFire = CityHazards.Risk(
             zones: [.industrial], coveringService: .fireStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 2
+            chancePerTick: 1.0, densityLoss: 2
         )
 
         var rng = SystemRandomNumberGenerator()
-        let result = CityHazards.apply([guaranteedFire], to: map, using: &rng)
+        let result = CityHazards.apply([guaranteedFire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(result.map[position].density, 1) // 3 - 2
         XCTAssertEqual(result.strikes, [CityHazards.Strike(position: position, coveringService: .fireStation)])
@@ -50,11 +50,11 @@ final class CityHazardsTests: XCTestCase {
         map[position].density = 3
         let neverFire = CityHazards.Risk(
             zones: [.industrial], coveringService: .fireStation,
-            coverageThreshold: 0.3, chancePerTick: 0.0, densityLoss: 2
+            chancePerTick: 0.0, densityLoss: 2
         )
 
         var rng = SystemRandomNumberGenerator()
-        let result = CityHazards.apply([neverFire], to: map, using: &rng)
+        let result = CityHazards.apply([neverFire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(result.map[position].density, 3)
         XCTAssertTrue(result.strikes.isEmpty)
@@ -67,11 +67,11 @@ final class CityHazardsTests: XCTestCase {
         map[position].density = 1
         let guaranteedFire = CityHazards.Risk(
             zones: [.industrial], coveringService: .fireStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 2
+            chancePerTick: 1.0, densityLoss: 2
         )
 
         var rng = SystemRandomNumberGenerator()
-        let result = CityHazards.apply([guaranteedFire], to: map, using: &rng)
+        let result = CityHazards.apply([guaranteedFire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(result.map[position].density, 0)
     }
@@ -85,11 +85,11 @@ final class CityHazardsTests: XCTestCase {
         map[position].density = 3
         let guaranteedFire = CityHazards.Risk(
             zones: [.industrial, .commercial], coveringService: .fireStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 2
+            chancePerTick: 1.0, densityLoss: 2
         )
 
         var rng = SystemRandomNumberGenerator()
-        let result = CityHazards.apply([guaranteedFire], to: map, using: &rng)
+        let result = CityHazards.apply([guaranteedFire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(result.map[position].density, 3)
         XCTAssertTrue(result.strikes.isEmpty)
@@ -101,11 +101,11 @@ final class CityHazardsTests: XCTestCase {
         map[position].zone = .industrial // density 0: just zoned, nothing built
         let guaranteedFire = CityHazards.Risk(
             zones: [.industrial], coveringService: .fireStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 2
+            chancePerTick: 1.0, densityLoss: 2
         )
 
         var rng = SystemRandomNumberGenerator()
-        let result = CityHazards.apply([guaranteedFire], to: map, using: &rng)
+        let result = CityHazards.apply([guaranteedFire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(result.map[position].density, 0)
         XCTAssertTrue(result.strikes.isEmpty)
@@ -126,16 +126,16 @@ final class CityHazardsTests: XCTestCase {
         map[position].density = 3
         let guaranteedCrime = CityHazards.Risk(
             zones: [.residential], coveringService: .policeStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 1
+            chancePerTick: 1.0, densityLoss: 1
         )
 
         var withoutOrdinanceRNG = AlwaysMaxRNG()
-        let withoutOrdinance = CityHazards.apply([guaranteedCrime], to: map, using: &withoutOrdinanceRNG)
+        let withoutOrdinance = CityHazards.apply([guaranteedCrime], to: map.agedPastTheHazardGracePeriod(), using: &withoutOrdinanceRNG)
         XCTAssertFalse(withoutOrdinance.strikes.isEmpty, "chance 1.0 should always strike regardless of the roll")
 
         map.ordinances.neighborhoodWatch = true
         var withOrdinanceRNG = AlwaysMaxRNG()
-        let withOrdinance = CityHazards.apply([guaranteedCrime], to: map, using: &withOrdinanceRNG)
+        let withOrdinance = CityHazards.apply([guaranteedCrime], to: map.agedPastTheHazardGracePeriod(), using: &withOrdinanceRNG)
         XCTAssertTrue(withOrdinance.strikes.isEmpty, "halved to 0.5, the same near-1.0 roll should no longer clear it")
     }
 
@@ -148,16 +148,16 @@ final class CityHazardsTests: XCTestCase {
         map[position].density = 3
         let guaranteedFire = CityHazards.Risk(
             zones: [.industrial], coveringService: .fireStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 2
+            chancePerTick: 1.0, densityLoss: 2
         )
 
         var withoutOrdinanceRNG = AlwaysMaxRNG()
-        let withoutOrdinance = CityHazards.apply([guaranteedFire], to: map, using: &withoutOrdinanceRNG)
+        let withoutOrdinance = CityHazards.apply([guaranteedFire], to: map.agedPastTheHazardGracePeriod(), using: &withoutOrdinanceRNG)
         XCTAssertFalse(withoutOrdinance.strikes.isEmpty)
 
         map.ordinances.fireInspections = true
         var withOrdinanceRNG = AlwaysMaxRNG()
-        let withOrdinance = CityHazards.apply([guaranteedFire], to: map, using: &withOrdinanceRNG)
+        let withOrdinance = CityHazards.apply([guaranteedFire], to: map.agedPastTheHazardGracePeriod(), using: &withOrdinanceRNG)
         XCTAssertTrue(withOrdinance.strikes.isEmpty)
     }
 
@@ -173,11 +173,11 @@ final class CityHazardsTests: XCTestCase {
         map.ordinances.fireInspections = true
         let guaranteedCrime = CityHazards.Risk(
             zones: [.residential], coveringService: .policeStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 1
+            chancePerTick: 1.0, densityLoss: 1
         )
 
         var rng = AlwaysMaxRNG()
-        let result = CityHazards.apply([guaranteedCrime], to: map, using: &rng)
+        let result = CityHazards.apply([guaranteedCrime], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertFalse(result.strikes.isEmpty, "an unrelated ordinance shouldn't have softened this risk's chance")
     }
@@ -196,11 +196,11 @@ final class CityHazardsTests: XCTestCase {
         }
         let guaranteedFire = CityHazards.Risk(
             zones: [.industrial], coveringService: .fireStation,
-            coverageThreshold: 0.3, chancePerTick: 1.0, densityLoss: 2
+            chancePerTick: 1.0, densityLoss: 2
         )
 
         var rng = SystemRandomNumberGenerator()
-        let result = CityHazards.apply([guaranteedFire], to: map, using: &rng)
+        let result = CityHazards.apply([guaranteedFire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         for cell in map.footprintCells(origin: origin, size: 2) {
             XCTAssertEqual(result.map[cell].density, 1) // 3 - 2, same on every cell
@@ -221,7 +221,7 @@ final class CityHazardsTests: XCTestCase {
         }
 
         var rng = AlwaysZeroRNG() // clears every hazard roll
-        let (next, strikes) = CityHazards.apply([CityHazards.fire], to: map, using: &rng)
+        let (next, strikes) = CityHazards.apply([CityHazards.fire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertFalse(strikes.isEmpty, "the fixture never caught fire, so this proved nothing")
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].damagedBy, .fireStation)

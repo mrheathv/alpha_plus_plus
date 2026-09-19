@@ -16,6 +16,8 @@ final class InspectorTextTests: XCTestCase {
             jobs: density * zone.jobsPerDensityLevel,
             hasWater: false, hasPower: false,
             policeCoverage: 0, fireCoverage: 0, schoolCoverage: 0, hospitalCoverage: 0,
+            servedByPolice: false, servedByFire: false,
+            servedBySchool: false, servedByHospital: false,
             landValue: landValue, pollution: 0, congestion: 0, infrastructureCondition: 1,
             commuteFound: commute == nil ? nil : true, commute: commute,
             isExposedToCrime: false, isExposedToFire: false

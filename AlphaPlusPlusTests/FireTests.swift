@@ -194,7 +194,7 @@ final class FireTests: XCTestCase {
         }
 
         var rng = AlwaysZeroRNG()
-        let (struck, strikes) = CityHazards.apply([CityHazards.fire], to: map, using: &rng)
+        let (struck, strikes) = CityHazards.apply([CityHazards.fire], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(strikes.count, 1, "precondition: nothing was struck")
         XCTAssertTrue(struck[GridPosition(x: 2, y: 2)].isBurning,
@@ -214,7 +214,7 @@ final class FireTests: XCTestCase {
         }
 
         var rng = AlwaysZeroRNG()
-        let (struck, strikes) = CityHazards.apply([CityHazards.crime], to: map, using: &rng)
+        let (struck, strikes) = CityHazards.apply([CityHazards.crime], to: map.agedPastTheHazardGracePeriod(), using: &rng)
 
         XCTAssertEqual(strikes.count, 1, "precondition: nothing was struck")
         XCTAssertFalse(struck[GridPosition(x: 2, y: 2)].isBurning, "a burglary set the block on fire")

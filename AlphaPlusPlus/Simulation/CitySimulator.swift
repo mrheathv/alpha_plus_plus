@@ -321,18 +321,11 @@ enum CitySimulator {
     /// something a player has to go and build for, and gives the mid-game its
     /// own objective the way water and power give the early game theirs.
     ///
-    /// Uses `educationCoverageThreshold` rather than a simple
-    /// present-or-absent check, because unlike a pipe or a power line a school
-    /// serves a *radius* — the question is "is this block in a school's
-    /// catchment," not "is a school connected to it."
+    /// Asks `ServiceCoverage` rather than making a present-or-absent check,
+    /// because unlike a pipe or a power line a school serves a *radius* — the
+    /// question is "is this block in a school's catchment," not "is a school
+    /// connected to it."
     static let educationRequiredFromLevel = 5
-
-    /// How much school coverage a block needs to reach
-    /// `educationRequiredFromLevel`. The same bar `CityHazards` uses for its
-    /// own coverage checks, for the same reason the repair threshold reuses
-    /// it: one "is this adequately served" standard across the game rather
-    /// than a different number per system.
-    static let educationCoverageThreshold = 0.3
 
     /// `growthChance(for:)`'s floor, at demand -1 (the city is drowning
     /// in this type already).
@@ -370,16 +363,6 @@ enum CitySimulator {
     /// type outpaces another for a few ticks — never triggers it. It takes
     /// sustained, serious oversupply, or a punishing tax rate, to reach.
     static let abandonmentDemand = -0.75
-
-    /// How much coverage a damaged building needs before it rebuilds.
-    ///
-    /// Deliberately the same number as `CityHazards.Risk.coverageThreshold`,
-    /// which is the level *below* which a hazard can strike at all. One
-    /// constant, read two ways: a block burns because coverage was too thin,
-    /// and rebuilds exactly when coverage stops being too thin. So the repair
-    /// condition is literally "fix the gap that caused this," rather than a
-    /// second, unrelated bar the player has to learn.
-    static let repairCoverageThreshold = 0.3
 
     /// How likely a damaged building with *no* covering service is to rebuild
     /// itself anyway, on any given tick.

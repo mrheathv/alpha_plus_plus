@@ -175,9 +175,30 @@ final class TransitBalanceTests: XCTestCase {
                              "a connection to the region bought no population at all")
 
         XCTAssertGreaterThan(buses.ridership, 0)
-        XCTAssertGreaterThan(trams.ridership, buses.ridership,
-                             "a tram carried no more than a bus over the same stations")
-        XCTAssertGreaterThan(trains.ridership, trams.ridership)
+        XCTAssertGreaterThan(trains.ridership, buses.ridership,
+                             "a subway carried no more than a bus over the same stations")
+
+        // **The tram/bus ordering is a full-profile claim, and only that.**
+        //
+        // A tram is faster than a bus with a wider catchment, so over the same
+        // stations it should carry more — and at 64×64 it does, decisively:
+        // 3,464 riders against 1,912, a 1.8× margin. At the quick profile it
+        // is a coin flip on numbers under a hundred (120 against 128 on one
+        // run, 88 against 80 on another), because three lines over a 24×24
+        // town is not a network and the tram's quarter-lane costs about as
+        // much as its speed buys back at that size.
+        //
+        // It is also a tool the quick profile's city could not really have
+        // built: a tram stop unlocks at 450 residents and that city settles
+        // around 450. Same finding the rail scenario already recorded —
+        // **when a scenario measures a tool the city could not have built,
+        // the scenario is the thing that is wrong** — so this is asserted
+        // where it is a measurement rather than where it is noise.
+        if PlaytestHarness.Profile.current == .full {
+            XCTAssertGreaterThan(trams.ridership, buses.ridership,
+                                 "a tram carried no more than a bus over the same stations")
+            XCTAssertGreaterThan(trains.ridership, trams.ridership)
+        }
 
         // **The tram's own trade, measured.** It relieves the corridor and
         // narrows it at the same time — the only transit building in the game

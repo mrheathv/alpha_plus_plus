@@ -222,13 +222,7 @@ extension CitySimulator {
     static func hasSchooling(
         _ footprint: [GridPosition], in map: CityMap, using distances: ZoneDistanceField? = nil
     ) -> Bool {
-        footprint.contains { cell in
-            LandValue.falloffValue(
-                nearestZone: .school,
-                falloffDistance: LandValue.serviceFalloffDistance,
-                at: cell, in: map, using: distances
-            ) >= educationCoverageThreshold
-        }
+        ServiceCoverage.serves(footprint, .school, in: map, using: distances)
     }
 
     /// Is the service a damaged block is waiting on actually reaching it?
@@ -236,12 +230,12 @@ extension CitySimulator {
         _ footprint: [GridPosition], by service: ZoneType,
         in map: CityMap, using distances: ZoneDistanceField? = nil
     ) -> Bool {
-        footprint.contains { cell in
-            LandValue.falloffValue(
-                nearestZone: service,
-                falloffDistance: LandValue.serviceFalloffDistance,
-                at: cell, in: map, using: distances
-            ) >= repairCoverageThreshold
-        }
+        // The invariant this used to state as "`repairCoverageThreshold` is
+        // deliberately the same number as `CityHazards.Risk.coverageThreshold`"
+        // is now structural: repair asks `ServiceCoverage` the same question
+        // the hazard asked, so the repair condition *is* "fix the gap that
+        // caused this" rather than two constants a comment asks you to keep
+        // equal.
+        ServiceCoverage.serves(footprint, service, in: map, using: distances)
     }
 }

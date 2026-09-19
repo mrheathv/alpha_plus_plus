@@ -50,8 +50,8 @@ enum Fire {
 
     /// What fire-station coverage does to those two rates.
     ///
-    /// Coverage does not make a block fireproof — `CityHazards.Risk`'s
-    /// `coverageThreshold` is what prevents the strike, and a covered block
+    /// Coverage does not make a block fireproof — being inside a fire
+    /// station's reach is what prevents the strike, and a covered block
     /// that burns anyway got unlucky. What coverage buys is *containment*: the
     /// fire goes out roughly three times faster and is about seven times less
     /// likely to jump. The asymmetry is deliberate. A fire service that merely
@@ -60,14 +60,6 @@ enum Fire {
     /// that difference is the thing the player is buying.
     static let containedBurnoutMultiplier = 3.0
     static let containedSpreadMultiplier = 0.15
-
-    /// Coverage at or above this counts as "the fire brigade got there".
-    ///
-    /// Deliberately the same number as `CityHazards.Risk.coverageThreshold`
-    /// and `CitySimulator.repairCoverageThreshold`, for the same reason those
-    /// two already agree with each other: a player should have exactly one
-    /// notion of "is this block covered", not three that differ by a tenth.
-    static let containmentThreshold = 0.3
 
     // MARK: - The tick
 
@@ -150,13 +142,7 @@ enum Fire {
     private static func isContained(
         _ footprint: [GridPosition], in map: CityMap, using distances: ZoneDistanceField
     ) -> Bool {
-        footprint.contains { cell in
-            LandValue.falloffValue(
-                nearestZone: .fireStation,
-                falloffDistance: LandValue.serviceFalloffDistance,
-                at: cell, in: map, using: distances
-            ) >= containmentThreshold
-        }
+        ServiceCoverage.serves(footprint, .fireStation, in: map, using: distances)
     }
 
     /// Every building a fire on `footprint` could jump to: the anchors of the
