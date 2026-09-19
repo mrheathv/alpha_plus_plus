@@ -34,7 +34,7 @@ final class PauseStopsTheCityTests: XCTestCase {
     }
 
     private func animated(in scene: GameScene, named name: String) -> [SKNode] {
-        scene.allTileNodesForTesting.flatMap { $0.children.filter { $0.name == name } }
+        scene.tileNodesForTesting.values.flatMap { $0.children.filter { $0.name == name } }
     }
 
     // MARK: -
@@ -92,7 +92,7 @@ final class PauseStopsTheCityTests: XCTestCase {
         scene.refreshAll()
         scene.update(1)
 
-        let node = try! XCTUnwrap(scene.allTileNodesForTesting.first)
+        let node = try! XCTUnwrap(scene.tileNodesForTesting.values.first)
         XCTAssertFalse(node.isPaused, "a whole tile was paused, which would freeze its flashes too")
         XCTAssertFalse(scene.isPaused, "the scene was paused, which takes the camera with it")
     }

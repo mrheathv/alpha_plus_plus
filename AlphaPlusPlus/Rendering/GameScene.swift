@@ -366,14 +366,18 @@ final class GameScene: SKScene {
         trafficCarNodeName, IsoTileRenderer.fireNodeName,
     ]
 
-    private var animationsPaused = false
-
     /// Applies the current pause state to one tile's animations — for
     /// decorations built *while* paused, which happens whenever a placement
     /// refreshes a tile with the game stopped.
+    ///
+    /// Reads `isRunning` at the point of use rather than a flag cached by
+    /// `syncAnimationPause`. The cached version was wrong whenever a refresh
+    /// happened before the first frame — which the real app never does and a
+    /// test harness does constantly, and which is the same "a cache that can
+    /// be stale" shape as every bug this harness exists to find.
     private func applyAnimationPause(to node: SKNode) {
         for child in node.children where Self.animatedBySimulation.contains(child.name ?? "") {
-            child.isPaused = animationsPaused
+            child.isPaused = !controller.isRunning
         }
     }
 
@@ -383,12 +387,16 @@ final class GameScene: SKScene {
     /// five hundred tile nodes, which is nothing once, and pointless sixty
     /// times a second.
     private func syncAnimationPause() {
-        guard animationsPaused != !controller.isRunning else { return }
-        animationsPaused = !controller.isRunning
+        guard renderedRunning != controller.isRunning else { return }
+        renderedRunning = controller.isRunning
         for node in tileNodes.values {
             applyAnimationPause(to: node)
         }
     }
+
+    /// Whether the tiles were last touched while the city was running — only
+    /// to spot the *transition*, never to decide what a node should be.
+    private var renderedRunning: Bool?
 
     override func update(_ currentTime: TimeInterval) {
         super.update(currentTime)
@@ -464,9 +472,17 @@ final class GameScene: SKScene {
     /// so clearing tiles never requires switching the toolbar away from
     /// whatever zone you're placing.
     override func mouseDown(with event: NSEvent) {
-        lastPaintPosition = nil
-        placementPreviewNode.isHidden = true
+        beginStroke()
         place(with: event)
+    }
+
+    /// What a fresh press clears before the first tile of a stroke: the drag
+    /// state, so the stroke starts here rather than continuing from wherever
+    /// the pointer last was.
+    func beginStroke() {
+        lastPaintPosition = nil
+        lastBulldozePosition = nil
+        placementPreviewNode.isHidden = true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -477,8 +493,7 @@ final class GameScene: SKScene {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        lastBulldozePosition = nil
-        placementPreviewNode.isHidden = true
+        beginStroke()
         bulldoze(with: event)
     }
 
@@ -488,6 +503,18 @@ final class GameScene: SKScene {
 
     private func place(with event: NSEvent) {
         guard let position = gridPosition(of: event) else { return }
+        place(at: position)
+    }
+
+    /// Everything a left click does once the pointer has been turned into a
+    /// tile — which view is taking the click, the drag stroke, the refresh.
+    ///
+    /// Split from the `NSEvent` so it can be driven without one. The scene
+    /// playtest walks *this*, not the mouse handler above it: every bug play
+    /// has turned up so far has lived below the pointer, and synthesising
+    /// `NSEvent`s would mostly re-test the coordinate maths, which
+    /// `testTileNodesSitWhereTheProjectionSaysTheyDo` already pins.
+    func place(at position: GridPosition) {
 
         // The Water overlay doubles as the pipe-editing layer — whatever
         // zone tool happens to be selected on the toolbar is irrelevant
@@ -497,7 +524,7 @@ final class GameScene: SKScene {
         if controller.overlayMode == .water {
             for step in stroke(from: lastPaintPosition, to: position) {
                 let outcome = controller.layPipe(at: step)
-                refresh(step)
+                refreshConduitNeighbours(of: step)
                 if outcome == .insufficientFunds {
                     flashInsufficientFunds(at: step)
                     break // same tile-price-doesn't-change-mid-stroke reasoning as below
@@ -527,7 +554,7 @@ final class GameScene: SKScene {
         if controller.overlayMode == .power {
             for step in stroke(from: lastPaintPosition, to: position) {
                 let outcome = controller.layPowerLine(at: step)
-                refresh(step)
+                refreshConduitNeighbours(of: step)
                 if outcome == .insufficientFunds {
                     flashInsufficientFunds(at: step)
                     break
@@ -607,11 +634,16 @@ final class GameScene: SKScene {
 
     private func bulldoze(with event: NSEvent) {
         guard let position = gridPosition(of: event) else { return }
+        bulldoze(at: position)
+    }
+
+    /// The right-click erase, below the pointer — see `place(at:)`.
+    func bulldoze(at position: GridPosition) {
 
         if controller.overlayMode == .water {
             for step in stroke(from: lastBulldozePosition, to: position) {
                 controller.removePipe(at: step)
-                refresh(step)
+                refreshConduitNeighbours(of: step)
             }
             lastBulldozePosition = position
             return
@@ -619,7 +651,7 @@ final class GameScene: SKScene {
         if controller.overlayMode == .power {
             for step in stroke(from: lastBulldozePosition, to: position) {
                 controller.removePowerLine(at: step)
-                refresh(step)
+                refreshConduitNeighbours(of: step)
             }
             lastBulldozePosition = position
             return
@@ -657,6 +689,27 @@ final class GameScene: SKScene {
     /// tolerates elsewhere (`syncTrafficAnimation`'s own doc comment) —
     /// roads are drawn in long strokes the player is watching closely as
     /// they happen, not placed once and left alone.
+    /// Redraws a buried tile *and the four around it*.
+    ///
+    /// **A conduit's mark is a statement about its neighbours**, exactly as a
+    /// road's lane line is — `Infrastructure.conduitMask` reads all four — so
+    /// laying one changes how the ones already there should be drawn. Nothing
+    /// told them: every joint in a freshly dragged run stayed drawn as the
+    /// dead end it was when it went down, and the whole run read as a chain of
+    /// disconnected stubs until a tick repainted the map. While paused, which
+    /// is when a player actually lays pipe, that is never.
+    ///
+    /// `refreshRoadNeighbors` has done the same thing for lane lines since
+    /// roads had connectivity; the buried layers simply never got their
+    /// version. Unconditional about zone, because a conduit goes under
+    /// anything.
+    private func refreshConduitNeighbours(of position: GridPosition) {
+        refresh(position)
+        for neighbour in position.orthogonalNeighbors() where map.contains(neighbour) {
+            refresh(neighbour)
+        }
+    }
+
     private func refreshRoadNeighbors(of position: GridPosition) {
         for neighbor in position.orthogonalNeighbors() where map.contains(neighbor) {
             let zone = map[neighbor].zone
@@ -848,14 +901,9 @@ final class GameScene: SKScene {
     var tileNodesForTesting: [GridPosition: SKNode] { tileNodes }
     var tileLayerChildCountForTesting: Int { tileLayer.children.count }
 
-    /// Every building's node, for tests that ask what is actually on the map
-    /// — the decorations hang off these, so "did the traffic stop" is a
-    /// question about their children.
-    var allTileNodesForTesting: [SKNode] { Array(tileNodes.values) }
-
-    func tileNodeForTesting(at position: GridPosition) -> SKNode? { tileNodes[position] }
-
     static var trafficCarNodeNameForTesting: String { trafficCarNodeName }
+
+    static var simulationDrivenNodeNamesForTesting: Set<String> { animatedBySimulation }
 
     func rebuildEntireGrid() {
         tileLayer.removeAllChildren()
@@ -906,8 +954,19 @@ final class GameScene: SKScene {
                 let node = tileRenderer.makeNode(for: map[cell])
                 tileLayer.addChild(node)
                 tileNodes[cell] = node
-                syncTrafficAnimation(at: cell)
-                syncLaneLine(at: cell)
+                // **A full refresh, not two hand-picked decorations.** This
+                // used to sync the traffic and the lane line and nothing else,
+                // so a rebuilt tile came back missing its utility warning, its
+                // damage marker, its scaffold, its fire — and, once overlays
+                // existed, wearing no overlay at all. Placing anything
+                // therefore stripped a nine-by-nine patch of the map back to
+                // a bare Normal view until the next tick repainted it, which
+                // while the game is paused is never.
+                //
+                // Found by the scene playtest, which is exactly the shape of
+                // bug it was built for: nothing failed, the map was simply
+                // showing less than it knew.
+                refresh(cell)
             }
         }
     }
@@ -1042,14 +1101,19 @@ final class GameScene: SKScene {
             // **Every cell of the building, not just its anchor.** A pipe
             // goes under anything, including the cells of a block that have
             // no node of their own — see `IsoTileRenderer.syncConduits`.
-            if controller.overlayMode == .water {
-                tileRenderer.syncConduits(on: node, isPipe: true,
-                                          segments: conduitSegments(of: tile, isPipe: true))
-            }
-            if controller.overlayMode == .power {
-                tileRenderer.syncConduits(on: node, isPipe: false,
-                                          segments: conduitSegments(of: tile, isPipe: false))
-            }
+            // **Both layers, every time — one of them empty.** These used to
+            // be drawn only by the view that owns them and never taken away by
+            // any other, so going from Water to Power left the pipes on the
+            // map underneath the power lines. Asking for the empty set is how
+            // a layer gets cleared; skipping the call is how it lingers.
+            tileRenderer.syncConduits(
+                on: node, isPipe: true,
+                segments: controller.overlayMode == .water ? conduitSegments(of: tile, isPipe: true) : []
+            )
+            tileRenderer.syncConduits(
+                on: node, isPipe: false,
+                segments: controller.overlayMode == .power ? conduitSegments(of: tile, isPipe: false) : []
+            )
             // The rails, in the one view that has something to say about the
             // ground — a tram is the only mode that costs the street
             // anything, so the Tram view has to show which streets paid.

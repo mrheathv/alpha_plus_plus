@@ -35,7 +35,7 @@ final class OverlayKeepsUpTests: XCTestCase {
     }
 
     private func buildingSprite(_ scene: GameScene, at position: GridPosition) -> SKSpriteNode? {
-        scene.tileNodeForTesting(at: position)?
+        scene.tileNodesForTesting[position]?
             .childNode(withName: IsoTileRenderer.buildingNodeName) as? SKSpriteNode
     }
 

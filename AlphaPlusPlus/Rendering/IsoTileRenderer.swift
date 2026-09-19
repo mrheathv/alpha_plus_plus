@@ -1234,6 +1234,8 @@ struct IsoTileRenderer {
 
     private static let flashNodeName = "isoFlash"
 
+    static var flashNodeNameForTesting: String { flashNodeName }
+
     /// A car sprite, from the cache.
     ///
     /// Cars were three shape nodes and a trail each. A busy city has hundreds

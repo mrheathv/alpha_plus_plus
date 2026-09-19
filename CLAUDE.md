@@ -2007,6 +2007,81 @@ The overlay picker is driven by `OverlayMode.allCases`, so adding the two cases
 was the whole UI change; and the render picks them up automatically now that
 both it and `GameScene` share `IsoTileRenderer.paint`.
 
+## The scene playtest: play the game, and check the picture kept up
+
+Three bugs in a row came back from play with one shape — the simulation right
+and the scene quietly disagreeing. A pipe that existed and was not drawn, a
+building that grew and was not redrawn, cars driving around a stopped city. Not
+one could have been caught by anything in the suite, and **not by accident**:
+every render test takes a still picture of a freshly built scene, and all three
+bugs need *change over time* to exist at all.
+
+`ScenePlaytest` drives a real `GameScene` through real actions — place, drag,
+lay pipe, change view, pause, tick — and after each one asks whether the scene
+still agrees with the map. It goes in below the mouse handlers, at
+`GameScene.place(at:)`: every bug so far has lived there or deeper, and
+synthesising `NSEvent`s would mostly re-test coordinate maths that is already
+pinned.
+
+### The yardstick is a second scene, not a second opinion
+
+`SceneAgreement` does not describe what a lot *should* draw. It builds a
+throwaway scene from the same city and asks whether the incrementally-updated
+one matches it.
+
+That distinction is the whole design. This project has been bitten three times
+by a yardstick that reimplemented the thing it measured and so agreed with
+itself forever — a streetscape painting its own flat tiles, an overlay render
+carrying its own stale switch, hazard damage computed twice. A written-down
+table of what each zone draws would have been the fourth.
+
+It compares two things per tile: **how many** of each decoration (which catches
+one missing or duplicated — a pipe segment under a covered cell) and **the
+cache key each was built from** (which catches one that is merely *stale*,
+since a building drawn at the wrong density is still exactly one building). The
+key is what the renderer itself recorded about the state it drew, so comparing
+two of them compares two runs of the same code.
+
+Being honest about the limit: this cannot catch a renderer that draws the wrong
+thing *consistently*. It catches one that has fallen behind — which is every
+bug play has found.
+
+### It found three more immediately
+
+None of them reported, all of them real:
+
+- **`rebuildRegion` rebuilt bare nodes.** It synced the traffic and the lane
+  line and nothing else, so a rebuilt tile came back with no utility warning,
+  no damage marker, no scaffold, no fire — and, once overlays existed, wearing
+  no overlay at all. **Placing anything stripped a nine-by-nine patch of the
+  map back to a bare Normal view**, until a tick repainted it; while paused,
+  never. It refreshes each rebuilt cell now, which is the whole job rather than
+  two remembered pieces of it.
+- **A view never cleared the layer it was not showing.** Pipes are drawn by the
+  Water view and power lines by Power, and neither was ever taken away by the
+  other — so Water → Power left the mains on the map underneath the lines.
+  Asking for the empty set is how a layer gets cleared; skipping the call is
+  how it lingers.
+- **Every joint in a freshly dragged run was drawn as a dead end.** A conduit's
+  mark is a statement about its *neighbours*, exactly as a road's lane line is,
+  and laying one changes how the ones already down should be drawn. Nothing
+  told them. `refreshRoadNeighbors` has done this for lane lines since roads
+  had connectivity; the buried layers never got their version, so a dragged run
+  read as a chain of disconnected stubs until a tick — and laying pipe is
+  something a player does *paused*.
+
+Two false positives came first, and both were worth the trip. A one-shot
+feedback flash is an animation **in flight**, not a fact about the city, so a
+rebuilt scene has none by definition and it has to be excluded. And the pause
+flag was *cached* on the scene and only refreshed inside `update`, so a refresh
+before the first frame — which the real app never does and a harness does
+constantly — built cars that had never been told the city was stopped. Reading
+`isRunning` at the point of use fixed it, and "a cache that can be stale" is
+the same shape as everything else on this list.
+
+The driver pumps a frame after every action for the same reason: a scene
+nothing is driving is not the scene the game runs.
+
 ### An overlay tints what is there; it never built anything
 
 Reported from play: new buildings, and buildings that had grown a storey, did
