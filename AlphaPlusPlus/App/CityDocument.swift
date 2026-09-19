@@ -31,6 +31,14 @@ final class CityDocument: ObservableObject {
     /// reaches here there is nothing left to do but tell the player.
     @Published var errorMessage: String?
 
+    /// Whether the title screen is up.
+    ///
+    /// On the document rather than the controller because it is a statement
+    /// about the *app* — which screen you are looking at — and the controller
+    /// is the city. Starts true: a game opens on something that tells you
+    /// what it is.
+    @Published var isShowingTitle = true
+
     /// `controller` defaults to `nil` rather than to `GameController()`
     /// because a default argument expression is evaluated at the *call site*,
     /// which is outside this class's `@MainActor` isolation — constructing it

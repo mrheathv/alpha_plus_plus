@@ -4498,6 +4498,53 @@ the third time this pass has needed that split (`place(at:)`, `dragTo(_:)`),
 and the same lesson each time: **what the cursor says is logic, and logic
 nothing can drive is logic nothing can check.**
 
+### Phase 6 (in progress): the frame
+
+#### A title screen
+
+The app booted straight into a city, which is what a prototype does. A game
+opens on something that tells you what it is — and for the App Store it is
+also the one screen that has to survive being a thumbnail.
+
+**Drawn rather than photographed.** Putting a live `GameScene` behind the
+title was tempting, since the game already renders a city and it looks good.
+But a title screen is *composed* — a horizon at a chosen height, a sun in a
+chosen place — and a real city is an isometric diamond that sits wherever the
+map is. This is the one picture in the project that gets to be a poster
+instead of a simulation, so it is a `Canvas`: a synthwave sun over a receding
+grid, the image the whole art direction has been quoting from since the
+start. It uses `NeonStyle`'s own colours rather than new ones, so the title
+and the game are unmistakably the same thing.
+
+The sun's slats run the **right way up** here — widening toward the bottom,
+where the disc meets the horizon — where `NeonStyle.sunsetFlameTexture` runs
+the identical motif upside down for fire, because that is what a flame does
+as it breaks apart. Same idea, two readings.
+
+Three things the render caught, and it caught all three on the first look:
+
+- **The slats did not punch through.** They were drawn with a
+  `.destinationOut` pass inside a `drawLayer`, which silently did nothing —
+  the sun came back a solid gradient blob, which is a sunset from any decade.
+  Subtracting them from the disc's `Path` is one call and cannot fail
+  quietly.
+- **Blurring the disc turned it to haze** and took the slats with it. The
+  bloom is now its own soft copy *behind* a crisp disc — the same split the
+  buildings already use.
+- **A flat ground fill met the sky's last gradient stop** in a hard seam
+  straight across the frame. The ground fades out of the horizon instead.
+
+`RootView` is the seam between title and game; `CityDocument.isShowingTitle`
+owns it, because which screen you are looking at is a statement about the app
+rather than about the city. **Simulation ▸ Main Menu** goes back, since a
+title screen you cannot return to is a splash screen. "Continue" appears only
+once there is a city worth returning to — on a first launch the map is empty
+and it would be a third button saying "New City".
+
+Still open in this phase: the app icon, which predates the entire art
+direction and was an explicit exception to the grayboxing rule at the time,
+and a screenshot camera.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

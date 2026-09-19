@@ -101,8 +101,12 @@ struct AlphaPlusPlusApp: App {
                 Button("New City…") {
                     document.controller.rerollTerrainSeed()
                     document.controller.isShowingNewCityPanel = true
+                    document.isShowingTitle = false
                 }
                 .keyboardShortcut("n", modifiers: .command)
+
+                // A title screen you cannot get back to is a splash screen.
+                Button("Main Menu") { document.isShowingTitle = true }
             }
 
             CommandMenu("Overlay") {
@@ -169,8 +173,8 @@ struct RootView: View {
     @ObservedObject var document: CityDocument
 
     var body: some View {
-        GameView(controller: document.controller)
-            .navigationTitle(document.displayName)
+        content
+            .navigationTitle(document.isShowingTitle ? "Alpha++" : document.displayName)
             .alert(
                 "Couldn't open that city",
                 isPresented: Binding(
@@ -182,6 +186,15 @@ struct RootView: View {
             } message: {
                 Text(document.errorMessage ?? "")
             }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if document.isShowingTitle {
+            TitleScreen(document: document) { document.isShowingTitle = false }
+        } else {
+            GameView(controller: document.controller)
+        }
     }
 
 }

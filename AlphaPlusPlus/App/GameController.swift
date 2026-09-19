@@ -91,6 +91,16 @@ final class GameController: ObservableObject {
     /// screen), so the sheet needs one owner.
     @Published var isShowingNewCityPanel = false
 
+    /// Is there a city here already, or just the empty map every launch
+    /// starts on?
+    ///
+    /// What "Continue" on the title screen needs to know. A brand-new
+    /// `CityMap` has nothing on it and no days elapsed, so offering to
+    /// continue into it would be a third button saying "New City".
+    var hasACityWorthReturningTo: Bool {
+        map.elapsedDays > 0 || map.tiles.contains { $0.zone != .empty }
+    }
+
     /// A fresh coastline for the next city.
     func rerollTerrainSeed() {
         selectedTerrainSeed = UInt64.random(in: 0 ... 999_999)

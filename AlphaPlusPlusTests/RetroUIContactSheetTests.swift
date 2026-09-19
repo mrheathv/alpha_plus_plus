@@ -64,6 +64,18 @@ final class RetroUIContactSheetTests: XCTestCase {
             CityPanel(controller: controller, dismiss: {}))
     }
 
+    /// **The first thing anybody sees.**
+    ///
+    /// Also the one screen that has to survive being an App Store thumbnail,
+    /// which is a question only a picture can answer. Rendered at a wide
+    /// aspect, because the sun's placement and the horizon height are
+    /// composed against the frame rather than centred in it.
+    func testRenderTitleScreen() throws {
+        let document = CityDocument()
+        try render(name: "retro-title", size: CGSize(width: 900, height: 560),
+                   content: TitleScreen(document: document, start: {}))
+    }
+
     /// **The founding panel, and the reason it has a render at all.**
     ///
     /// City Hall shipped two bugs while it had no picture — a `ScrollView`
@@ -292,8 +304,15 @@ final class RetroUIContactSheetTests: XCTestCase {
         .background(RetroUITheme.background)
     }
 
-    private func render(name: String, content: some View) throws {
-        let renderer = ImageRenderer(content: content)
+    /// `size` for the screens that are *composed against a frame* rather
+    /// than sized by their own content — the title screen puts its horizon
+    /// and its sun at fractions of the view, so rendering it at its
+    /// intrinsic size would be a picture of a shape nobody sees.
+    private func render(name: String, size: CGSize? = nil, content: some View) throws {
+        let renderer = ImageRenderer(
+            content: AnyView(size.map { AnyView(content.frame(width: $0.width, height: $0.height)) }
+                             ?? AnyView(content))
+        )
         renderer.scale = 2
         let image = try XCTUnwrap(renderer.nsImage, "ImageRenderer produced nothing")
         let data = try XCTUnwrap(
