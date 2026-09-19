@@ -64,6 +64,24 @@ final class RetroUIContactSheetTests: XCTestCase {
             CityPanel(controller: controller, dismiss: {}))
     }
 
+    /// **The founding panel, and the reason it has a render at all.**
+    ///
+    /// City Hall shipped two bugs while it had no picture — a `ScrollView`
+    /// that blanked the whole body, and a native `Toggle` whose state was the
+    /// one thing nobody could see. This is the first screen a new player ever
+    /// meets, so it gets one from the start.
+    ///
+    /// Rendered on `.river`, which is the only option whose summary line is
+    /// load-bearing: a player picking it needs to know the map will be cut in
+    /// two *before* they find out by building into it.
+    func testRenderNewCityPanel() throws {
+        let controller = GameController()
+        controller.selectedTerrain = .river
+        controller.selectedMapSize = .medium
+        try render(name: "retro-new-city", content:
+            NewCityPanel(controller: controller, dismiss: {}))
+    }
+
     /// **Every state the inspector can be in, side by side.**
     ///
     /// The panel's whole job is telling states apart, so reviewing it one

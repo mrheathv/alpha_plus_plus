@@ -96,6 +96,26 @@ enum LandValue {
     /// a single purchase.
     static let parkFalloffDistance = 4
 
+    /// How far a view of the water is worth anything, and how much.
+    ///
+    /// **In the `max` group, not added like a park**, and that is the whole
+    /// balance decision. A park is additive because it is the one *tool* a
+    /// player has for making a block nicer, and adding a second additive
+    /// positive would dilute the thing parks exist to be. Water is not a tool
+    /// — nobody builds a river — so it competes to be the best thing near a
+    /// lot rather than stacking on top of whatever already is.
+    ///
+    /// The effect that matters is still there: on a fresh coastal map, a lot
+    /// on the shore is worth meaningfully more than one inland, so the
+    /// waterfront is where a city wants to start. Beside a police station it
+    /// adds nothing, which is correct — by then the block is already served.
+    ///
+    /// 0.82 rather than 1.0 so plain road frontage plus real services still
+    /// beats a bare beach; three tiles, because "waterfront" should mean the
+    /// row or two that can actually see it, not half the map.
+    static let waterfrontFalloffDistance = 3
+    static let waterfrontValue = 0.82
+
     /// How much desirability a park adds at its own doorstep.
     ///
     /// **Added to the best nearby amenity rather than competing with it**, and
@@ -217,7 +237,8 @@ enum LandValue {
         let stadium = falloffValue(nearestZone: .stadium, falloffDistance: stadiumFalloffDistance, at: position, in: map, using: field)
         let school = falloffValue(nearestZone: .school, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
         let hospital = falloffValue(nearestZone: .hospital, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
-        let positives = max(road, transit, subway, police, fire, stadium, school, hospital)
+        let waterfront = waterfrontValue(at: position, in: map, using: field)
+        let positives = max(road, transit, subway, police, fire, stadium, school, hospital, waterfront)
 
         // Parks add rather than compete — see `parkBonus`. Two parks do not
         // stack with each other, because `falloffValue` measures the distance
@@ -317,6 +338,26 @@ enum LandValue {
         // snapshot of where things *are*, and moving a funding slider must
         // take effect immediately rather than at the next field rebuild.
         return base * map.serviceFunding.level(for: zone)
+    }
+
+    /// What a lot is worth for being near the water.
+    ///
+    /// Reads the distance field's own water channel rather than scanning,
+    /// for the reason every other falloff here does: this runs per footprint
+    /// cell of every building on every tick.
+    static func waterfrontValue(
+        at position: GridPosition, in map: CityMap, using field: ZoneDistanceField? = nil
+    ) -> Double {
+        let distance: Int?
+        if let field {
+            distance = field.distanceToWater(at: position)
+        } else {
+            distance = map.tiles.filter(\.isWater)
+                .map { abs($0.position.x - position.x) + abs($0.position.y - position.y) }
+                .min()
+        }
+        guard let distance else { return 0 }
+        return Swift.max(0, 1 - Double(distance) / Double(waterfrontFalloffDistance)) * Self.waterfrontValue
     }
 
     /// The one place "distance to the nearest tile of this zone" is defined.

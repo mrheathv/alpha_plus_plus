@@ -207,16 +207,43 @@ final class IsoTextureCache {
     }
 
     /// The lot a building stands on.
-    func ground(for zone: ZoneType, density: Int, footprint: Int) -> Rendered? {
+    func ground(for zone: ZoneType, density: Int, footprint: Int, isWater: Bool = false) -> Rendered? {
         let tier = RenderPalette.growthTier(for: density)
-        return rendered(Key(kind: .ground, zone: zone, tier: tier, footprint: footprint)) {
-            let shape = SKShapeNode(path: projection.tileDiamond(
-                x: 0, y: 0, size: CGFloat(footprint), inset: 0.02
+        // A road standing on water is a bridge, which is neither of the two
+        // surfaces: a narrower deck with the river showing either side of it.
+        let isBridge = isWater && zone.canBridge
+        // Keyed apart from every zone rather than sharing `.empty`'s texture:
+        // water is a different surface, not bare ground with a tint.
+        let variant = isBridge ? 8 : (isWater ? 9 : tier)
+        return rendered(Key(kind: .ground, zone: zone, tier: variant, footprint: footprint)) {
+            let node = SKNode()
+            if isWater {
+                // The river runs under the deck, so it is drawn first and at
+                // full width whether or not anything crosses it.
+                let river = SKShapeNode(path: projection.tileDiamond(
+                    x: 0, y: 0, size: CGFloat(footprint), inset: 0.02
+                ))
+                river.fillColor = RenderPalette.water
+                river.strokeColor = RenderPalette.waterEdge
+                river.lineWidth = 0.6
+                node.addChild(river)
+            }
+            guard !isWater || isBridge else { return node }
+
+            // **A deck, not a tile.** Inset hard when it is a bridge so the
+            // water shows either side — that gap is the only thing saying
+            // this road is carried rather than laid, and it costs nothing but
+            // a number. A parapet edge reads as the rail along it.
+            let surface = SKShapeNode(path: projection.tileDiamond(
+                x: 0, y: 0, size: CGFloat(footprint), inset: isBridge ? 0.17 : 0.02
             ))
-            shape.fillColor = RenderPalette.color(for: zone, density: density)
-            shape.strokeColor = RenderPalette.ground.blended(withFraction: 0.28, of: .white) ?? .clear
-            shape.lineWidth = 0.7
-            return shape
+            surface.fillColor = RenderPalette.color(for: zone, density: density)
+            surface.strokeColor = isBridge
+                ? RenderPalette.bridgeDeck
+                : (RenderPalette.ground.blended(withFraction: 0.28, of: .white) ?? .clear)
+            surface.lineWidth = isBridge ? 1.4 : 0.7
+            node.addChild(surface)
+            return node
         }
     }
 

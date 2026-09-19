@@ -150,6 +150,27 @@ struct Tile: Equatable, Codable, Sendable {
     /// that was never broken.
     var wear: Double?
 
+    /// Is this tile water?
+    ///
+    /// Water takes ground away: nothing can be built on it, and a road only
+    /// crosses it as a bridge. See `Terrain`, which decides where it goes at
+    /// founding.
+    ///
+    /// **Stored as an Optional and exposed as a `Bool`**, which is what makes
+    /// this free on the save format. The synthesised `init(from:)` uses
+    /// `decodeIfPresent` for optionals, so every city saved before terrain
+    /// existed loads as dry land rather than failing outright — the same
+    /// trick `damagedBy`, `constructionRemaining` and `fireTicks` already
+    /// use, and the reason none of them cost a format bump. Writing `nil`
+    /// rather than `false` also keeps a save of an all-land map exactly the
+    /// size it was.
+    private var water: Bool?
+
+    var isWater: Bool {
+        get { water ?? false }
+        set { water = newValue ? true : nil }
+    }
+
     init(
         position: GridPosition,
         zone: ZoneType = .empty,
@@ -160,11 +181,13 @@ struct Tile: Equatable, Codable, Sendable {
         damagedBy: ZoneType? = nil,
         constructionRemaining: Int? = nil,
         wear: Double? = nil,
-        fireTicks: Int? = nil
+        fireTicks: Int? = nil,
+        isWater: Bool = false
     ) {
         self.position = position
         self.zone = zone
         self.density = density
+        self.water = isWater ? true : nil
         self.buildingOrigin = buildingOrigin ?? position
         self.hasPipe = hasPipe
         self.hasPowerLine = hasPowerLine

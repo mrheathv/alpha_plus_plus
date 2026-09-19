@@ -43,6 +43,16 @@ struct ZoneDistanceField: Equatable {
     /// mean a future caller silently falling back to the slow path — or, if
     /// there were no fallback, getting a wrong answer.
     private let distances: [ZoneType: [Int32]]
+
+    /// Distance to the nearest water, in the same layout.
+    ///
+    /// A channel of its own because water is not a `ZoneType` — it is a
+    /// property of the ground, and a bridge is a road tile that is *also*
+    /// wet. It goes through the identical two-sweep transform, so a
+    /// waterfront query costs exactly what a nearest-park query costs, which
+    /// is what keeps `LandValue` off the `O(tiles²)` path this type exists to
+    /// delete.
+    private let water: [Int32]
     private let width: Int
     private let height: Int
 
@@ -58,15 +68,30 @@ struct ZoneDistanceField: Equatable {
         for zone in ZoneType.allCases {
             fields[zone] = transform(for: zone, in: map)
         }
-        return ZoneDistanceField(distances: fields, width: map.width, height: map.height)
+        return ZoneDistanceField(
+            distances: fields,
+            water: transform(in: map) { $0.isWater },
+            width: map.width, height: map.height
+        )
     }
 
     private static func transform(for zone: ZoneType, in map: CityMap) -> [Int32] {
+        transform(in: map) { $0.zone == zone }
+    }
+
+    /// The two-sweep chamfer transform, over whatever counts as a source.
+    ///
+    /// Taken as a predicate rather than a zone so water shares it exactly
+    /// rather than getting a second copy — this is the one piece of code that
+    /// makes every distance question in the game linear rather than
+    /// quadratic, and a near-copy of it would be the kind of duplication this
+    /// project has paid for repeatedly.
+    private static func transform(in map: CityMap, isSource: (Tile) -> Bool) -> [Int32] {
         let width = map.width
         let height = map.height
         var distance = [Int32](repeating: unreachable, count: width * height)
 
-        for (index, tile) in map.tiles.enumerated() where tile.zone == zone {
+        for (index, tile) in map.tiles.enumerated() where isSource(tile) {
             distance[index] = 0
         }
 
@@ -106,6 +131,13 @@ struct ZoneDistanceField: Equatable {
         guard position.x >= 0, position.y >= 0, position.x < width, position.y < height else { return nil }
         guard let field = distances[zone] else { return nil }
         let value = field[position.y * width + position.x]
+        return value >= Self.unreachable ? nil : Int(value)
+    }
+
+    /// Manhattan distance to the nearest water, or `nil` on a dry map.
+    func distanceToWater(at position: GridPosition) -> Int? {
+        guard position.x >= 0, position.y >= 0, position.x < width, position.y < height else { return nil }
+        let value = water[position.y * width + position.x]
         return value >= Self.unreachable ? nil : Int(value)
     }
 }

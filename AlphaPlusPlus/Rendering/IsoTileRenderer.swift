@@ -91,13 +91,14 @@ struct IsoTileRenderer {
     /// cell. A 2×2 building stands on a single 2×2 diamond, so its ground has
     /// no seams running through it.
     private func syncGround(on node: SKNode, tile: Tile) {
-        let key = "\(tile.zone.rawValue)|\(tile.density)"
+        let key = "\(tile.zone.rawValue)|\(tile.density)|\(tile.isWater)"
         guard !isUpToDate(node, Self.groundNodeName, key) else { return }
         markUpToDate(node, Self.groundNodeName, key)
         node.childNode(withName: Self.groundNodeName)?.removeFromParent()
 
         guard let rendered = textures.ground(
-            for: tile.zone, density: tile.density, footprint: tile.zone.footprintSize
+            for: tile.zone, density: tile.density, footprint: tile.zone.footprintSize,
+            isWater: tile.isWater
         ) else { return }
         let ground = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         ground.name = Self.groundNodeName

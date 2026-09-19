@@ -127,6 +127,9 @@ struct GameView: View {
         // native chrome that leaks through anywhere (menus, tooltips)
         // from clashing with it, and means the retrowave look doesn't
         // depend on the player's own Light/Dark Mode setting.
+        .sheet(isPresented: $controller.isShowingNewCityPanel) {
+            NewCityPanel(controller: controller) { controller.isShowingNewCityPanel = false }
+        }
         .sheet(isPresented: $controller.isShowingCityPanel) {
             CityPanel(controller: controller) { controller.isShowingCityPanel = false }
         }

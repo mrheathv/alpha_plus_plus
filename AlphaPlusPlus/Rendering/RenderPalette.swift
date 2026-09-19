@@ -57,6 +57,32 @@ enum RenderPalette {
     /// surroundings are bright enough to look at, they compete with the city
     /// standing on them, which is exactly the mistake the lane lines were
     /// making across a third of the map.
+    /// Water, and its lit edge.
+    ///
+    /// Deep and blue where the land is a warm near-black, so a coastline
+    /// reads at a glance and from any zoom — the one surface in the game that
+    /// is a different *material* rather than a differently-tinted one. Kept
+    /// dark enough that it does not compete with the city standing beside it:
+    /// water at night is mostly a hole in the light, which is exactly what
+    /// makes the lit edge do the work.
+    static let water = SKColor(srgbRed: 0.035, green: 0.075, blue: 0.22, alpha: 1.0)
+    ///
+    /// **Faint, and that is a correction.** The first version gave water the
+    /// same edge weight the land grid has, on the reasoning that the lit rims
+    /// of adjacent tiles would add up along a shoreline. They do — and they
+    /// also add up in the *middle* of a lake, where every neighbour is water
+    /// too, so a bay came out looking like a tiled swimming pool. The
+    /// shoreline does not need drawing: water is the one surface here that is
+    /// a different colour rather than a different tint, so the boundary is
+    /// already the strongest edge on the map. What is left is just enough
+    /// structure to read as a surface with something moving on it.
+    static let waterEdge = SKColor(srgbRed: 0.22, green: 0.55, blue: 0.95, alpha: 0.13)
+
+    /// The parapet along a bridge deck — cool and pale, a structural mark
+    /// rather than a neon one, so a crossing reads as engineering standing in
+    /// the water rather than as another lit street.
+    static let bridgeDeck = SKColor(srgbRed: 0.62, green: 0.72, blue: 0.85, alpha: 0.85)
+
     static let unclaimedGround = SKColor(srgbRed: 0.068, green: 0.038, blue: 0.142, alpha: 1.0)
     static let unclaimedGrid = SKColor(srgbRed: 0.40, green: 0.28, blue: 0.62, alpha: 0.16)
 

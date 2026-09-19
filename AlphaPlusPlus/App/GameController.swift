@@ -86,6 +86,16 @@ final class GameController: ObservableObject {
     /// menu bar was the only way in.
     @Published var isShowingCityPanel = false
 
+    /// Whether the founding panel is open. Same reasoning as
+    /// `isShowingCityPanel`: two routes in (the City menu and, later, a title
+    /// screen), so the sheet needs one owner.
+    @Published var isShowingNewCityPanel = false
+
+    /// A fresh coastline for the next city.
+    func rerollTerrainSeed() {
+        selectedTerrainSeed = UInt64.random(in: 0 ... 999_999)
+    }
+
     @Published private(set) var bondBalance = 0
 
     /// How much one bond adds to `treasury` immediately.
@@ -200,6 +210,23 @@ final class GameController: ObservableObject {
     /// before starting over, not a live "resize this city" operation (which
     /// would raise its own questions about what happens to existing tiles).
     @Published var selectedMapSize: MapSize = .small
+
+    /// What kind of land the *next* new city is founded on.
+    ///
+    /// Defaults to `.flat`, which is exactly what the game did before terrain
+    /// existed — so nothing changes for anyone until they choose otherwise,
+    /// and `resetMap` keeps meaning what it meant. Takes effect on the next
+    /// reset, like `selectedMapSize`: re-cutting a river under a city that is
+    /// already standing on it is not a thing this wants to answer.
+    @Published var selectedTerrain: Terrain = .flat
+
+    /// The seed the next map's terrain is cut from.
+    ///
+    /// Rolled fresh for each new city so two Coastal maps are two different
+    /// coastlines, but held in a property rather than generated inside
+    /// `resetMap` so it can be *shown* — a player who likes a map should be
+    /// able to write the number down and get it back.
+    @Published var selectedTerrainSeed: UInt64 = UInt64.random(in: 0 ... 999_999)
 
     /// Which look the map is drawn in.
     ///
@@ -333,9 +360,19 @@ final class GameController: ObservableObject {
         guard !footprint.isEmpty else { return .unchanged } // doesn't fit on the map
 
         guard footprint.allSatisfy({ map[$0].zone == .empty }) else { return .blocked }
+        // **Nothing is built on water except a bridge.** A road may cross it,
+        // at a surcharge per span; everything else is refused, and refused as
+        // `.blocked` so the player gets the same mark as any other rejected
+        // placement rather than a click that silently does nothing. See
+        // `ZoneType.bridgeSurcharge` for why only roads.
+        let spans = footprint.filter { map[$0].isWater }.count
+        guard spans == 0 || selectedTool.canBridge else { return .blocked }
 
-        let cost = selectedTool.placementCost
+        // Charged per wet cell, so a wide river costs more to cross than a
+        // narrow one — which is the whole decision a bridge represents.
+        let cost = selectedTool.placementCost + spans * (selectedTool.bridgeSurcharge ?? 0)
         guard treasury >= cost else { return .insufficientFunds }
+
 
         treasury -= cost
         map.placeBuilding(zone: selectedTool, origin: position)
@@ -394,7 +431,9 @@ final class GameController: ObservableObject {
                 // again, which would be a full repair for the price of a
                 // bulldoze. Clear the tile completely and there is nothing
                 // left to be worn.
-                wear: buried ? map[cell].wear : nil
+                wear: buried ? map[cell].wear : nil,
+                // Demolishing a bridge gives back the river, not dry land.
+                isWater: map[cell].isWater
             )
         }
     }
@@ -537,6 +576,12 @@ final class GameController: ObservableObject {
     @discardableResult
     func layPipe(at position: GridPosition) -> PlacementOutcome {
         guard map.contains(position) else { return .unchanged }
+        // A main crosses water *under a bridge*, never through open river.
+        // The same simplification `Infrastructure` already makes in the other
+        // direction — one tile carries the road and whatever is buried in it,
+        // because a public-works budget resurfaces the street and replaces
+        // the main beneath it in one job.
+        guard !map[position].isWater || map[position].zone.canBridge else { return .blocked }
         guard !map[position].hasPipe else { return .unchanged }
         guard treasury >= Self.pipePlacementCost else { return .insufficientFunds }
         treasury -= Self.pipePlacementCost
@@ -567,6 +612,7 @@ final class GameController: ObservableObject {
     @discardableResult
     func layPowerLine(at position: GridPosition) -> PlacementOutcome {
         guard map.contains(position) else { return .unchanged }
+        guard !map[position].isWater || map[position].zone.canBridge else { return .blocked }
         guard !map[position].hasPowerLine else { return .unchanged }
         guard treasury >= Self.powerLinePlacementCost else { return .insufficientFunds }
         treasury -= Self.powerLinePlacementCost
@@ -599,6 +645,7 @@ final class GameController: ObservableObject {
     func resetMap() {
         let size = selectedMapSize.dimension
         map = CityMap(width: size, height: size) // a fresh CityMap's serviceFunding already defaults to 1.0 for everything
+        TerrainGenerator.apply(selectedTerrain, to: &map, seed: selectedTerrainSeed)
         treasury = Self.startingTreasury
         taxRate = 1.0
         bondBalance = 0

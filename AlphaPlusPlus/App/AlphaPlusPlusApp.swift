@@ -95,14 +95,14 @@ struct AlphaPlusPlusApp: App {
 
                 Divider()
 
-                Menu("New City") {
-                    ForEach(MapSize.allCases) { size in
-                        Button(size.displayName) {
-                            document.controller.selectedMapSize = size
-                            document.controller.resetMap()
-                        }
-                    }
+                // One item rather than a menu of sizes: founding is two
+                // questions now (land and size) and a matrix of them is not a
+                // menu. See `NewCityPanel`.
+                Button("New City…") {
+                    document.controller.rerollTerrainSeed()
+                    document.controller.isShowingNewCityPanel = true
                 }
+                .keyboardShortcut("n", modifiers: .command)
             }
 
             CommandMenu("Overlay") {

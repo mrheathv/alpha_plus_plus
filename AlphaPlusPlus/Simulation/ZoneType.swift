@@ -114,6 +114,31 @@ extension ZoneType {
     /// `Foundation` — no import trade-off to make. `.empty` costs nothing:
     /// clearing a tile via the toolbar's "Bulldoze" tool is free, same as the
     /// right-click quick-bulldoze shortcut.
+    /// What it costs *extra* to put this on water, or `nil` if it cannot go
+    /// there at all.
+    ///
+    /// **Only roads cross.** A river is meant to be a real constraint on
+    /// where a city can go, and it stops being one the moment anything can be
+    /// dropped in it — so this is deliberately not a general "build on water
+    /// for more money" rule. What a bridge buys is a *route*, and routes are
+    /// what roads are for.
+    ///
+    /// Three times a road's own price, which is what makes a crossing
+    /// somewhere you choose rather than something you lay by the dozen: on a
+    /// wide river a single span costs more than the streets either side of
+    /// it. A highway bridge costs more again, in the same ratio the two
+    /// already stand in.
+    var bridgeSurcharge: Int? {
+        switch self {
+        case .road: return 150
+        case .highway: return 300
+        default: return nil
+        }
+    }
+
+    /// Can this cross water at all?
+    var canBridge: Bool { bridgeSurcharge != nil }
+
     var placementCost: Int {
         switch self {
         case .empty: return 0

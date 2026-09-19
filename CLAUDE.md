@@ -4331,6 +4331,91 @@ does — the same side of that line as the traffic, and the opposite side from
 a placement flash, which answers a *click* and therefore has to keep running
 while paused or it would never fade away.
 
+### Phase 3 (done): the land has a shape
+
+Every map this game ever generated was the same flat, featureless plane,
+which is most of why every city looked alike: the *shape* of the land is what
+makes one place different from another before a single lot is zoned.
+
+**A choice at founding, not a change forced on every city.** `Terrain.flat`
+is exactly what the game did before and stays the default, and because water
+rides on `Tile` as an Optional, every save written before this loads as dry
+land — `decodeIfPresent` again, no format bump, nobody's city changes under
+them. The same trick `damagedBy`, `constructionRemaining` and `fireTicks`
+already use.
+
+Four shapes, and a seed so a coastline you like can be written down and got
+back: **flat**, **coastal** (sea behind a ragged shoreline), **lakes**
+(inland, clear of the edges) and **river** — the one that cuts the map in
+two, which is the whole reason bridges exist.
+
+#### Bridges, and what may cross
+
+Only **roads** cross water, at three times a road's own price per span. That
+is deliberately not a general "build on water for more money" rule: a river
+is meant to constrain where a city can go, and it stops constraining anything
+the moment anything can be dropped in it. What a bridge buys is a *route*,
+and routes are what roads are for. Mains and power lines cross **under a
+bridge**, never through open water — the mirror of the simplification
+`Infrastructure` already makes, where one tile carries the road and whatever
+is buried in it.
+
+The acceptance test is the one that matters and it goes through the router
+rather than through geometry: homes on one bank, jobs on the other, and
+`Traffic` reports nobody employed until a span goes in.
+
+**One bug this nearly shipped.** `CityMap.placeBuilding` builds a *fresh*
+`Tile`, carrying `hasPipe` and `hasPowerLine` forward by hand — so a bridge
+would have quietly dried out the river underneath it, and bulldozing one
+would have handed back dry land. `isWater` now carries forward for exactly
+the reason `hasPipe` does: it is a property of the ground, not of what stands
+on it.
+
+**And one stale expectation of my own**, worth recording for its shape.
+`testWaterRefusesEveryPlacement` was written before bridges and listed
+`.road` among the tools water turns away. Bridges made that false, so the
+thing moved and the yardstick had to follow — restated as
+`testOpenWaterRefusesEveryPlacement` rather than relaxed, since what roads
+may do is pinned separately. It failed instructively too: the road
+*succeeded*, which turned the tile into a bridge, and the pipe and power
+assertions after it then legitimately passed. **One stale expectation
+produced three failures, only one of which was about itself.**
+
+#### Waterfront is in the `max` group, not added like a park
+
+The balance decision worth recording. A park is *additive* because it is the
+one tool a player has for making a block nicer, and a second additive
+positive would dilute the thing parks exist to be. Nobody builds a river, so
+water competes to be the best thing near a lot rather than stacking on top of
+whatever already is. The effect that matters survives: on a fresh coastal map
+the shore is where a city wants to start, and beside a police station the
+water adds nothing — which is correct, because by then the block is served.
+
+Water needed its own channel in `ZoneDistanceField`, since it is not a
+`ZoneType` and `LandValue` runs per footprint cell per tick — a scan would
+land straight back on the `O(tiles²)` path that type exists to delete. The
+two-sweep transform is now taken over a *predicate* so water shares it
+exactly rather than getting a near-copy.
+
+#### Founding became a panel
+
+"New City" was a menu of three map sizes, which was fine while size was the
+only question. Size × terrain is a twelve-item matrix, and this project has
+watched the tool rail and the overlay row outgrow their containers twice
+already. `NewCityPanel` is also the first screen a new player meets, and
+"pick 32×32 / 48×48 / 64×64" is a poor opening line for a game about building
+somewhere — a panel can say what a coastline *is*, which is why each terrain
+carries a one-line summary. River's is load-bearing: you should know the map
+will be cut in two before you find out by building into it.
+
+It has a render from the start, because City Hall shipped two bugs while it
+had none. That render immediately earned itself twice: the body defeated the
+Swift type checker outright as one expression ("failed to produce diagnostic
+for expression", which is SwiftUI's way of saying a view is too big to
+infer), and the three panels stacked up at three different widths because
+`RetroPanel` sizes to its content — three unrelated boxes rather than one
+form.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

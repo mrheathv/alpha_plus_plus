@@ -246,7 +246,16 @@ struct CityMap: Equatable, Codable, Sendable {
     /// one laid underneath it.
     mutating func placeBuilding(zone: ZoneType, origin: GridPosition) {
         for cell in footprintCells(origin: origin, size: zone.footprintSize) {
-            self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin, hasPipe: self[cell].hasPipe, hasPowerLine: self[cell].hasPowerLine)
+            // `isWater` carries forward for the same reason `hasPipe` does:
+            // it is a property of the *ground*, not of what stands on it, and
+            // a fresh `Tile` would quietly dry out the river a bridge is
+            // crossing. Nothing but a bridge can be here at all — see
+            // `ZoneType.bridgeSurcharge` — so this is exactly the case.
+            self[cell] = Tile(
+                position: cell, zone: zone, buildingOrigin: origin,
+                hasPipe: self[cell].hasPipe, hasPowerLine: self[cell].hasPowerLine,
+                isWater: self[cell].isWater
+            )
         }
     }
 

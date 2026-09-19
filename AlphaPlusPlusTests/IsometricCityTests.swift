@@ -840,6 +840,68 @@ final class IsometricCityTests: XCTestCase {
         XCTAssertGreaterThan(sheet.count, 0)
     }
 
+    /// **Every kind of land, with a city laid over it.**
+    ///
+    /// Generation is the one part of terrain that cannot be judged from a
+    /// test: "is this a river or a smear" and "does a coastline read as a
+    /// coastline" are questions about a picture. Rendered with roads and lots
+    /// on the dry ground, because a coast with nothing built against it shows
+    /// the generator and not the game.
+    func testRenderTerrain() throws {
+        var panels: [(String, NSImage)] = []
+        for terrain in Terrain.allCases {
+            var map = CityMap(width: 40, height: 40)
+            TerrainGenerator.apply(terrain, to: &map, seed: 11)
+            // A plain grid over whatever is dry. Deliberately laid without
+            // looking at the water, so the shoreline is what interrupts it —
+            // which is exactly what a player's first few roads do.
+            for y in stride(from: 2, to: 38, by: 3) {
+                for x in 2 ..< 38 where !map[GridPosition(x: x, y: y)].isWater {
+                    map[GridPosition(x: x, y: y)].zone = .road
+                }
+            }
+            for y in stride(from: 3, to: 37, by: 3) {
+                for x in stride(from: 2, to: 36, by: 3) {
+                    let origin = GridPosition(x: x, y: y)
+                    let cells = map.footprintCells(origin: origin, size: 2)
+                    guard cells.count == 4, cells.allSatisfy({ !map[$0].isWater }) else { continue }
+                    let zone: ZoneType = [.residential, .commercial, .industrial][(x + y) % 3]
+                    map.placeBuilding(zone: zone, origin: origin)
+                    for cell in cells { map[cell].density = 2 + (x + y) % 3 }
+                }
+            }
+            // Bridge the river wherever a road ran into it, which is what a
+            // player does about ten seconds after founding a river city —
+            // and the only way to see whether a deck reads as carried rather
+            // than laid.
+            // **Carry the road rows across, and nothing else.** The first
+            // version bridged every wet tile that merely *touched* a road,
+            // and since the grid runs every third row that was very nearly
+            // the whole river — a paved channel, which shows neither a bridge
+            // nor a river. A crossing is a road continuing, so it is the road
+            // rows that continue.
+            if terrain == .river {
+                for y in stride(from: 2, to: 38, by: 3) {
+                    for x in 2 ..< 38 where map[GridPosition(x: x, y: y)].isWater {
+                        map[GridPosition(x: x, y: y)].zone = .road
+                    }
+                }
+            }
+            panels.append((terrain.displayName, try render(map, tileWidth: 18)))
+        }
+
+        let sheet = try XCTUnwrap(Self.stack(panels), "failed to stack the terrain panels")
+        let destination = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/ContactSheet/terrain.png")
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try sheet.write(to: destination)
+        print("🌊 Terrain: \(destination.path) (\(sheet.count) bytes)")
+        XCTAssertGreaterThan(sheet.count, 0)
+    }
+
     /// The same city in Normal, Water and Power, side by side.
     ///
     /// **A render nobody had.** The overlays were ported with the rest of the
