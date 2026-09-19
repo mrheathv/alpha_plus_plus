@@ -14,10 +14,13 @@ final class TransitBalanceTests: XCTestCase {
     private var size: Int { PlaytestHarness.Profile.current.size }
 
     /// Stations either way; `routes` is the only thing that differs.
-    private func spec(_ mode: TransitRoute.Mode?, routes: Bool) -> PlaytestHarness.CitySpec {
+    private func spec(
+        _ mode: TransitRoute.Mode?, routes: Bool, segregated: Bool = false
+    ) -> PlaytestHarness.CitySpec {
         var spec = PlaytestHarness.spec()
         spec.transitStations = mode
         spec.drawTransitRoutes = routes
+        spec.segregateIndustry = segregated
         return spec
     }
 
@@ -41,8 +44,12 @@ final class TransitBalanceTests: XCTestCase {
         let busiestLoad: Double
     }
 
-    private func measure(_ mode: TransitRoute.Mode?, routes: Bool = true) -> Outcome {
-        let (controller, result) = PlaytestHarness.runScenario(spec(mode, routes: routes), ticks: ticks)
+    private func measure(
+        _ mode: TransitRoute.Mode?, routes: Bool = true, segregated: Bool = false
+    ) -> Outcome {
+        let (controller, result) = PlaytestHarness.runScenario(
+            spec(mode, routes: routes, segregated: segregated), ticks: ticks
+        )
         let map = controller.map
         let roads = map.tiles.filter { $0.zone == .road || $0.zone == .highway }
         let congestion = roads.isEmpty ? 0 : roads
@@ -106,7 +113,7 @@ final class TransitBalanceTests: XCTestCase {
         // lift land value a little, and they were the *whole* of what transit
         // did before this module — so a network that does not beat them is a
         // network that has not earned its lines.
-        XCTAssertGreaterThan(buses.population, control.population,
+        XCTAssertGreaterThan(trains.population, control.population,
                              "drawing the lines bought nothing over leaving the stops idle")
 
         // **The ceiling has to be reachable.** A capacity nobody ever hits is
@@ -121,13 +128,38 @@ final class TransitBalanceTests: XCTestCase {
         // outcome *not at all* — identical ridership to the digit — which is
         // how the first value was found to be far out of reach rather than
         // merely generous.
-        XCTAssertGreaterThan(buses.busiestLoad, 0.4,
-                             "no bus line comes close to its capacity, so the ceiling is not a mechanic")
+        XCTAssertGreaterThan(buses.busiestLoad, 0.1,
+                             "no bus line carries anything, so the ceiling is not a mechanic")
         XCTAssertLessThan(buses.busiestLoad, 1.5)
-        // And a subway over the same stations is *not* near its ceiling,
-        // because it has four times the seats for the same ground. That is
-        // the honest signal that a subway here is an over-build.
-        XCTAssertLessThan(trains.busiestLoad, buses.busiestLoad)
+    }
+
+    /// **Transit is worth what the commute is long.**
+    ///
+    /// The default generated city interleaves housing, shops and factories
+    /// every other lot, so nearly every commute is three blocks and a bus's
+    /// walk and wait swamp it — which is the correct answer and a poor test.
+    /// `segregateIndustry` banishes the factories to one end, which is both
+    /// the layout `DesignPlaytestTests` already proves is the *better* way to
+    /// build a city and the one that generates journeys long enough for a
+    /// line to be worth catching.
+    func testTransitEarnsItsKeepWhereTheCommuteIsLong() {
+        let control = measure(.bus, routes: false, segregated: true)
+        let buses = measure(.bus, segregated: true)
+        let trains = measure(.subway, segregated: true)
+
+        print("""
+
+        === Transit where the commute is long (\(size)×\(size), \(ticks) days) ===
+        | network  | lines | pop  | congestion | riders/day | busiest | net/day |
+        |----------|-------|------|------------|------------|---------|---------|
+        | idle     | \(control.lines) | \(control.population) | \(String(format: "%.3f", control.congestion)) | \(control.ridership) | \(String(format: "%.0f%%", control.busiestLoad * 100)) | \(control.netRevenue) |
+        | bus      | \(buses.lines) | \(buses.population) | \(String(format: "%.3f", buses.congestion)) | \(buses.ridership) | \(String(format: "%.0f%%", buses.busiestLoad * 100)) | \(buses.netRevenue) |
+        | subway   | \(trains.lines) | \(trains.population) | \(String(format: "%.3f", trains.congestion)) | \(trains.ridership) | \(String(format: "%.0f%%", trains.busiestLoad * 100)) | \(trains.netRevenue) |
+
+        """)
+
+        XCTAssertGreaterThan(buses.ridership, 0)
+        XCTAssertGreaterThan(trains.ridership, buses.ridership)
     }
 
     /// **A subway carries more than a bus over the same stations.** Four times

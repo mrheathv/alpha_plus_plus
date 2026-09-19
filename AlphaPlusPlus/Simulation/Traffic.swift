@@ -70,6 +70,12 @@ enum Traffic {
         /// commute: such a site simply never appears among the driving
         /// candidates, because no path reaches it.
         let frontage: Set<GridPosition>
+
+        /// Where someone arriving by transit gets off, and how far they then
+        /// walk. Computed once per job rather than once per (home, job) pair,
+        /// which is what keeps the transit half of the inner loop to a
+        /// handful of array reads.
+        let reach: [TransitCoverage.Reach]
         var remainingCapacity: Int
     }
 
@@ -83,6 +89,46 @@ enum Traffic {
     /// reused from the old formula, since the two numbers no longer mean
     /// the same kind of thing.
     private static let capacityPerRoadTile = 40.0
+
+    /// How long one tile of empty road takes to drive.
+    ///
+    /// **Exactly 1.0, and that is a measurement decision.** The job lottery
+    /// used to weigh candidates by road hops; it now weighs them by minutes,
+    /// and at this value the two are numerically identical on an empty road.
+    /// So moving to minutes moves *nothing* by itself, and every difference
+    /// it makes is attributable to congestion or to transit rather than to a
+    /// silent re-weighting of where the city works. Change it and that
+    /// property goes with it.
+    static let drivingMinutesPerTile = 1.0
+
+    /// How much slower a fully jammed tile is than an empty one — at 2.0, a
+    /// tile at capacity takes three minutes instead of one.
+    ///
+    /// This is the number that makes transit worth building. Driving gets
+    /// slower as the roads fill, so trips move onto the lines, so the roads
+    /// empty — a loop the module did not have while transit was taken
+    /// whenever it was merely *available* rather than when it was faster.
+    static let congestionDelay = 2.0
+
+    /// How much a jam slows this home's driving, from the streets it fronts.
+    ///
+    /// **Measured at the doorstep rather than along the route**, which is an
+    /// approximation and a deliberate one. The exact answer needs the
+    /// congestion of every tile on the path, and the path is only known once
+    /// a job has been chosen — while the congestion is one of the things
+    /// deciding *which* job. Running a weighted search per home instead of a
+    /// plain breadth-first one would make the most expensive loop in the game
+    /// several times more expensive to buy a second decimal place.
+    ///
+    /// It also reads correctly as a story: the street outside your house is
+    /// jammed, so you take the bus. A driver on a quiet cul-de-sac who joins
+    /// a jammed arterial two tiles later is undercharged, and that is the
+    /// error this accepts.
+    private static func drivingDelay(atFrontage frontage: Set<GridPosition>, in map: CityMap) -> Double {
+        guard !frontage.isEmpty else { return 1 }
+        let jam = frontage.reduce(0.0) { $0 + congestion(at: $1, in: map) } / Double(frontage.count)
+        return 1 + jam * congestionDelay
+    }
 
     /// A `.highway` tile's whole reason to cost 4x a plain road: it
     /// absorbs twice the routed commute load before feeling as congested.
@@ -160,14 +206,17 @@ enum Traffic {
     /// valid job destinations with no distinction between them, matching
     /// `GameController.jobs` already summing both the same way.
     ///
-    /// Transit enters in two places and nowhere else: a block with no street
-    /// of its own picks its job off the lines that serve it rather than
-    /// generating no trip at all, and any chosen commute a single line can
-    /// carry rides instead of driving. See this file's top-of-file comment.
+    /// **Transit is a way of getting there, weighed against driving.** Every
+    /// candidate job carries how long it takes by car and how long by line,
+    /// and the faster one wins — so a bus that goes the long way round loses
+    /// to a short drive, and wins the same trip once the street jams. See
+    /// `Transit` for the journey planner, and this file's top comment for the
+    /// loop that creates.
     static func computeLoad(for map: CityMap) -> TrafficLoad {
         let drivable = Set(map.tiles.filter { isRoadLike($0.zone) }.map(\.position))
         let coverage = Transit.coverage(for: map)
         guard !drivable.isEmpty || !coverage.isEmpty else { return TrafficLoad() }
+        let network = Transit.graph(for: map, coverage: coverage)
 
         var load = TrafficLoad()
         // Routed *before* the early return below, so a city with housing and
@@ -176,7 +225,7 @@ enum Traffic {
         // that has only zoned housing.
         load.beginRouting()
 
-        var jobs = jobSites(in: map, drivable: drivable)
+        var jobs = jobSites(in: map, drivable: drivable, coverage: coverage)
         guard !jobs.isEmpty else { return load }
 
         // What each line can still carry today. Drawn down as trips are
@@ -187,31 +236,47 @@ enum Traffic {
         for route in map.transit.routes {
             seats[route.id] = Transit.dailyCapacity(of: route, in: map)
         }
+
         for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .residential && tile.density > 0 {
             let homeCells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
-            let homeStops = coverage.stops(reaching: homeCells)
+            let homeReach = coverage.reaches(from: homeCells)
             let homeFrontage = frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable)
+            guard !homeFrontage.isEmpty || !homeReach.isEmpty else {
+                continue // no street and no line: this block generates no trips
+            }
 
-            // Two candidate lists, never mixed, because their distances mean
-            // different things — road hops against stops on a line. A block
-            // on a street picks a job the way it always has; a block reachable
-            // only by transit picks one off the lines that serve it, which is
-            // the case that used to generate no trips at all and therefore
-            // reported everyone living there as unable to find work.
+            // The *whole* reachable network from this home, not just the
+            // nearest job — the lottery needs every reachable candidate's
+            // cost to weigh against each other, which stopping early at the
+            // first job with room (the original approach) cannot provide.
             var parents: [GridPosition: GridPosition] = [:]
-            let candidates: [JobCandidate]
+            var hops: [GridPosition: Int] = [:]
             if !homeFrontage.isEmpty {
-                // The *whole* reachable network from this home, not just the
-                // nearest job — `chooseJob` needs every reachable candidate's
-                // distance to weigh against each other, which stopping early
-                // at the first job with room (the old approach) can't provide.
                 let reachable = reachableTiles(from: homeFrontage, over: drivable)
                 parents = reachable.parent
-                candidates = drivingCandidates(among: jobs, reachedBy: reachable.distance)
-            } else if !homeStops.isEmpty {
-                candidates = ridingCandidates(among: jobs, from: homeStops, over: coverage, seats: seats)
-            } else {
-                continue // no street and no line: this block generates no trips
+                hops = reachable.distance
+            }
+            let delay = drivingDelay(atFrontage: homeFrontage, in: map)
+
+            var candidates: [JobCandidate] = []
+            for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
+                // A job can front more than one drivable tile; this home's
+                // distance to it is the closest of those it actually reached.
+                // `sortedByPosition` rather than iterating the `Set` directly:
+                // when two frontage cells are equidistant, `min(by:)` keeps
+                // whichever it saw first, so `Set` iteration order would decide
+                // the route — and that is not stable between two `Set`
+                // instances holding the same elements. See
+                // `reachableTiles(from:over:)` for the full story.
+                let nearest = job.frontage.sortedByPosition()
+                    .compactMap { cell in hops[cell].map { (cell, $0) } }
+                    .min { $0.1 < $1.1 }
+                let drive = nearest.map {
+                    (minutes: Double($0.1) * drivingMinutesPerTile * delay, frontageCell: $0.0)
+                }
+                let ride = network.journey(from: homeReach, to: job.reach)
+                guard let best = [drive?.minutes, ride?.minutes].compactMap({ $0 }).min() else { continue }
+                candidates.append(JobCandidate(jobIndex: index, minutes: best, drive: drive, ride: ride))
             }
 
             guard let chosen = chooseJob(from: candidates, homeSeed: tile.position) else { continue } // no reachable job has room
@@ -223,30 +288,46 @@ enum Traffic {
             // residential lot that no overlay shows and no other field
             // implies.
             load.recordEmployed(tile.position)
+            load.recordCommute(
+                TrafficLoad.Commute(
+                    minutes: chosen.minutes,
+                    boarding: chosen.ridesTransit ? chosen.ride?.legs.first : nil,
+                    transfers: chosen.ridesTransit ? (chosen.ride?.transfers ?? 0) : 0
+                ),
+                at: tile.position
+            )
 
-            // **The lottery decided where they work; transit decides how they
-            // get there.** Asked after the choice rather than before it on
-            // purpose: a bus line is not supposed to change who employs you,
-            // it is supposed to take your car off the road. Keeping the two
-            // separate is also what stops a route quietly becoming a
-            // land-use lever nobody asked for.
             // **People, not density units.** Road load is an abstract weight
             // and density is the right currency for it; ridership is a number
             // the player reads, and "31 riders/day" for a line serving a
             // neighbourhood of hundreds reads as broken. Same conversion
             // `GameController.population` uses, so the two agree.
             let riders = tile.density * ZoneType.residential.populationPerDensityLevel
-            if let ride = coverage.connection(from: homeStops, to: coverage.stops(reaching: jobs[chosen.jobIndex].cells)),
-               seats[ride.route, default: 0] > 0 {
-                // One tick is one day, so this is the day's ridership — the
-                // number the route panel reports, no conversion anywhere.
-                load.recordRiders(riders, on: ride.route)
-                // Claimed after the fact and allowed to overshoot by one
-                // home's worth, the same way a job site's room is: splitting a
-                // single building's commute across two lines is detail this
-                // aggregate model deliberately does not carry.
-                seats[ride.route, default: 0] -= riders
-            } else if let destination = chosen.frontageCell {
+            let ridesWithRoom = chosen.ridesTransit
+                && (chosen.ride?.legs.allSatisfy { seats[$0, default: 0] > 0 } ?? false)
+
+            if ridesWithRoom, let ride = chosen.ride {
+                // **Every leg counts a boarding.** A trip that changes from a
+                // bus to a subway puts a rider on both lines, which is what a
+                // per-line ridership figure means everywhere outside this game
+                // too — and what makes a feeder line's number reflect the work
+                // it is actually doing.
+                for leg in ride.legs {
+                    load.recordRiders(riders, on: leg)
+                    // Claimed after the fact and allowed to overshoot by one
+                    // home's worth, the same way a job site's room is:
+                    // splitting a single building's commute across two lines
+                    // is detail this aggregate model deliberately does not
+                    // carry.
+                    seats[leg, default: 0] -= riders
+                }
+            } else if let destination = chosen.drive?.frontageCell {
+                // Either driving was faster, or the line that would have been
+                // faster is full. A full line turns the trip onto the road
+                // rather than rerouting it around the jam — rerouting would
+                // need a search per trip against a table built without that
+                // line, and in the aggregate the answer is the same: this
+                // trip is not on transit.
                 let path = reconstructPath(to: destination, parent: parents)
                 for (index, step) in path.enumerated() {
                     // The step *after* this one is the direction a car sitting
@@ -267,69 +348,39 @@ enum Traffic {
         return load
     }
 
-    /// Every job with room that this home can drive to, at its road distance.
-    private static func drivingCandidates(
-        among jobs: [JobSite], reachedBy distance: [GridPosition: Int]
-    ) -> [JobCandidate] {
-        var candidates: [JobCandidate] = []
-        for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
-            // A job can front more than one drivable tile; this home's
-            // distance to it is the closest of those it actually reached.
-            // `sortedByPosition` rather than iterating the `Set` directly:
-            // when two frontage cells are equidistant, `min(by:)` keeps
-            // whichever it saw first, so `Set` iteration order would decide
-            // the route — and that is not stable between two `Set`
-            // instances holding the same elements. See
-            // `reachableTiles(from:over:)` for the full story.
-            guard let nearest = job.frontage.sortedByPosition()
-                .compactMap({ cell in distance[cell].map { (cell, $0) } })
-                .min(by: { $0.1 < $1.1 }) else { continue }
-            candidates.append(JobCandidate(jobIndex: index, distance: nearest.1, frontageCell: nearest.0))
-        }
-        return candidates
-    }
-
-    /// Every job with room that a single line already serving this home also
-    /// serves, at how many stops apart the two ends are.
+    /// One job a home could take, and the best way of getting there.
     ///
-    /// No search: `homeStops` and each job's coverage are both index lookups,
-    /// and `connection` is a set intersection over them. That is the whole
-    /// reason transit could be added to the most expensive loop in the game.
-    private static func ridingCandidates(
-        among jobs: [JobSite], from homeStops: [TransitRoute.ID: Int], over coverage: TransitCoverage,
-        seats: [TransitRoute.ID: Int]
-    ) -> [JobCandidate] {
-        // Only lines with room left. A block with no street of its own and a
-        // full line has genuinely nowhere to go, and reporting that honestly
-        // is what makes an overloaded network something the player can see in
-        // the inspector rather than only in a ridership figure.
-        let open = homeStops.filter { seats[$0.key, default: 0] > 0 }
-        guard !open.isEmpty else { return [] }
-        var candidates: [JobCandidate] = []
-        for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
-            guard let ride = coverage.connection(from: open, to: coverage.stops(reaching: job.cells)) else { continue }
-            candidates.append(JobCandidate(jobIndex: index, distance: ride.stops, frontageCell: nil))
-        }
-        return candidates
-    }
-
-    /// One reachable job a home's lottery could draw: which job (`jobIndex`
-    /// into `computeLoad(for:)`'s own `jobs` array), the closest of that
-    /// job's frontage cells this home actually reached (`frontageCell`,
-    /// where `reconstructPath(to:parent:)` routes to), and the hop count
-    /// to get there (`distance`, what `chooseJob(from:homeSeed:)` weighs).
+    /// **One currency, minutes.** This used to carry a `distance` that meant
+    /// road hops for a driving candidate and stops-along-a-line for a riding
+    /// one, and the two were never allowed into the same lottery because they
+    /// could not be compared — a road-fronted home picked jobs by hops and a
+    /// transit-only one by stops, in separate code paths that never met. That
+    /// split was tolerable with one line between two places and is untenable
+    /// with a network: "is this journey any good" has one answer, and it is
+    /// how long it takes.
     private struct JobCandidate {
         let jobIndex: Int
 
-        /// How far away the job is, in whatever unit the candidate was found
-        /// by — road hops for a driving candidate, stops for a riding one.
-        /// The two are never mixed in one lottery (see `computeLoad`), so
-        /// `chooseJob` never has to compare a hop against a stop.
-        let distance: Int
+        /// The fastest way there, whichever mode that is — what the lottery
+        /// weighs.
+        let minutes: Double
 
-        /// Where on the road network this commute ends, and `nil` when it has
-        /// no road leg at all.
-        let frontageCell: GridPosition?
+        /// Driving it, if the roads reach: how long, and where on the network
+        /// the trip ends.
+        let drive: (minutes: Double, frontageCell: GridPosition)?
+
+        /// Riding it, if the network reaches.
+        let ride: TransitGraph.Journey?
+
+        /// Which one actually happens. **Driving takes an exact tie**,
+        /// because a journey that is no faster is not worth a walk and a
+        /// wait — and because it keeps a network with no advantage from
+        /// silently emptying the roads.
+        var ridesTransit: Bool {
+            guard let ride else { return false }
+            guard let drive else { return true }
+            return ride.minutes < drive.minutes
+        }
     }
 
     /// Which job a home actually commutes to: a distance-weighted lottery
@@ -339,6 +390,12 @@ enum Traffic {
     /// drawn rather than simply less likely by some unbounded amount — near
     /// jobs still win more often in aggregate, they just aren't the *only*
     /// possible outcome the way "always nearest" made them.
+    ///
+    /// Weight is `1 / (minutes + 1)`, which at
+    /// `drivingMinutesPerTile` of 1.0 and an empty road is *numerically the
+    /// same* weighting the old hop count produced — so moving the lottery to
+    /// minutes moved nothing by itself, and every difference it makes comes
+    /// from congestion or from a faster transit option.
     ///
     /// The draw itself is `pseudoRandomUnitValue(for:)`, seeded from the
     /// home's own position rather than `GameController`'s shared RNG — the
@@ -350,7 +407,7 @@ enum Traffic {
     /// on a clock it has no reason to change.
     private static func chooseJob(from candidates: [JobCandidate], homeSeed: GridPosition) -> JobCandidate? {
         guard !candidates.isEmpty else { return nil }
-        let weights = candidates.map { 1.0 / Double($0.distance + 1) }
+        let weights = candidates.map { 1.0 / ($0.minutes + 1) }
         let totalWeight = weights.reduce(0, +)
         let roll = pseudoRandomUnitValue(for: homeSeed) * totalWeight
         var cumulative = 0.0
@@ -377,7 +434,9 @@ enum Traffic {
     /// site with its starting capacity (`density * jobCapacityPerDensityLevel`)
     /// — the pool `computeLoad(for:)` draws down as homes claim a share of
     /// it.
-    private static func jobSites(in map: CityMap, drivable: Set<GridPosition>) -> [JobSite] {
+    private static func jobSites(
+        in map: CityMap, drivable: Set<GridPosition>, coverage: TransitCoverage
+    ) -> [JobSite] {
         var sites: [JobSite] = []
         for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .commercial || tile.zone == .industrial) && tile.density > 0 {
             // A site with no road frontage used to be dropped here as "not a
@@ -385,9 +444,11 @@ enum Traffic {
             // route could carry someone to it. It is kept and left
             // unreachable by car instead — no path reaches an empty frontage,
             // so the driving lottery skips it exactly as before.
+            let cells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
             sites.append(JobSite(
-                cells: map.footprintCells(origin: tile.position, size: tile.zone.footprintSize),
+                cells: cells,
                 frontage: frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable),
+                reach: coverage.reaches(from: cells),
                 remainingCapacity: tile.density * jobCapacityPerDensityLevel
             ))
         }
@@ -589,6 +650,32 @@ struct TrafficLoad: Equatable, Codable, Sendable {
     /// `computeLoad` run against it does not know who is employed, and `nil`
     /// says exactly that rather than claiming everyone is jobless.
     private var employedHomes: Set<GridPosition>?
+
+    /// How long the commute from this building takes, and on what.
+    ///
+    /// **The router already knows this and used to throw it away**, exactly
+    /// as it once threw away whether a job was found at all. It is now the
+    /// single most legible thing the inspector can say about a house — "18
+    /// minutes to work, by bus" is a sentence a player understands without
+    /// being taught anything about the model, and it is the only place the
+    /// mode decision surfaces at all.
+    private var commutesByHome: [GridPosition: Commute]?
+
+    struct Commute: Equatable, Codable, Sendable {
+        let minutes: Double
+        /// The line a rider boards first, or `nil` for a drive.
+        let boarding: TransitRoute.ID?
+        let transfers: Int
+    }
+
+    func commute(at position: GridPosition) -> Commute? {
+        commutesByHome?[position]
+    }
+
+    fileprivate mutating func recordCommute(_ commute: Commute, at position: GridPosition) {
+        commutesByHome = commutesByHome ?? [:]
+        commutesByHome?[position] = commute
+    }
 
     /// Did the people living at this building find work they can reach?
     ///

@@ -188,7 +188,20 @@ enum InspectorText {
     /// lot but not currently stopping it.
     static func commute(for report: TileReport) -> String? {
         guard let found = report.commuteFound else { return nil }
-        return found ? nil : "Nobody here can reach a job"
+        guard found else { return "Nobody here can reach a job" }
+        guard let commute = report.commute else { return nil }
+        // **Minutes, because that is how anybody describes a commute.** The
+        // simulation has priced every journey in them since the transit graph
+        // landed, and this is the one place that number reaches the player —
+        // it is also the only place the mode decision surfaces, so a line
+        // that is genuinely faster than driving is visible as the reason
+        // these particular people are on it.
+        let how = commute.boarding == nil
+            ? "driving"
+            : (commute.transfers > 0
+                ? "by transit, \(commute.transfers) change\(commute.transfers == 1 ? "" : "s")"
+                : "by transit")
+        return "\(Int(commute.minutes.rounded())) minutes to work, \(how)"
     }
 
     /// "Level 3 of 5", or nothing at all for something that does not grow.

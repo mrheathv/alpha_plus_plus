@@ -52,6 +52,35 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
             }
         }
 
+        /// Minutes to cover one tile, in service.
+        ///
+        /// Slower than a car per tile for a bus (it stops, and it is stuck in
+        /// the same traffic), much faster for a subway. Against
+        /// `Traffic.drivingMinutesPerTile` of 1.0 this is the number that
+        /// decides which mode wins a given trip, and with the boarding wait
+        /// below it is why a bus loses short journeys on an empty road and
+        /// wins them the moment the road fills up.
+        var minutesPerTile: Double {
+            switch self {
+            case .bus: return 0.8
+            case .subway: return 0.4
+            }
+        }
+
+        /// How long you wait for one, on average.
+        ///
+        /// Charged once on boarding and again on every transfer, which is
+        /// most of what makes changing lines worse than not having to. A
+        /// subway waits slightly longer than a bus and then makes it back
+        /// several times over in speed — the usual trade between a frequent
+        /// local service and a fast trunk one.
+        var boardingWaitMinutes: Double {
+            switch self {
+            case .bus: return 3
+            case .subway: return 4
+            }
+        }
+
         /// What running one stop's worth of this line costs per day.
         ///
         /// The station is the shelter and is already charged for

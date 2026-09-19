@@ -10,21 +10,26 @@ import Foundation
 /// again — the same live/dead distinction the conduit overlay draws between a
 /// pipe that exists and a pipe that reaches a source.
 ///
-/// **Ridership is an index lookup, not a search**, and that is the decision
-/// that makes the whole feature affordable. `Traffic.computeLoad` is already
-/// ~90% of a tick because it runs a breadth-first search per home; a transit
-/// model that searched a second network per trip would double the most
-/// expensive thing in the game. Instead every station stamps its catchment
-/// once, and asking "can these two places ride the same line?" is a dictionary
-/// lookup and a set intersection.
+/// **Journeys are measured in minutes, and they can change lines.**
 ///
-/// **No transfers.** A trip rides when *one* route serves both ends.
-/// Multi-leg journeys are a routing problem in their own right — which line
-/// to change to, where, and at what cost in time — and it would dominate the
-/// work of the module while being nearly invisible next to the thing a player
-/// actually watches, which is whether their line is carrying anyone. Stated
-/// once, in `connection(from:to:)`, rather than assumed in several places.
+/// The first version of this module could not do either. A trip rode only
+/// when *one* route served both ends, and it rode whenever that was true
+/// regardless of whether riding was any faster than driving. Both were
+/// defensible with two modes and neither survives four: a tram feeding a
+/// subway feeding a regional train *is* the mechanic, and a line that goes
+/// the long way round should not beat a two-tile drive.
+///
+/// **Why transfers turned out to be affordable**, having been ruled out once
+/// on cost. `Traffic.computeLoad` is ~90% of a tick because it runs a
+/// breadth-first search *per home* — thousands of searches over thousands of
+/// road tiles. The transit graph has **tens of nodes**: one per (station,
+/// line) pair, which in a real city is under two hundred. All-pairs shortest
+/// paths over that is nothing, computed once per tick rather than once per
+/// trip, and the per-home step stays what it always was — an index lookup.
+/// The original reasoning was right about the cost of searching per trip and
+/// wrong about needing to.
 enum Transit {
+
 
     /// How far a rider will walk to a bus stop, in orthogonal steps from the
     /// station's own footprint.
@@ -126,6 +131,53 @@ enum Transit {
     /// without a floor it is a spiral with no bottom.
     static let busJamFloor = 0.3
 
+    // MARK: - What a journey costs
+
+    /// **Game minutes, not geographic ones.** A tile reads as about eight
+    /// metres, which would make walking one of them seven seconds and every
+    /// catchment free — and this map also fits a five-storey tower holding
+    /// hundreds of people onto a 2×2 lot. The scale is abstracted, so these
+    /// are calibrated against each other and against the decisions they are
+    /// meant to create, not against a stopwatch.
+    ///
+    /// `Traffic.drivingMinutesPerTile` is deliberately **1.0**, so that at
+    /// zero congestion a journey in minutes is numerically the journey in
+    /// hops the job lottery used before. The change to minutes therefore
+    /// moves nothing on an empty road, and every difference it does make is
+    /// attributable to congestion or to transit rather than to a silent
+    /// re-weighting of where people work.
+    /// **Calibrated against one worked example, not against a stopwatch.**
+    /// Take a cross-town commute of about twenty tiles on an empty road,
+    /// which at `Traffic.drivingMinutesPerTile` is twenty-odd minutes by car:
+    ///
+    /// - a **bus** should land on roughly the same number, so it is a coin
+    ///   flip on a clear road and wins outright the moment the street fills;
+    /// - a **subway** should win it comfortably, because that is what the
+    ///   price buys;
+    /// - and **both should lose a five-tile trip**, because nobody waits for
+    ///   a bus to go two blocks.
+    ///
+    /// The first values put walking and waiting at 12.5 minutes of a 22
+    /// minute journey — over half the trip spent not moving — which made even
+    /// a subway a coin flip across a whole city. The fixed overhead is what
+    /// these numbers are really setting, and it has to be small against the
+    /// ride or transit can never win anything.
+    static let walkMinutesPerTile = 0.5
+
+    /// What changing lines costs, on top of the walk between the two
+    /// stations. This is the number that decides whether a network of short
+    /// connecting lines beats one long one, so it is the main dial on how
+    /// much a player is rewarded for building an interchange.
+    static let transferPenaltyMinutes = 5.0
+
+    /// How far apart two stations can be and still be one interchange.
+    ///
+    /// **An interchange is something the player builds**, by siting two
+    /// stations near each other — there is no separate "interchange"
+    /// building, and there does not need to be. Three tiles is close enough
+    /// to read as deliberate on the map and too close to happen by accident.
+    static let transferWalkDistance = 3
+
     /// Stamps every working route's catchment onto the tiles it covers.
     ///
     /// Cheap enough to call per tick and per hover: it is stations times
@@ -134,8 +186,8 @@ enum Transit {
     /// `waterSupply` is — it is a pure function of the map, so that is a
     /// mechanical change rather than a design one.
     static func coverage(for map: CityMap) -> TransitCoverage {
-        var byTile: [GridPosition: [TransitRoute.ID: Int]] = [:]
-        var modes: [TransitRoute.ID: TransitRoute.Mode] = [:]
+        var nodes: [TransitCoverage.Node] = []
+        var byTile: [GridPosition: [TransitCoverage.Reach]] = [:]
 
         for route in map.transit.routes {
             // Only stops that are still a station of this route's own kind.
@@ -147,30 +199,48 @@ enum Transit {
 
             let radius = catchment(for: route.mode)
             for (index, stop) in working.enumerated() {
+                let node = nodes.count
+                nodes.append(TransitCoverage.Node(
+                    station: stop, route: route.id, mode: route.mode, stopIndex: index
+                ))
                 for cell in map.footprintCells(origin: stop, size: route.mode.stationZone.footprintSize) {
                     for dy in -radius ... radius {
                         for dx in -radius ... radius {
                             let target = GridPosition(x: cell.x + dx, y: cell.y + dy)
-                            guard map.contains(target),
-                                  cell.manhattanDistance(to: target) <= radius else { continue }
-                            // Nearest stop wins where two stops of one line
-                            // both reach a tile: a rider boards at the stop
-                            // they are standing next to, and counting the
-                            // far one would make the line read as longer
-                            // than it is.
-                            let existing = byTile[target]?[route.id]
-                            if existing == nil { byTile[target, default: [:]][route.id] = index }
+                            let walk = cell.manhattanDistance(to: target)
+                            guard map.contains(target), walk <= radius else { continue }
+                            // Nearest cell of the station wins, so a lot
+                            // touching a stop walks nothing and one at the
+                            // edge of the catchment walks the whole way. That
+                            // difference is most of why a stop next door is
+                            // worth more than a stop four blocks over, and
+                            // the old index-only coverage could not express
+                            // it at all.
+                            if let existing = byTile[target]?.firstIndex(where: { $0.node == node }) {
+                                if walk < byTile[target]![existing].walk {
+                                    byTile[target]![existing].walk = walk
+                                }
+                            } else {
+                                byTile[target, default: []].append(
+                                    TransitCoverage.Reach(node: node, walk: walk)
+                                )
+                            }
                         }
                     }
                 }
             }
-            modes[route.id] = route.mode
         }
-        return TransitCoverage(byTile: byTile, modeByRoute: modes)
+        return TransitCoverage(nodes: nodes, byTile: byTile)
+    }
+
+    /// The journey planner: every station-to-station cost in the city,
+    /// transfers included, worked out once.
+    static func graph(for map: CityMap, coverage: TransitCoverage) -> TransitGraph {
+        TransitGraph(coverage: coverage, map: map)
     }
 }
 
-/// Which routes reach which tiles, and at which stop.
+/// Which lines reach which tiles, and how far you walk to catch them.
 ///
 /// Read-only from the outside — `Transit.coverage(for:)` is the only thing
 /// that builds a non-empty one, the same "one place produces this, everything
@@ -178,88 +248,220 @@ enum Transit {
 /// already use.
 struct TransitCoverage: Equatable, Sendable {
 
-    /// tile -> (route id -> index of the nearest stop of that route).
-    private var byTile: [GridPosition: [TransitRoute.ID: Int]] = [:]
-
-    /// Which kind of line each id belongs to.
+    /// One place you can board: a station, on a particular line.
     ///
-    /// Carried here rather than left for callers to look up on the network,
-    /// because the alternative was a `mode:` parameter on
-    /// `Transit.coverage(for:)` — and then every caller would hold a coverage
-    /// silently filtered to one mode, with nothing stopping the Bus overlay
-    /// from being handed the subway's. Routing wants all of it (a trip rides
-    /// whatever serves both ends) and the overlays want one at a time, so the
-    /// filtering belongs at the point of the question.
-    private var modeByRoute: [TransitRoute.ID: TransitRoute.Mode] = [:]
+    /// **A (station, line) pair rather than a station**, because that is what
+    /// makes a transfer cost something. With a station as the node, riding
+    /// through an interchange and changing lines there would be the same
+    /// journey at the same price, and the whole point of an interchange is
+    /// that changing is worse than not having to.
+    struct Node: Equatable, Sendable {
+        let station: GridPosition
+        let route: TransitRoute.ID
+        let mode: TransitRoute.Mode
+        /// Position along its own line, which is what the diagram and the
+        /// ride length are measured in.
+        let stopIndex: Int
+    }
+
+    /// A boarding point within walking distance of a tile.
+    struct Reach: Equatable, Sendable {
+        let node: Int
+        /// Tiles from here to the station — real walking, so a lot touching a
+        /// stop pays nothing and one at the edge of the catchment pays for
+        /// every tile.
+        var walk: Int
+    }
+
+    private var nodes: [Node] = []
+    private var byTile: [GridPosition: [Reach]] = [:]
 
     init() {}
 
-    fileprivate init(
-        byTile: [GridPosition: [TransitRoute.ID: Int]],
-        modeByRoute: [TransitRoute.ID: TransitRoute.Mode]
-    ) {
+    fileprivate init(nodes: [Node], byTile: [GridPosition: [Reach]]) {
+        self.nodes = nodes
         self.byTile = byTile
-        self.modeByRoute = modeByRoute
     }
 
     var isEmpty: Bool { byTile.isEmpty }
+    var nodeCount: Int { nodes.count }
+
+    func node(_ index: Int) -> Node { nodes[index] }
 
     /// Is anything serving this tile — or, given a mode, anything of that kind?
     func isServed(at position: GridPosition, by mode: TransitRoute.Mode? = nil) -> Bool {
-        guard let here = byTile[position] else { return false }
+        guard let here = byTile[position], !here.isEmpty else { return false }
         guard let mode else { return true }
-        return here.keys.contains { modeByRoute[$0] == mode }
+        return here.contains { nodes[$0.node].mode == mode }
     }
 
-    /// Every route reaching this tile, and how far along each one it is.
-    func stops(at position: GridPosition) -> [TransitRoute.ID: Int] {
-        byTile[position] ?? [:]
+    func reaches(at position: GridPosition) -> [Reach] {
+        byTile[position] ?? []
     }
 
-    /// The same, for a whole building — a 2×2 block counts as served if any
-    /// of its cells is, which is the rule every other coverage question in
-    /// this game already uses (see `CitySimulator.hasSchooling`).
-    func stops(reaching cells: [GridPosition]) -> [TransitRoute.ID: Int] {
-        var merged: [TransitRoute.ID: Int] = [:]
+    /// Everywhere a *building* can board, keeping the shortest walk from any
+    /// of its cells — the rule every other coverage question in this game
+    /// already uses (see `CitySimulator.hasSchooling`).
+    func reaches(from cells: [GridPosition]) -> [Reach] {
+        var best: [Int: Int] = [:]
         for cell in cells {
-            for (route, index) in stops(at: cell) {
-                merged[route] = min(merged[route] ?? index, index)
+            for reach in reaches(at: cell) {
+                best[reach.node] = Swift.min(best[reach.node] ?? reach.walk, reach.walk)
             }
         }
-        return merged
+        // Sorted, because a tie in the journey search must not be broken by
+        // dictionary order. `Traffic.reachableTiles` documents at length what
+        // that cost this project the last time it happened.
+        return best.sorted { $0.key < $1.key }.map { Reach(node: $0.key, walk: $0.value) }
+    }
+}
+
+/// Every station-to-station journey in the city, priced in minutes.
+///
+/// **All-pairs, once**, rather than a search per trip. The graph is one node
+/// per (station, line) pair — tens of them in a real city against thousands of
+/// road tiles — so the whole table costs less than a single one of the
+/// breadth-first searches `Traffic.computeLoad` already runs per home. That is
+/// the arithmetic that made transfers affordable after they were once ruled
+/// out as too expensive.
+struct TransitGraph {
+
+    /// A trip that rides, and what it cost.
+    struct Journey: Equatable, Sendable {
+        let minutes: Double
+        /// The lines used, in order. Every one of them counts a boarding, so
+        /// a two-leg trip puts a rider on two lines — which is what a
+        /// per-line ridership figure means everywhere outside this game too.
+        let legs: [TransitRoute.ID]
+
+        var transfers: Int { Swift.max(0, legs.count - 1) }
     }
 
-    /// One line the player can ride from origin to destination, and how many
-    /// stops apart the two ends are on it.
-    ///
-    /// **This function is the no-transfer rule.** It looks for a route
-    /// present at both ends and nothing else — if two lines would together
-    /// make the journey, this returns `nil` and the trip drives. Where
-    /// several lines serve both ends the shortest ride wins, with the lowest
-    /// route id breaking a tie so the answer does not depend on dictionary
-    /// iteration order (the same trap `Traffic.reachableTiles` documents at
-    /// length, having once made routing genuinely non-deterministic).
-    func connection(
-        from origin: [TransitRoute.ID: Int], to destination: [TransitRoute.ID: Int]
-    ) -> Ride? {
-        var best: Ride?
-        for (route, boarding) in origin {
-            guard let alighting = destination[route] else { continue }
-            let ride = Ride(route: route, stops: abs(alighting - boarding))
-            guard let current = best else { best = ride; continue }
-            if (ride.stops, ride.route) < (current.stops, current.route) { best = ride }
+    private let coverage: TransitCoverage
+    /// `cost[from][to]`, in minutes, riding and transferring only — the walk
+    /// at each end and the wait to board are added per query, because they
+    /// depend on where the traveller actually is.
+    private var cost: [[Double]] = []
+    /// `previous[from][to]`, for reading back which lines a journey used.
+    private var previous: [[Int]] = []
+
+    private static let unreachable = Double.infinity
+
+    fileprivate init(coverage: TransitCoverage, map: CityMap) {
+        self.coverage = coverage
+        let count = coverage.nodeCount
+        guard count > 0 else { return }
+
+        // Two kinds of edge, and the difference between them is the whole
+        // model: staying on a line costs time proportional to the ground
+        // covered, and changing lines costs the walk plus a flat penalty for
+        // having to wait all over again.
+        var edges = [[(node: Int, minutes: Double)]](repeating: [], count: count)
+        for a in 0 ..< count {
+            let from = coverage.node(a)
+            for b in 0 ..< count where a != b {
+                let to = coverage.node(b)
+                if from.route == to.route {
+                    // Consecutive stops only. A line is a sequence, so riding
+                    // from stop 0 to stop 4 has to pass through 1, 2 and 3 —
+                    // letting it jump would price an express service nobody
+                    // built.
+                    guard abs(from.stopIndex - to.stopIndex) == 1 else { continue }
+                    let tiles = Double(from.station.manhattanDistance(to: to.station))
+                    edges[a].append((b, tiles * from.mode.minutesPerTile))
+                } else {
+                    let walk = from.station.manhattanDistance(to: to.station)
+                    guard walk <= Transit.transferWalkDistance else { continue }
+                    edges[a].append((b, Double(walk) * Transit.walkMinutesPerTile
+                        + Transit.transferPenaltyMinutes
+                        + to.mode.boardingWaitMinutes))
+                }
+            }
         }
-        return best
+
+        cost = [[Double]](repeating: [Double](repeating: Self.unreachable, count: count), count: count)
+        previous = [[Int]](repeating: [Int](repeating: -1, count: count), count: count)
+        for source in 0 ..< count {
+            dijkstra(from: source, over: edges, count: count)
+        }
     }
 
-    /// A trip that rides: which line, and how far along it.
-    struct Ride: Equatable, Sendable {
-        let route: TransitRoute.ID
+    /// Plain O(n²) Dijkstra — no heap, because `n` here is the number of
+    /// (station, line) pairs in the city and a heap would cost more in
+    /// indirection than it saves in comparisons at this size.
+    private mutating func dijkstra(from source: Int, over edges: [[(node: Int, minutes: Double)]], count: Int) {
+        var settled = [Bool](repeating: false, count: count)
+        cost[source][source] = 0
+        for _ in 0 ..< count {
+            var current = -1
+            var best = Self.unreachable
+            for candidate in 0 ..< count where !settled[candidate] && cost[source][candidate] < best {
+                best = cost[source][candidate]
+                current = candidate
+            }
+            guard current >= 0 else { break }
+            settled[current] = true
+            for edge in edges[current] {
+                let relaxed = best + edge.minutes
+                if relaxed < cost[source][edge.node] {
+                    cost[source][edge.node] = relaxed
+                    previous[source][edge.node] = current
+                }
+            }
+        }
+    }
 
-        /// How many stops the rider stays on for. Zero is legitimate — both
-        /// ends inside one stop's catchment means home and work are within a
-        /// few blocks of each other, and those people were never going to
-        /// contribute much road load either way.
-        let stops: Int
+    var isEmpty: Bool { cost.isEmpty }
+
+    /// The fastest way to get from one building to another by transit, or
+    /// `nil` if there is none.
+    ///
+    /// The walk at each end and the wait to board are added here rather than
+    /// baked into the table, because they are properties of the traveller's
+    /// position rather than of the network.
+    func journey(from origin: [TransitCoverage.Reach], to destination: [TransitCoverage.Reach]) -> Journey? {
+        guard !cost.isEmpty, !origin.isEmpty, !destination.isEmpty else { return nil }
+        var bestMinutes = Self.unreachable
+        var bestPair: (Int, Int)?
+        for start in origin {
+            let boarding = Double(start.walk) * Transit.walkMinutesPerTile
+                + coverage.node(start.node).mode.boardingWaitMinutes
+            for end in destination {
+                let ride = cost[start.node][end.node]
+                guard ride < Self.unreachable else { continue }
+                let total = boarding + ride + Double(end.walk) * Transit.walkMinutesPerTile
+                // Strictly less, and the arrays are in node order, so an
+                // exact tie always resolves to the lower-numbered pair rather
+                // than to whichever the iteration reached first.
+                if total < bestMinutes {
+                    bestMinutes = total
+                    bestPair = (start.node, end.node)
+                }
+            }
+        }
+        guard let (start, end) = bestPair else { return nil }
+        return Journey(minutes: bestMinutes, legs: legs(from: start, to: end))
+    }
+
+    /// Which lines a journey actually boards, read back from the search.
+    ///
+    /// Each *change* of route is a boarding, and the first node is always
+    /// one — so a trip that stays on one line reports one leg and a trip that
+    /// changes once reports two.
+    private func legs(from start: Int, to end: Int) -> [TransitRoute.ID] {
+        var chain = [end]
+        var node = end
+        while node != start {
+            let step = previous[start][node]
+            guard step >= 0 else { break }
+            chain.append(step)
+            node = step
+        }
+        var used: [TransitRoute.ID] = []
+        for node in chain.reversed() {
+            let route = coverage.node(node).route
+            if used.last != route { used.append(route) }
+        }
+        return used
     }
 }

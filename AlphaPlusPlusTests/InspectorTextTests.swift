@@ -7,7 +7,8 @@ import XCTest
 final class InspectorTextTests: XCTestCase {
 
     private func report(_ status: LotStatus, zone: ZoneType = .residential,
-                        density: Int = 2, landValue: Double = 0.5) -> TileReport {
+                        density: Int = 2, landValue: Double = 0.5,
+                        commute: TrafficLoad.Commute? = nil) -> TileReport {
         TileReport(
             position: GridPosition(x: 0, y: 0), zone: zone, status: status,
             density: density, maxDensity: zone.maxDensity,
@@ -16,7 +17,8 @@ final class InspectorTextTests: XCTestCase {
             hasWater: false, hasPower: false,
             policeCoverage: 0, fireCoverage: 0, schoolCoverage: 0, hospitalCoverage: 0,
             landValue: landValue, pollution: 0, congestion: 0, infrastructureCondition: 1,
-            commuteFound: nil, isExposedToCrime: false, isExposedToFire: false
+            commuteFound: commute == nil ? nil : true, commute: commute,
+            isExposedToCrime: false, isExposedToFire: false
         )
     }
 
@@ -142,5 +144,35 @@ final class InspectorTextTests: XCTestCase {
     func testLevelIsOnlyReportedForSomethingThatGrows() {
         XCTAssertEqual(InspectorText.level(for: report(.atMaximumDensity, density: 4)), "Level 4 of 5")
         XCTAssertNil(InspectorText.level(for: report(.notGrowable, zone: .road, density: 0)))
+    }
+}
+
+extension InspectorTextTests {
+
+    /// "18 minutes to work, by bus" is the whole payoff of pricing journeys
+    /// in minutes — the one sentence about this model a player understands
+    /// without being taught anything, and the only place the mode decision
+    /// surfaces at all.
+    func testACommuteReadsAsASentence() {
+        XCTAssertEqual(
+            InspectorText.commute(for: report(.atMaximumDensity,
+                commute: TrafficLoad.Commute(minutes: 17.6, boarding: nil, transfers: 0))),
+            "18 minutes to work, driving"
+        )
+        XCTAssertEqual(
+            InspectorText.commute(for: report(.atMaximumDensity,
+                commute: TrafficLoad.Commute(minutes: 21, boarding: 3, transfers: 0))),
+            "21 minutes to work, by transit"
+        )
+        XCTAssertEqual(
+            InspectorText.commute(for: report(.atMaximumDensity,
+                commute: TrafficLoad.Commute(minutes: 30, boarding: 3, transfers: 1))),
+            "30 minutes to work, by transit, 1 change"
+        )
+        XCTAssertEqual(
+            InspectorText.commute(for: report(.atMaximumDensity,
+                commute: TrafficLoad.Commute(minutes: 44, boarding: 3, transfers: 2))),
+            "44 minutes to work, by transit, 2 changes"
+        )
     }
 }

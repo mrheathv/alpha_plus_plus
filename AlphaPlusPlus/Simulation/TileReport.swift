@@ -83,6 +83,10 @@ struct TileReport: Equatable {
     /// work, and until now the game computed that every tick and told nobody.
     let commuteFound: Bool?
 
+    /// How long that commute takes and on what — see `TrafficLoad.Commute`.
+    /// `nil` under exactly the same conditions `commuteFound` is.
+    let commute: TrafficLoad.Commute?
+
     /// Whether a hazard could strike here at all: `CityHazards` only rolls
     /// against blocks its covering service does not reach, so these are
     /// exactly "the police/fire brigade are too far away".
@@ -155,6 +159,9 @@ struct TileReport: Equatable {
             infrastructureCondition: condition,
             commuteFound: anchor.zone == .residential && anchor.density > 0
                 ? map.trafficLoad.commuteFound(at: anchor.position)
+                : nil,
+            commute: anchor.zone == .residential && anchor.density > 0
+                ? map.trafficLoad.commute(at: anchor.position)
                 : nil,
             // `CityHazards`' own condition, called rather than restated, so
             // "exposed" here, on the crime overlay, and "a hazard can strike"

@@ -120,21 +120,76 @@ final class TransitTests: XCTestCase {
 
     // MARK: - No transfers
 
-    /// **The v1 rule, stated as a test.** Two lines that would together make
-    /// the journey do not make it: a trip rides when one route serves both
-    /// ends, and otherwise it drives.
-    func testATripThatWouldNeedAChangeOfLineDrivesInstead() {
+    /// **A trip can change lines**, which is the whole point of a network and
+    /// the thing this module could not do at all until the graph landed. Two
+    /// lines meeting at an interchange make a journey neither could make
+    /// alone.
+    ///
+    /// The interchange is something the *player* builds, by siting two
+    /// stations within `Transit.transferWalkDistance` of each other. There is
+    /// no interchange building and there does not need to be.
+    func testATripCanChangeLinesAtAnInterchange() {
         var map = street()
         let a = nearHome(&map)
         let interchangeIn = station(&map, at: GridPosition(x: 11, y: 3))
         let interchangeOut = station(&map, at: GridPosition(x: 13, y: 3))
         let b = nearShop(&map)
-        map.transit.add(mode: .bus, stops: [a, interchangeIn])
-        map.transit.add(mode: .bus, stops: [interchangeOut, b])
+        let first = map.transit.add(mode: .bus, stops: [a, interchangeIn])
+        let second = map.transit.add(mode: .bus, stops: [interchangeOut, b])
+        map.trafficLoad = .jammed(everyRoadIn: map)
 
         let load = Traffic.computeLoad(for: map)
-        XCTAssertEqual(load.totalRidership, 0, "a trip changed lines")
-        XCTAssertGreaterThan(load.load(at: midStreet), 0, "nobody drove, but nobody could ride either")
+        // **Every leg counts a boarding**, so one commute puts its riders on
+        // both lines — which is what a per-line figure means, and what makes
+        // a feeder line's number reflect the work it does.
+        XCTAssertEqual(load.ridership(onRoute: first), homeRiders)
+        XCTAssertEqual(load.ridership(onRoute: second), homeRiders)
+        XCTAssertEqual(load.load(at: midStreet), 0, "the commute drove despite the two lines connecting")
+    }
+
+    /// And the interchange has to be one. Two lines that stop nowhere near
+    /// each other do not connect, however suggestively they are drawn.
+    func testTwoLinesThatDoNotMeetDoNotConnect() {
+        var map = street(length: 40)
+        let a = nearHome(&map)
+        let endOfFirst = station(&map, at: GridPosition(x: 11, y: 3))
+        let startOfSecond = station(&map, at: GridPosition(x: 11 + Transit.transferWalkDistance + 2, y: 3))
+        let b = nearShop(&map)
+        map.transit.add(mode: .bus, stops: [a, endOfFirst])
+        map.transit.add(mode: .bus, stops: [startOfSecond, b])
+        map.trafficLoad = .jammed(everyRoadIn: map)
+
+        let load = Traffic.computeLoad(for: map)
+        XCTAssertEqual(load.totalRidership, 0, "a rider walked further than a transfer allows")
+        XCTAssertGreaterThan(load.load(at: midStreet), 0)
+    }
+
+    /// A change of line costs a walk, a penalty and a second wait — so a
+    /// direct service beats a connecting one over the same ground, which is
+    /// what makes building a through route worth doing.
+    func testChangingLinesCostsMoreThanStayingOnOne() throws {
+        var map = street()
+        let a = nearHome(&map)
+        let middle = station(&map, at: GridPosition(x: 12, y: 3))
+        let b = nearShop(&map)
+
+        var direct = map
+        direct.transit.add(mode: .bus, stops: [a, middle, b])
+        var connecting = map
+        let interchange = station(&connecting, at: GridPosition(x: 13, y: 3))
+        connecting.transit.add(mode: .bus, stops: [a, middle])
+        connecting.transit.add(mode: .bus, stops: [interchange, b])
+
+        let home = direct.footprintCells(origin: self.home, size: 2)
+        let shop = direct.footprintCells(origin: GridPosition(x: direct.width - 2, y: 1), size: 2)
+        func minutes(_ map: CityMap) throws -> Double {
+            let coverage = Transit.coverage(for: map)
+            let graph = Transit.graph(for: map, coverage: coverage)
+            return try XCTUnwrap(graph.journey(
+                from: coverage.reaches(from: home), to: coverage.reaches(from: shop)
+            )).minutes
+        }
+        XCTAssertLessThan(try minutes(direct), try minutes(connecting))
     }
 
     /// Where two lines both serve both ends, the shorter ride wins — and the
@@ -239,8 +294,15 @@ final class TransitTests: XCTestCase {
 
     /// One tick is one day (`CityDate`), so what the router produces is the
     /// day's ridership with no conversion anywhere — and it is the *people*,
-    /// which is to say the home's density, the same weight a commute
-    /// contributes to a road.
+    /// which is to say the home's density times
+    /// `populationPerDensityLevel`, not the density units road load uses.
+    ///
+    /// **The street is jammed, and it has to be.** The second home is close
+    /// enough to the shop that driving beats the bus by half a minute on a
+    /// clear road — correctly, since a bus's walk and wait weigh heavily on a
+    /// short trip — so on an empty street this would measure one rider and
+    /// call it a sum. Filling the road is what makes both of them ride, and
+    /// it is the loop the whole minutes model exists to create.
     func testRidershipCountsThePeopleWhoRodeAndSumsAcrossHomes() {
         var map = street(length: 24, height: 6)
         let second = GridPosition(x: 4, y: 1)
@@ -250,11 +312,40 @@ final class TransitTests: XCTestCase {
         let alsoNearHome = station(&map, at: GridPosition(x: 5, y: 3))
         let b = nearShop(&map)
         let route = map.transit.add(mode: .bus, stops: [a, alsoNearHome, b])
+        map.trafficLoad = .jammed(everyRoadIn: map)
 
         let load = Traffic.computeLoad(for: map)
         let expected = (homeDensity + 2) * ZoneType.residential.populationPerDensityLevel
         XCTAssertEqual(load.ridership(onRoute: route), expected)
         XCTAssertEqual(load.totalRidership, expected)
+    }
+
+    /// **The loop, stated on its own.** Driving gets slower as the roads
+    /// fill; past the point where the bus is quicker, the trip switches. That
+    /// feedback did not exist while transit was taken whenever it was merely
+    /// *available* rather than when it was faster, and it is most of why a
+    /// player would build a line at all.
+    func testACommuteSwitchesToTheBusOnceTheStreetJams() {
+        var map = street()
+        let a = nearHome(&map)
+        let b = nearShop(&map)
+        let route = map.transit.add(mode: .bus, stops: [a, b])
+
+        // Clear roads: driving wins a straight run with no traffic on it, and
+        // the line carries nobody. A bus that won *this* would be a free
+        // discount rather than a decision.
+        map.trafficLoad = TrafficLoad()
+        // The bus is deliberately close on this trip — see
+        // `Transit.walkMinutesPerTile` — so nudge the drive to clearly
+        // faster by shortening it rather than relying on the margin.
+        var quick = map
+        quick.transit.setStops([a, station(&quick, at: GridPosition(x: 12, y: 4))], forRoute: route)
+        XCTAssertEqual(Traffic.computeLoad(for: quick).totalRidership, 0,
+                       "a line that goes nowhere near the job carried the commute anyway")
+
+        map.trafficLoad = .jammed(everyRoadIn: map)
+        XCTAssertEqual(Traffic.computeLoad(for: map).ridership(onRoute: route), homeRiders,
+                       "a jammed street did not push the commute onto the bus")
     }
 
     /// Routing has been non-deterministic once already, from `Set` iteration
@@ -271,6 +362,45 @@ final class TransitTests: XCTestCase {
         map.transit.add(mode: .bus, stops: [c, d])
 
         XCTAssertEqual(Traffic.computeLoad(for: map), Traffic.computeLoad(for: map))
+    }
+
+    // MARK: - What the commute cost
+
+    /// **The router already knew this and used to throw it away**, exactly as
+    /// it once threw away whether a job was found at all. "18 minutes to
+    /// work, by bus" is the one sentence about this model a player
+    /// understands without being taught anything.
+    func testACommuteReportsHowLongItTookAndOnWhat() throws {
+        let bare = street()
+        let driving = try XCTUnwrap(Traffic.computeLoad(for: bare).commute(at: home))
+        XCTAssertNil(driving.boarding, "a city with no lines in it put somebody on one")
+        XCTAssertGreaterThan(driving.minutes, 0)
+
+        var served = bare
+        let a = nearHome(&served)
+        let b = nearShop(&served)
+        let route = served.transit.add(mode: .bus, stops: [a, b])
+
+        let riding = try XCTUnwrap(Traffic.computeLoad(for: served).commute(at: home))
+        XCTAssertEqual(riding.boarding, route, "the panel cannot name the line this commute boards")
+        XCTAssertEqual(riding.transfers, 0)
+        // It only rode because it was quicker — which is the whole rule, and
+        // the reported number is what says so.
+        XCTAssertLessThan(riding.minutes, driving.minutes)
+    }
+
+    func testAChangeOfLineIsReportedAsOne() throws {
+        var map = street()
+        let a = nearHome(&map)
+        let interchangeIn = station(&map, at: GridPosition(x: 11, y: 3))
+        let interchangeOut = station(&map, at: GridPosition(x: 13, y: 3))
+        let b = nearShop(&map)
+        map.transit.add(mode: .bus, stops: [a, interchangeIn])
+        map.transit.add(mode: .bus, stops: [interchangeOut, b])
+        map.trafficLoad = .jammed(everyRoadIn: map)
+
+        let commute = try XCTUnwrap(Traffic.computeLoad(for: map).commute(at: home))
+        XCTAssertEqual(commute.transfers, 1)
     }
 
     // MARK: - Routes as state the player owns

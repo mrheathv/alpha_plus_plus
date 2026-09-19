@@ -23,6 +23,12 @@ final class TransitEditorTests: XCTestCase {
             let shop = GridPosition(x: 22, y: 4)
             map.placeBuilding(zone: .commercial, origin: shop)
             for cell in map.footprintCells(origin: shop, size: 2) { map[cell].density = 5 }
+            // **And a jammed street**, because a bus is deliberately a coin
+            // flip against driving on a clear road (see
+            // `Transit.walkMinutesPerTile`). On an empty one this fixture
+            // would measure "the commute drove", which is correct behaviour
+            // and not what the test is about.
+            map.trafficLoad = .jammed(everyRoadIn: map)
         }
         return GameController(map: map, rng: AlwaysZeroRNG(), peakPopulation: Unlocks.everythingUnlocked)
     }
@@ -111,6 +117,7 @@ final class TransitEditorTests: XCTestCase {
         let driving = Traffic.computeLoad(for: game.map)
         XCTAssertGreaterThan(driving.load(at: GridPosition(x: 12, y: 3)), 0,
                              "precondition: nobody was driving to begin with")
+        XCTAssertEqual(driving.totalRidership, 0)
 
         game.beginTransitRoute(mode: .bus)
         game.addStopToRoute(at: stops[0])

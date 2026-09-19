@@ -2610,6 +2610,152 @@ here are a floor, and a player city with a few arterials concentrates it.
 Route capacity is not affected by funding, and trams are still deferred on the
 player's own call.
 
+### Phase 5 (done): the transit graph, and one currency for getting to work
+
+Adding trams and regional rail meant first admitting that the model could not
+express a network. Three things were wrong, and all three were fine with two
+modes and untenable with four:
+
+- **No transfers.** A trip rode only when *one* route served both ends. A tram
+  feeding a subway feeding a regional train is the whole mechanic, and this
+  made it impossible.
+- **No notion of better.** Transit was taken whenever it was merely
+  *available*, so a line that went the long way round beat a two-tile drive,
+  and congestion could not push anybody onto anything.
+- **Two incompatible distances.** A road-fronted home picked its job by road
+  hops and a transit-only one by stops along a line, in separate code paths
+  that never met, because the two numbers could not be compared.
+
+**Why transfers turned out to be affordable, having been ruled out on cost.**
+The original reasoning was that `Traffic.computeLoad` is already ~90% of a tick
+running a breadth-first search *per home*, and a second network searched per
+trip would double the most expensive thing in the game. That was right about
+searching per trip and wrong about needing to. The transit graph has one node
+per **(station, line)** pair — tens of them in a real city against thousands of
+road tiles — so all-pairs shortest paths over the whole thing costs less than
+one of the searches already being run per home, computed once per tick. The
+per-home step stays exactly what it was: an index lookup.
+
+A **(station, line) pair** rather than a station, because that is what makes a
+transfer cost anything. With a station as the node, riding through an
+interchange and changing lines there would be the same journey at the same
+price — and the entire point of an interchange is that changing is worse than
+not having to. Two stations within `Transit.transferWalkDistance` are a
+transfer edge, so **an interchange is something the player builds** by siting
+stations near each other. There is no interchange building and there does not
+need to be.
+
+#### Everything now costs minutes
+
+Driving is hops × `Traffic.drivingMinutesPerTile`, scaled up by congestion.
+Riding is walk + wait + in-vehicle + a penalty and a second wait per change.
+The job lottery weighs minutes, and the faster option wins the trip — with
+driving taking an exact tie, because a journey that is no faster is not worth
+a walk and a wait.
+
+That closes a loop the module never had: **roads fill → driving slows → trips
+move onto the lines → roads empty.** Transit was previously a discount applied
+whenever it was available.
+
+`drivingMinutesPerTile` is deliberately **1.0**, so that on an empty road a
+journey in minutes is numerically the journey in hops the lottery used before.
+Moving to minutes therefore moved nothing by itself, and every difference it
+does make is attributable to congestion or to a faster line rather than to a
+silent re-weighting of where the city works.
+
+**The minute constants were calibrated against one worked example**, not
+against a stopwatch — the map is far too abstracted for geography to help. Take
+a cross-town commute of about twenty tiles, twenty-odd minutes by car on a
+clear road: a bus should land on roughly the same number, so it is a coin flip
+on an empty street and wins outright once the street fills; a subway should win
+it comfortably; and both should lose a five-tile trip, because nobody waits for
+a bus to go two blocks. The first values put walking and waiting at **12.5
+minutes of a 22 minute journey** — over half the trip spent not moving — which
+made even a subway a coin flip across a whole city. The fixed overhead is what
+these numbers really set.
+
+Two simplifications admitted rather than hidden:
+
+- **Congestion is measured at the doorstep**, not along the route. The exact
+  answer needs every tile on the path, and the path is only known once a job
+  is chosen — while congestion is one of the things choosing it. A weighted
+  search per home instead of a plain breadth-first one would make the most
+  expensive loop in the game several times more expensive to buy a decimal
+  place. It also reads correctly as a story: the street outside your house is
+  jammed, so you take the bus.
+- **A full line turns a trip onto the road rather than rerouting it.**
+  Rerouting needs a search per trip against a table built without that line,
+  and in the aggregate the answer is the same: this trip is not on transit.
+
+**Every leg counts a boarding.** A trip that changes from a bus to a subway
+puts its riders on both lines, which is what a per-line figure means everywhere
+outside this game too — and what makes a feeder line's number reflect the work
+it is doing.
+
+#### Measured (64×64, 1,500 days)
+
+Ridership roughly **2.4×** what the no-transfer model carried, and — the part
+that matters — **capacity finally binds**. The busiest line ran 73% full
+before; it now runs at or over 100%, which is a ceiling doing its job.
+
+| network | pop | congestion | riders/day | busiest line | net/day |
+|---|---|---|---|---|---|
+| no stops | 3,132 | 0.113 | 0 | — | **+285** |
+| idle stops | 2,596 | 0.171 | 0 | — | −397 |
+| bus | 3,004 | 0.085 | 1,992 | 112% | −240 |
+| subway | 3,092 | **0.041** | 6,012 | 99% | −1,764 |
+
+And in a city where the commute is actually long — `segregateIndustry`, which
+`DesignPlaytestTests` already proves is the better way to build — transit earns
+its keep outright:
+
+| network | pop | congestion | riders/day | net/day |
+|---|---|---|---|---|
+| idle stops | 2,884 | 0.164 | 0 | −52 |
+| bus | 3,140 | 0.094 | 1,904 | −90 |
+| subway | **3,368** | **0.028** | 6,272 | −1,624 |
+
+**Transit is worth what the commute is long**, and that is the finding worth
+keeping. The default generated city interleaves housing, shops and factories
+every other lot, so nearly every journey is three blocks and a bus's walk and
+wait swamp it — correctly, and uselessly as a test. The scenario that measures
+transit has to be the one that generates journeys worth catching a line for.
+
+#### The payoff a player can read
+
+`TrafficLoad.Commute` keeps what the router works out and used to discard —
+exactly as it once discarded whether a job was found at all. The inspector now
+says **"18 minutes to work, by bus"**, which is the one sentence about this
+model anybody understands without being taught it, and the only place the mode
+decision surfaces at all.
+
+#### What it costs per tick
+
+A 64×64 city with **no** transit ticks in **16.1 ms** in Release; the same size
+carrying twenty-two routes ticks in about **34 ms**. So the machinery roughly
+doubles the most expensive loop in the game on a city that leans on it hard —
+against a `SimulationSpeed.fast` interval of 0.75 s, which is 4.5% of the
+budget, so it is a number to watch rather than a problem.
+
+The graph itself is not where that goes: it is built once per tick over tens of
+nodes. The cost is the per-(home, job) journey lookup, which walks the
+boarding points at each end — the `O(homes × jobs × reach²)` term. It is the
+thing to profile first if a fourth mode multiplies the number of stations,
+and the obvious fix is to collapse each job's boarding points into one
+cost-per-node array ahead of the loop rather than pairing them per home.
+
+#### One yardstick that had to move
+
+`testFireSpreadDoesNotLeaveTheCityPermanentlyAblaze` asserted that a serviced
+city has *zero* blocks alight at tick 400, and duly failed — on a change that
+touches fire only by way of land value deciding what grows where. Whether one
+arbitrary tick catches a fire is close to a coin toss: the serviced city is
+alight on **13% of ticks**, so a single sample was never the property the
+comment described ("fires are events; between them the city should be quiet").
+It measures the fraction of ticks now. Same lesson as the hazard rate that had
+to move from strikes-per-tick to strikes-per-building-per-tick: when a
+measurement starts failing, check whether the thing moved or the yardstick did.
+
 ## The Problems view, and slowing the clock down
 
 Reported from play: *"everything is happening so fast, there's no way to check
