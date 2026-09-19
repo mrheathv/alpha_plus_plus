@@ -915,8 +915,18 @@ final class GameScene: SKScene {
     }
 
     func refresh(_ position: GridPosition) {
-        guard let node = tileNodes[position] else { return }
-        let tile = map[position]
+        // **A covered tile has no node of its own.** One node exists per
+        // *building*, so the three cells of a 2×2 that are not its anchor
+        // refresh nothing — which is invisible for anything drawn from the
+        // building's own state, and was not invisible at all for the buried
+        // layers, where laying a pipe under a block changed the map and
+        // redrew nothing. Redirect to whatever owns this ground.
+        // Everything below is about the *building*, so it works in the
+        // building's own coordinates from here on — `position` is only the
+        // ground somebody touched.
+        let anchor = map[position].buildingOrigin
+        guard let node = tileNodes[anchor] else { return }
+        let tile = map[anchor]
 
         // **One overlay branch, not ten `clear…` calls each.** The top-down
         // version repeated a block of ten in every branch, and every
@@ -929,10 +939,10 @@ final class GameScene: SKScene {
         case .none:
             tileRenderer.restoreFromOverlay(on: node)
             tileRenderer.update(node, for: tile)
-            tileRenderer.syncConduit(on: node, present: false, isPipe: true, mask: 0, live: false)
-            tileRenderer.syncConduit(on: node, present: false, isPipe: false, mask: 0, live: false)
+            tileRenderer.syncConduits(on: node, isPipe: true, segments: [])
+            tileRenderer.syncConduits(on: node, isPipe: false, segments: [])
             tileRenderer.syncTramTrack(on: node, present: false, mask: 0)
-            syncLaneLine(at: position)
+            syncLaneLine(at: anchor)
             // Damage is drawn on the anchor's node only, since that is the one
             // cell of a building that gets a node at all.
             tileRenderer.syncDamageMarker(on: node, tile: tile, damagedBy: tile.damagedBy)
@@ -945,15 +955,15 @@ final class GameScene: SKScene {
             // on top of that would be redundant.
             tileRenderer.syncUtilityWarning(
                 on: node, tile: tile,
-                hasWaterSupply: Water.hasSupply(at: position, in: map),
-                hasPowerSupply: PowerGrid.hasSupply(at: position, in: map)
+                hasWaterSupply: Water.hasSupply(at: anchor, in: map),
+                hasPowerSupply: PowerGrid.hasSupply(at: anchor, in: map)
             )
         default:
             // One call for every overlay, from the shared decision in
             // `IsoTileRenderer.paint` — see its doc comment for why this
             // stopped being a switch here.
             if let paint = IsoTileRenderer.paint(
-                for: controller.overlayMode, at: position, in: map,
+                for: controller.overlayMode, at: anchor, in: map,
                 using: overlayDistances, transit: overlayTransitCoverage
             ) {
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
@@ -965,33 +975,46 @@ final class GameScene: SKScene {
             // you just laid shows up right away — the supply colouring above
             // still waits for the next tick to recompute it, same as for a
             // newly-placed tower.
+            // **Every cell of the building, not just its anchor.** A pipe
+            // goes under anything, including the cells of a block that have
+            // no node of their own — see `IsoTileRenderer.syncConduits`.
             if controller.overlayMode == .water {
-                tileRenderer.syncConduit(
-                    on: node, present: tile.hasPipe, isPipe: true,
-                    mask: Infrastructure.conduitMask(at: position, in: map, isPipe: true),
-                    // Live means "this length of pipe traces back to a tower".
-                    // The supply computation has known it every tick since
-                    // pipes existed; nothing ever drew it.
-                    live: map.waterSupply.isSupplied(at: position)
-                )
+                tileRenderer.syncConduits(on: node, isPipe: true,
+                                          segments: conduitSegments(of: tile, isPipe: true))
             }
             if controller.overlayMode == .power {
-                tileRenderer.syncConduit(
-                    on: node, present: tile.hasPowerLine, isPipe: false,
-                    mask: Infrastructure.conduitMask(at: position, in: map, isPipe: false),
-                    live: map.powerSupply.isSupplied(at: position)
-                )
+                tileRenderer.syncConduits(on: node, isPipe: false,
+                                          segments: conduitSegments(of: tile, isPipe: false))
             }
             // The rails, in the one view that has something to say about the
             // ground — a tram is the only mode that costs the street
             // anything, so the Tram view has to show which streets paid.
             tileRenderer.syncTramTrack(
                 on: node,
-                present: controller.overlayMode == .tram && map.tramTracks.contains(position),
-                mask: tramTrackMask(at: position)
+                present: controller.overlayMode == .tram && map.tramTracks.contains(anchor),
+                mask: tramTrackMask(at: anchor)
             )
         }
-        syncTrafficAnimation(at: position)
+        syncTrafficAnimation(at: anchor)
+    }
+
+    /// Every buried segment under the building anchored at `tile`.
+    ///
+    /// Live means "this length traces back to a source" — the supply
+    /// computation has known it every tick since pipes existed, and it is
+    /// what tells an orphaned run from a working one.
+    private func conduitSegments(of tile: Tile, isPipe: Bool) -> [IsoTileRenderer.Segment] {
+        map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
+            .compactMap { cell in
+                guard isPipe ? map[cell].hasPipe : map[cell].hasPowerLine else { return nil }
+                return IsoTileRenderer.Segment(
+                    offset: GridPosition(x: cell.x - tile.position.x, y: cell.y - tile.position.y),
+                    mask: Infrastructure.conduitMask(at: cell, in: map, isPipe: isPipe),
+                    live: isPipe
+                        ? map.waterSupply.isSupplied(at: cell)
+                        : map.powerSupply.isSupplied(at: cell)
+                )
+            }
     }
 
     /// Which of a track tile's neighbours also carry rails, in the same

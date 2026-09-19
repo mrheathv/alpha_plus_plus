@@ -563,7 +563,7 @@ struct IsoTileRenderer {
     static let constructionDeckName = "isoConstructionDeck"
     /// Not private: tests ask whether a block is drawn as burning.
     static let fireNodeName = "isoFire"
-    private static let pipeNodeName = "isoPipe"
+    static let pipeNodeName = "isoPipe"
     private static let powerNodeName = "isoPowerLine"
 
     /// A badge floating above a building that has outgrown its utilities.
@@ -882,17 +882,56 @@ struct IsoTileRenderer {
 
     /// Underground networks, drawn only in their own overlay — the one place a
     /// pipe or a power line is visible at all.
+    /// One segment per cell of the building this node stands for — see
+    /// `Segment`, and `syncConduits(on:for:in:isPipe:)` which builds them.
+    ///
+    /// **A node exists per *building*, not per tile**, which is what keeps a
+    /// built-out map at 2.6 nodes a lot. A pipe, though, is an underground
+    /// layer that goes under anything — including the three cells of a 2×2
+    /// building that are not its anchor, and those cells have no node of
+    /// their own to be drawn on. Reported from play as "you can't put a pipe
+    /// under a building": the pipe was laid, it was live, it supplied water,
+    /// and it was **invisible**, so a run across a block appeared on the bare
+    /// ground either side and vanished in the middle. Worse, the visible
+    /// neighbours' masks still read `hasPipe` correctly and drew a stub
+    /// pointing into the gap, so the run looked severed rather than hidden.
     func syncConduit(on node: SKNode, present: Bool, isPipe: Bool, mask: Int, live: Bool) {
+        syncConduits(on: node, isPipe: isPipe,
+                     segments: present ? [Segment(offset: GridPosition(x: 0, y: 0), mask: mask, live: live)] : [])
+    }
+
+    /// One cell's worth of buried network: where it sits relative to the
+    /// building's anchor, how it connects, and whether it is live.
+    struct Segment: Equatable {
+        /// In tile units from the anchor — `(0, 0)` for the anchor itself.
+        var offset: GridPosition
+        var mask: Int
+        var live: Bool
+    }
+
+    func syncConduits(on node: SKNode, isPipe: Bool, segments: [Segment]) {
         let name = isPipe ? Self.pipeNodeName : Self.powerNodeName
-        let key = present ? "\(mask)|\(live)" : "none"
+        let key = segments.isEmpty
+            ? "none"
+            : segments.map { "\($0.offset.x),\($0.offset.y),\($0.mask),\($0.live)" }.joined(separator: "|")
         guard !isUpToDate(node, name, key) else { return }
         markUpToDate(node, name, key)
-        node.childNode(withName: name)?.removeFromParent()
-        guard present, let rendered = textures.conduit(isPipe: isPipe, mask: mask, live: live) else { return }
+        for existing in node.children where existing.name == name { existing.removeFromParent() }
+        for segment in segments {
+            addConduit(to: node, named: name, segment: segment, isPipe: isPipe)
+        }
+    }
+
+    private func addConduit(to node: SKNode, named name: String, segment: Segment, isPipe: Bool) {
+        guard let rendered = textures.conduit(isPipe: isPipe, mask: segment.mask, live: segment.live) else { return }
+        let live = segment.live
 
         let line = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         line.name = name
-        line.position = rendered.offset
+        // The projection is linear through the origin, so a cell's offset from
+        // the anchor projects to exactly the difference between the two.
+        let shift = projection.project(CGFloat(segment.offset.x), CGFloat(segment.offset.y), 0)
+        line.position = CGPoint(x: rendered.offset.x + shift.x, y: rendered.offset.y + shift.y)
         // Additive, like the lane lines: a straight run brightens where tiles
         // meet and reads as one continuous length of live wire rather than a
         // chain of separately-lit squares. A dead conduit is drawn dark, so

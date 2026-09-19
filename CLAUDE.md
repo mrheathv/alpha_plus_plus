@@ -2225,6 +2225,50 @@ against one every three is about half the tiles, not a seventh — and the
 harness cannot measure it either way, since it lays pipe under every road row
 regardless of what a tile reaches.
 
+### "You can't put a pipe under a building" — reported from play, and never true
+
+It was never a placement rule. The pipe was laid, it was live, it was part of
+the network and it supplied water. It simply had nowhere to be **drawn**.
+
+A scene node exists **per building, not per tile** — that is what keeps a
+built-out map at 2.6 nodes a lot — so the three cells of a 2×2 that are not its
+anchor have no node of their own. Every buried marker was hung on the tile
+node, so a run laid across a block appeared on the bare ground either side and
+vanished in the middle. Worse, the visible neighbours' masks still read
+`hasPipe` correctly and drew a stub pointing into the gap, so the run read as
+**severed** rather than hidden — which is a far more alarming thing to show
+than nothing at all.
+
+`IsoTileRenderer.syncConduits` takes a *list* of segments now, one per cell of
+the building that carries something, each offset by the projection of its own
+position. The projection is linear through the origin, so a cell's offset from
+the anchor projects to exactly the difference between the two. Node count only
+rises where pipes actually run under a multi-tile building, and the one-node-
+per-building property survives.
+
+Two things fell out of it:
+
+- **The cache key has to see every segment.** Keyed on the anchor's state
+  alone, a pipe appearing under one cell of a block would be skipped as "no
+  change" — the same class of bug as the stale keys an overlay has to
+  invalidate, which this file already records.
+- **`GameScene.refresh` has to redirect to the building.** Laying pipe under a
+  covered cell called `refresh` on a position with no node, which returned
+  immediately and redrew nothing. It resolves the building's anchor first now,
+  and works in the building's coordinates from there — `position` is only the
+  ground somebody touched.
+
+**And the render fixture could not have shown it**, which is why it survived
+into a play session: every pipe in it ran along bare ground. It drives a run
+straight through a block now. Same shape as the fixture that had no pipes at
+all, and the one where every conduit was live — *a picture in which the
+failing case cannot occur reports success.*
+
+Worth keeping generally: **a rendering decision taken for the whole map ("one
+node per building") silently constrains every per-tile thing added later.** The
+buried layers are per *tile*; the nodes are per *building*; nothing failed, and
+the map just quietly stopped drawing part of what the simulation knew.
+
 ### Three answers, not two
 
 The screenshot's other half. SimCity 4's water view paints **served buildings

@@ -135,6 +135,14 @@ final class IsometricCityTests: XCTestCase {
         for y in 8 ... 11 { map[GridPosition(x: 3, y: y)].hasPipe = true }
         for y in 1 ... 8 { map[GridPosition(x: 16, y: y)].hasPowerLine = true }
         for x in 10 ... 16 { map[GridPosition(x: x, y: 8)].hasPowerLine = true }
+        // **A run driven straight through a block**, because that is where
+        // the bug was: a pipe under the cells of a building that are not its
+        // anchor was laid, live, supplying water — and invisible, so the run
+        // appeared either side of the block and vanished in the middle. A
+        // fixture whose pipes only ever cross bare ground cannot show it.
+        for x in 4 ... 9 { map[GridPosition(x: x, y: 6)].hasPipe = true }
+        for y in 6 ... 11 { map[GridPosition(x: 4, y: y)].hasPipe = true }
+
         // A run of pipe that reaches nothing, because "did that connect?" is
         // the only question a player is asking while laying it — and a fixture
         // where every conduit is live cannot show whether the answer is
