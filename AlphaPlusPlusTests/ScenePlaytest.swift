@@ -178,6 +178,12 @@ final class ScenePlaytest {
         for step in positions.dropFirst() { scene.dragTo(step) }
     }
 
+    /// The lane line on a tile, or `nil` if the view is not drawing streets.
+    func laneLine(at position: GridPosition) -> SKNode? {
+        scene.tileNodesForTesting[position]?
+            .children.first { $0.name == IsoTileRenderer.laneNodeNameForTesting }
+    }
+
     func bulldoze(at position: GridPosition) {
         record("bulldoze \(position)")
         scene.beginStroke()

@@ -837,7 +837,14 @@ final class GameScene: SKScene {
     /// from wherever you click, not centered on it and not extending some
     /// other direction — exactly what this outline now shows up front.
     func updatePlacementPreview(at event: NSEvent) {
-        guard let position = gridPosition(of: event) else {
+        updatePlacementPreview(at: gridPosition(of: event))
+    }
+
+    /// The preview once the pointer is a tile — split from the `NSEvent` for
+    /// the reason `place(at:)` and `dragTo(_:)` were: what the cursor *says*
+    /// is logic, and logic nothing can drive is logic nothing can check.
+    func updatePlacementPreview(at position: GridPosition?) {
+        guard let position else {
             placementPreviewNode.isHidden = true
             controller.inspect(at: nil)
             return
@@ -856,6 +863,39 @@ final class GameScene: SKScene {
             placementPreviewNode.strokeColor = RenderPalette.placementPreviewClearStroke
             placementPreviewNode.path = projection.footprintCursor(size: 1)
             placementPreviewNode.position = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
+            placementPreviewNode.isHidden = false
+            return
+        }
+
+        // **Drawing a line asks a different question of the tile.**
+        //
+        // Reported from play: *"it could be more apparent that you're
+        // selecting a valid stop when making a route."* It was worse than
+        // unclear — the cursor was actively lying. While a line is being
+        // drawn a click names a *station*, but the preview went on describing
+        // whatever zoning tool happened to be armed, and its "would this
+        // replace something" test is true of every building on the map. So
+        // the bus stop you were meant to click was drawn in the blocked
+        // colour: the one tile that works, marked forbidden.
+        //
+        // It now answers the question the click will actually be asked, and
+        // wraps the whole station rather than the tool's footprint, so a 2×2
+        // rail terminus lights up as one thing.
+        if let mode = controller.overlayMode.routeMode, controller.routeDraft?.mode == mode {
+            let station = map[position].buildingOrigin
+            let isStation = map[station].zone == mode.stationZone
+            placementPreviewNode.fillColor = isStation
+                ? RenderPalette.placementPreviewClearFill
+                : RenderPalette.placementPreviewBlockedFill
+            placementPreviewNode.strokeColor = isStation
+                ? RenderPalette.placementPreviewClearStroke
+                : RenderPalette.placementPreviewBlockedStroke
+            let size = isStation ? map[station].zone.footprintSize : 1
+            placementPreviewNode.path = projection.footprintCursor(size: CGFloat(size))
+            placementPreviewNode.position = projection.project(
+                CGFloat(isStation ? station.x : position.x),
+                CGFloat(isStation ? station.y : position.y), 0
+            )
             placementPreviewNode.isHidden = false
             return
         }
@@ -983,6 +1023,9 @@ final class GameScene: SKScene {
     /// level — the backdrop, or for that matter the sun, which has never
     /// appeared in that render either.
     var backdropNodeForTesting: SKSpriteNode { backdropNode }
+
+    /// The placement cursor, for the tests about what it says.
+    var placementPreviewForTesting: SKShapeNode { placementPreviewNode }
     var tileLayerChildCountForTesting: Int { tileLayer.children.count }
 
     static var trafficCarNodeNameForTesting: String { trafficCarNodeName }
@@ -1339,7 +1382,13 @@ final class GameScene: SKScene {
                 // changed one rebuilds exactly once.
                 tileRenderer.update(node, for: tile)
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
-                                     buildingColor: paint.buildingColor)
+                                     buildingColor: paint.buildingColor,
+                                     keepingRoads: paint.showsRoads)
+                // The Traffic view is a heatmap *of the streets*, so the
+                // streets stay drawn — and a road laid while it is up appears
+                // straight away rather than looking like a click that did
+                // nothing.
+                if paint.showsRoads { syncLaneLine(at: anchor) }
             }
             // The buried layers stay here: they are drawn *on top of* the
             // overlay rather than being part of it, and they read `hasPipe` /
@@ -1613,7 +1662,9 @@ final class GameScene: SKScene {
         let existingCars = node.children.filter { $0.name == Self.trafficCarNodeName }
 
         let zone = map[position].zone
-        guard controller.overlayMode == .none, zone == .road || zone == .highway else {
+        // Cars are the traffic, so the Traffic view is the last place they
+        // should be taken away — see `OverlayMode.showsRoadNetwork`.
+        guard controller.overlayMode.showsRoadNetwork, zone == .road || zone == .highway else {
             existingCars.forEach { $0.removeFromParent() }
             return
         }

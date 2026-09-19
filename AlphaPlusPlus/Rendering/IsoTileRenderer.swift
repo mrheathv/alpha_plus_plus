@@ -321,6 +321,16 @@ struct IsoTileRenderer {
         /// it was not.
         let buildingColor: SKColor
 
+        /// Whether the street network stays drawn — see
+        /// `OverlayMode.showsRoadNetwork`.
+        ///
+        /// On the paint rather than read from the mode at each call site, for
+        /// the reason `paint` itself exists: `GameScene` and the render both
+        /// have to reach the same answer, and the last time that decision
+        /// lived in two places three heatmaps silently painted nothing while
+        /// the render cheerfully reported they were fine.
+        var showsRoads = false
+
         init(buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil) {
             self.buildings = buildings
             self.color = color
@@ -368,8 +378,10 @@ struct IsoTileRenderer {
             return OverlayPaint(buildings: .hidden, color: RenderPalette.pollutionColor(
                 for: map.pollution.level(at: position)))
         case .traffic:
-            return OverlayPaint(buildings: .hidden, color: RenderPalette.trafficColor(
+            var paint = OverlayPaint(buildings: .hidden, color: RenderPalette.trafficColor(
                 for: Traffic.congestion(at: position, in: map)))
+            paint.showsRoads = true
+            return paint
         case .water:
             // A water tower in the water overlay is the thing the player is
             // hunting for, so it keeps its own colours while everything else
@@ -540,9 +552,12 @@ struct IsoTileRenderer {
     /// leaves a stray building floating over a heatmap rather than failing
     /// anything.
     func applyOverlay(
-        on node: SKNode, buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil
+        on node: SKNode, buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil,
+        keepingRoads: Bool = false
     ) {
-        for name in Self.overlayDisturbedNodes where name != Self.buildingNodeName && name != Self.glowNodeName {
+        for name in Self.overlayDisturbedNodes
+        where name != Self.buildingNodeName && name != Self.glowNodeName
+            && !(keepingRoads && name == Self.laneNodeName) {
             node.childNode(withName: name)?.removeFromParent()
         }
 
@@ -703,27 +718,27 @@ struct IsoTileRenderer {
         container.position = projection.project(size / 2, size / 2, buildingTop(of: tile) + 0.4)
         container.zPosition = 0.6
 
-        let radius = max(5, projection.tileWidth * 0.1)
-        var badges: [(CGFloat, SKColor)] = []
-        if missingWater { badges.append((0, RenderPalette.waterColor(for: true))) }
-        if missingPower { badges.append((0, RenderPalette.powerColor(for: true))) }
-        if badges.count == 2 {
-            badges[0].0 = -radius * 1.1
-            badges[1].0 = radius * 1.1
-        }
-        for (x, color) in badges {
-            let disc = SKShapeNode(circleOfRadius: radius)
-            disc.position = CGPoint(x: x, y: 0)
-            disc.fillColor = NeonStyle.silhouetteFill
-            disc.strokeColor = color
-            disc.lineWidth = 2
-            disc.glowWidth = 2
-            container.addChild(disc)
-            container.addChild(NeonStyle.detail(
-                rect: CGRect(x: x - radius * 0.13, y: -radius * 0.45,
-                             width: radius * 0.26, height: radius * 0.9),
-                fill: color
-            ))
+        // **A symbol, not a coloured dot.** This used to be a small outlined
+        // disc with an identical bar inside it, so hue was the only thing
+        // saying *which* utility was short — and water's blue and power's
+        // amber both sit on top of the neon half the city is drawn in. A bolt
+        // and a drop are the genre's own symbols and need no legend.
+        //
+        // See `IsoTextureCache.utilityBadge` for why they are cached and why
+        // the badge had to grow to fit them.
+        var badges: [Bool] = []
+        if missingWater { badges.append(true) }
+        if missingPower { badges.append(false) }
+
+        for (index, isWater) in badges.enumerated() {
+            guard let rendered = textures.utilityBadge(isWater: isWater) else { continue }
+            let badge = SKSpriteNode(texture: rendered.texture, size: rendered.size)
+            // Side by side when a block is short of both, which is the state
+            // that most wants reading — and the one the old pair of identical
+            // discs said least about.
+            let spread = badges.count == 2 ? rendered.size.width * 0.56 : 0
+            badge.position = CGPoint(x: index == 0 ? -spread : spread, y: 0)
+            container.addChild(badge)
         }
         node.addChild(container)
     }

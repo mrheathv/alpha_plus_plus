@@ -253,6 +253,33 @@ final class VisualStyleTests: XCTestCase {
         )
     }
 
+    // MARK: - What a block is short of
+
+    /// The badge used to be an outlined disc with an identical bar in it, so
+    /// **hue was the only thing** saying which utility was missing — and
+    /// water's blue and power's icy white both sit on the neon half the city
+    /// is drawn in. Two different glyphs is the fix, so the property to pin
+    /// is that they are genuinely two different pictures.
+    func testTheWaterAndPowerWarningsAreDifferentPictures() {
+        let cache = IsoTextureCache(projection: Isometric())
+        let drop = cache.utilityBadge(isWater: true)
+        let bolt = cache.utilityBadge(isWater: false)
+        XCTAssertNotNil(drop)
+        XCTAssertNotNil(bolt)
+        XCTAssertFalse(drop?.texture === bolt?.texture,
+                       "'no water' and 'no power' are drawn with the same texture")
+    }
+
+    /// And big enough to read. The old disc was ten points across, which is
+    /// right on `NeonStyle.minimumDetailSize` — a glyph inside it had no
+    /// chance, which is most of why the mark said nothing.
+    func testTheWarningIsBigEnoughToCarryASymbol() {
+        let cache = IsoTextureCache(projection: Isometric())
+        let badge = cache.utilityBadge(isWater: true)
+        XCTAssertGreaterThan(badge?.size.width ?? 0, NeonStyle.minimumDetailSize * 2,
+                             "the badge is too small for the symbol inside it to resolve")
+    }
+
     // MARK: - The ladder itself
 
     /// The point of the pass: pavement below buildings. Asserted on the

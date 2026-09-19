@@ -56,7 +56,7 @@ final class IsoTextureCache {
     /// sprites, and sprites batch. The glow comes along inside the texture, so
     /// the retrowave bloom on the road grid costs nothing per tile at all.
     private struct Key: Hashable {
-        enum Kind: Hashable { case building, ground, lane, car, conduit }
+        enum Kind: Hashable { case building, ground, lane, car, conduit, badge }
         var kind: Kind = .building
         let zone: ZoneType
         var tier: Int = 0
@@ -278,6 +278,82 @@ final class IsoTextureCache {
             lane.lineCap = .round
             return lane
         }
+    }
+
+    /// **What a block is short of, as a symbol rather than a coloured dot.**
+    ///
+    /// Reported from play: the warning should say *which* utility is missing.
+    /// It was a small outlined disc with an identical bar inside it, so hue
+    /// was the only thing distinguishing "no water" from "no power" — and
+    /// this project has written down twice what that costs, most recently
+    /// when an ember-coloured fire turned out to be invisible on an
+    /// already-orange factory. Water's blue and power's amber sit right on
+    /// top of the neon half the city is drawn in.
+    ///
+    /// A bolt and a drop are the genre's own symbols and need no legend. They
+    /// also needed the badge to grow: the old disc was ten points across, and
+    /// `NeonStyle.minimumDetailSize` says a mark that cannot be drawn at
+    /// least nine points should be cut rather than shrunk — so a glyph inside
+    /// it had no chance of resolving.
+    ///
+    /// Cached rather than built per lot, like everything else here: there are
+    /// exactly two of these in the whole game, against an `SKShapeNode` with
+    /// `glowWidth` per warned building before.
+    func utilityBadge(isWater: Bool) -> Rendered? {
+        rendered(Key(kind: .badge, zone: isWater ? .waterTower : .powerPlant)) {
+            let radius = Swift.max(11, projection.tileWidth * 0.34)
+            let colour = isWater
+                ? RenderPalette.waterColor(for: true)
+                : RenderPalette.powerColor(for: true)
+
+            let plate = SKShapeNode(circleOfRadius: radius)
+            plate.fillColor = NeonStyle.silhouetteFill
+            plate.strokeColor = colour
+            plate.lineWidth = 2.5
+            plate.glowWidth = 4
+
+            let glyph = SKShapeNode(path: isWater ? Self.dropPath(radius) : Self.boltPath(radius))
+            glyph.fillColor = colour
+            glyph.strokeColor = .clear
+            plate.addChild(glyph)
+            return plate
+        }
+    }
+
+    /// A lightning bolt: the zigzag everybody already reads as power.
+    private static func boltPath(_ radius: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let w = radius * 0.42, h = radius * 0.62
+        path.move(to: CGPoint(x: w * 0.35, y: h))
+        path.addLine(to: CGPoint(x: -w, y: h * 0.05))
+        path.addLine(to: CGPoint(x: -w * 0.1, y: h * 0.05))
+        path.addLine(to: CGPoint(x: -w * 0.35, y: -h))
+        path.addLine(to: CGPoint(x: w, y: -h * 0.1))
+        path.addLine(to: CGPoint(x: w * 0.1, y: -h * 0.1))
+        path.closeSubpath()
+        return path
+    }
+
+    /// A teardrop: a circle with its top drawn out to a point.
+    private static func dropPath(_ radius: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let r = radius * 0.42
+        let tip = CGPoint(x: 0, y: r * 1.75)
+        path.move(to: tip)
+        // Two curves down to the shoulders, then a full arc for the belly —
+        // drawn rather than approximated with a circle plus a triangle, which
+        // leaves a visible seam at this size.
+        path.addQuadCurve(to: CGPoint(x: r, y: -r * 0.15),
+                          control: CGPoint(x: r * 0.72, y: r * 0.72))
+        // **Clockwise, so the belly goes under.** With y up, `false` sweeps
+        // 0 → π/2 → π, which bulges the arc over the *top* and cuts the drop
+        // off into a rounded triangle — it rendered as an up-arrow, which is
+        // not what anybody reads as water.
+        path.addArc(center: CGPoint(x: 0, y: -r * 0.15), radius: r,
+                    startAngle: 0, endAngle: .pi, clockwise: true)
+        path.addQuadCurve(to: tip, control: CGPoint(x: -r * 0.72, y: r * 0.72))
+        path.closeSubpath()
+        return path
     }
 
     /// A buried pipe or power line, drawn as a connected run.

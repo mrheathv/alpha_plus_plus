@@ -1036,7 +1036,18 @@ final class IsometricCityTests: XCTestCase {
             if let paint = IsoTileRenderer.paint(for: overlay, at: position, in: map,
                                                 using: nil, transit: transitCoverage) {
                 renderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
-                                     buildingColor: paint.buildingColor)
+                                     buildingColor: paint.buildingColor,
+                                     keepingRoads: paint.showsRoads)
+                // Read off the paint rather than decided here, so this render
+                // cannot report that the Traffic view shows its streets while
+                // the game hides them — the failure this shared function was
+                // extracted to prevent.
+                if paint.showsRoads, tile.zone == ZoneType.road || tile.zone == ZoneType.highway {
+                    renderer.syncLaneLine(
+                        on: node, zone: tile.zone,
+                        connections: Traffic.roadConnections(at: position, in: map)
+                    )
+                }
             }
             // The buried layers, which are only ever drawn in their own
             // overlay — and which this render did not draw at all, so the one

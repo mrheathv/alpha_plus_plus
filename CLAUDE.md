@@ -4416,6 +4416,88 @@ infer), and the three panels stacked up at three different widths because
 `RetroPanel` sizes to its content — three unrelated boxes rather than one
 form.
 
+### Three things a play session found
+
+#### The Traffic view hid the traffic
+
+*"The traffic overlay should still show cars and you should be able to place
+roads and highways while in the overlay."* Two complaints, one cause.
+
+`applyOverlay` strips every decoration including the lane lines, and
+`syncTrafficAnimation` removed the cars under any overlay at all
+(`overlayMode == .none`). So the Traffic view — a heatmap **of the street
+network** — was the single view that drew neither the streets nor the traffic
+on them.
+
+The second half follows from the first and is the more misleading of the two:
+roads placed in that view were landing correctly the whole time. They were
+just never drawn, which a player cannot tell apart from a click that did
+nothing.
+
+`OverlayMode.showsRoadNetwork` names the exception. A heatmap normally hides
+the buildings because the data *is* the picture and the city on top is
+clutter; traffic is the case where the thing being measured is the streets,
+and a congestion map you cannot see the streets in measures nothing you can
+act on. It rides on `OverlayPaint` rather than being read from the mode at
+each call site, for the same reason `paint` exists at all — the last time
+that decision lived in two places, three heatmaps silently painted nothing
+while the render cheerfully reported they were fine.
+
+#### A warning that says what is missing
+
+*"I think we should add an icon that indicates if a building is missing power
+or water rather than the little indicator we have currently."*
+
+The badge was a small outlined disc with an **identical vertical bar** inside
+it, drawn in the utility's colour. So hue was the only channel distinguishing
+"no water" from "no power" — and this project has twice written down what
+that costs, most recently when an ember-coloured fire turned out to be
+invisible on an already-orange factory. Water's blue and power's icy white
+both sit on top of the neon the city is drawn in.
+
+A **drop** and a **bolt** are the genre's own symbols and need no legend.
+They also forced the badge to grow: the old disc was ten points across, right
+on `NeonStyle.minimumDetailSize`, so a glyph inside it had no chance of
+resolving. The colours did not change — power's icy blue-white is deliberate
+("a lightning bolt, not a warm colour") and correct; the point is that the
+glyph now carries the meaning so the hue no longer has to.
+
+Cached in `IsoTextureCache` like everything else that repeats: two textures
+for the whole game, against an `SKShapeNode` with `glowWidth` per warned
+building.
+
+Two things this needed:
+
+- **The drop rendered as an up-arrow.** `addArc(..., clockwise: false)`
+  sweeps 0 → π/2 → π with y up, which bulges over the *top* and cuts the
+  belly off. Clockwise puts it underneath.
+- **It had never been looked at.** `syncUtilityWarning` is called from
+  `GameScene` and nowhere else, so the city render has never drawn it and no
+  test had ever seen it — the same blind spot the backdrop had. It has a
+  scene render now, showing all three states (water, power, both) together,
+  because the question is whether they are *distinguishable*, which one badge
+  at a time cannot answer.
+
+#### The route cursor was lying
+
+*"It could be more apparent that you're selecting a valid stop when making a
+route."* It was worse than unclear.
+
+While a line is being drawn a click names a **station**, but the placement
+preview went on describing whatever zoning tool happened to be armed — and
+its test is `wouldReplaceSomething`, which is true of every building on the
+map. So the bus stop you were meant to click was drawn in the *blocked*
+colour: the one tile that works, marked forbidden.
+
+The cursor now answers the question the click will actually be asked, and
+wraps the whole station rather than the tool's footprint, so a 2×2 rail
+terminus lights up as one thing.
+
+`updatePlacementPreview` was split from its `NSEvent` to make that testable —
+the third time this pass has needed that split (`place(at:)`, `dragTo(_:)`),
+and the same lesson each time: **what the cursor says is logic, and logic
+nothing can drive is logic nothing can check.**
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

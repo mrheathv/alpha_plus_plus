@@ -77,6 +77,25 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// Views that are *about* the street network, and therefore have to show
+    /// it.
+    ///
+    /// Reported from play: *"the traffic overlay should still show cars and
+    /// you should be able to place roads and highways while in the overlay."*
+    /// Both halves were the same bug. Every overlay stripped the lane lines
+    /// and removed the cars, so the Traffic view — a heatmap *of the road
+    /// network* — was the one view that hid the road network and the traffic
+    /// on it. Roads placed there landed correctly and were simply invisible,
+    /// which is indistinguishable from a click that did nothing.
+    ///
+    /// A heatmap normally hides the buildings because the data *is* the
+    /// picture and the city on top is clutter. Traffic is the exception: the
+    /// thing being measured is the streets, and a congestion map you cannot
+    /// see the streets in measures nothing you can act on.
+    var showsRoadNetwork: Bool {
+        self == .none || self == .traffic
+    }
+
     var displayName: String {
         switch self {
         case .none: return "Normal"

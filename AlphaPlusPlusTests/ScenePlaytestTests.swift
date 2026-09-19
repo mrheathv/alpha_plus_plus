@@ -74,6 +74,115 @@ final class ScenePlaytestTests: XCTestCase {
                                  "a drag across the map added stops to the line")
     }
 
+    // MARK: - More, reported from play
+
+    /// **"The traffic overlay should still show cars, and you should be able
+    /// to place roads while in the overlay."** Both halves, one cause: every
+    /// overlay stripped the lane lines and removed the cars, so the one view
+    /// that is *about* the street network was the one view that hid it.
+    ///
+    /// Roads placed there were landing correctly all along — they were simply
+    /// invisible, which a player cannot tell apart from a click that did
+    /// nothing.
+    func testTheTrafficViewShowsTheStreetsAndTheTrafficOnThem() {
+        let game = ScenePlaytest(map: startedCity())
+        game.play()
+        game.tick(6)
+
+        game.look(at: .traffic)
+        let road = GridPosition(x: 4, y: 3)
+        XCTAssertNotNil(game.laneLine(at: road),
+                        "the Traffic view hid the streets it is a heatmap of")
+
+        // And a street laid while it is up shows up straight away.
+        game.drag(.road, from: GridPosition(x: 8, y: 1), to: GridPosition(x: 8, y: 8))
+        XCTAssertEqual(game.controller.map[GridPosition(x: 8, y: 5)].zone, .road,
+                       "a road laid in the Traffic view did not land")
+        XCTAssertNotNil(game.laneLine(at: GridPosition(x: 8, y: 5)),
+                        "a road laid in the Traffic view landed but was never drawn")
+        game.check("laying a road in the traffic view")
+    }
+
+    /// The other heatmaps still hide the streets, because there the data is
+    /// the picture and the city on top is clutter. Traffic is the exception,
+    /// not a new rule.
+    func testTheOtherHeatmapsStillHideTheStreets() {
+        let game = ScenePlaytest(map: startedCity())
+        game.play()
+        game.tick(6)
+        for overlay in [OverlayMode.landValue, .pollution, .problems] {
+            game.look(at: overlay)
+            XCTAssertNil(game.laneLine(at: GridPosition(x: 4, y: 3)),
+                         "\(overlay.displayName) is drawing streets over its own data")
+        }
+    }
+
+    /// **"It could be more apparent that you're selecting a valid stop."**
+    ///
+    /// It was worse than unclear — the cursor was lying. A click names a
+    /// station while a line is being drawn, but the preview described
+    /// whatever zoning tool was armed, and its "would this replace something"
+    /// test is true of every building on the map. So the stop you were meant
+    /// to click was drawn in the *blocked* colour.
+    func testTheCursorSaysWhichStopsALineCanCallAt() {
+        var map = startedCity()
+        map.placeBuilding(zone: .publicTransit, origin: GridPosition(x: 5, y: 3))
+        let game = ScenePlaytest(map: map)
+        game.look(at: .bus)
+        game.beginLine(.bus)
+
+        game.scene.updatePlacementPreview(at: GridPosition(x: 5, y: 3))
+        let onStation = game.scene.placementPreviewForTesting
+        XCTAssertFalse(onStation.isHidden)
+        let valid = onStation.strokeColor
+
+        game.scene.updatePlacementPreview(at: GridPosition(x: 9, y: 9))
+        let onNothing = game.scene.placementPreviewForTesting
+        XCTAssertNotEqual(valid, onNothing.strokeColor,
+                          "a stop a line can call at looks the same as bare ground")
+
+        // And the stop a line *cannot* call at is the one marked blocked —
+        // asserted this way round because the failure was the inverse.
+        XCTAssertEqual(onNothing.strokeColor, RenderPalette.placementPreviewBlockedStroke)
+        XCTAssertEqual(valid, RenderPalette.placementPreviewClearStroke,
+                       "the station you are meant to click is drawn as forbidden")
+    }
+
+    /// **What a block is short of, side by side.**
+    ///
+    /// The utility badge is drawn by `GameScene` and by nothing else, so the
+    /// city render has never shown it and no test has ever looked at it —
+    /// the same blind spot the backdrop had. It is also the mark this game
+    /// asks a player to read most often, since it is the whole feedback loop
+    /// for "why has this block stopped growing".
+    ///
+    /// Three lots: short of water, short of power, short of both. Together,
+    /// because the question is whether they are *distinguishable*, which one
+    /// badge at a time cannot answer.
+    func testRenderUtilityWarnings() {
+        var map = CityMap(width: 16, height: 10)
+        for x in 0 ..< 16 { map[GridPosition(x: x, y: 6)].zone = .road }
+        // Power for the left pair only, water for nobody — so the three lots
+        // land on the three states without any of them being contrived.
+        map.placeBuilding(zone: .generator, origin: GridPosition(x: 1, y: 8))
+        for (index, x) in [2, 7, 12].enumerated() {
+            let origin = GridPosition(x: x, y: 3)
+            map.placeBuilding(zone: .residential, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) {
+                // Densities chosen to cross the water gate and, for the last
+                // one, the power gate too.
+                map[cell].density = index == 2 ? 4 : 2
+            }
+        }
+        let game = ScenePlaytest(map: map)
+        game.look(at: .none)
+        game.frame()
+        game.capture("short of water, power, and both")
+        let url = game.writeFilmstrip(named: "utility-warnings")
+        XCTAssertNotNil(url, "the utility-warning render produced nothing")
+        if let url { print("⚡️ Utility warnings: \(url.path)") }
+    }
+
     // MARK: - The three, replayed
 
     /// **"You can't put a pipe under a building."** Drag a run straight
