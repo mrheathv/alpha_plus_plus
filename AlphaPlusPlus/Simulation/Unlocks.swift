@@ -76,6 +76,12 @@ enum Unlocks {
             return 300
         case .highway:
             return 500
+        // Between the bus stop and the subway, because that is where it sits
+        // on every other axis too — and because a tram is only worth its
+        // price once there is a corridor busy enough that a bus on it is
+        // crawling.
+        case .tramStop:
+            return 450
         case .subway:
             return 700
         case .stadium:

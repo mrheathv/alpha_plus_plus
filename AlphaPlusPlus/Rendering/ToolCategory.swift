@@ -58,10 +58,19 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
             // order: a stop is useless until something calls at it, and a
             // route is undrawable until there are stations to call at.
             return [
-                .zone(.road), .zone(.publicTransit),
+                .zone(.road),
+                .zone(.publicTransit),
                 .network(.bus, title: "Bus Route", cost: nil, accentZone: .publicTransit,
                          unlockedBy: .publicTransit),
-                .zone(.highway), .zone(.subway),
+                .zone(.tramStop),
+                .network(.tram, title: "Tram Route", cost: nil, accentZone: .tramStop,
+                         unlockedBy: .tramStop),
+                // Unlock order puts the highway here, between the tram stop
+                // and the subway, rather than beside the road it upgrades —
+                // see this property's own doc comment for why that ordering
+                // wins over pairing.
+                .zone(.highway),
+                .zone(.subway),
                 .network(.subway, title: "Subway Route", cost: nil, accentZone: .subway,
                          unlockedBy: .subway),
             ]

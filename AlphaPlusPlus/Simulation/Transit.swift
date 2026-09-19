@@ -49,6 +49,11 @@ enum Transit {
     /// than a constant nobody can reconstruct the reasoning for.
     static let subwayCatchment = busCatchment * 2
 
+    /// Between the two, and nearer the bus: a tram stop is still something
+    /// you walk to along a street, not a station you plan a journey around.
+    /// What a tram buys over a bus is the ride, not the reach.
+    static let tramCatchment = 5
+
     /// The stops on `route` that are still a station of its own kind.
     ///
     /// **The one definition of what a line actually calls at.** A stop whose
@@ -73,7 +78,31 @@ enum Transit {
     static func catchment(for mode: TransitRoute.Mode) -> Int {
         switch mode {
         case .bus: return busCatchment
+        case .tram: return tramCatchment
         case .subway: return subwayCatchment
+        }
+    }
+
+    /// How much of a line's capacity a completely jammed corridor takes away,
+    /// and what it keeps regardless.
+    ///
+    /// **This is the three-way split the modes exist for.** A bus is stuck in
+    /// the traffic it is trying to relieve. A tram has its own rails down the
+    /// middle of the street, so it is slowed a little at junctions and
+    /// crossings and not much else. A subway is in a tunnel and does not care
+    /// at all.
+    ///
+    /// The floor is there for the reason `Infrastructure.ruinedCapacityFraction`
+    /// is: a line losing capacity pushes riders onto the roads that are
+    /// jamming it, and that loop has no bottom without one. In practice only
+    /// the bus's binds — a tram's penalty alone never takes it below 0.75 —
+    /// and both are declared anyway so that raising a penalty later cannot
+    /// quietly remove the bound.
+    static func jamEffect(on mode: TransitRoute.Mode) -> (penalty: Double, floor: Double) {
+        switch mode {
+        case .bus: return (busJamPenalty, busJamFloor)
+        case .tram: return (0.25, 0.7)
+        case .subway: return (0, 1)
         }
     }
 
@@ -109,7 +138,8 @@ enum Transit {
     /// alternative is a circular definition.
     static func dailyCapacity(of route: TransitRoute, in map: CityMap) -> Int {
         let rated = ratedCapacity(of: route, in: map)
-        guard rated > 0, route.mode == .bus else { return rated }
+        let jam = jamEffect(on: route.mode)
+        guard rated > 0, jam.penalty > 0 else { return rated }
 
         let stops = workingStops(of: route, in: map)
         let jams = stops.map { stop -> Double in
@@ -119,7 +149,81 @@ enum Transit {
                 .max() ?? 0
         }
         let average = jams.reduce(0, +) / Double(jams.count)
-        return Int(Double(rated) * max(busJamFloor, 1 - average * busJamPenalty))
+        return Int(Double(rated) * max(jam.floor, 1 - average * jam.penalty))
+    }
+
+    /// Every road tile a tram runs down, derived from the lines themselves.
+    ///
+    /// **A tram is the only mode with a path on the ground**, and it has to
+    /// be: the lane it takes is taken from *particular* streets. Everything
+    /// else in this module is deliberately schematic — the route is the
+    /// infrastructure, there is no track layer, and a bus route's line on the
+    /// diagram is a claim about stations rather than a drawing of a road.
+    ///
+    /// So the track is *derived, not authored*. The player still only clicks
+    /// stations; the shortest road run between each consecutive pair is where
+    /// the rails go. That keeps the authoring model intact and still gives
+    /// the corridor a real identity on the map.
+    ///
+    /// A pair of stops with no road between them lays no track and takes no
+    /// lane. The line still runs — a tram route is not gated on road
+    /// connectivity, the same way a bus route is not — it simply costs the
+    /// street nothing where there is no street.
+    static func tramTracks(in map: CityMap) -> Set<GridPosition> {
+        let tramRoutes = map.transit.routes(mode: .tram)
+        guard !tramRoutes.isEmpty else { return [] }
+        let drivable = Set(map.tiles.filter { $0.zone == .road || $0.zone == .highway }.map(\.position))
+        guard !drivable.isEmpty else { return [] }
+
+        var tracks: Set<GridPosition> = []
+        for route in tramRoutes {
+            let stops = workingStops(of: route, in: map)
+            guard stops.count >= TransitRoute.minimumStops else { continue }
+            for (from, to) in zip(stops, stops.dropFirst()) {
+                tracks.formUnion(roadRun(from: from, to: to, over: drivable, in: map))
+            }
+        }
+        return tracks
+    }
+
+    /// The shortest road run between two stations, or nothing if the streets
+    /// do not connect them.
+    ///
+    /// Plain breadth-first, and cheap: it runs once per *segment* of a tram
+    /// line rather than once per home, so a city with four tram routes pays
+    /// for a dozen searches against the thousands `Traffic.computeLoad`
+    /// already runs.
+    private static func roadRun(
+        from origin: GridPosition, to destination: GridPosition,
+        over drivable: Set<GridPosition>, in map: CityMap
+    ) -> [GridPosition] {
+        let starts = origin.orthogonalNeighbors().filter { drivable.contains($0) }.sortedByPosition()
+        let targets = Set(destination.orthogonalNeighbors().filter { drivable.contains($0) })
+        guard !starts.isEmpty, !targets.isEmpty else { return [] }
+
+        var parent: [GridPosition: GridPosition] = [:]
+        var seen = Set(starts)
+        var queue = starts
+        var head = 0
+        var arrival: GridPosition?
+        while head < queue.count {
+            let current = queue[head]
+            head += 1
+            if targets.contains(current) { arrival = current; break }
+            for neighbour in current.orthogonalNeighbors()
+            where drivable.contains(neighbour) && !seen.contains(neighbour) {
+                seen.insert(neighbour)
+                parent[neighbour] = current
+                queue.append(neighbour)
+            }
+        }
+        guard var node = arrival else { return [] }
+        var run = [node]
+        while let step = parent[node] {
+            run.append(step)
+            node = step
+        }
+        return run
     }
 
     /// How much of a bus line's capacity fully jammed streets take away.

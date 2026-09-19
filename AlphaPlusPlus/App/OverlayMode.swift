@@ -35,6 +35,7 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     /// overlay in this list shows one network or one channel; these are no
     /// exception.
     case bus
+    case tram
     case subway
 
     var id: String { rawValue }
@@ -48,12 +49,26 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     /// transit arrived, and a seventh and eighth of those is how one gets
     /// forgotten — leaving a mode where clicks silently do the wrong thing,
     /// which is exactly the bug this exclusivity exists to prevent.
-    static let clickEditing: Set<OverlayMode> = [.water, .power, .bus, .subway]
+    static let clickEditing: Set<OverlayMode> = [.water, .power, .bus, .tram, .subway]
+
+    /// The view that belongs to a kind of line. The inverse of `routeMode`,
+    /// spelled once — it was a `mode == .bus ? .bus : .subway` ternary in
+    /// four places, which is a construction that silently means "one of the
+    /// two I happened to have" and has to be hunted down for every mode
+    /// added after it.
+    static func view(for mode: TransitRoute.Mode) -> OverlayMode {
+        switch mode {
+        case .bus: return .bus
+        case .tram: return .tram
+        case .subway: return .subway
+        }
+    }
 
     /// The line a click in this view is drawing, if it is drawing one.
     var routeMode: TransitRoute.Mode? {
         switch self {
         case .bus: return .bus
+        case .tram: return .tram
         case .subway: return .subway
         default: return nil
         }
@@ -74,6 +89,7 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
         case .fire: return "Fire Risk"
         case .problems: return "Problems"
         case .bus: return "Bus"
+        case .tram: return "Tram"
         case .subway: return "Subway"
         }
     }

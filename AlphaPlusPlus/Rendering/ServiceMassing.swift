@@ -26,6 +26,7 @@ enum ServiceMassing {
         case .fireStation: firehouse(footprint, &massing, &random)
         case .publicTransit: transitStop(footprint, &massing, &random)
         case .subway: subwayEntrance(footprint, &massing, &random)
+        case .tramStop: tramPlatform(footprint, &massing, &random)
         case .waterTower: waterTower(footprint, &massing, &random)
         case .waterPump: waterPump(footprint, &massing, &random)
         case .generator: generator(footprint, &massing, &random)
@@ -159,6 +160,38 @@ enum ServiceMassing {
                              width: width + 0.12, depth: width + 0.12, height: 0.07)))
         massing.add(.box(Box(x: margin + 0.1, y: margin + 0.1, z: 0.04,
                              width: width - 0.2, depth: width - 0.2, height: 0.09)),
+                    .lit(NeonStyle.litAccent))
+    }
+
+    /// **A raised platform under a pole**, which is a tram stop's identity
+    /// mark the world over and — more to the point here — nothing else in
+    /// this game's vocabulary. A bus stop is four legs and a flat canopy; a
+    /// subway is a headhouse with a lit mouth. This is a low kerbed island
+    /// with a lit edge and a single mast standing off it, so the three read
+    /// apart at a glance while scanning a corridor for coverage gaps, which
+    /// is what these icons are for.
+    private static func tramPlatform(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin = CGFloat(random.value(in: 0.16 ... 0.24))
+        let length = footprint - margin * 2
+        let width = CGFloat(random.value(in: 0.30 ... 0.42))
+        let island = Box(x: margin, y: (footprint - width) / 2, z: 0,
+                         width: length, depth: width, height: 0.1)
+        massing.add(.box(island))
+        // The lit edge: the one mark that survives being twenty points across,
+        // and the reason the platform reads as a platform rather than a kerb.
+        massing.add(.box(Box(x: margin + 0.04, y: (footprint - width) / 2 + 0.04, z: 0.1,
+                             width: length - 0.08, depth: width - 0.08, height: 0.03)),
+                    .lit(NeonStyle.litAccent))
+        // And the mast, at the near end so it sorts in front of the platform
+        // rather than through it — the same rule the firehouse tower had to
+        // learn when it came out looking like an industrial chimney.
+        let mast = CGFloat(random.value(in: 0.55 ... 0.72))
+        massing.add(.box(Box(x: margin + 0.05, y: (footprint - width) / 2 + width / 2 - 0.035,
+                             z: 0, width: 0.07, depth: 0.07, height: mast)))
+        massing.add(.box(Box(x: margin - 0.02, y: (footprint - width) / 2 + width / 2 - 0.06,
+                             z: mast, width: 0.2, depth: 0.12, height: 0.05)),
                     .lit(NeonStyle.litAccent))
     }
 

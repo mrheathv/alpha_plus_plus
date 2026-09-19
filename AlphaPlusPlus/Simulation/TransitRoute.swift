@@ -26,12 +26,14 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
     /// the ones already written into saves.
     enum Mode: String, Equatable, Codable, Sendable, CaseIterable {
         case bus
+        case tram
         case subway
 
         /// Which building this mode's stations are made of.
         var stationZone: ZoneType {
             switch self {
             case .bus: return .publicTransit
+            case .tram: return .tramStop
             case .subway: return .subway
             }
         }
@@ -48,6 +50,7 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
         var capacityPerStop: Int {
             switch self {
             case .bus: return 30
+            case .tram: return 60
             case .subway: return 120
             }
         }
@@ -63,6 +66,7 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
         var minutesPerTile: Double {
             switch self {
             case .bus: return 0.8
+            case .tram: return 0.6
             case .subway: return 0.4
             }
         }
@@ -77,6 +81,10 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
         var boardingWaitMinutes: Double {
             switch self {
             case .bus: return 3
+            // A tram waits like a bus, because it runs like one — frequent,
+            // local, and along the street. Everything it buys over a bus is
+            // in the ride rather than the wait.
+            case .tram: return 3
             case .subway: return 4
             }
         }
@@ -92,6 +100,7 @@ struct TransitRoute: Identifiable, Equatable, Codable, Sendable {
         var upkeepPerStop: Double {
             switch self {
             case .bus: return 3
+            case .tram: return 6
             case .subway: return 12
             }
         }

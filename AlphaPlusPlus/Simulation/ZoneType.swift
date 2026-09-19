@@ -40,6 +40,14 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // same relationship `.publicTransit` already has with `.road`.
     case highway
     case subway
+    // The third rung of the transit ladder, and the one that is not simply a
+    // pricier version of the rung below. A tram runs *in the street* on its
+    // own rails: it is barely slowed by traffic where a bus crawls, it is far
+    // cheaper than tunnelling, and it takes a lane away from the corridor it
+    // runs along (`Traffic.tramLaneShare`). That last part is the whole
+    // decision — every other transit building in this game is a pure
+    // addition, and this one costs the road something.
+    case tramStop
     // The genre-parity "water & sewage" gap: unlike every access/coverage
     // mechanic above (a single adjacency or falloff-distance check),
     // water is a real network — a building needs an unbroken chain of
@@ -113,6 +121,10 @@ extension ZoneType {
         // than a road tile (it projects access over an area, not just to
         // its own neighbors).
         case .publicTransit: return 150
+        // Between a bus stop and a subway entrance, like everything else
+        // about it: rails in the street cost more than a shelter and far
+        // less than a tunnel.
+        case .tramStop: return 250
         // Cheap enough to afford alongside the first few zones out of the
         // $10,000 starting treasury, since a new city now has to buy both.
         case .waterPump: return 250
@@ -151,7 +163,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower, .waterPump, .generator, .school, .hospital, .park: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .waterTower, .waterPump, .generator, .school, .hospital, .park: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -209,6 +221,7 @@ extension ZoneType {
         case .empty, .residential, .commercial, .industrial, .road, .highway: return 0
         case .policeStation, .fireStation: return 20
         case .publicTransit: return 5
+        case .tramStop: return 9
         case .waterPump: return 8
         case .generator: return 15
         // Heavy on purpose: a mature city was banking millions with nothing
@@ -243,7 +256,7 @@ extension ZoneType {
     /// everything built on it) doesn't care how big a zone is.
     var footprintSize: Int {
         switch self {
-        case .empty, .road, .publicTransit, .highway, .subway, .waterPump, .park: return 1
+        case .empty, .road, .publicTransit, .tramStop, .highway, .subway, .waterPump, .park: return 1
         case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital: return 2
         case .powerPlant, .stadium: return 3
         }

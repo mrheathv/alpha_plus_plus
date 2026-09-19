@@ -340,13 +340,13 @@ struct IsoTileRenderer {
                     ? RenderPalette.fullColor(for: service)
                     : RenderPalette.waterColor(for: false)
             )
-        case .bus, .subway:
+        case .bus, .tram, .subway:
             // Deliberately the same shape as water and power, down to the
             // highlighted source: **lit means served**, and a player who has
             // learned one of the four network overlays has learned all of
             // them. What changes per overlay is the hue and what "served"
             // means, never the reading.
-            let routeMode: TransitRoute.Mode = mode == .bus ? .bus : .subway
+            guard let routeMode = mode.routeMode else { return nil }
             let coverage = transit ?? Transit.coverage(for: map)
             let served = coverage.isServed(at: position, by: routeMode)
             // The stations are what the player is hunting for here — they are
@@ -881,6 +881,46 @@ struct IsoTileRenderer {
         line.zPosition = 1_000
         node.addChild(line)
     }
+
+    /// The rails a tram runs on, drawn on the street they were taken from.
+    ///
+    /// **The Tram view is the only transit overlay with something to say about
+    /// the ground**, because a tram is the only mode that costs the road
+    /// anything — see `Traffic.tramLaneShare`. Showing the catchment without
+    /// showing which streets paid for it would hide half the decision.
+    ///
+    /// Drawn as a bright core down the tile rather than a fill, so it reads as
+    /// rails *in* a street rather than as a coloured street — the same reason
+    /// the conduit overlay draws a line and not a tinted tile.
+    func syncTramTrack(on node: SKNode, present: Bool, mask: Int) {
+        let name = Self.tramTrackName
+        let key = present ? "\(mask)" : "none"
+        guard !isUpToDate(node, name, key) else { return }
+        markUpToDate(node, name, key)
+        node.childNode(withName: name)?.removeFromParent()
+        guard present, let rendered = textures.conduit(isPipe: true, mask: mask, live: true) else { return }
+
+        let rails = SKSpriteNode(texture: rendered.texture, size: rendered.size)
+        rails.name = name
+        rails.position = rendered.offset
+        rails.color = RenderPalette.transitLineColor(for: .tram)
+        rails.colorBlendFactor = 1
+        // **Not additive, and the render is why** — the third time this trap
+        // has been walked into in this module. Additively, adjacent track
+        // tiles sum where they meet and the run saturates to cyan-white: it
+        // stopped reading as teal rails in a street and became a river of
+        // light, brighter than the route line it is supposed to sit beneath.
+        // The texture carries its own bloom; the blend does not need to add
+        // one.
+        rails.blendMode = .alpha
+        rails.alpha = 0.85
+        // Above the city like the buried networks, and below the route
+        // diagram, which is the thing the player came to this view to read.
+        rails.zPosition = 1_000
+        node.addChild(rails)
+    }
+
+    static let tramTrackName = "tramTrack"
 
     /// Every working line of one mode, drawn as a diagram over the city.
     ///

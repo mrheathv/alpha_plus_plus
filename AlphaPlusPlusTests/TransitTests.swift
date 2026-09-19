@@ -441,15 +441,21 @@ final class TransitTests: XCTestCase {
             // normally fills this in; writing it directly is the only way to
             // pin the *response* rather than re-measure the router.
             map.trafficLoad = .jammed(everyRoadIn: map)
+            // Asserted against each mode's own declared floor rather than
+            // against a list of modes, so a fourth one cannot land here
+            // without either obeying the rule or saying out loud that it
+            // does not.
+            // Asserted against what each mode's own numbers imply, rather
+            // than against a list of modes — so a fourth one cannot land here
+            // without either obeying the rule or saying out loud that it does
+            // not. Note the floor only actually binds for the bus: a tram's
+            // penalty alone never takes it that low, which is the arithmetic
+            // saying the same thing the design does.
+            let jam = Transit.jamEffect(on: mode)
             let jammed = Transit.dailyCapacity(of: route, in: map)
-            switch mode {
-            case .bus:
-                XCTAssertLessThan(jammed, clear, "a bus line ignored the traffic around it")
-                XCTAssertEqual(Double(jammed) / Double(clear), Transit.busJamFloor, accuracy: 0.02,
-                               "a jammed bus line did not settle on its floor")
-            case .subway:
-                XCTAssertEqual(jammed, clear, "a subway was slowed by traffic it runs underneath")
-            }
+            XCTAssertEqual(Double(jammed) / Double(clear), max(jam.floor, 1 - jam.penalty),
+                           accuracy: 0.02,
+                           "\(mode) did not settle where its own penalty and floor put it")
         }
     }
 

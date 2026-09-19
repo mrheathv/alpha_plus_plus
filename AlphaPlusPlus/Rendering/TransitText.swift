@@ -10,6 +10,7 @@ enum TransitText {
     static func modeName(_ mode: TransitRoute.Mode) -> String {
         switch mode {
         case .bus: return "Bus"
+        case .tram: return "Tram"
         case .subway: return "Subway"
         }
     }

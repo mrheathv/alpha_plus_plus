@@ -2756,6 +2756,89 @@ It measures the fraction of ticks now. Same lesson as the hazard rate that had
 to move from strikes-per-tick to strikes-per-building-per-tick: when a
 measurement starts failing, check whether the thing moved or the yardstick did.
 
+### Phase 6 (done): the tram, and the first transit building that costs the road
+
+A tram is the middle rung on every axis — catchment, capacity, speed, price,
+upkeep, unlock — which on its own would make it a bus with bigger numbers, the
+exact criticism that drove phase 4. What makes it a different *decision* is one
+thing:
+
+**A tram lays rails in the street, and the street loses a quarter of its
+capacity.** Every other transit building in this game is a pure addition: build
+it, and trips move off the road. This one narrows the corridor it relieves. Put
+a tram down your busiest arterial and you may find you have made it worse —
+`Traffic.tramLaneShare` is a quarter, so a tram has to carry more than a
+quarter of a street's traffic to be worth running down it.
+
+**The track is derived, not authored**, which is what keeps "the route is the
+infrastructure" true for a mode that genuinely occupies ground. The player
+still only clicks stations; `Transit.tramTracks` lays rails along the shortest
+road run between each consecutive pair. One breadth-first search per *segment
+of a line* — a dozen for a city with four tram routes, against the thousands
+`computeLoad` already runs per home.
+
+It cached on `CityMap` rather than being derived on demand, and that was
+forced: `Traffic.congestion(at:in:)` reads it, and that is called from
+`LandValue`, `Infrastructure`, every overlay and the inspector with nothing but
+a position and a map. Deriving it per call would be a search per tile.
+
+**And traffic slows the three modes three different ways**, which is the split
+they exist for — a bus is stuck in the jam it is trying to relieve, a tram has
+its own rails down the middle and loses a little at junctions, a subway is in a
+tunnel. `Transit.jamEffect(on:)` states all three in one place, and the test
+asserts each mode against *its own declared numbers* rather than against a list
+of modes, so a fourth cannot land without either obeying the rule or saying out
+loud that it does not.
+
+#### Measured (64×64, 1,500 days): the trade is real, and it depends on the city
+
+| | congestion | riders/day | pop |
+|---|---|---|---|
+| **long commutes** — idle stops | 0.164 | 0 | 2,884 |
+| bus | 0.094 | 1,904 | 3,140 |
+| **tram** | **0.087** | **3,444** | 3,132 |
+| subway | 0.028 | 6,272 | 3,368 |
+| **mixed use** — bus | **0.085** | 1,992 | 3,004 |
+| **tram** | **0.090** | **3,944** | 3,000 |
+
+Read those two tram rows together, because they are the whole mechanic. In the
+long-commute city a tram carries nearly twice a bus's riders and beats it on
+congestion. In the mixed-use city it carries *twice as many riders again* —
+3,944 — and comes out **worse than the bus**, because the lane it took cancels
+what it carried. Same network, same constants, opposite verdict, decided by
+whether the corridor was worth running down.
+
+That is a placement decision rather than a price comparison, which is what this
+mode was added to create. It is also the first time in this project that
+building more transit has been measurably able to make traffic worse.
+
+#### Two things the render decided
+
+- **The rails blew out to cyan-white**, and it is the *third* time this module
+  has walked into additive saturation — the conduit run, the route line, now
+  this. Adjacent track tiles sum where they meet, so the corridor stopped
+  reading as teal rails in a street and became a river of light brighter than
+  the route line it is supposed to sit beneath. The texture carries its own
+  bloom; the blend does not need to add one.
+- **The teal was picked against its neighbours, not for itself.** `.park` is a
+  warm mint and both are 1×1 buildings threaded between blocks; the highway's
+  lane glow is a pure sky cyan. The tram sits between them and is clearly
+  neither, while staying in the blue half of the wheel where the rest of
+  transit lives.
+
+The stop's identity mark is a **kerbed island with a lit edge and a single
+mast** — a bus stop is four legs under a flat canopy and a subway is a
+headhouse with a lit mouth, so the three read apart while scanning a corridor
+for gaps, which is what these icons are for.
+
+Two smaller consequences. `OverlayMode.view(for:)` replaced a
+`mode == .bus ? .bus : .subway` ternary in four places — a construction that
+silently means "one of the two I happened to have" and has to be hunted down
+for every mode added after it. And the Transport group put the highway between
+the tram stop and the subway, because tools list in unlock order rather than
+pairing each cheap tool with its upgrade; `ToolCategoryTests` caught that
+immediately.
+
 ## The Problems view, and slowing the clock down
 
 Reported from play: *"everything is happening so fast, there's no way to check

@@ -931,6 +931,7 @@ final class GameScene: SKScene {
             tileRenderer.update(node, for: tile)
             tileRenderer.syncConduit(on: node, present: false, isPipe: true, mask: 0, live: false)
             tileRenderer.syncConduit(on: node, present: false, isPipe: false, mask: 0, live: false)
+            tileRenderer.syncTramTrack(on: node, present: false, mask: 0)
             syncLaneLine(at: position)
             // Damage is drawn on the anchor's node only, since that is the one
             // cell of a building that gets a node at all.
@@ -981,8 +982,34 @@ final class GameScene: SKScene {
                     live: map.powerSupply.isSupplied(at: position)
                 )
             }
+            // The rails, in the one view that has something to say about the
+            // ground — a tram is the only mode that costs the street
+            // anything, so the Tram view has to show which streets paid.
+            tileRenderer.syncTramTrack(
+                on: node,
+                present: controller.overlayMode == .tram && map.tramTracks.contains(position),
+                mask: tramTrackMask(at: position)
+            )
         }
         syncTrafficAnimation(at: position)
+    }
+
+    /// Which of a track tile's neighbours also carry rails, in the same
+    /// four-bit shape `Infrastructure.conduitMask` uses — so the rails draw as
+    /// a connected run through a junction rather than as a chain of separate
+    /// marks, and reuse the conduit rasteriser rather than needing their own.
+    private func tramTrackMask(at position: GridPosition) -> Int {
+        var mask = 0
+        let neighbours: [(Int, GridPosition)] = [
+            (1, GridPosition(x: position.x + 1, y: position.y)),
+            (2, GridPosition(x: position.x - 1, y: position.y)),
+            (4, GridPosition(x: position.x, y: position.y + 1)),
+            (8, GridPosition(x: position.x, y: position.y - 1)),
+        ]
+        for (bit, neighbour) in neighbours where map.tramTracks.contains(neighbour) {
+            mask |= bit
+        }
+        return mask
     }
 
     /// Adds (or removes) a road/highway tile's glowing lane-line detail,

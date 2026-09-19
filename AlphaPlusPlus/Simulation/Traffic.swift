@@ -137,6 +137,21 @@ enum Traffic {
     /// just harder to actually jam.
     private static let highwayCapacityMultiplier = 2.0
 
+    /// How much of a street's capacity a tram line running down it takes.
+    ///
+    /// **The only thing in this game that makes a transit building cost the
+    /// road something.** Every other mode is a pure addition: build it, and
+    /// trips move off the street. A tram takes a lane to put its rails in, so
+    /// the corridor it relieves is also the corridor it narrows — and that
+    /// is what turns "which mode" from a price comparison into a placement
+    /// decision. Put a tram down your busiest arterial and you may find you
+    /// have made it worse.
+    ///
+    /// A quarter, so a tram has to carry more than a quarter of a street's
+    /// traffic to be worth running down it. Under that it is a tax on the
+    /// corridor; over it, a bargain.
+    static let tramLaneShare = 0.25
+
     /// Is this a tile that carries road traffic — a plain `.road` or the
     /// higher-capacity `.highway`? Shared by `congestion(at:in:)` (deciding
     /// whether a tile has congestion at all), `computeLoad(for:)` (deciding
@@ -174,7 +189,11 @@ enum Traffic {
         // — so a neglected arterial degrades faster the worse it gets.
         // `Infrastructure.ruinedCapacityFraction` is the floor that keeps that
         // spiral recoverable rather than terminal.
-        let capacity = designed * Infrastructure.capacityFraction(of: map[position])
+        // And a tram running down it has taken a lane to lay rails in — see
+        // `tramLaneShare`, which is the one place a transit building costs
+        // the road network anything.
+        let lanes = map.tramTracks.contains(position) ? 1 - tramLaneShare : 1
+        let capacity = designed * Infrastructure.capacityFraction(of: map[position]) * lanes
         return min(1, Double(map.trafficLoad.load(at: position)) / capacity)
     }
 
@@ -739,9 +758,17 @@ struct TrafficLoad: Equatable, Codable, Sendable {
     /// way to produce a jam is to build a city that jams — which would
     /// re-measure the router rather than pin the *response* to it.
     static func jammed(everyRoadIn map: CityMap) -> TrafficLoad {
+        loaded(10_000, everyRoadIn: map)
+    }
+
+    /// The same, at a chosen load — for the tram's lane, where the whole
+    /// point is that a *partly* loaded street gets worse rather than that a
+    /// saturated one stays saturated. `congestion` clamps at 1, so a jammed
+    /// street cannot show a capacity change at all.
+    static func loaded(_ amount: Int, everyRoadIn map: CityMap) -> TrafficLoad {
         var load = TrafficLoad()
         for tile in map.tiles where tile.zone == .road || tile.zone == .highway {
-            load.loadByTile[tile.position] = 10_000
+            load.loadByTile[tile.position] = amount
         }
         return load
     }

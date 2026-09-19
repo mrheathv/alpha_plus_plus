@@ -29,6 +29,7 @@ struct ServiceFunding: Equatable, Codable, Sendable {
     // `ZoneType.upkeepCost`), so it gets its own dial the same way; a
     // plain `.highway` doesn't — it's still just a road, not a service.
     var subway: Double = 1.0
+    var tramStop: Double = 1.0
     // `.waterTower` is a service too, but `Water.computeSupply(for:)`
     // only ever checks `level(for: .waterTower) > 0` — the network is
     // either live or offline, no continuous strength dial the way a
@@ -70,6 +71,7 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .powerPlant, .generator: return powerPlant
         case .stadium: return stadium
         case .subway: return subway
+        case .tramStop: return tramStop
         // The starter utilities share their upgraded counterpart's dial: a
         // budget line is "water" or "power", not one slider per building
         // size, and `ServiceFunding` is explicitly one dial per service type
@@ -99,6 +101,7 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .powerPlant, .generator: powerPlant = level
         case .stadium: stadium = level
         case .subway: subway = level
+        case .tramStop: tramStop = level
         case .waterTower, .waterPump: waterTower = level
         case .school: school = level
         case .hospital: hospital = level

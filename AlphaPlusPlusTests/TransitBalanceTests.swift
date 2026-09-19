@@ -83,6 +83,7 @@ final class TransitBalanceTests: XCTestCase {
         let bare = measure(nil, routes: false)
         let control = measure(.bus, routes: false)
         let buses = measure(.bus)
+        let trams = measure(.tram)
         let trains = measure(.subway)
 
         print("""
@@ -93,6 +94,7 @@ final class TransitBalanceTests: XCTestCase {
         | no stops | \(bare.lines) | \(bare.population) | \(String(format: "%.3f", bare.congestion)) | \(bare.ridership) | \(String(format: "%.0f%%", bare.busiestLoad * 100)) | \(bare.netRevenue) | \(bare.treasury) |
         | idle     | \(control.lines) | \(control.population) | \(String(format: "%.3f", control.congestion)) | \(control.ridership) | \(String(format: "%.0f%%", control.busiestLoad * 100)) | \(control.netRevenue) | \(control.treasury) |
         | bus      | \(buses.lines) | \(buses.population) | \(String(format: "%.3f", buses.congestion)) | \(buses.ridership) | \(String(format: "%.0f%%", buses.busiestLoad * 100)) | \(buses.netRevenue) | \(buses.treasury) |
+        | tram     | \(trams.lines) | \(trams.population) | \(String(format: "%.3f", trams.congestion)) | \(trams.ridership) | \(String(format: "%.0f%%", trams.busiestLoad * 100)) | \(trams.netRevenue) | \(trams.treasury) |
         | subway   | \(trains.lines) | \(trains.population) | \(String(format: "%.3f", trains.congestion)) | \(trains.ridership) | \(String(format: "%.0f%%", trains.busiestLoad * 100)) | \(trains.netRevenue) | \(trains.treasury) |
 
         """)
@@ -145,6 +147,7 @@ final class TransitBalanceTests: XCTestCase {
     func testTransitEarnsItsKeepWhereTheCommuteIsLong() {
         let control = measure(.bus, routes: false, segregated: true)
         let buses = measure(.bus, segregated: true)
+        let trams = measure(.tram, segregated: true)
         let trains = measure(.subway, segregated: true)
 
         print("""
@@ -154,12 +157,25 @@ final class TransitBalanceTests: XCTestCase {
         |----------|-------|------|------------|------------|---------|---------|
         | idle     | \(control.lines) | \(control.population) | \(String(format: "%.3f", control.congestion)) | \(control.ridership) | \(String(format: "%.0f%%", control.busiestLoad * 100)) | \(control.netRevenue) |
         | bus      | \(buses.lines) | \(buses.population) | \(String(format: "%.3f", buses.congestion)) | \(buses.ridership) | \(String(format: "%.0f%%", buses.busiestLoad * 100)) | \(buses.netRevenue) |
+        | tram     | \(trams.lines) | \(trams.population) | \(String(format: "%.3f", trams.congestion)) | \(trams.ridership) | \(String(format: "%.0f%%", trams.busiestLoad * 100)) | \(trams.netRevenue) |
         | subway   | \(trains.lines) | \(trains.population) | \(String(format: "%.3f", trains.congestion)) | \(trains.ridership) | \(String(format: "%.0f%%", trains.busiestLoad * 100)) | \(trains.netRevenue) |
 
         """)
 
         XCTAssertGreaterThan(buses.ridership, 0)
-        XCTAssertGreaterThan(trains.ridership, buses.ridership)
+        XCTAssertGreaterThan(trams.ridership, buses.ridership,
+                             "a tram carried no more than a bus over the same stations")
+        XCTAssertGreaterThan(trains.ridership, trams.ridership)
+
+        // **The tram's own trade, measured.** It relieves the corridor and
+        // narrows it at the same time — the only transit building in the game
+        // that costs the road anything — so the question is whether what it
+        // carries beats the quarter-lane it took. Asserted as the direction
+        // rather than the size, because the size is what a player's placement
+        // decides and this network was laid down without looking.
+        XCTAssertLessThan(trams.congestion, control.congestion,
+                          "a tram network left the streets no better than no lines at all, "
+                          + "despite taking a lane from every corridor it runs down")
     }
 
     /// **A subway carries more than a bus over the same stations.** Four times

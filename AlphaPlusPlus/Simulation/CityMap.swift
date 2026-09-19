@@ -132,6 +132,25 @@ struct CityMap: Equatable, Codable, Sendable {
         set { transitNetwork = newValue }
     }
 
+    /// Which road tiles a tram runs down, as of the last time
+    /// `Transit.tramTracks(in:)` ran and someone assigned the result here.
+    ///
+    /// Cached on the map for the same reason `waterSupply` is, and with more
+    /// force: `Traffic.congestion(at:in:)` reads it, and that is called from
+    /// `LandValue`, `Infrastructure`, the overlays and the inspector with
+    /// nothing but a position and a map. Deriving it per call would mean a
+    /// breadth-first search per tile.
+    ///
+    /// Optional in storage for save compatibility and non-optional to read,
+    /// exactly as `transitNetwork` above — an empty set and "no tram has ever
+    /// run here" are the same city.
+    private var tramTrackTiles: Set<GridPosition>?
+
+    var tramTracks: Set<GridPosition> {
+        get { tramTrackTiles ?? [] }
+        set { tramTrackTiles = newValue }
+    }
+
     /// How many days old the city is.
     ///
     /// **One clock, read through one seam.** `RegionalEconomy.elapsed` has

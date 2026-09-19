@@ -40,8 +40,9 @@ final class OverlayModeTests: XCTestCase {
     /// Bus and subway are separate views on purpose — see `OverlayMode.bus`.
     func testTransitGetsAViewPerMode() {
         for mode in TransitRoute.Mode.allCases {
-            let overlay: OverlayMode = mode == .bus ? .bus : .subway
+            let overlay = OverlayMode.view(for: mode)
             XCTAssertTrue(OverlayMode.allCases.contains(overlay), "\(mode) has no overlay")
+            XCTAssertEqual(overlay.routeMode, mode, "\(mode)'s view does not lead back to it")
         }
     }
 }

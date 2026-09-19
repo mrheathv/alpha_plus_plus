@@ -304,6 +304,14 @@ enum RenderPalette {
             return SKColor(srgbRed: 1.0, green: 0.25, blue: 0.75, alpha: 1.0)  // hot pink, "entertainment lights"
         case .subway:
             return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's sky blue, richer
+        case .tramStop:
+            // Deep teal. Picked against its two dangerous neighbours rather
+            // than for its own sake: `.park` is a *warm* mint (0.18/0.92/0.55)
+            // and both are 1×1 buildings threaded between blocks, while the
+            // highway's lane glow is a pure sky cyan (0/0.90/1.0). This sits
+            // between them and is clearly neither, while staying in the blue
+            // half of the wheel where the rest of transit lives.
+            return SKColor(srgbRed: 0.0, green: 0.85, blue: 0.70, alpha: 1.0)
         case .waterTower:
             return SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)  // deep ocean-blue, distinct from Commercial's cyan family
         }
@@ -540,6 +548,7 @@ enum RenderPalette {
         case .stadium: return "Stadium"
         case .highway: return "Highway"
         case .subway: return "Subway"
+        case .tramStop: return "Tram Stop"
         case .waterTower: return "Water Tower"
         }
     }

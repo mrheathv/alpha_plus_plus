@@ -393,7 +393,7 @@ final class GameController: ObservableObject {
     /// clickable — the same "selecting the tool puts you in the mode" contract
     /// pipes and power lines already have.
     func beginTransitRoute(mode: TransitRoute.Mode) {
-        overlayMode = mode == .bus ? .bus : .subway
+        overlayMode = OverlayMode.view(for: mode)
         routeDraft = TransitRouteDraft(mode: mode)
     }
 
@@ -402,7 +402,7 @@ final class GameController: ObservableObject {
     /// line you already have should be the same gesture as drawing it.
     func editTransitRoute(id: TransitRoute.ID) {
         guard let route = map.transit.route(id: id) else { return }
-        overlayMode = route.mode == .bus ? .bus : .subway
+        overlayMode = OverlayMode.view(for: route.mode)
         routeDraft = TransitRouteDraft(mode: route.mode, editing: id, stops: route.stops)
     }
 
@@ -429,6 +429,7 @@ final class GameController: ObservableObject {
     /// the one thing a line cannot be.
     @discardableResult
     func commitTransitRoute() -> TransitRoute.ID? {
+        defer { recomputeTramTracks() }
         guard let draft = routeDraft, draft.isCommittable else { return nil }
         let id: TransitRoute.ID
         if let editing = draft.editing {
@@ -481,6 +482,7 @@ final class GameController: ObservableObject {
 
     func removeTransitRoute(id: TransitRoute.ID) {
         map.transit.remove(id: id)
+        recomputeTramTracks()
     }
 
     /// Replaces a line's stops wholesale rather than offering insert/remove.
@@ -811,6 +813,18 @@ final class GameController: ObservableObject {
     func recomputeUtilitySupply() {
         map.waterSupply = Water.computeSupply(for: map)
         map.powerSupply = computePowerSupply()
+        recomputeTramTracks()
+    }
+
+    /// Where the rails are, which changes when a tram line does and when the
+    /// streets under one do.
+    ///
+    /// Recomputed eagerly rather than per tick for the reason supply is: the
+    /// game starts paused, and a player who draws a tram line and watches the
+    /// traffic overlay not budge until the next tick would reasonably
+    /// conclude the mechanic is broken. That exact bug is recorded for pipes.
+    func recomputeTramTracks() {
+        map.tramTracks = Transit.tramTracks(in: map)
     }
 
     func advanceSimulation() {
@@ -821,6 +835,9 @@ final class GameController: ObservableObject {
         // `CityHazards.apply`'s and `CitySimulator.advance`'s `next = map`
         // copies both carry it forward automatically since it's just
         // another field on the struct they copy.
+        // Rails first: `Traffic.congestion` reads them to decide how much of
+        // a street is left for cars, and routing reads congestion.
+        map.tramTracks = Transit.tramTracks(in: map)
         map.trafficLoad = Traffic.computeLoad(for: map)
         // Between traffic and supply, and it has to be exactly there: wear
         // reads this tick's congestion to decide which roads are rotting

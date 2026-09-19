@@ -164,6 +164,7 @@ final class IsometricCityTests: XCTestCase {
         // inconsistent state `CityMap.placeBuilding`'s doc comment warns about,
         // and it would show up as a floating half-building rather than as
         // anything failing.
+        @discardableResult
         func station(_ mode: TransitRoute.Mode, at origin: GridPosition) -> GridPosition {
             let lot = map[origin].buildingOrigin
             for cell in map.footprintCells(origin: lot, size: map[lot].zone.footprintSize) {
@@ -186,6 +187,15 @@ final class IsometricCityTests: XCTestCase {
         let underNorth = station(.subway, at: GridPosition(x: 3, y: 1))
         let underSouth = station(.subway, at: GridPosition(x: 18, y: 11))
         map.transit.add(mode: .subway, stops: [underNorth, underSouth])
+
+        // A tram down one corridor, because a tram is the only mode with
+        // something on the ground: the lane it takes has to be visible, and a
+        // fixture with no rails in it cannot show whether it is.
+        let tramWest = station(.tram, at: GridPosition(x: 1, y: 6))
+        let tramMid = station(.tram, at: GridPosition(x: 8, y: 6))
+        let tramEast = station(.tram, at: GridPosition(x: 16, y: 6))
+        map.transit.add(mode: .tram, stops: [tramWest, tramMid, tramEast])
+        map.tramTracks = Transit.tramTracks(in: map)
 
         // A line whose station has been demolished. The route survives with
         // one stop and carries nobody — and a fixture where every line works
@@ -801,7 +811,7 @@ final class IsometricCityTests: XCTestCase {
         for overlay in [("normal", OverlayMode.none), ("water", .water), ("power", .power),
                         ("land value", .landValue), ("pollution", .pollution),
                         ("crime", .police), ("fire risk", .fire), ("problems", .problems),
-                        ("bus", .bus), ("subway", .subway)] {
+                        ("bus", .bus), ("tram", .tram), ("subway", .subway)] {
             panels.append((overlay.0, try render(map, tileWidth: 26, overlay: overlay.1)))
         }
         // And one with a line half-drawn, because the editor's whole feedback
@@ -933,6 +943,15 @@ final class IsometricCityTests: XCTestCase {
                     mask: Infrastructure.conduitMask(at: position, in: map, isPipe: false),
                     live: map.powerSupply.isSupplied(at: position)
                 )
+            }
+            if overlay == .tram, map.tramTracks.contains(position) {
+                var mask = 0
+                for (bit, step) in [(1, (1, 0)), (2, (-1, 0)), (4, (0, 1)), (8, (0, -1))]
+                where map.tramTracks.contains(GridPosition(x: position.x + step.0,
+                                                           y: position.y + step.1)) {
+                    mask |= bit
+                }
+                renderer.syncTramTrack(on: node, present: true, mask: mask)
             }
             world.addChild(node)
         }
