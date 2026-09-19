@@ -26,6 +26,16 @@ final class ScenePlaytest {
     let controller: GameController
     let scene: GameScene
 
+    /// What has been done so far.
+    ///
+    /// A scripted session names its own steps in the assertion; a *random*
+    /// one cannot, and a two-hundred-step failure with no account of how it
+    /// got there is a failure nobody can act on. The seed makes a run
+    /// reproducible; this makes it readable.
+    private(set) var log: [String] = []
+
+    private func record(_ action: String) { log.append(action) }
+
     init(map: CityMap, seed: UInt64 = 0xA1F4) {
         controller = GameController(map: map, rng: SeededRNG(seed: seed),
                                     peakPopulation: Unlocks.everythingUnlocked)
@@ -42,6 +52,7 @@ final class ScenePlaytest {
     /// A click with a tool armed. Goes through the scene, so the view's own
     /// click routing — pipe, power line, route stop — is exercised too.
     func click(_ tool: ZoneType, at position: GridPosition) {
+        record("click \(tool.rawValue) at \(position)")
         controller.selectTool(tool)
         scene.beginStroke()
         scene.place(at: position)
@@ -49,6 +60,7 @@ final class ScenePlaytest {
 
     /// A drag, which is how anybody actually lays a road or a run of pipe.
     func drag(_ tool: ZoneType, from: GridPosition, to: GridPosition) {
+        record("drag \(tool.rawValue) \(from)→\(to)")
         controller.selectTool(tool)
         scene.beginStroke()
         for step in from.line(to: to) { scene.place(at: step) }
@@ -57,32 +69,38 @@ final class ScenePlaytest {
     /// A click while a view is up, where the view rather than the toolbar
     /// decides what happens — laying pipe, adding a stop to a line.
     func clickInView(at position: GridPosition) {
+        record("click in \(controller.overlayMode.displayName) at \(position)")
         scene.beginStroke()
         scene.place(at: position)
     }
 
     func dragInView(from: GridPosition, to: GridPosition) {
+        record("drag in \(controller.overlayMode.displayName) \(from)→\(to)")
         scene.beginStroke()
         for step in from.line(to: to) { scene.place(at: step) }
     }
 
     func bulldoze(at position: GridPosition) {
+        record("bulldoze \(position)")
         scene.beginStroke()
         scene.bulldoze(at: position)
     }
 
     /// Changing view, the way `GameView` does it — set the mode, refresh.
     func look(at overlay: OverlayMode) {
+        record("look at \(overlay.displayName)")
         controller.overlayMode = overlay
         scene.refreshAll()
     }
 
     func pause() {
+        record("pause")
         controller.isRunning = false
         frame()
     }
 
     func play() {
+        record("play")
         controller.isRunning = true
         frame()
     }
@@ -97,10 +115,32 @@ final class ScenePlaytest {
         sceneTime += 1
     }
 
+    /// Arming a route tool, which is what raises its view and starts a line.
+    func beginLine(_ mode: TransitRoute.Mode) {
+        record("begin a \(TransitText.modeName(mode).lowercased()) line")
+        controller.beginTransitRoute(mode: mode)
+        scene.refreshAll()
+    }
+
+    func finishLine() {
+        record("finish the line")
+        controller.commitTransitRoute()
+        scene.refreshAll()
+    }
+
+    /// Borrows when the money runs out, the way a player would rather than
+    /// through a backdoor into the treasury.
+    func borrowIfShort() {
+        guard controller.treasury < 2_000 else { return }
+        record("issue a bond")
+        _ = controller.issueBond()
+    }
+
     /// Days passing, through the scene rather than the controller — so
     /// `refreshAll` runs and the picture is asked to keep up, which is the
     /// whole point.
     func tick(_ count: Int = 1) {
+        record("\(count) day\(count == 1 ? "" : "s") pass")
         for _ in 0 ..< count { scene.runSimulationTick() }
     }
 
@@ -114,10 +154,16 @@ final class ScenePlaytest {
         let problems = SceneAgreement.violations(in: scene, controller: controller)
         guard !problems.isEmpty else { return }
         let label = what.isEmpty ? "" : " after \(what)"
-        XCTFail("the picture stopped agreeing with the city\(label):\n  "
-                + problems.prefix(8).joined(separator: "\n  ")
-                + (problems.count > 8 ? "\n  …and \(problems.count - 8) more" : ""),
-                file: file, line: line)
+        let trail = log.suffix(12).enumerated()
+            .map { "    \(log.count - 12 + $0.offset + 1). \($0.element)" }
+            .joined(separator: "\n")
+        XCTFail("""
+            the picture stopped agreeing with the city\(label):
+              \(problems.prefix(8).joined(separator: "\n  "))\
+            \(problems.count > 8 ? "\n  …and \(problems.count - 8) more" : "")
+              how it got here (last \(min(12, log.count)) of \(log.count) steps):
+            \(trail)
+            """, file: file, line: line)
     }
 }
 

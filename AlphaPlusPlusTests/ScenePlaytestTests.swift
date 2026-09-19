@@ -13,7 +13,7 @@ final class ScenePlaytestTests: XCTestCase {
 
     /// Streets, a tower and a plant, and room to build — the shape of a city
     /// somebody is actually in the middle of making.
-    private func startedCity() -> CityMap {
+    func startedCity() -> CityMap {
         var map = CityMap(width: 22, height: 16)
         for y in stride(from: 0, to: 16, by: 3) {
             for x in 0 ..< 22 { map[GridPosition(x: x, y: y)].zone = .road }
@@ -148,5 +148,31 @@ final class ScenePlaytestTests: XCTestCase {
         game.look(at: .none)
         game.tick(8)
         game.check("another week")
+    }
+}
+
+extension ScenePlaytestTests {
+
+    /// **A session nobody wrote.**
+    ///
+    /// The scripted tests above only cover what I thought to try, and every
+    /// bug reported so far has been something nobody thought to try. This
+    /// plays the city and checks after every step, so what it finds is what
+    /// no author would have gone looking for.
+    ///
+    /// A handful of seeds rather than one: a single random walk is a single
+    /// sample, and the cheapest way to widen the search is to run it from
+    /// several places. Short in the normal suite; `PLAYTEST_FULL` makes it a
+    /// real one, which is the same arrangement `PlaytestHarness` already uses
+    /// for balance.
+    func testARandomSessionKeepsThePictureHonest() {
+        let long = PlaytestHarness.Profile.current == .full
+        for seed in (long ? [1, 2, 3, 4, 5, 6] : [1, 2, 3]) as [UInt64] {
+            let game = ScenePlaytest(map: startedCity(), seed: seed)
+            var player = RandomScenePlayer(game: game, seed: seed)
+            // A long run can afford to look less often: the check builds a
+            // whole second scene, and anything that persists is still found.
+            player.play(steps: long ? 300 : 45, checkingEvery: long ? 3 : 1)
+        }
     }
 }

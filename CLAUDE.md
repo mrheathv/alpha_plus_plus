@@ -2070,6 +2070,43 @@ None of them reported, all of them real:
   read as a chain of disconnected stubs until a tick — and laying pipe is
   something a player does *paused*.
 
+### And a player nobody wrote
+
+The scripted sessions only cover what I thought to try, and every bug reported
+so far has been something nobody thought to try. `RandomScenePlayer` plays a
+city for as long as it is given — zoning, dragging roads, bulldozing, changing
+view, laying mains, pausing, stringing lines between stations, borrowing when
+the money runs out — and checks after every step.
+
+**Plausible rather than chaotic**, deliberately. A player who clicks uniformly
+at random builds a city no player would build, and the interesting
+interactions — laying pipe under blocks, growing while a view is up, bulldozing
+next to something — come out of *sequences that make sense*. Pure noise mostly
+measures how the game handles noise. The weighting is `allCases` with the
+common actions listed twice, which stays readable in a way a table of
+percentages does not.
+
+Seeded, and `ScenePlaytest.log` prints the run that produced a failure —
+because "step 147 of a random walk" is otherwise a failure nobody can act on.
+Same requirement `PlaytestHarness` already states for balance numbers.
+
+**It found a fourth bug on step eight**, and a good one: picking a zone tool
+while a network view is up drops that view on purpose, so the two stay mutually
+exclusive — and *nothing told the scene*. `GameView` announces an overlay change
+through a SwiftUI binding, but this change happens underneath it, so the map
+went on painting the view the player had just left until something else
+happened to refresh it.
+
+The fix is that the scene notices for itself rather than waiting to be told:
+`update` compares the view it last drew against the one that is current. The
+binding stays, because it makes the change immediate — but correctness no
+longer rests on it firing. This project has been caught by "the view did not
+tell the scene" before, when a freshly laid pipe stayed dark because the game
+starts paused.
+
+Six seeds of three hundred steps — eighteen hundred actions — run clean after
+it. Short in the normal suite, long behind `PLAYTEST_FULL`.
+
 Two false positives came first, and both were worth the trip. A one-shot
 feedback flash is an animation **in flight**, not a fact about the city, so a
 rebuilt scene has none by definition and it has to be excluded. And the pause

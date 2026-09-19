@@ -401,6 +401,18 @@ final class GameScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         super.update(currentTime)
         syncAnimationPause()
+        // **The scene notices the view changed, rather than waiting to be
+        // told.** `GameView` does tell it, and that is what makes the change
+        // immediate — but the mode can also change from underneath, because
+        // picking a zone tool drops a network overlay on purpose
+        // (`GameController.selectTool`, so the two stay mutually exclusive).
+        // Nothing announced *that*, so the map kept painting the view the
+        // player had just left until something else happened to refresh it.
+        //
+        // Correctness should not rest on a SwiftUI binding firing; this
+        // project has been caught by "the view did not tell the scene" before,
+        // when a freshly laid pipe stayed dark because the game starts paused.
+        if renderedOverlay != controller.overlayMode { refreshAll() }
 
         // Before the pause check, deliberately. Looking around a stopped city
         // is most of what pausing is for.
