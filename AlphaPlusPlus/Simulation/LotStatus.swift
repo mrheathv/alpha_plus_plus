@@ -192,6 +192,32 @@ extension CitySimulator {
         return .readyToGrow(demand: demand)
     }
 
+    /// Does this lot want water — either to grow, or to keep what it has?
+    ///
+    /// **Not the same question as "has it got water".** A house at density 1
+    /// neither needs water nor suffers without it, so painting it as a
+    /// problem on the Water overlay would send the player to lay pipe that
+    /// buys nothing. This is the condition the *simulation* gates on, called
+    /// rather than restated — the same reason `CityHazards.isExposed` exists,
+    /// after the crime overlay spent a while claiming half the city was at
+    /// risk when it was not.
+    static func needsWater(_ tile: Tile) -> Bool {
+        needsUtility(tile, fromLevel: waterRequiredFromLevel)
+    }
+
+    static func needsPower(_ tile: Tile) -> Bool {
+        needsUtility(tile, fromLevel: powerRequiredFromLevel)
+    }
+
+    private static func needsUtility(_ tile: Tile, fromLevel: Int) -> Bool {
+        guard tile.zone.maxDensity > 0 else { return false }
+        // `density + 1`, so a lot one level *below* the gate counts: it is
+        // being held back right now, which is exactly when the player wants
+        // to be told. A lot already at or above the gate is covered by the
+        // same test.
+        return tile.density + 1 >= fromLevel
+    }
+
     /// Is a school close enough to unlock the top tier for this footprint?
     static func hasSchooling(
         _ footprint: [GridPosition], in map: CityMap, using distances: ZoneDistanceField? = nil

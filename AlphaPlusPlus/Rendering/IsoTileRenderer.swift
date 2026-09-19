@@ -282,19 +282,18 @@ struct IsoTileRenderer {
             let supplied = Water.hasSupply(at: position, in: map)
             let isSource = map[position].zone == .waterTower || map[position].zone == .waterPump
             return OverlayPaint(
-                buildings: isSource ? .highlighted : .connected(supplied),
+                buildings: isSource ? .highlighted : utilityBuildings(
+                    supplied: supplied, wanted: CitySimulator.needsWater(map[map[position].buildingOrigin]),
+                    hue: RenderPalette.conduitColor(isPipe: true, live: true)
+                ),
                 color: RenderPalette.supplyGroundColor(
                     isPipe: true, supplied: supplied,
                     direct: map.waterSupply.isDirectlyServed(at: position)
                 ),
-                // **Per state, not one colour for both.** Passing the
-                // utility's own hue for a building with no water tinted the
-                // unsupplied ones blue as well, and the overlay went from
-                // "everything is mush" to "everything is lit" — the same
-                // failure wearing the opposite sign.
-                buildingColor: supplied
-                    ? RenderPalette.conduitColor(isPipe: true, live: true)
-                    : RenderPalette.unlitBuilding
+                buildingColor: utilityBuildingColor(
+                    supplied: supplied, wanted: CitySimulator.needsWater(map[map[position].buildingOrigin]),
+                    hue: RenderPalette.conduitColor(isPipe: true, live: true)
+                )
             )
         case .problems:
             // Buildings hidden, like every other heatmap: the data *is* the
@@ -364,16 +363,46 @@ struct IsoTileRenderer {
             let supplied = PowerGrid.hasSupply(at: position, in: map)
             let isSource = map[position].zone == .powerPlant || map[position].zone == .generator
             return OverlayPaint(
-                buildings: isSource ? .highlighted : .connected(supplied),
+                buildings: isSource ? .highlighted : utilityBuildings(
+                    supplied: supplied, wanted: CitySimulator.needsPower(map[map[position].buildingOrigin]),
+                    hue: RenderPalette.conduitColor(isPipe: false, live: true)
+                ),
                 color: RenderPalette.supplyGroundColor(
                     isPipe: false, supplied: supplied,
                     direct: map.powerSupply.isDirectlyServed(at: position)
                 ),
-                buildingColor: supplied
-                    ? RenderPalette.conduitColor(isPipe: false, live: true)
-                    : RenderPalette.unlitBuilding
+                buildingColor: utilityBuildingColor(
+                    supplied: supplied, wanted: CitySimulator.needsPower(map[map[position].buildingOrigin]),
+                    hue: RenderPalette.conduitColor(isPipe: false, live: true)
+                )
             )
         }
+    }
+
+    /// **Three answers, not two.** A utility overlay used to ask "is this
+    /// building on the network" of everything on the map, and paint the two
+    /// answers lit and dark. But a house too small to need water yet is
+    /// neither served nor in trouble, and painting it the same near-black as
+    /// a tower dying for want of a main made the map claim a problem that was
+    /// not there — precisely the failure the crime overlay had to be fixed
+    /// for, where safe factories outside every police catchment were tinted
+    /// as though they were at risk.
+    ///
+    /// So: served is lit in the utility's own hue, *wanting and lacking* is
+    /// lit in the loudest colour on the map, and everything else is quiet.
+    private static func utilityBuildings(
+        supplied: Bool, wanted: Bool, hue: SKColor
+    ) -> OverlayBuildings {
+        // Lit for both of the states that mean something, dim only for the
+        // one that does not.
+        .connected(supplied || wanted)
+    }
+
+    private static func utilityBuildingColor(
+        supplied: Bool, wanted: Bool, hue: SKColor
+    ) -> SKColor {
+        if supplied { return hue }
+        return wanted ? RenderPalette.utilityWanted : RenderPalette.unlitBuilding
     }
 
     /// Paint a tile as a flat data channel instead of as a building.

@@ -77,7 +77,7 @@ enum PowerGrid {
         // `Infrastructure.failureWear` is down, and the gap it leaves is a gap
         // in the grid.
         let lines = Set(map.tiles.filter { $0.hasPowerLine && !Infrastructure.hasFailed($0) }.map(\.position))
-        guard !lines.isEmpty else { return PowerSupply(reachableLines: [], directlyServed: direct) }
+        guard !lines.isEmpty else { return PowerSupply(reachableLines: [], lineServed: [], directlyServed: direct) }
 
         var frontier: [GridPosition] = []
         for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .powerPlant || tile.zone == .generator) {
@@ -85,7 +85,7 @@ enum PowerGrid {
                 .flatMap { $0.orthogonalNeighbors() }
                 .filter { lines.contains($0) })
         }
-        guard !frontier.isEmpty else { return PowerSupply(reachableLines: [], directlyServed: direct) }
+        guard !frontier.isEmpty else { return PowerSupply(reachableLines: [], lineServed: [], directlyServed: direct) }
 
         var reachable = Set(frontier)
         var queue = frontier
@@ -98,7 +98,11 @@ enum PowerGrid {
                 queue.append(neighbor)
             }
         }
-        return PowerSupply(reachableLines: reachable, directlyServed: direct)
+        return PowerSupply(
+            reachableLines: reachable,
+            lineServed: Water.pipeCoverage(of: reachable, in: map),
+            directlyServed: direct
+        )
     }
 
     /// Is this tile, or one sharing an edge with it, a supplied power line —
@@ -111,10 +115,7 @@ enum PowerGrid {
         // The tile itself counts too — see `Water.hasSupply(at:in:)` for why
         // "under" and "beside" behaving differently was a rule nobody could
         // have inferred.
-        if map.powerSupply.isSupplied(at: position) { return true }
-        if position.orthogonalNeighbors().contains(where: { map.powerSupply.isSupplied(at: $0) }) {
-            return true
-        }
+        if map.powerSupply.isLineServed(at: position) { return true }
         return map.powerSupply.isDirectlyServed(at: position)
     }
 
@@ -122,6 +123,12 @@ enum PowerGrid {
     /// `Water.directSupplyRadius`, which this deliberately matches so the two
     /// utilities behave the same way.
     static let directSupplyRadius = Water.directSupplyRadius
+
+    /// And how far a live line carries either side of itself, matched to
+    /// `Water.pipeSupplyRadius` for the same reason: two utilities that
+    /// behave differently for no reason a player could work out is exactly
+    /// the kind of rule this project has had to go back and delete before.
+    static let lineSupplyRadius = Water.pipeSupplyRadius
 
     /// Every tile within `directSupplyRadius` of a plant's footprint.
     static func directCoverage(in map: CityMap) -> Set<GridPosition> {
@@ -149,6 +156,10 @@ enum PowerGrid {
 struct PowerSupply: Equatable, Codable, Sendable {
     private var reachableLines: Set<GridPosition>
 
+    /// Everything those lines reach — see `WaterSupply.pipeServedTiles`,
+    /// which this matches down to the reason it is `Optional`.
+    private var lineServedTiles: Set<GridPosition>?
+
     /// Tiles close enough to a working plant to be powered with no lines at
     /// all — see `PowerGrid.directSupplyRadius`.
     private var directlyServed: Set<GridPosition>
@@ -158,9 +169,19 @@ struct PowerSupply: Equatable, Codable, Sendable {
         self.directlyServed = []
     }
 
-    fileprivate init(reachableLines: Set<GridPosition>, directlyServed: Set<GridPosition>) {
+    fileprivate init(
+        reachableLines: Set<GridPosition>,
+        lineServed: Set<GridPosition>,
+        directlyServed: Set<GridPosition>
+    ) {
         self.reachableLines = reachableLines
+        self.lineServedTiles = lineServed
         self.directlyServed = directlyServed
+    }
+
+    /// Is `position` within reach of a live line?
+    func isLineServed(at position: GridPosition) -> Bool {
+        lineServedTiles?.contains(position) ?? false
     }
 
     /// Is `position` close enough to a plant to be powered without lines?

@@ -717,6 +717,11 @@ final class GameController: ObservableObject {
         try save.validateFormatVersion()
 
         map = save.map
+        // **Recomputed, not restored.** Supply is a pure function of the map,
+        // and a save is not a second opinion about it — a file written before
+        // a constant moved would otherwise load with a network that does not
+        // match the rules the game is now playing by.
+        recomputeUtilitySupply()
         treasury = save.treasury
         taxRate = save.taxRate
         bondBalance = save.bondBalance

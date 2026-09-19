@@ -154,6 +154,24 @@ enum RenderPalette {
         return background.blended(withFraction: fraction, of: transitLineColor(for: mode)) ?? waterUnsupplied
     }
 
+    /// A building that wants a utility and has not got one.
+    ///
+    /// **Loud, and deliberately breaking "lit means fine".** That rule works
+    /// while an overlay asks a yes/no of every building; it breaks the moment
+    /// there are three answers, because "dark" then means both *not
+    /// applicable* and *broken* — and those could hardly be less alike. A
+    /// house too small to need water yet and a tower dying for want of it
+    /// were being painted the same near-black.
+    ///
+    /// So the third state gets the loudest mark on the map, in a hue chosen
+    /// to fight **both** utility colours. The first attempt borrowed
+    /// `problemColor(for: .critical)` on the reasoning that this is the same
+    /// claim the Problems view makes — which is not true (that view ranks a
+    /// missing utility as `.blocked`, and paints it blue) and which picked an
+    /// amber that sat almost on top of the power network's own yellow. A hot
+    /// red reads against water's cyan and power's amber alike.
+    static let utilityWanted = SKColor(srgbRed: 1.0, green: 0.22, blue: 0.34, alpha: 1.0)
+
     /// A buried conduit's line colour.
     ///
     /// **Hot when live, cold when not.** Power runs electric yellow and water

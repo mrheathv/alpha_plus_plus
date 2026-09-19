@@ -2170,6 +2170,105 @@ about where a *live* conduit counts.
 Practically this changes almost nothing — the zones it could affect are all
 2×2 — which is the point: it removes an arbitrary rule at no gameplay cost.
 
+## Mains have an area of effect (from a SimCity 4 screenshot)
+
+Brought back from a play session of the game this project takes its bearings
+from, and it is two things wearing one coat — a mechanic and a reading.
+
+### Laying pipe was a tracing exercise; now it is a spacing one
+
+A main used to supply only what it orthogonally touched, so covering a city
+meant following every street past every building and the only skill involved
+was not missing one. `Water.pipeSupplyRadius` (3) makes it an area: run trunk
+mains far enough apart that their bands meet, and the decision becomes *where
+the trunks go* rather than whether you remembered a lot. Seven tiles across, so
+on this lot grid a main covers one street either side.
+
+One less than `directSupplyRadius`, so a tower standing on its own is still
+worth slightly more than a length of pipe — a source is a bigger thing than a
+main. `PowerGrid` matches it exactly, for the reason it matches everything
+else: two utilities behaving differently for no reason a player could work out
+is a rule this project has already had to go back and delete.
+
+It also quietly deletes a wrinkle. `hasSupply` used to have to answer whether a
+conduit laid *under* a building counted as well as one beside it — a rule
+nobody could have inferred, fixed once and documented at length. With a radius
+the question stops arising.
+
+#### It broke maintenance, and the fix is better than what it replaced
+
+The harness caught it in one run: **neglecting public works became the dominant
+strategy.** Mains three rows apart with a three-tile reach cover each other two
+and three times over, so losing one to a burst changed nothing a player could
+see — the city that stopped paying ended up richer *and* no smaller. That is
+the whole of phase 6 undone by an unrelated change.
+
+Reach now falls off with condition, through the same
+`Infrastructure.capacityFraction` a worn road already loses capacity by. A
+neglected network does not wait to burst; it stops reaching the far side of the
+street first. Measured again:
+
+| | density | worn | net/tick | treasury |
+|---|---|---|---|---|
+| funded | **202** | 0% | **+23** | **4,502** |
+| neglected | 131 | 100% | −53 | 3,851 |
+
+Dominated on both axes again, and by a *continuous* mechanism rather than a
+cliff — which is a better mechanic than the binary one it replaces. Worth
+recording as the general shape: **a redundancy-creating change can silently
+remove the consequence of an unrelated system**, and only a standing
+measurement of that system will say so.
+
+Pipe cost was left alone deliberately. Coverage per tile went up sevenfold, but
+a player still runs mains the length of the map — a lattice every seven rows
+against one every three is about half the tiles, not a seventh — and the
+harness cannot measure it either way, since it lays pipe under every road row
+regardless of what a tile reaches.
+
+### Three answers, not two
+
+The screenshot's other half. SimCity 4's water view paints **served buildings
+blue and buildings that want water and have not got it orange**, and ours
+washed every unserved building to the same near-black.
+
+That is the crime overlay's lesson, never carried back: a house too small to
+need water yet and a tower dying for want of a main are not the same thing, and
+painting both as nothing made the map claim a problem that was not there —
+exactly what safe factories outside every police catchment used to do on the
+Crime view.
+
+`CitySimulator.needsWater` / `needsPower` is the condition, owned by the
+simulation and *called* by the overlay rather than restated there — the same
+contract `CityHazards.isExposed` has. Served is lit in the utility's own hue,
+wanting-and-lacking is lit in the loudest colour on the map, and everything
+else is quiet.
+
+**And it retires a rule.** "Lit means fine, dark means trouble" was written
+across all four network overlays and it works only while an overlay asks a
+yes/no of every building. With three answers, "dark" has to mean both *not
+applicable* and *broken*, which could hardly be less alike. The refinement:
+**one reading per answer, and the answer that wants something is the loud
+one.**
+
+The alarm hue took two goes. It first borrowed `problemColor(for: .critical)`
+on the reasoning that this is the same claim the Problems view makes — which is
+not true (that view ranks a missing utility as `.blocked`, and paints it blue),
+and which picked an amber sitting almost on top of the power network's own
+yellow. A hot red reads against water's cyan and power's amber alike.
+
+One thing to watch in play: water's blue-against-red is unmistakable, power's
+amber-against-red less so. If it bites, the answer is a second channel rather
+than a third hue — the Problems view's additive glow pool, which exists for
+exactly this.
+
+### And one test that was wrong about its own geometry
+
+The reach is a diamond, like every other coverage question in this game. The
+first attempt to pin that measured beside the *middle* of a straight main,
+where every band merges into a straight edge and the nearest pipe to any tile
+is the one directly across — so the corner can never appear. It has to be
+measured past the **end** of a run.
+
 ## Parks: the one thing that only makes a place nicer
 
 Every contributor to `LandValue` was a service with desirability as a side

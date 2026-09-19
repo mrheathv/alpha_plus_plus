@@ -136,7 +136,7 @@ enum Water {
         // network in two exactly the way a missing one would — which is the
         // point, since the player's fix for both is the same.
         let pipes = Set(map.tiles.filter { $0.hasPipe && !Infrastructure.hasFailed($0) }.map(\.position))
-        guard !pipes.isEmpty else { return WaterSupply(reachablePipes: [], directlyServed: direct) }
+        guard !pipes.isEmpty else { return WaterSupply(reachablePipes: [], pipeServed: [], directlyServed: direct) }
 
         var frontier: [GridPosition] = []
         for tile in map.tiles where tile.isBuildingAnchor && (tile.zone == .waterTower || tile.zone == .waterPump) {
@@ -144,7 +144,7 @@ enum Water {
                 .flatMap { $0.orthogonalNeighbors() }
                 .filter { pipes.contains($0) })
         }
-        guard !frontier.isEmpty else { return WaterSupply(reachablePipes: [], directlyServed: direct) }
+        guard !frontier.isEmpty else { return WaterSupply(reachablePipes: [], pipeServed: [], directlyServed: direct) }
 
         var reachable = Set(frontier)
         var queue = frontier
@@ -157,7 +157,74 @@ enum Water {
                 queue.append(neighbor)
             }
         }
-        return WaterSupply(reachablePipes: reachable, directlyServed: direct)
+        return WaterSupply(
+            reachablePipes: reachable,
+            pipeServed: pipeCoverage(of: reachable, in: map),
+            directlyServed: direct
+        )
+    }
+
+    /// How far a live main serves either side of itself.
+    ///
+    /// **A pipe is an area, not a line.** It used to supply only what it
+    /// orthogonally touched, which made laying it a *tracing* exercise —
+    /// follow every street past every building, and the only skill involved
+    /// was not missing any. With a radius it becomes a *spacing* one: run
+    /// trunk mains far enough apart that their bands meet, and the decision is
+    /// where to put them rather than whether you remembered a lot.
+    ///
+    /// One less than `directSupplyRadius`, so a tower standing on its own is
+    /// still worth slightly more than a length of pipe — a source is a bigger
+    /// thing than a main. Seven tiles across, which on this lot grid is one
+    /// street either side: lay pipe down every third road and the city is
+    /// covered.
+    static let pipeSupplyRadius = 3
+
+    /// Everything a set of live mains reaches — the radius stamped around
+    /// each one, **narrowed by how worn each one is**.
+    ///
+    /// The same shape `directCoverage` has used since the starter utilities
+    /// arrived; a pipe simply has a smaller version of a tower's reach.
+    ///
+    /// **Condition shrinks the reach, and it has to.** The first version of
+    /// the radius stamped a full-width band regardless of wear, and the
+    /// playtest harness caught what that did within one run: mains three rows
+    /// apart with a three-tile reach cover each other two and three times
+    /// over, so losing one to a burst changed nothing a player could see, and
+    /// **neglecting public works became the dominant strategy** — the city
+    /// that stopped paying ended up richer *and* no smaller.
+    ///
+    /// That is the whole of phase 6 undone by an unrelated change, and the
+    /// fix is better than the thing it replaces: reach now falls off
+    /// continuously with condition, through the same
+    /// `Infrastructure.capacityFraction` a worn road already loses capacity
+    /// by. A neglected network does not wait to burst; it quietly stops
+    /// reaching the far side of the street first.
+    static func pipeCoverage(of pipes: Set<GridPosition>, in map: CityMap) -> Set<GridPosition> {
+        var served: Set<GridPosition> = []
+        for pipe in pipes {
+            let reach = Int((Double(pipeSupplyRadius) * Infrastructure.capacityFraction(of: map[pipe])).rounded())
+            served.formUnion(coverage(around: [pipe], radius: Swift.max(0, reach), in: map))
+        }
+        return served
+    }
+
+    /// Every tile within `radius` of any of `origins`, clipped to the map.
+    static func coverage(
+        around origins: some Sequence<GridPosition>, radius: Int, in map: CityMap
+    ) -> Set<GridPosition> {
+        var served: Set<GridPosition> = []
+        for origin in origins {
+            for dy in -radius ... radius {
+                for dx in -radius ... radius {
+                    let target = GridPosition(x: origin.x + dx, y: origin.y + dy)
+                    guard map.contains(target),
+                          origin.manhattanDistance(to: target) <= radius else { continue }
+                    served.insert(target)
+                }
+            }
+        }
+        return served
     }
 
     /// Every tile within `directSupplyRadius` of a source's footprint.
@@ -196,10 +263,10 @@ enum Water {
         // is the kind of rule that makes a mechanic feel arbitrary, and the
         // overlay work that surfaced it made the inconsistency visible without
         // making it explicable.
-        if map.waterSupply.isSupplied(at: position) { return true }
-        if position.orthogonalNeighbors().contains(where: { map.waterSupply.isSupplied(at: $0) }) {
-            return true
-        }
+        // Both routes are now a radius rather than an adjacency, so the
+        // awkward "does the tile itself count, or only its neighbours"
+        // question this comment used to have to answer simply stops arising.
+        if map.waterSupply.isPipeServed(at: position) { return true }
         return map.waterSupply.isDirectlyServed(at: position)
     }
 }
@@ -210,6 +277,20 @@ enum Water {
 struct WaterSupply: Equatable, Codable, Sendable {
     private var reachablePipes: Set<GridPosition>
 
+    /// Everything those mains reach — `Water.pipeSupplyRadius` stamped
+    /// around each of them.
+    ///
+    /// Stored rather than derived on demand because `Water.hasSupply` is
+    /// called per footprint cell of every building every tick, and scanning
+    /// a radius per call would be fifty set lookups where this is one.
+    ///
+    /// `Optional` for save compatibility, which is the pattern `CityMap`
+    /// already uses twice — and harmless here beyond that, because
+    /// `GameController.restore` recomputes supply from the map rather than
+    /// trusting what a file happened to record. Supply is a pure function of
+    /// the map; a save is not a second opinion about it.
+    private var pipeServedTiles: Set<GridPosition>?
+
     /// Tiles close enough to a working source to be served with no pipes at
     /// all — see `Water.directSupplyRadius`.
     private var directlyServed: Set<GridPosition>
@@ -219,9 +300,20 @@ struct WaterSupply: Equatable, Codable, Sendable {
         self.directlyServed = []
     }
 
-    fileprivate init(reachablePipes: Set<GridPosition>, directlyServed: Set<GridPosition>) {
+    fileprivate init(
+        reachablePipes: Set<GridPosition>,
+        pipeServed: Set<GridPosition>,
+        directlyServed: Set<GridPosition>
+    ) {
         self.reachablePipes = reachablePipes
+        self.pipeServedTiles = pipeServed
         self.directlyServed = directlyServed
+    }
+
+    /// Is `position` within reach of a live main? The wider of the two
+    /// answers, and the one growth actually asks.
+    func isPipeServed(at position: GridPosition) -> Bool {
+        pipeServedTiles?.contains(position) ?? false
     }
 
     /// Is `position` close enough to a source to be served without pipes?
