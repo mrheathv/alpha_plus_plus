@@ -347,8 +347,52 @@ final class GameScene: SKScene {
     /// player has paused to go and look at something.
     private var lastFrameTime: TimeInterval?
 
+    /// The decorations that are *the city moving*, and therefore stop when
+    /// it does.
+    ///
+    /// **Deliberately not the whole tile layer, and deliberately not the
+    /// scene.** `SKScene.isPaused` would take the camera with it, and looking
+    /// around a stopped city is most of what pausing is for — the same reason
+    /// `update` pans before it checks the pause. Pausing `tileLayer` wholesale
+    /// would be nearly right and wrong in one place that matters: the
+    /// placement and hazard flashes are `SKAction`s too, they fire in response
+    /// to *clicks*, and clicks happen while paused. A paused flash would
+    /// never fade and never remove itself, leaving a coloured diamond stuck
+    /// on the map.
+    ///
+    /// So the rule is by name: things the simulation is driving stop, things
+    /// answering the player do not.
+    private static let animatedBySimulation: Set<String> = [
+        trafficCarNodeName, IsoTileRenderer.fireNodeName,
+    ]
+
+    private var animationsPaused = false
+
+    /// Applies the current pause state to one tile's animations — for
+    /// decorations built *while* paused, which happens whenever a placement
+    /// refreshes a tile with the game stopped.
+    private func applyAnimationPause(to node: SKNode) {
+        for child in node.children where Self.animatedBySimulation.contains(child.name ?? "") {
+            child.isPaused = animationsPaused
+        }
+    }
+
+    /// And to the whole map, when the player presses Play or Pause.
+    ///
+    /// Walked on the transition rather than every frame: a 64×64 map is about
+    /// five hundred tile nodes, which is nothing once, and pointless sixty
+    /// times a second.
+    private func syncAnimationPause() {
+        guard animationsPaused != !controller.isRunning else { return }
+        animationsPaused = !controller.isRunning
+        for node in tileNodes.values {
+            applyAnimationPause(to: node)
+        }
+    }
+
     override func update(_ currentTime: TimeInterval) {
         super.update(currentTime)
+        syncAnimationPause()
 
         // Before the pause check, deliberately. Looking around a stopped city
         // is most of what pausing is for.
@@ -804,6 +848,13 @@ final class GameScene: SKScene {
     var tileNodesForTesting: [GridPosition: SKNode] { tileNodes }
     var tileLayerChildCountForTesting: Int { tileLayer.children.count }
 
+    /// Every building's node, for tests that ask what is actually on the map
+    /// — the decorations hang off these, so "did the traffic stop" is a
+    /// question about their children.
+    var allTileNodesForTesting: [SKNode] { Array(tileNodes.values) }
+
+    static var trafficCarNodeNameForTesting: String { trafficCarNodeName }
+
     func rebuildEntireGrid() {
         tileLayer.removeAllChildren()
         tileNodes.removeAll()
@@ -996,6 +1047,9 @@ final class GameScene: SKScene {
             )
         }
         syncTrafficAnimation(at: anchor)
+        // Last, so anything just rebuilt inherits the pause state rather than
+        // starting to drive around a stopped city.
+        applyAnimationPause(to: node)
     }
 
     /// Every buried segment under the building anchored at `tile`.

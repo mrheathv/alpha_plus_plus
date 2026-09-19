@@ -2007,6 +2007,35 @@ The overlay picker is driven by `OverlayMode.allCases`, so adding the two cases
 was the whole UI change; and the render picks them up automatically now that
 both it and `GameScene` share `IsoTileRenderer.paint`.
 
+### Pause stops the city, not the player
+
+Reported from play: the ambient traffic kept driving around a paused map.
+
+`GameScene.update` returns early when paused and always has — but the cars are
+`SKAction` loops, and SpriteKit runs those itself without ever going near
+`update`. So the simulation stopped and the decorations carried on, which is
+the same shape as `SKAction.colorize` silently doing nothing on a plain node:
+**an animation that nothing in this file drives is an animation nothing in this
+file can stop.**
+
+The rule is by node name rather than by layer, and both alternatives are wrong
+in an instructive way:
+
+- **`SKScene.isPaused` takes the camera with it**, and looking around a stopped
+  city is most of what pausing is *for* — the same reason `update` pans before
+  it checks the pause at all.
+- **Pausing `tileLayer` wholesale** is nearly right and wrong in the one place
+  that matters. The placement and hazard flashes are `SKAction`s too, they fire
+  in response to *clicks*, and clicking is exactly what you do while the game
+  is stopped. A paused flash would never fade and never remove itself, leaving
+  a coloured diamond stuck on the map.
+
+So: things the simulation is driving stop, things answering the player do not.
+Cars and flames pause; feedback flashes do not. Applied on the transition
+rather than per frame (five hundred nodes once, not sixty times a second), and
+again at the end of every `refresh`, because a placement rebuilds tiles *while*
+paused and a car built then would otherwise drive off immediately.
+
 ### Keyboard navigation
 
 WASD and the arrow keys pan; space pauses. `KeyboardControls` is the mapping,
