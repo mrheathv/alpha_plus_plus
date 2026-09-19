@@ -2150,6 +2150,61 @@ the same shape as everything else on this list.
 The driver pumps a frame after every action for the same reason: a scene
 nothing is driving is not the scene the game runs.
 
+### A half-drawn line stopped every drag in the game
+
+Reported from play: *"you place a power line or pipe and it doesn't place."*
+
+Picking a route tool on the toolbar **starts a line**, deliberately — a route
+view that left you with nothing to draw would be a mode with nothing in it.
+Picking a different network tool afterwards only changes the view; it says
+nothing about that half-drawn line, which survives the switch on purpose
+because you come back to it.
+
+And `mouseDragged` read:
+
+```swift
+guard controller.routeDraft == nil else { return }
+```
+
+So from the moment a bus line was started, **every pipe and power-line drag in
+the game silently did nothing**, until the player happened to pick a zone tool
+— `selectTool` being the only thing that clears a draft. The guard is right
+about the thing it was written for (a drag across a station must not add it
+once per frame) and wrong about its scope: that is a fact about *the view
+taking the click*, not about a draft existing somewhere.
+
+**Only the drag was guarded, which is what made it so confusing to report.** A
+single click still laid one tile, so the tool was visibly working — it just
+would not paint a run. "It doesn't place" is exactly what that feels like, and
+it is why the bug reads as intermittent rather than as a mode being stuck.
+
+`dragPaints` now asks the same question `place(at:)` already asks to decide a
+click is a route click, one layer up: a drag paints unless this view is the
+one drawing that line.
+
+#### And the harness could not have caught it
+
+`ScenePlaytest` drove a drag as `for step in line { scene.place(at: step) }` —
+which is what a *click* does, once per tile. That is a reasonable-looking
+shortcut and it made the drag handler's own body unreachable from the harness,
+so a drag that refused to paint was indistinguishable from one that painted
+fine. Every scripted session and eighteen hundred random steps ran straight
+past it.
+
+The fix is the same one this file keeps arriving at from other directions:
+`mouseDragged`'s body is extracted as `GameScene.dragTo(_:)` and the harness
+calls *that* — the real handler rather than a paraphrase of it — with the
+press and the movement told apart the way AppKit delivers them. A drag is not
+a series of clicks, and the one line that made it different was the one line
+nothing could reach.
+
+Worth stating as the general form, because the harness's own doc comment
+argues for going in below the mouse handlers and that argument is still right:
+**"below the event" has to mean below the `NSEvent`, not below the handler.**
+Anything a handler decides before it calls into shared code is logic like any
+other, and needs a seam of its own.
+
+
 ### An overlay tints what is there; it never built anything
 
 Reported from play: new buildings, and buildings that had grown a storey, did

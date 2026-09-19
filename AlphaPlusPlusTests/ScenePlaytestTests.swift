@@ -30,6 +30,50 @@ final class ScenePlaytestTests: XCTestCase {
         return map
     }
 
+    // MARK: - Reported from play
+
+    /// **"You place a power line or pipe and it doesn't place."**
+    ///
+    /// Picking a route tool on the toolbar *starts a line*, deliberately — a
+    /// route view that left you with nothing to draw would be a mode with
+    /// nothing in it. Picking a different network tool afterwards changes the
+    /// view and says nothing about that half-drawn line, so the draft is
+    /// still open while the player is looking at Water or Power.
+    ///
+    /// And `mouseDragged` refused to paint *at all* while any draft existed.
+    /// So a single click still laid one tile and every drag did nothing,
+    /// which is precisely "it doesn't place" — and it stayed that way until
+    /// the player happened to pick a zone tool, since `selectTool` is the
+    /// only thing in the game that clears a draft.
+    func testAHalfDrawnTransitLineDoesNotBlockLayingPipe() {
+        let game = ScenePlaytest(map: startedCity())
+
+        // Pick Bus Route, which raises the Bus view and opens a draft.
+        game.look(at: .bus)
+        game.beginLine(.bus)
+
+        // Then pick Pipe, which is only a change of view.
+        game.look(at: .water)
+        game.dragInView(from: GridPosition(x: 1, y: 12), to: GridPosition(x: 1, y: 4))
+
+        let laid = (4 ... 12).filter { game.controller.map[GridPosition(x: 1, y: $0)].hasPipe }
+        XCTAssertEqual(laid.count, 9,
+                       "a half-drawn bus line stopped a pipe drag from laying anything")
+        game.check("laying pipe with a line still half-drawn")
+    }
+
+    /// The same thing one layer up: the drag has to keep being ignored in the
+    /// view that is actually taking route clicks, or dragging across a station
+    /// would add it once per frame.
+    func testADragStillDoesNotPaintStopsOntoALine() {
+        let game = ScenePlaytest(map: startedCity())
+        game.look(at: .bus)
+        game.beginLine(.bus)
+        game.dragInView(from: GridPosition(x: 0, y: 0), to: GridPosition(x: 21, y: 15))
+        XCTAssertLessThanOrEqual(game.controller.routeDraft?.stops.count ?? 0, 1,
+                                 "a drag across the map added stops to the line")
+    }
+
     // MARK: - The three, replayed
 
     /// **"You can't put a pipe under a building."** Drag a run straight

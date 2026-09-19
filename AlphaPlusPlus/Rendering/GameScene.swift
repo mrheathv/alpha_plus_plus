@@ -498,10 +498,42 @@ final class GameScene: SKScene {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        // A route is drawn by naming buildings, not by painting tiles, so a
-        // drag across a station must not add it once per frame.
-        guard controller.routeDraft == nil else { return }
-        place(with: event)
+        guard let position = gridPosition(of: event) else { return }
+        dragTo(position)
+    }
+
+    /// Continuing a stroke onto `position` — what `mouseDragged` does once the
+    /// pointer has been turned into a tile.
+    ///
+    /// Split from the `NSEvent` for exactly the reason `place(at:)` was, and
+    /// it matters more here than it looks: the scene playtest drives
+    /// `place(at:)` directly for every step of a drag, so anything the *drag*
+    /// handler decides before calling it was invisible to the harness. A drag
+    /// is not a series of clicks, and the one line that made it different was
+    /// the one line nothing could reach.
+    func dragTo(_ position: GridPosition) {
+        guard dragPaints else { return }
+        place(at: position)
+    }
+
+    /// Should a drag paint at all?
+    ///
+    /// A route is drawn by naming buildings, not by painting tiles, so a drag
+    /// across a station must not add it once per frame. **But that is a fact
+    /// about the view taking the click, not about a draft existing
+    /// somewhere.** The first version asked `routeDraft == nil`, and picking
+    /// a route tool *starts* a draft deliberately — so a half-drawn bus line
+    /// silently stopped every pipe and power-line drag in the game, for as
+    /// long as it stayed open. A single click still worked, because only the
+    /// drag was guarded, which is what made it read as "it doesn't place"
+    /// rather than as a mode being stuck.
+    ///
+    /// The condition is now the same one `place(at:)` uses to decide a click
+    /// is a route click, asked one layer up. A drag paints unless this view
+    /// is the one drawing that line.
+    var dragPaints: Bool {
+        guard let mode = controller.overlayMode.routeMode else { return true }
+        return controller.routeDraft?.mode != mode
     }
 
     override func rightMouseDown(with event: NSEvent) {

@@ -146,8 +146,7 @@ final class ScenePlaytest {
     func drag(_ tool: ZoneType, from: GridPosition, to: GridPosition) {
         record("drag \(tool.rawValue) \(from)→\(to)")
         controller.selectTool(tool)
-        scene.beginStroke()
-        for step in from.line(to: to) { scene.place(at: step) }
+        stroke(from.line(to: to))
     }
 
     /// A click while a view is up, where the view rather than the toolbar
@@ -160,8 +159,23 @@ final class ScenePlaytest {
 
     func dragInView(from: GridPosition, to: GridPosition) {
         record("drag in \(controller.overlayMode.displayName) \(from)→\(to)")
+        stroke(from.line(to: to))
+    }
+
+    /// A drag with the press and the movement told apart, the way AppKit
+    /// delivers them.
+    ///
+    /// This used to call `place(at:)` for every tile, which is what a *click*
+    /// does — so every decision `mouseDragged` makes before calling it was
+    /// unreachable from here, and a drag that silently refused to paint
+    /// looked identical to one that painted fine. `dragTo` is the real
+    /// handler's own body rather than a copy of it, which is the only version
+    /// of this that can catch the next such bug.
+    private func stroke(_ positions: [GridPosition]) {
+        guard let first = positions.first else { return }
         scene.beginStroke()
-        for step in from.line(to: to) { scene.place(at: step) }
+        scene.place(at: first)
+        for step in positions.dropFirst() { scene.dragTo(step) }
     }
 
     func bulldoze(at position: GridPosition) {
