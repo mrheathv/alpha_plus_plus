@@ -4828,6 +4828,48 @@ light-accumulation work.
 Water keeps moving while the city is paused, deliberately: the pause is for
 the *simulation*, and a river is not part of it.
 
+### G3 (done): the first particles
+
+`SKEmitterNode` appeared nowhere in this project until now — every moving
+mark was a handful of sprites each running its own `SKAction`. That works,
+and it is what the fire's embers were, but it has a hard ceiling: the cost is
+per *particle*, paid on the CPU in the scene graph, so "a few more sparks"
+means a few more nodes and a few more action evaluations every frame.
+
+**The embers were four, and the reason they were four is worth unpicking.**
+The comment argued it from `minimumDetailSize` — four sparks each carrying
+real weight beat a cloud of specks averaging into haze. That argument is
+right about *static* marks and does not hold here: a rising spark is legible
+by its **motion** rather than its size. What actually kept the count at four
+was cost. An emitter is one node whose particles are simulated and drawn on
+the GPU, so the honest number goes from four to fifty for less than the four
+cost.
+
+**Factory smoke is the new one, and it says something the game could not.**
+Industry is the one zone that should look like it is *doing* something, and
+until now a factory at density 5 differed from one at density 1 only in size
+and how hard it glowed. Smoke is the first mark in the game that says a
+building is **running** rather than standing there, and its birth rate scales
+with density — so a busy industrial district visibly is one.
+
+It is also **the one particle here that is not additive**. Everything else
+lit in this game adds; smoke *occludes*, and adding it would make a chimney
+look like it was firing a beam. A prevailing `xAcceleration` leans every
+plume the same way, so a row of factories reads as one district under one
+wind rather than as several unrelated effects.
+
+Both emitters call `advanceSimulationTime` when they appear, so a block that
+catches fire is already throwing sparks rather than spending a second and a
+half filling up.
+
+Smoke joins `animatedBySimulation`: a chimney smoking over a stopped city is
+the cars-keep-driving bug again, and work is exactly what a pause stops.
+
+One tuning note from the render, which is the same note this file keeps
+making: at alpha 0.20 the plume read as a smudge at the zoom the game is
+actually played at. Soot against a night sky should be subtle, but not
+invisible.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -395,6 +395,10 @@ final class GameScene: SKScene {
         // opposite side from a placement flash, which answers a *click* and
         // so has to keep running while paused or it would never fade away.
         IsoTileRenderer.contactNodeName,
+        // A chimney smoking over a stopped city is the same bug as the cars
+        // that kept driving: smoke is the factory *working*, and work is what
+        // the pause stops.
+        IsoTileRenderer.smokeNodeName,
     ]
 
     /// Applies the current pause state to one tile's animations — for

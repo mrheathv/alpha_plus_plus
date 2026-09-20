@@ -28,6 +28,7 @@ struct IsoTileRenderer {
     static let buildingNodeName = "isoBuilding"
     private static let laneNodeName = "isoLane"
     static let contactNodeName = "isoContact"
+    static let smokeNodeName = "isoSmoke"
 
     /// Node names the style tests need — which check that a street actually
     /// comes back dimmer and that a building actually lights the ground it
@@ -87,6 +88,7 @@ struct IsoTileRenderer {
         syncGround(on: node, tile: tile)
         syncGroundGlow(on: node, tile: tile)
         syncContactLight(on: node, tile: tile)
+        syncSmoke(on: node, tile: tile)
         syncZoneMarker(on: node, tile: tile)
         syncBuilding(on: node, tile: tile)
     }
@@ -238,6 +240,33 @@ struct IsoTileRenderer {
                 .fadeAlpha(to: Swift.min(1, base * (1 + depth)), duration: period * 0.45),
             ])),
         ]))
+    }
+
+    /// Smoke off a working factory.
+    ///
+    /// **Industry is the one zone that should look like it is doing
+    /// something**, and until now a factory at density 5 differed from one at
+    /// density 1 only in size and how hard it glowed. This is the first mark
+    /// in the game that says a building is *running* rather than standing
+    /// there — and it scales with density, so a busy industrial district
+    /// visibly is one.
+    private func syncSmoke(on node: SKNode, tile: Tile) {
+        let show = tile.zone == .industrial && tile.density > 0 && !tile.isBurning
+        let key = show ? "\(tile.density)" : "none"
+        guard !isUpToDate(node, Self.smokeNodeName, key) else { return }
+        markUpToDate(node, Self.smokeNodeName, key)
+        node.childNode(withName: Self.smokeNodeName)?.removeFromParent()
+        guard show else { return }
+
+        let size = CGFloat(tile.zone.footprintSize)
+        let smoke = Emitters.smoke(scale: projection.tileWidth * size, density: tile.density)
+        smoke.name = Self.smokeNodeName
+        smoke.position = projection.project(size / 2, size / 2, buildingTop(of: tile))
+        // Under the fire marker, which sits at 0.75: a factory that is both
+        // working and alight is alight first.
+        smoke.zPosition = 0.55
+        smoke.advanceSimulationTime(4)
+        node.addChild(smoke)
     }
 
     /// Corner ticks on a lot you have zoned but which has not grown anything
@@ -554,7 +583,7 @@ struct IsoTileRenderer {
     static let overlayDisturbedNodes = [
         markerNodeName, laneNodeName, warningNodeName, damageNodeName,
         constructionNodeName, fireNodeName, buildingNodeName, glowNodeName,
-        contactNodeName,
+        contactNodeName, smokeNodeName,
     ]
 
     /// Forgets what this tile is showing, so the next refresh rebuilds all of
@@ -906,39 +935,27 @@ struct IsoTileRenderer {
         core.position = projection.project(size / 2, size / 2, top + plumeHeight * 0.1)
         container.addChild(core)
 
-        // Embers, rising and going out. Four, not forty: `minimumDetailSize`'s
-        // argument holds for moving marks too, and four sparks each carrying
-        // real weight beat a cloud of specks that averages into haze — which
-        // is what the plume is already doing, at a size that survives.
-        for index in 0 ..< 4 {
-            let ember = SKSpriteNode(texture: NeonStyle.glowTexture)
-            ember.color = index % 2 == 0 ? NeonStyle.signPalette[1] : NeonStyle.scaffoldColor
-            ember.colorBlendFactor = 1
-            ember.blendMode = .add
-            let span = projection.tileWidth * size * 0.13
-            ember.size = CGSize(width: span, height: span)
-            let drift = CGFloat(index) / 3 - 0.5
-            ember.position = CGPoint(x: base.x + drift * halfWidth * 1.4, y: base.y)
-            ember.alpha = 0
-            container.addChild(ember)
-
-            // Each on its own beat and its own delay, so they never rise as a
-            // rank — the same reason the flicker below sums three periods.
-            let rise = 0.9 + Double(index) * 0.23
-            ember.run(.repeatForever(.sequence([
-                .wait(forDuration: Double(index) * 0.31),
-                .group([
-                    .moveBy(x: drift * halfWidth * 1.8, y: (tip.y - base.y) * 1.15,
-                            duration: rise),
-                    .sequence([
-                        .fadeAlpha(to: 0.9, duration: rise * 0.25),
-                        .fadeAlpha(to: 0, duration: rise * 0.75),
-                    ]),
-                ]),
-                .move(to: CGPoint(x: base.x + drift * halfWidth * 1.4, y: base.y),
-                      duration: 0),
-            ])))
-        }
+        // **Embers, as an emitter rather than four sprites.**
+        //
+        // These were four `SKSpriteNode`s each running its own action, and
+        // the count was argued from `minimumDetailSize`: four sparks each
+        // carrying real weight beat a cloud of specks averaging into haze.
+        // That argument is right about *static* marks and does not hold here
+        // — a rising spark is legible by its motion rather than its size.
+        //
+        // What actually kept it at four was cost. Particles in the scene
+        // graph are nodes, evaluated on the CPU every frame, so "a few more
+        // sparks" meant a few more of both. `SKEmitterNode` is one node whose
+        // particles are simulated and drawn on the GPU, so the honest number
+        // goes from four to fifty for less than the four cost.
+        let embers = Emitters.embers(scale: projection.tileWidth * size)
+        embers.position = CGPoint(x: base.x, y: base.y + (tip.y - base.y) * 0.2)
+        embers.zPosition = 0.5
+        // The emitter is *ahead* in its own life when it appears, so a block
+        // that catches fire is already throwing sparks rather than spending a
+        // second and a half filling up.
+        embers.advanceSimulationTime(2)
+        container.addChild(embers)
 
         // Three beats of different length, so the flicker never settles into a
         // pulse the eye can predict — the same reason the regional cycle sums

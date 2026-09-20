@@ -422,6 +422,77 @@ final class VisualStyleTests: XCTestCase {
         XCTAssertGreaterThan(VisualStyle.cinematic.waterShimmer, 0)
     }
 
+    // MARK: - Particles
+
+    private func industrialCity() -> CityMap {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .industrial, origin: GridPosition(x: 2, y: 2))
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 7, y: 2))
+        for cell in map.footprintCells(origin: GridPosition(x: 2, y: 2), size: 2) {
+            map[cell].density = 4
+        }
+        for cell in map.footprintCells(origin: GridPosition(x: 7, y: 2), size: 2) {
+            map[cell].density = 4
+        }
+        return map
+    }
+
+    private func smoke(_ map: CityMap, at position: GridPosition) -> SKEmitterNode? {
+        IsoTileRenderer(projection: Isometric()).makeNode(for: map[position]).children
+            .first { $0.name == IsoTileRenderer.smokeNodeName } as? SKEmitterNode
+    }
+
+    /// Industry is the one zone that should look like it is *doing*
+    /// something. Until now a factory at density 5 differed from one at
+    /// density 1 only in size and how hard it glowed.
+    func testOnlyWorkingIndustrySmokes() {
+        let map = industrialCity()
+        XCTAssertNotNil(smoke(map, at: GridPosition(x: 2, y: 2)),
+                        "a working factory is not smoking")
+        XCTAssertNil(smoke(map, at: GridPosition(x: 7, y: 2)),
+                     "a block of flats has a chimney")
+
+        var idle = industrialCity()
+        for cell in idle.footprintCells(origin: GridPosition(x: 2, y: 2), size: 2) {
+            idle[cell].density = 0
+        }
+        XCTAssertNil(smoke(idle, at: GridPosition(x: 2, y: 2)),
+                     "an empty industrial lot is smoking")
+    }
+
+    /// The point of scaling it: a busy industrial district should visibly be
+    /// one, rather than every factory smoking identically.
+    func testABusierFactorySmokesHarder() {
+        var quiet = industrialCity(), busy = industrialCity()
+        for cell in quiet.footprintCells(origin: GridPosition(x: 2, y: 2), size: 2) {
+            quiet[cell].density = 1
+        }
+        for cell in busy.footprintCells(origin: GridPosition(x: 2, y: 2), size: 2) {
+            busy[cell].density = 5
+        }
+        let slow = smoke(quiet, at: GridPosition(x: 2, y: 2))?.particleBirthRate ?? 0
+        let fast = smoke(busy, at: GridPosition(x: 2, y: 2))?.particleBirthRate ?? 0
+        XCTAssertGreaterThan(fast, slow,
+                             "a factory at density 5 smokes the same as one at density 1")
+    }
+
+    /// Smoke occludes; adding it would make a chimney look like it was firing
+    /// a beam. It is the one particle in the game that is not additive.
+    func testSmokeIsTheOneThingThatDoesNotGlow() {
+        XCTAssertEqual(smoke(industrialCity(), at: GridPosition(x: 2, y: 2))?.particleBlendMode,
+                       .alpha)
+        XCTAssertEqual(Emitters.embers(scale: 32).particleBlendMode, .add)
+    }
+
+    /// A chimney smoking over a stopped city is the cars-keep-driving bug
+    /// again: smoke is the factory *working*, and work is what a pause stops.
+    func testSmokeStopsWhenTheCityDoes() {
+        XCTAssertTrue(
+            GameScene.simulationDrivenNodeNamesForTesting.contains(IsoTileRenderer.smokeNodeName),
+            "a paused city is still running its factories"
+        )
+    }
+
     // MARK: - The ladder itself
 
     /// The point of the pass: pavement below buildings. Asserted on the

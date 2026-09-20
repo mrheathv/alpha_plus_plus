@@ -85,6 +85,12 @@ enum RenderPalette {
     /// because a jam has to look like *stopping* — congestion already changes
     /// how many cars there are and how slowly they cross, and neither of
     /// those reads as a brake.
+    /// Factory smoke — a cool grey-violet that reads as soot against the
+    /// night rather than as a lit thing. The one particle in the game that
+    /// is not additive: smoke *occludes*, and adding it would make a chimney
+    /// look like it was firing a beam.
+    static let smoke = SKColor(srgbRed: 0.52, green: 0.48, blue: 0.60, alpha: 1.0)
+
     static let brakeLight = SKColor(srgbRed: 1.0, green: 0.14, blue: 0.20, alpha: 1.0)
 
     static let bridgeDeck = SKColor(srgbRed: 0.62, green: 0.72, blue: 0.85, alpha: 0.85)
