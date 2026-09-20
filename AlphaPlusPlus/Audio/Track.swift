@@ -157,16 +157,28 @@ enum MusicLibrary {
         intent: "Late game. A settled city, the player watching rather than building.",
         beatsPerMinute: 84,
         bars: 8,
+        // Am – G – F – E, the descending line, with the last chord turned
+        // **major**. Its G♯ is the leading note back to A, so eight bars
+        // actually cadence instead of merely stopping — the first version
+        // ended on E minor and just ran out.
         progression: [
             [45, 48, 52], [45, 48, 52], [43, 47, 50], [43, 47, 50],
-            [41, 45, 48], [41, 45, 48], [40, 43, 47], [40, 43, 47],
+            [41, 45, 48], [41, 45, 48], [40, 43, 47], [40, 44, 47],
         ],
-        bassRoots: [21, 21, 19, 19, 17, 17, 16, 16],
+        // **An octave up from the first version, which was inaudible.** Those
+        // roots were MIDI 21 down to 16 — A0 at 27.5 Hz to E0 at 20.6 Hz,
+        // which is sub-bass: below most speakers, and an octave under where
+        // every other track in the library sits. The track was leaning
+        // entirely on its pad because its bass was being felt at best.
+        bassRoots: [33, 33, 31, 31, 29, 29, 28, 28],
         melody: [],
-        arpeggio: .init(shape: [0, 2, 1, 2], octave: 3, level: 0.09),
+        // Down an octave too. At `octave: 3` this sat around 880 Hz, which is
+        // tinkly rather than warm — the wrong register for the one track whose
+        // job is to recede.
+        arpeggio: .init(shape: [0, 2, 1, 2], octave: 2, level: 0.1),
         drums: .sparse,
-        bassLevel: 0.85,
-        padLevel: 1.35,
+        bassLevel: 0.95,
+        padLevel: 1.3,
         drumLevel: 0.7
     )
 
@@ -174,18 +186,32 @@ enum MusicLibrary {
     static let overdrive = Track(
         name: "overdrive",
         intent: "Pressure. A big city, or one that is on fire.",
-        beatsPerMinute: 126,
+        // 120 rather than 126. With eighth-note bass *and* a sixteenth
+        // arpeggio, the extra six beats a minute stopped reading as urgency
+        // and started reading as clutter.
+        beatsPerMinute: 120,
         bars: 8,
+        // **Em – D – C – B, and the B is major.** The first version ran
+        // Em – Dm – Cm – Bm, a parallel-minor slide whose C minor and closing
+        // G minor are simply outside the key: not spicy, sour. This is the
+        // descending tetrachord the genre actually uses, and B major's D♯ is
+        // the leading note that pulls hard back to E minor — which is what
+        // makes a loop about pressure feel like it is under some.
         progression: [
-            [52, 55, 59], [50, 53, 57], [48, 51, 55], [47, 50, 54],
-            [52, 55, 59], [50, 53, 57], [48, 51, 55], [55, 58, 62],
+            [52, 55, 59], [50, 54, 57], [48, 52, 55], [47, 51, 54],
+            [52, 55, 59], [50, 54, 57], [48, 52, 55], [47, 51, 54],
         ],
-        bassRoots: [28, 26, 24, 23, 28, 26, 24, 31],
+        bassRoots: [28, 26, 24, 23, 28, 26, 24, 23],
         melody: [],
-        arpeggio: .init(shape: [0, 1, 2, 1, 2, 1, 0, 1], octave: 2, level: 0.18),
+        // A four-step figure rather than eight, and quieter. At this tempo the
+        // longer shape was filling every gap in the bar.
+        arpeggio: .init(shape: [0, 1, 2, 1], octave: 2, level: 0.13),
         drums: .full,
-        bassLevel: 1.15,
-        drumLevel: 1.1
+        // Both were pushed above 1 in the first version, which against the
+        // soft clipper bought loudness by spending headroom — the mix squashed
+        // rather than hit harder.
+        bassLevel: 1.05,
+        drumLevel: 1.0
     )
 
     /// What plays under a city, in no particular order.

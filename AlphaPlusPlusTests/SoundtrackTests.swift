@@ -83,6 +83,55 @@ final class SoundtrackTests: XCTestCase {
         for _ in 0 ..< 500 { XCTAssertEqual(a.next(), b.next()) }
     }
 
+    // MARK: - Speaker profiles
+
+    /// **A profile must not be able to make a mix louder than it was.**
+    /// Everything here runs through `tanh` at the end, but a profile that
+    /// pushed hard enough to sit against that permanently would be distortion
+    /// sold as loudness — the exact trade the level trims on Overdrive were
+    /// pulled back for.
+    func testNoProfileClips() {
+        let mix = Soundtrack.render(MusicLibrary.smallHours)
+        for profile in AudioProfile.all {
+            let shaped = profile.apply(to: mix)
+            let peak = max(shaped.left.map(abs).max() ?? 0, shaped.right.map(abs).max() ?? 0)
+            XCTAssertLessThan(peak, 0.999, "\(profile.name) clips")
+            XCTAssertGreaterThan(peak, 0.15, "\(profile.name) is nearly silent")
+        }
+    }
+
+    /// **The small-speaker profile really does remove the bottom**, and the
+    /// full-range one really does not. Measured as energy below 60 Hz, since
+    /// the whole point is reproducing what a driver can and not what it
+    /// cannot — and "I adjusted some numbers" is not a claim I can otherwise
+    /// check.
+    func testTheSmallSpeakerProfileRemovesWhatASmallSpeakerCannotPlay() {
+        let mix = Soundtrack.render(MusicLibrary.smallHours)
+        func lowEnergy(_ buffer: Soundtrack.Buffer) -> Double {
+            var filter = Synth.LowPass()
+            var total = 0.0
+            for sample in buffer.left {
+                let low = filter.process(Double(sample), cutoff: 60, resonance: 0.05)
+                total += low * low
+            }
+            return total
+        }
+        let air = lowEnergy(AudioProfile.macBookAir.apply(to: mix))
+        let pro = lowEnergy(AudioProfile.macBookPro.apply(to: mix))
+        XCTAssertLessThan(air, pro * 0.6,
+                          "the MacBook Air profile leaves as much sub-bass as the Pro one — "
+                          + "its high-pass is doing nothing")
+    }
+
+    /// Detection falls back to the safe profile rather than guessing, because
+    /// `hw.model` says `Mac15,13` and not "MacBook Air" — any mapping is a
+    /// table that is silently wrong until somebody adds a row.
+    func testAnUnknownMachineGetsTheSafeProfile() {
+        XCTAssertEqual(AudioProfile.detected(model: "Mac15,13"), .generic)
+        XCTAssertEqual(AudioProfile.detected(model: "Macmini9,1"), .generic)
+        XCTAssertEqual(AudioProfile.detected(model: "MacBookPro18,3"), .macBookPro)
+    }
+
     // MARK: - The mix
 
     func testEveryTrackIsTheLengthItClaims() {

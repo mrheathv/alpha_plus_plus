@@ -153,27 +153,46 @@ enum Soundtrack {
     /// filter movement is the part that matters — held static this is a buzz
     /// that happens to change pitch.
     private static func renderBass(_ track: Track, into bus: inout Bus) {
-        let envelope = Synth.Envelope(attack: 0.004, decay: 0.09, sustain: 0.55, release: 0.06)
         for bar in 0 ..< track.bars {
             let root = track.bassRoots[bar % track.bassRoots.count]
             for eighth in 0 ..< 8 {
                 // An octave jump on the last eighth, which is what stops a
                 // root-note pattern reading as a drone.
                 let note = eighth == 7 ? root + 12 : root
+                let frequency = Synth.frequency(ofNote: note)
+
+                // **The attack has to be long relative to the note's own
+                // period, or it clicks.** This was a flat 4 ms, and Small
+                // Hours' lowest note is 41 Hz — a 24 ms cycle — so the
+                // envelope opened fully in a sixth of a single cycle. That
+                // cannot establish a low pitch; what you hear instead is a
+                // transient, which is precisely how it was reported: "the
+                // bass is a little clicky".
+                //
+                // Roughly one period, floored so the faster tracks keep their
+                // punch: 41 Hz gets 24 ms, 110 Hz gets 9 ms.
+                let attack = max(0.006, 1.0 / frequency)
+                let envelope = Synth.Envelope(attack: attack, decay: 0.09,
+                                              sustain: 0.55, release: 0.06)
                 let start = frame(track, bar: bar, beat: Double(eighth) * 0.5)
                 let held = 0.5 * track.secondsPerBeat * 0.9
                 var phase = 0.0
                 var filter = Synth.LowPass()
-                let increment = Synth.frequency(ofNote: note) / Synth.sampleRate
+                // The filter gets its own, slower movement. Swept straight off
+                // the amplitude envelope it ran 180 Hz to 2,580 Hz in the same
+                // few milliseconds, which is a zap laid on top of the click.
+                var smoothedCutoff = 180.0
+                let increment = frequency / Synth.sampleRate
                 for offset in 0 ..< Int((held + envelope.release) * Synth.sampleRate) {
                     let index = start + offset
                     guard index < bus.left.count else { break }
                     let time = Double(offset) / Synth.sampleRate
                     let level = envelope.level(at: time, heldFor: held)
                     guard level > 0 else { continue }
+                    let target = 180 + 2_400 * level * level
+                    smoothedCutoff += (target - smoothedCutoff) * 0.0016
                     let raw = Synth.saw(phase: phase, increment: increment)
-                    let shaped = filter.process(raw, cutoff: 180 + 2_400 * level * level,
-                                                resonance: 0.62)
+                    let shaped = filter.process(raw, cutoff: smoothedCutoff, resonance: 0.62)
                     let sample = shaped * level * 0.42
                     bus.left[index] += sample
                     bus.right[index] += sample

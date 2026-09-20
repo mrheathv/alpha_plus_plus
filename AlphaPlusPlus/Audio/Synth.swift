@@ -361,3 +361,40 @@ extension Synth {
         return envelope
     }
 }
+
+extension Synth {
+    /// A high-pass, for taking away what a speaker cannot make.
+    ///
+    /// **Cascaded, because one pole is nowhere near enough.** A single pole
+    /// rolls off at 6 dB per octave, so content an octave below the cutoff
+    /// survives at half amplitude — and the first version of the speaker
+    /// profiles used one, with the result that the *small*-speaker profile
+    /// measured more sub-bass than the full-range one. It was adding
+    /// harmonics on top of a fundamental it had barely touched.
+    ///
+    /// Three poles is 18 dB per octave, which actually removes the band, and
+    /// `SoundtrackTests` measures the energy below 60 Hz rather than trusting
+    /// that it does.
+    struct HighPass {
+        private var stages: [(lastInput: Double, lastOutput: Double)]
+        private let coefficient: Double
+
+        init(cutoff: Double, poles: Int = 3) {
+            let rc = 1 / (2 * .pi * max(cutoff, 1))
+            let dt = 1 / Synth.sampleRate
+            coefficient = rc / (rc + dt)
+            stages = Array(repeating: (0, 0), count: max(1, poles))
+        }
+
+        mutating func process(_ input: Double) -> Double {
+            var value = input
+            for index in stages.indices {
+                let output = coefficient * (stages[index].lastOutput + value - stages[index].lastInput)
+                stages[index].lastInput = value
+                stages[index].lastOutput = output
+                value = output
+            }
+            return value
+        }
+    }
+}

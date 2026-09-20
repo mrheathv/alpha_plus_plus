@@ -24,8 +24,14 @@ final class SoundtrackRenderTests: XCTestCase {
             .appendingPathComponent("build/Audio")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
+        // Rendered through the profile for the machine this is running on,
+        // because a WAV auditioned on a MacBook Air should be the mix a
+        // MacBook Air would actually play.
+        let profile = AudioProfile.detected()
+        print("🔊 \(profile.name) — \(profile.summary)  (\(AudioProfile.currentModel()))")
+
         for track in MusicLibrary.all {
-            let data = Self.wav(Soundtrack.render(track))
+            let data = Self.wav(profile.apply(to: Soundtrack.render(track)))
             let destination = folder.appendingPathComponent("\(track.name).wav")
             try data.write(to: destination)
             print(String(
@@ -34,6 +40,23 @@ final class SoundtrackRenderTests: XCTestCase {
                 track.duration, data.count / 1024, track.intent as NSString
             ))
             XCTAssertGreaterThan(data.count, 44, "\(track.name): nothing but a header was written")
+        }
+    }
+
+    /// Every profile, on the one track whose bass gave the game away, so the
+    /// difference can be heard rather than reasoned about.
+    func testWriteOneTrackThroughEveryProfile() throws {
+        let folder = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/Audio/profiles")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let mix = Soundtrack.render(MusicLibrary.smallHours)
+        for profile in AudioProfile.all {
+            let slug = profile.name.lowercased().replacingOccurrences(of: " ", with: "-")
+            let data = Self.wav(profile.apply(to: mix))
+            try data.write(to: folder.appendingPathComponent("small-hours-\(slug).wav"))
+            print("🔊 \(profile.name): \(profile.summary)")
         }
     }
 
