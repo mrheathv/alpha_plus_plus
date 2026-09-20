@@ -92,6 +92,156 @@ final class RenderTimingTests: XCTestCase {
         VisualStyle.current = .cinematic
     }
 
+    /// **What area is the post-process actually shading?**
+    ///
+    /// The frame benchmark found the shader's cost tracking the *map* size and
+    /// ignoring the *window* size, which is backwards for something that runs
+    /// per pixel — unless the pixels it runs over are not the window's.
+    ///
+    /// `SKEffectNode` renders its children into an offscreen texture sized to
+    /// their accumulated frame. If that frame is the whole city, the shader is
+    /// being run across every tile on the map every frame, including the
+    /// overwhelming majority that are nowhere near the screen.
+    func testHowMuchAreaThePostProcessIsShading() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["PLAYTEST_FULL"] != nil,
+            "benchmark; set TEST_RUNNER_PLAYTEST_FULL=1 to run it"
+        )
+        let window = CGSize(width: 1_280, height: 800)
+        print("\n=== Post-process area vs window ===")
+        print("| map   | window    | shaded area   | wasted |")
+        print("|-------|-----------|---------------|--------|")
+        for side in [16, 32, 48, 64] {
+            let controller = GameController(map: builtOutCity(side: side), rng: SeededRNG(seed: 9),
+                                            peakPopulation: Unlocks.everythingUnlocked)
+            let scene = GameScene(controller: controller)
+            scene.size = window
+            let view = SKView(frame: NSRect(origin: .zero, size: window))
+            view.presentScene(scene)
+            scene.rebuildEntireGrid()
+            scene.refreshAll()
+            // **Pump a frame.** Culling happens in `update(_:)`, so a scene
+            // that has only been built and refreshed has never culled
+            // anything — the first version of this measured the fix not
+            // working because it never ran it. And at camera scale 1, since
+            // `centerCameraOnMap` zooms out to fit the whole city and nobody
+            // plays that way.
+            scene.camera?.setScale(1)
+            scene.update(1)
+
+            let area = scene.postProcessAreaForTesting
+            let ratio = (area.width * area.height) / (window.width * window.height)
+            print(String(format: "| %d×%d | %4.0f×%-4.0f | %5.0f×%-5.0f | %5.1f× |",
+                         side, side, window.width, window.height,
+                         area.width, area.height, ratio))
+            if side == 64 {
+                for (name, size) in scene.postProcessContributorsForTesting
+                    .sorted(by: { $0.1.width * $0.1.height > $1.1.width * $1.1.height }) {
+                    print(String(format: "        %-18@ %5.0f×%-5.0f",
+                                 name as NSString, size.width, size.height))
+                }
+            }
+        }
+    }
+
+    /// Does hiding a node take it out of the shaded area, or only out of the
+    /// picture?
+    ///
+    /// This decides how culling has to be written. `isHidden` is cheap and
+    /// reversible; detaching from the parent is neither, and would mean
+    /// managing a pool. Worth one measurement rather than a guess, because
+    /// the wrong answer here is a fix that changes nothing.
+    func testWhetherHidingANodeShrinksTheShadedArea() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["PLAYTEST_FULL"] != nil,
+            "benchmark; set TEST_RUNNER_PLAYTEST_FULL=1 to run it"
+        )
+        let controller = GameController(map: builtOutCity(side: 48), rng: SeededRNG(seed: 9),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        let scene = GameScene(controller: controller)
+        scene.size = CGSize(width: 1_280, height: 800)
+        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        scene.refreshAll()
+
+        let before = scene.postProcessAreaForTesting
+        let hidden = scene.hideTilesOutsideForTesting(radius: 6)
+        let afterHiding = scene.postProcessAreaForTesting
+        scene.detachBackdropForTesting()
+        let afterBackdrop = scene.postProcessAreaForTesting
+        let detached = scene.detachTilesOutsideForTesting(radius: 6)
+        let afterBoth = scene.postProcessAreaForTesting
+
+        print("\n=== What actually sets the shaded area? ===")
+        print(String(format: "everything:            %5.0f×%-5.0f", before.width, before.height))
+        print(String(format: "%4d tiles hidden:     %5.0f×%-5.0f", hidden,
+                     afterHiding.width, afterHiding.height))
+        print(String(format: "backdrop+sun out:      %5.0f×%-5.0f",
+                     afterBackdrop.width, afterBackdrop.height))
+        print(String(format: "and %4d tiles gone:   %5.0f×%-5.0f  (window is 1280×800)",
+                     detached, afterBoth.width, afterBoth.height))
+    }
+
+    /// **Where does a frame actually go?**
+    ///
+    /// Reported from play: *"the rain feels stuttery, and scrolling across the
+    /// map should seem effortless."* Both are frame-rate complaints, and a
+    /// frame-rate complaint has exactly one first question — is this bound by
+    /// how much the GPU is asked to do per *pixel*, or by how much the CPU is
+    /// asked to do per *node*? They have opposite fixes, and guessing wrong
+    /// means optimising the half that was never the problem.
+    ///
+    /// This separates them by changing one thing at a time: the post-process
+    /// on and off, the resolution doubled, the rain present and absent. A cost
+    /// that doubles with the pixel count and ignores the city is the shader; a
+    /// cost that tracks the city and ignores the window is the scene graph.
+    func testMeasureWhatAFrameSpendsItsTimeOn() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["PLAYTEST_FULL"] != nil,
+            "benchmark; set TEST_RUNNER_PLAYTEST_FULL=1 to run it"
+        )
+
+        VisualStyle.current = .cinematic
+        print("\n=== What a frame spends its time on ===")
+        print("| map   | pixels      | post | rain | ms/frame |")
+        print("|-------|-------------|------|------|----------|")
+
+        for side in [32, 64] {
+            let map = builtOutCity(side: side)
+            for size in [CGSize(width: 1_280, height: 800), CGSize(width: 2_560, height: 1_600)] {
+                for post in [true, false] {
+                    for rain in [true, false] {
+                        let controller = GameController(map: map, rng: SeededRNG(seed: 9),
+                                                        peakPopulation: Unlocks.everythingUnlocked)
+                        let scene = GameScene(controller: controller)
+                        scene.size = size
+                        let view = SKView(frame: NSRect(origin: .zero, size: size))
+                        view.presentScene(scene)
+                        scene.rebuildEntireGrid()
+                        scene.setPostProcessEnabledForTesting(post)
+                        if rain { for _ in 0 ..< 6 { controller.advanceSimulation() } }
+                        scene.refreshAll()
+                        scene.camera?.setScale(1)
+                        scene.update(1)
+                        _ = view.texture(from: scene)
+
+                        var best = Double.greatestFiniteMagnitude
+                        for _ in 0 ..< 3 {
+                            let start = Date()
+                            for _ in 0 ..< 30 { _ = view.texture(from: scene) }
+                            best = min(best, Date().timeIntervalSince(start) / 30)
+                        }
+                        print(String(format: "| %d×%d | %5.0f×%-5.0f | %-4@ | %-4@ | %8.2f |",
+                                     side, side, size.width, size.height,
+                                     (post ? "on" : "off") as NSString,
+                                     (rain ? "yes" : "no") as NSString, best * 1_000))
+                    }
+                }
+            }
+        }
+    }
+
     func testMeasureFrameCost() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["PLAYTEST_FULL"] != nil,

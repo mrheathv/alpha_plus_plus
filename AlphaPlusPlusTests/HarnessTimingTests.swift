@@ -113,7 +113,14 @@ final class HarnessTimingTests: XCTestCase {
             "benchmark; set TEST_RUNNER_PLAYTEST_FULL=1 to run it"
         )
 
-        for size in [MapSize.small.dimension, MapSize.medium.dimension, MapSize.large.dimension] {
+        // **96 and 128 are past anything `MapSize` offers**, and are here
+        // because a player asked for them. The rendering side stopped scaling
+        // with map area once the post-process was bound to the viewport, so
+        // the tick is the only thing left deciding how big a city can get —
+        // which makes *where a tick goes* at those sizes the question worth
+        // answering.
+        for size in [MapSize.small.dimension, MapSize.medium.dimension,
+                     MapSize.large.dimension, 96, 128] {
             let spec = PlaytestHarness.CitySpec(size: size)
             let controller = GameController(map: PlaytestHarness.buildCity(spec), rng: SeededRNG(seed: 1))
             for _ in 0..<5 { controller.advanceSimulation() }

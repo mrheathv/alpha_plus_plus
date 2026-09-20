@@ -5334,6 +5334,86 @@ something in it, both channels differ, and a note lands on the frequency it
 claims. A soundtrack a semitone out is still a soundtrack, and nothing else
 would notice.
 
+## The post-process was shading the whole city
+
+Reported from play: *"the rain feels stuttery, and scrolling across the map
+should seem effortless."* Both are frame-rate complaints, and a frame-rate
+complaint has exactly one first question — **is this bound by work per pixel
+or work per node?** They have opposite fixes, and guessing wrong means
+optimising the half that was never the problem.
+
+`RenderTimingTests.testMeasureWhatAFrameSpendsItsTimeOn` answers it by
+changing one thing at a time: post-process on and off, resolution doubled,
+rain present and absent. The answer was strange enough to be the whole clue:
+
+| | shader cost |
+|---|---|
+| 64×64 @ 1280×800 | 38.8 ms |
+| 64×64 @ **2560×1600** | 39.2 ms |
+
+**The cost ignored the resolution and tracked the size of the city**, which is
+backwards for anything per-pixel — unless the pixels it runs over are not the
+window's.
+
+### `SKEffectNode` sizes its render target to its children
+
+It renders them into an offscreen texture sized to their **accumulated
+frame**. Everything in this game's world sits inside the one running
+`RetroShader`, and the backdrop spans the map plus thirty-six tiles of margin.
+So the post-process was covering **8704×8771 points against a 1280×800
+window — 74.5× the area of the screen**, every frame, almost all of it on
+parts of the city nobody could see.
+
+Nothing in the API hints at this, and it applies to any full-screen
+post-process in SpriteKit over a world bigger than the window.
+
+The fix is that the two world-sized background sprites show only the slice the
+camera can see (`clipToView`), and tiles outside the view are **detached**.
+Both were needed: fixing either alone changes almost nothing, because the
+frame is the union.
+
+**`isHidden` does not shrink the accumulated frame** — hiding 1,059 tiles
+moved the shaded area by exactly zero, and only detaching worked. That
+measured fact is why the culling is written the awkward way, and it is the
+thing to know before writing any culling of your own.
+
+### Measured
+
+| map | shaded area before | after | frame @1280×800 |
+|---|---|---|---|
+| 16×16 | 5632×3057 (16.8×) | 1536×960 (1.4×) | |
+| 32×32 | 6656×4961 (32.2×) | 2060×1112 (2.2×) | 26.1 → 18.0 ms |
+| 48×48 | 7680×6866 (51.5×) | 2247×1646 (3.6×) | |
+| 64×64 | 8704×8771 (74.5×) | **2259×1747 (3.9×)** | **56.4 → 28.3 ms** |
+
+Frame cost roughly halved at 64×64, and the shader's own share fell from
+38.8 ms to 11.9 ms. It now also *scales with resolution again* — 11.9 ms at
+1280×800 against ~23 ms at 2560×1600 — which is the real confirmation the fix
+is structural rather than a coincidence.
+
+### Four wrong guesses, and what actually found it
+
+Worth recording, because the method is the transferable part and the
+reasoning was wrong every single time:
+
+1. **Predicted a resolution-bound shader.** The numbers showed cost ignoring
+   resolution entirely.
+2. **Nearly built tile culling first.** It would have changed the shaded area
+   by *zero* while the backdrop still spanned the map.
+3. **Fixed the backdrop and called it done.** That got barely a third of the
+   win, because the sun glow is `contentBounds × 1.6` — 6554 points across on
+   a 64×64 map — and had not been considered at all.
+4. **Measured the fix with a benchmark that never ran it.** Culling happens in
+   `update(_:)`, and the test only built and refreshed a scene; it also
+   measured at `centerCameraOnMap`'s zoom, which pulls back to fit the entire
+   city and is a view nobody plays at. The first "after" numbers were not
+   evidence of anything.
+
+What settled it was **listing every child's accumulated frame** instead of
+deciding which node ought to be big. Thirty seconds, and it would have skipped
+all four. The general form: when a measurement is strange, stop reasoning
+about the mechanism and enumerate the parts.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

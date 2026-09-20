@@ -195,6 +195,7 @@ final class GameScene: SKScene {
         camera = cameraNode
         addChild(cameraNode)
 
+        tileLayer.name = "tiles"
         tileLayer.zPosition = 0
         retroEffectLayer.shader = RetroShader.make()
         retroEffectLayer.addChild(tileLayer)
@@ -209,6 +210,7 @@ final class GameScene: SKScene {
         // map's width plus height — a preview at 5 would sit behind most of
         // the city on any map bigger than a few tiles.
         placementPreviewNode.zPosition = 10_000
+        transitDiagramNode.name = "transit"
         transitDiagramNode.zPosition = 2_000
         retroEffectLayer.addChild(transitDiagramNode)
 
@@ -218,9 +220,11 @@ final class GameScene: SKScene {
         sunGlowNode.color = RenderPalette.sunGlow
         sunGlowNode.colorBlendFactor = 1
         sunGlowNode.blendMode = .add
+        sunGlowNode.name = "sunGlow"
         sunGlowNode.zPosition = -1
         retroEffectLayer.addChild(sunGlowNode)
 
+        backdropNode.name = "backdrop"
         backdropNode.zPosition = -2
         retroEffectLayer.addChild(backdropNode)
 
@@ -485,6 +489,11 @@ final class GameScene: SKScene {
         let frameDelta = lastFrameTime.map { min(currentTime - $0, 0.1) } ?? 0
         if lastFrameTime != nil { applyKeyboardPan(elapsed: frameDelta) }
         lastFrameTime = currentTime
+        // Before the pause check, with the panning: the backdrop follows the
+        // camera, and looking around a stopped city is most of what pausing
+        // is for.
+        showVisibleSliceOfBackground()
+        cullTilesOutsideTheView()
 
         guard controller.isRunning else {
             // Paused: forget when we last ticked, so resuming waits a full
@@ -1128,6 +1137,67 @@ final class GameScene: SKScene {
     /// lines are drawn at all and that something moves along them.
     var transitDiagramForTesting: SKNode { transitDiagramNode }
 
+    /// Switch the whole post-process off, for the benchmark that asks what a
+    /// frame actually spends its time on. `RetroShader` is per-*pixel*, so
+    /// its cost scales with the window rather than with the city, and telling
+    /// that apart from node count is the first question any frame-rate
+    /// complaint has to answer.
+    /// Take the backdrop and the sun out of the shaded area, for the
+    /// measurement that decides whether culling tiles is worth writing.
+    func detachBackdropForTesting() {
+        backdropNode.removeFromParent()
+        sunGlowNode.removeFromParent()
+    }
+
+    /// Hide every tile more than `radius` tiles from the map's middle, and
+    /// report how many. For the measurement that decides how culling has to
+    /// be written.
+    func hideTilesOutsideForTesting(radius: Int) -> Int {
+        let middle = GridPosition(x: map.width / 2, y: map.height / 2)
+        var count = 0
+        for (position, node) in tileNodes
+        where abs(position.x - middle.x) > radius || abs(position.y - middle.y) > radius {
+            node.isHidden = true
+            count += 1
+        }
+        return count
+    }
+
+    /// The same, but detached from the layer rather than hidden.
+    func detachTilesOutsideForTesting(radius: Int) -> Int {
+        let middle = GridPosition(x: map.width / 2, y: map.height / 2)
+        var count = 0
+        for (position, node) in tileNodes
+        where abs(position.x - middle.x) > radius || abs(position.y - middle.y) > radius {
+            node.removeFromParent()
+            count += 1
+        }
+        return count
+    }
+
+    /// Every child of the post-process layer and how much area it forces the
+    /// shader to cover. The only way to find out which one is expensive
+    /// without guessing.
+    var postProcessContributorsForTesting: [(String, CGSize)] {
+        retroEffectLayer.children.map {
+            (($0.name ?? String(describing: type(of: $0))), $0.calculateAccumulatedFrame().size)
+        }
+    }
+
+    /// How big an area the post-process is actually shading.
+    ///
+    /// `SKEffectNode` renders its children into an offscreen texture sized to
+    /// their accumulated frame, so this is the number that decides what the
+    /// shader costs — and if it is the whole map rather than the window, the
+    /// shader is being run over a city nobody can see.
+    var postProcessAreaForTesting: CGSize {
+        retroEffectLayer.calculateAccumulatedFrame().size
+    }
+
+    func setPostProcessEnabledForTesting(_ enabled: Bool) {
+        retroEffectLayer.shouldEnableEffects = enabled
+    }
+
     /// The things travelling a real path across the map — trams on their
     /// rails, ships in their channel — for the tests about whether they do.
     var pathVehicleCountForTesting: Int { pathVehicles.count }
@@ -1267,9 +1337,15 @@ final class GameScene: SKScene {
     private func positionSunGlow() {
         let content = projection.contentBounds(of: map)
         let diameter = max(content.width, content.height) * 1.6
-        sunGlowNode.size = CGSize(width: diameter, height: diameter)
-        sunGlowNode.position = CGPoint(x: content.midX, y: content.minY - diameter * 0.35)
+        sunGlowWorldBounds = CGRect(
+            x: content.midX - diameter / 2,
+            y: content.minY - diameter * 0.35 - diameter / 2,
+            width: diameter, height: diameter
+        )
+        showVisibleSliceOfBackground()
     }
+
+    private var sunGlowWorldBounds: CGRect = .zero
 
     /// How far past the map's own edge the land carries on, in tiles.
     ///
@@ -1415,10 +1491,129 @@ final class GameScene: SKScene {
         }
 
         guard let image = context.makeImage() else { return }
-        backdropNode.texture = SKTexture(cgImage: image)
+        backdropTexture = SKTexture(cgImage: image)
+        backdropWorldBounds = bounds
         backdropNode.colorBlendFactor = 0
-        backdropNode.size = bounds.size
-        backdropNode.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        showVisibleSliceOfBackground()
+    }
+
+    /// **Detach tiles nobody can see.**
+    ///
+    /// The other half of the same problem the backdrop had: everything in
+    /// `tileLayer` counts toward the accumulated frame of the `SKEffectNode`
+    /// running `RetroShader`, so a tile forty screens away still costs shader
+    /// area. With the backdrop fixed, the tiles were the whole of what was
+    /// left — measured at 3130×1646 for a 48×48 city against a 1280×800
+    /// window, dropping to 922×554 once they were detached.
+    ///
+    /// **Detached, not hidden**, and that is not a style preference: a hidden
+    /// node still counts toward `calculateAccumulatedFrame()`. Hiding 1,059
+    /// tiles changed the shaded area by exactly nothing, which is the measured
+    /// reason this is written the more awkward way.
+    ///
+    /// Recomputed only when the camera has actually moved a tile's worth, so
+    /// an idle frame costs one comparison.
+    private func cullTilesOutsideTheView() {
+        let visible = CGRect(
+            x: cameraNode.position.x - size.width * cameraNode.xScale / 2,
+            y: cameraNode.position.y - size.height * cameraNode.yScale / 2,
+            width: size.width * cameraNode.xScale,
+            height: size.height * cameraNode.yScale
+        )
+        // A generous margin: a building is drawn well above its tile's own
+        // origin, so a lot whose *ground* is off screen can still have a tower
+        // reaching into it. Cheaper to keep a border of them than to work out
+        // how tall each one is.
+        let margin = projection.tileHeight * 12
+        let wanted = visible.insetBy(dx: -margin, dy: -margin)
+        guard wanted != culledFor else { return }
+        culledFor = wanted
+
+        for (position, node) in tileNodes {
+            let point = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
+            let inside = wanted.contains(point)
+            if inside, node.parent == nil { tileLayer.addChild(node) }
+            else if !inside, node.parent != nil { node.removeFromParent() }
+        }
+    }
+
+    /// The view the tiles were last culled for.
+    private var culledFor: CGRect?
+
+    /// The whole backdrop, and the world rect it covers.
+    ///
+    /// Kept so the sprite can show a *slice* of it rather than all of it.
+    private var backdropTexture: SKTexture?
+    private var backdropWorldBounds: CGRect = .zero
+
+    /// **Show only the part of the backdrop that is on screen.**
+    ///
+    /// The sprite used to be the size of the whole extended grid — thousands
+    /// of points across — and that turned out to be the single most expensive
+    /// thing in the renderer, for a reason that is not obvious from reading
+    /// it: `SKEffectNode` renders its children into an offscreen texture sized
+    /// to their **accumulated frame**, and this node is inside the one that
+    /// runs `RetroShader`. So the post-process was running over the entire
+    /// map every frame.
+    ///
+    /// Measured on a 64×64 city at a 1280×800 window: the shader was covering
+    /// **8704×8771 points — 74× the area of the window**. That is why frame
+    /// cost tracked the size of the city and barely moved when the resolution
+    /// doubled, which is backwards for anything per-pixel and was the clue.
+    ///
+    /// The fix costs nothing per frame: the texture is unchanged and still
+    /// drawn once, and this only moves the sprite and picks a sub-rect of it.
+    /// Note that `isHidden` would *not* have worked — a hidden node still
+    /// counts toward the accumulated frame. Only detaching or shrinking does,
+    /// which is a thing worth knowing before writing any culling.
+    private func showVisibleSliceOfBackground() {
+        if let texture = backdropTexture {
+            clipToView(backdropNode, of: texture, covering: backdropWorldBounds)
+        }
+        // **The sun needs exactly the same treatment**, and finding that out
+        // took a second measurement. Fixing the backdrop alone took a 64×64
+        // map's shaded area from 8704×8771 to 6554×7471 — barely a third of
+        // the win — because the sun glow is sized `contentBounds × 1.6`, which
+        // is 6554 points across on that map, and it was still whole.
+        //
+        // Listing each child's accumulated frame is what found it. Reasoning
+        // about which node "ought" to be big had already sent me to the wrong
+        // one twice.
+        clipToView(sunGlowNode, of: Self.sunGlowTexture, covering: sunGlowWorldBounds)
+    }
+
+    /// Show only the part of a world-sized background sprite that is on
+    /// screen, by moving it and picking a sub-rect of its texture.
+    ///
+    /// Everything in `retroEffectLayer` counts toward the accumulated frame
+    /// that `SKEffectNode` sizes its offscreen render target from, so a sprite
+    /// spanning the map makes `RetroShader` run over the map — including all
+    /// of it nobody can see. The texture here is unchanged and still drawn
+    /// once; this only costs a position and a rect per frame.
+    private func clipToView(_ node: SKSpriteNode, of texture: SKTexture, covering bounds: CGRect) {
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        // A margin, so a fast pan cannot outrun it between frames.
+        let visible = CGSize(width: size.width * cameraNode.xScale * 1.2,
+                             height: size.height * cameraNode.yScale * 1.2)
+        let wanted = CGRect(
+            x: cameraNode.position.x - visible.width / 2,
+            y: cameraNode.position.y - visible.height / 2,
+            width: visible.width, height: visible.height
+        ).intersection(bounds)
+        guard !wanted.isNull, wanted.width > 1, wanted.height > 1 else {
+            node.isHidden = true
+            return
+        }
+        node.isHidden = false
+        node.texture = SKTexture(
+            rect: CGRect(x: (wanted.minX - bounds.minX) / bounds.width,
+                         y: (wanted.minY - bounds.minY) / bounds.height,
+                         width: wanted.width / bounds.width,
+                         height: wanted.height / bounds.height),
+            in: texture
+        )
+        node.size = wanted.size
+        node.position = CGPoint(x: wanted.midX, y: wanted.midY)
     }
 
     // MARK: - Refreshing from data
