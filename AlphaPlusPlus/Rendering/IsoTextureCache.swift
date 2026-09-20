@@ -97,6 +97,11 @@ final class IsoTextureCache {
         var tier: Int = 0
         var variant: Int = 0
         var footprint: Int = 1
+        /// Buildings only. A near-detail building is a *different texture* of
+        /// the same building, so it is one more dimension of the key rather
+        /// than a second cache — which is what keeps "one sprite per lot"
+        /// true at every zoom.
+        var detail: IsometricBuilding.Detail = .standard
     }
 
     /// A rasterised building, and where its centre sits relative to the lot's
@@ -166,9 +171,11 @@ final class IsoTextureCache {
         GridPosition(x: variant * 31, y: variant * 17)
     }
 
-    func rendered(for zone: ZoneType, density: Int, seed: GridPosition) -> Rendered? {
+    func rendered(for zone: ZoneType, density: Int, seed: GridPosition,
+                  detail: IsometricBuilding.Detail = .standard) -> Rendered? {
         let tier = RenderPalette.growthTier(for: density)
-        let key = Key(kind: .building, zone: zone, tier: tier, variant: Self.variant(for: seed))
+        let key = Key(kind: .building, zone: zone, tier: tier,
+                      variant: Self.variant(for: seed), detail: detail)
         if let hit = cache[key] { return hit }
 
         let canonical = Self.canonicalSeed(for: key.variant)
@@ -178,7 +185,8 @@ final class IsoTextureCache {
             for: massing,
             accent: ZoneMassing.accent(for: zone, density: density),
             tier: max(1, tier),
-            in: projection
+            in: projection,
+            detail: detail
         )
         let frame = node.calculateAccumulatedFrame()
         guard frame.width > 1, frame.height > 1 else { return nil }
@@ -222,8 +230,10 @@ final class IsoTextureCache {
 
     /// A sprite of the cached building, positioned so its lot lands at
     /// `origin`.
-    func sprite(for zone: ZoneType, density: Int, seed: GridPosition, at origin: CGPoint) -> SKSpriteNode? {
-        guard let rendered = rendered(for: zone, density: density, seed: seed) else { return nil }
+    func sprite(for zone: ZoneType, density: Int, seed: GridPosition, at origin: CGPoint,
+                detail: IsometricBuilding.Detail = .standard) -> SKSpriteNode? {
+        guard let rendered = rendered(for: zone, density: density, seed: seed,
+                                      detail: detail) else { return nil }
         let sprite = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         sprite.position = CGPoint(x: origin.x + rendered.offset.x, y: origin.y + rendered.offset.y)
         return sprite

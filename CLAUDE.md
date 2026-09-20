@@ -5554,6 +5554,148 @@ Three decisions worth keeping:
   reason: the trams already shipped once with a path computed and nothing
   drawing it.
 
+## Zooming in, and the two halves of "these are just drawings"
+
+Reported from play: *"when we're zoomed out, the game looks good. When we're
+zoomed in it becomes clear these are just drawings."*
+
+That is two problems wearing one coat, and separating them is what made both
+cheap. A building is **blurry** up close, and there is **nothing more to see**
+up close — and only the first one is about resolution.
+
+### Half one: a texture drawn at a quarter of the pixels it needs
+
+`IsoTextureCache` rasterised each building once at about one pixel per world
+point. A Retina display draws two physical pixels per point, and
+`GameScene.minimumZoomScale` (0.5) doubles it again, so at the closest view
+every texture pixel was covering a four-by-four block of screen pixels. The
+city genuinely was a photograph of a city as you approached it.
+
+`oversample` is **4**, which is exactly what that arithmetic asks for. It was
+nearly not, because the estimate that framed the decision was wrong by about
+fifty times: a built-out 40×40 city was supposed to hold ~19 MB of texture, so
+four would cost 300 and oversampling could only ever be a mitigation.
+Measured, it holds **1.6 MB** — ninety-three textures about 65 points square,
+not the 200×250 that guess assumed. Four costs **25 MB**. The ceiling was
+imaginary, and the only reason anyone found out was that `approximateBytes`
+was cheaper to write than to keep arguing about.
+
+It **scales the finished node** rather than rebuilding at a larger projection.
+The blur radius and the stroke widths are in points, so a bigger projection
+would make the glow relatively tighter and the neon thinner — a change to the
+*look* wearing the clothes of a change to resolution.
+
+What it costs is cold-cache time: filling every variant goes from about 190 ms
+to 650. That is paid lazily as buildings first appear, so it lands as a hitch
+when a large saved city is opened. Warming the cache off the main thread, or
+behind the title screen, would remove it and has not been done.
+
+**And the render harness cannot see any of this.** It captures at one pixel
+per point, so its only magnification is the camera's, and two already covers
+that — 2× and 4× produce pixel-identical sheets. Four is justified by the
+arithmetic and by a real display, not by any picture in this repository, which
+is worth knowing before someone "simplifies" it back.
+
+### The vector tier was planned, measured, and not built
+
+The plan agreed with the player was oversample first, then draw buildings as
+shape nodes past a zoom threshold — affordable because only about twenty are
+on screen when you are close, with the risk flagged up front that each
+building's glow is its own `SKEffectNode` and this project has twice watched a
+scene silently stop servicing effect passes past a budget.
+
+`CloseZoomDetailTests` rendered both paths at 4× before any of that was
+written: the cached texture beside the same massing drawn as live shapes.
+**They are the same picture.** A mullion's worth of edge crispness separates
+them, and nothing else — because at oversample 4 the texture already has every
+pixel the closest camera can ask for, and both paths draw *the same marks*.
+
+So the vector tier bought resolution the game had already bought, and its
+whole value was as a carrier for marks that did not exist yet. It is not
+built. If `minimumZoomScale` ever goes below 0.5, the fix is to raise
+`oversample`, not to add a renderer.
+
+Worth keeping as the general form, because it is the same shape as the blur
+radius that was going to be "also faster" and was not: **a plan is a claim
+too.** This one was cheap to check and it was half wrong.
+
+### Half two: the marks were cut at the wrong floor
+
+`NeonStyle.minimumDetailSize` cuts any mark that cannot be drawn about nine
+points across, and this file lists by name what went: glazing mullions, window
+frames, storey slab lines, balcony railing posts. That floor was set against
+the size a lot is at **rest** — 63 points for a 2×2 — and it is correct there.
+It is the wrong floor with the camera all the way in, where the same lot is
+126 points across 252 physical pixels: a mark dropped for being four points
+wide would have arrived at sixteen.
+
+So zooming in showed *less* than it should, and that is the half the player
+was actually reporting. Sharpening a picture cannot add something that was
+never in it.
+
+`IsometricBuilding.Detail` makes those marks **deferred rather than gone**.
+`.near` puts back the two with the most to say — the glazing mullion and the
+storey slab line — and **derives both from the panels already on the
+building** rather than inventing them, so a ledge lands under a row of windows
+instead of at a spacing nobody chose, and a band that is one unbroken slab of
+light at rest comes apart into panes up close. Both are expressed as ordinary
+`Panel`s, so they project onto the face plane and shear with the wall like
+everything else, and both are appended **immediately after the panel they
+mark** rather than gathered into a pass of their own — a mullion ties every
+sort key its own pane has, and this project has already lost a hospital's
+cross to exactly that tie.
+
+Two calibrations, both from the render:
+
+- **Pane count comes from the panel's projected width, not its width in tile
+  units**, so a band on a narrow tower and one on a wide hall end up with
+  panes the same size on screen. The target is 14 points — about 56 physical
+  pixels at the closest camera, deliberately chunky, because a mullion finer
+  than that is the grey speckle `minimumDetailSize` was written to delete.
+- **The slab line is drawn in the building's accent, not in the silhouette.**
+  Its elevation ancestor was "3-point storey slab lines (near-black on
+  near-black)" and it was cut *for being invisible*. A slab edge catches the
+  light the creases catch.
+
+Industry gains the least, and that is correct rather than a gap: its
+vocabulary is deliberately big blocks of light, so there is little fine
+detail to restore. Dividing its lit bays would undo a decision this file
+already records making.
+
+### It is a second texture, not a second renderer
+
+The near tier is one more dimension of `IsoTextureCache.Key`. Everything the
+cache exists for survives: no shape nodes in the scene, one sprite per
+building, no `SKEffectNode` per lot — and no second drawing path that can
+drift from the first, which is the failure this file records four times over.
+The cost is one more texture per variant in use, against a budget measured in
+tens of megabytes.
+
+`GameScene` drives it off the camera and **notices for itself** rather than
+waiting to be told, the same way it notices an overlay changing under it.
+There are four ways the camera can move (pinch, keyboard, `centerCameraOnMap`,
+a load) and correctness should not rest on all four remembering.
+
+Three things that had to be right:
+
+- **Hysteresis**, engaging at 0.72 and releasing at 0.78, for the reason
+  `CitySimulator.declineMargin` has it: read one number in both directions and
+  a pinch resting on the boundary flips the entire map back and forth forever.
+- **Only what is on screen is redrawn.** `refreshAll` walks every tile the map
+  has, attached or not, so on a built-out city a tier swap would ask the cache
+  to rasterise the whole near variant set in one frame — a freeze, the instant
+  the player zooms in. It refreshes the attached tiles, which at this zoom is
+  about twenty buildings.
+- **A tile coming back into view is asked whether it is still current.**
+  `cullTilesOutsideTheView` re-attached silently, which was fine until
+  something could change *because* a tile was detached. The cache keys make
+  that a handful of dictionary lookups when nothing has moved.
+
+And the detail tier is deliberately **not** always on. At rest a mullion is
+three physical pixels, which is exactly the mark `minimumDetailSize` refuses.
+Detail below the size it can be resolved at does not add information; it
+averages the facade toward mud.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
@@ -5608,6 +5750,20 @@ rotation deliberately: a lot you have zoned and which has not grown anything
 yet is the first thing a new player ever sees, it is drawn by a completely
 different path (no building at all — a surveyed outline on less-tinted ground),
 and every lot in the render used to be built, so that state appeared nowhere.
+
+**`CloseZoomDetailTests` — is it still a building when you walk up to it?**
+The third render, and the only one framed at a *magnification* rather than a
+size: at `GameScene.minimumZoomScale` on a Retina display a lot is shown four
+times larger than it is drawn, and every other sheet here photographs a
+building at whatever size is convenient. Both detail tiers side by side at 4×.
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/CloseZoomDetailTests
+
+open ./build/ContactSheet/close-zoom-detail.png
+```
 
 The app ships an icon (`Assets.xcassets/AppIcon.appiconset`, wired up via
 `ASSETCATALOG_COMPILER_APPICON_NAME`). It predates the retirement of the

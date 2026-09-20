@@ -494,6 +494,7 @@ final class GameScene: SKScene {
         // is for.
         showVisibleSliceOfBackground()
         cullTilesOutsideTheView()
+        matchBuildingDetailToTheCamera()
 
         guard controller.isRunning else {
             // Paused: forget when we last ticked, so resuming waits a full
@@ -1541,13 +1542,86 @@ final class GameScene: SKScene {
         for (position, node) in tileNodes {
             let point = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
             let inside = wanted.contains(point)
-            if inside, node.parent == nil { tileLayer.addChild(node) }
-            else if !inside, node.parent != nil { node.removeFromParent() }
+            if inside, node.parent == nil {
+                tileLayer.addChild(node)
+                // **A tile coming back has to be asked whether it is still
+                // current**, because things change while it is detached — and
+                // the detail tier is the one that changes *because* it is
+                // detached, since a tier swap only redraws what is on screen.
+                // The cache keys make this a handful of dictionary lookups
+                // when nothing has moved, which is the common case by far.
+                refresh(position)
+            } else if !inside, node.parent != nil {
+                node.removeFromParent()
+            }
         }
     }
 
     /// The view the tiles were last culled for.
     private var culledFor: CGRect?
+
+    // MARK: - Detail tier
+
+    /// The camera scale at or below which buildings are drawn with their near
+    /// detail.
+    ///
+    /// Camera scale runs the other way from magnification — `minimumZoomScale`
+    /// (0.5) is the *closest* view — so this engages in the near half of the
+    /// range between resting (1.0) and closest. Deliberately not "always on":
+    /// a mullion is 1.5 points, and at rest that is three physical pixels on a
+    /// Retina display, which is precisely the grey speckle
+    /// `NeonStyle.minimumDetailSize` exists to delete. Detail that cannot be
+    /// resolved does not add information, it averages the facade toward mud.
+    /// Hysteresis, for the reason `CitySimulator.declineMargin` has it: read
+    /// the same number in both directions and a pinch resting on the boundary
+    /// flips the whole map back and forth forever.
+    private static let nearDetailScale: CGFloat = 0.72
+    private static let farDetailScale: CGFloat = 0.78
+
+    /// Which tier the tiles on screen were drawn at.
+    private var drawnForDetail: IsometricBuilding.Detail = .standard
+
+    /// **The scene notices for itself**, the same way it notices an overlay
+    /// changing under it, rather than every caller that can move the camera
+    /// remembering to say so — and there are several: the pinch, the keyboard,
+    /// `centerCameraOnMap`, and a load.
+    ///
+    /// Affordable per frame because it is a comparison, and affordable when it
+    /// *does* fire because tiles outside the view have already been detached
+    /// by `cullTilesOutsideTheView`. At the zoom this engages at that is about
+    /// twenty buildings, which is the whole reason a detail tier is possible
+    /// at all: the marks are expensive per building and there are almost none
+    /// of them on screen when you are close enough to see them.
+    private func matchBuildingDetailToTheCamera() {
+        let scale = cameraNode.xScale
+        let wanted: IsometricBuilding.Detail
+        if scale <= Self.nearDetailScale { wanted = .near }
+        else if scale >= Self.farDetailScale { wanted = .standard }
+        else { return }
+        guard wanted != drawnForDetail else { return }
+        drawnForDetail = wanted
+        tileRenderer.detail = wanted
+
+        // **Only what is on screen**, which is what makes the swap affordable.
+        // `refreshAll` walks every tile the map has, attached or not, so on a
+        // built-out city it would ask the cache to rasterise the whole near
+        // variant set in one frame — about 650 ms of blur, as a freeze, the
+        // instant the player zooms in. The rest are redrawn by
+        // `cullTilesOutsideTheView` as they come back into view, a band at a
+        // time, which is also when their tier can first be seen.
+        for position in tileNodes.keys where tileNodes[position]?.parent != nil {
+            refresh(position)
+        }
+    }
+
+    /// Testing accessor: put the camera at `scale`, clamped the way a pinch
+    /// is, so a test cannot assert against a view the game cannot reach.
+    func setCameraScaleForTesting(_ scale: CGFloat) {
+        cameraNode.setScale(min(max(scale, minimumZoomScale), maximumZoomScale))
+    }
+
+    /// Which detail tier the scene is currently drawing. Testing accessor.
+    var buildingDetailForTesting: IsometricBuilding.Detail { drawnForDetail }
 
     /// The whole backdrop, and the world rect it covers.
     ///

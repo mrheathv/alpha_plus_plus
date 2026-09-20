@@ -12,6 +12,14 @@ struct IsoTileRenderer {
     let projection: Isometric
     let textures: IsoTextureCache
 
+    /// How much detail buildings are drawn with — set by `GameScene` off the
+    /// camera, since how close the player is standing is a fact about the
+    /// view rather than about any tile.
+    ///
+    /// `IsometricBuilding.Detail` explains what the near tier puts back and
+    /// why it is a texture rather than a second renderer.
+    var detail: IsometricBuilding.Detail = .standard
+
     private static let groundNodeName = "isoGround"
 
     /// Shared by every water tile — see `WaterShader`.
@@ -407,12 +415,19 @@ struct IsoTileRenderer {
     }
 
     private func syncBuilding(on node: SKNode, tile: Tile) {
-        let key = "\(tile.zone.rawValue)|\(tile.density)"
+        // The detail tier is in the key because it is part of what was drawn.
+        // Leave it out and crossing the zoom threshold would change what the
+        // cache hands back while every tile still reported itself up to date
+        // — the map would go on showing the tier it was built at, which is
+        // exactly how an overlay once kept painting the view the player had
+        // just left.
+        let key = "\(tile.zone.rawValue)|\(tile.density)|\(detail)"
         guard !isUpToDate(node, Self.buildingNodeName, key) else { return }
         markUpToDate(node, Self.buildingNodeName, key)
         node.childNode(withName: Self.buildingNodeName)?.removeFromParent()
         guard let sprite = textures.sprite(
-            for: tile.zone, density: tile.density, seed: tile.position, at: .zero
+            for: tile.zone, density: tile.density, seed: tile.position, at: .zero,
+            detail: detail
         ) else { return }
         sprite.name = Self.buildingNodeName
         sprite.zPosition = 0.3

@@ -22,11 +22,45 @@ enum IsometricBuilding {
     private static let minimumTint: CGFloat = 0.07
     private static let maximumTint: CGFloat = 0.34
 
+    /// How much of the building is worth drawing.
+    ///
+    /// `NeonStyle.minimumDetailSize` cuts any mark that cannot be drawn about
+    /// nine points across, and that floor was set against the size a lot is
+    /// at **rest** — 63 points for a 2×2. It is the right floor there and the
+    /// wrong one with the camera all the way in, where the same lot is 126
+    /// points across 252 physical pixels on a Retina display: a mark dropped
+    /// for being four points wide would have arrived at sixteen.
+    ///
+    /// So the marks the generators dropped are not gone, they are *deferred*.
+    /// `.near` puts back the two this project recorded losing by name — the
+    /// storey slab line and the glazing mullion — and derives both from the
+    /// panels already on the building rather than inventing them, so a ledge
+    /// lands under a row of windows instead of at a spacing nobody chose.
+    ///
+    /// **It is a second texture, not a second code path**, and that is the
+    /// whole reason it is affordable. The building stays one sprite out of
+    /// `IsoTextureCache`; `.near` is one more dimension of its key. Every
+    /// property the cache exists for survives — no shape nodes in the scene,
+    /// one node per building, and no `SKEffectNode` per lot, which a "draw it
+    /// as vectors when you are close" version would have needed twenty of and
+    /// which this project has twice watched a scene silently stop servicing.
+    enum Detail { case standard, near }
+
+    /// How wide a pane wants to be, in points, before a mullion is put
+    /// between it and the next one. About 56 physical pixels at the closest
+    /// camera on a Retina display — chunky, because a mullion finer than this
+    /// is the grey speckle `minimumDetailSize` was written to delete.
+    private static let paneWidth: CGFloat = 14
+
+    /// Thickness of a mullion and of a slab line, in points.
+    private static let hairline: CGFloat = 1.5
+
     static func node(
         for massing: BuildingMassing,
         accent: SKColor,
         tier: Int,
-        in projection: Isometric
+        in projection: Isometric,
+        detail: Detail = .standard
     ) -> SKNode {
         let container = SKNode()
 
@@ -58,6 +92,8 @@ enum IsometricBuilding {
         // not cost five of them.
         var glowShapes: [SKShapeNode] = []
         var content: [SKNode] = []
+        /// Which (box, face, height) rows have already had their slab line.
+        var ledged: Set<String> = []
 
         for item in items {
             switch item {
@@ -107,6 +143,32 @@ enum IsometricBuilding {
                 shape.fillColor = panel.color
                 shape.strokeColor = .clear
                 content.append(shape)
+
+                guard detail == .near else { continue }
+
+                // Appended immediately after the panel they mark rather than
+                // gathered into a pass of their own. A mullion sits on its own
+                // pane and a slab line under its own row, so both tie every
+                // sort key the parent has — and this project has already lost
+                // a hospital's cross to exactly that tie. Riding with the
+                // parent makes the order a fact rather than a coincidence.
+                for mullion in mullions(on: panel, in: projection) {
+                    let bar = SKShapeNode(path: projection.path(mullion.corners))
+                    bar.fillColor = mullion.color
+                    bar.strokeColor = .clear
+                    content.append(bar)
+                }
+
+                // One slab line per row of windows, not one per window.
+                let row = ledgeKey(for: panel)
+                if !ledged.contains(row) {
+                    ledged.insert(row)
+                    let ledge = slabLine(under: panel, accent: accent, in: projection)
+                    let bar = SKShapeNode(path: projection.path(ledge.corners))
+                    bar.fillColor = ledge.color
+                    bar.strokeColor = .clear
+                    content.append(bar)
+                }
             }
         }
 
@@ -117,6 +179,71 @@ enum IsometricBuilding {
         content.forEach(container.addChild)
         massing.badges.forEach { container.addChild(node(for: $0, in: projection)) }
         return container
+    }
+
+    // MARK: - Near detail
+
+    /// How long a panel is across its own face, in points.
+    private static func widthInPoints(of panel: Panel, in projection: Isometric) -> CGFloat {
+        let corners = panel.corners
+        let a = projection.project(corners[0])
+        let b = projection.project(corners[1])
+        return hypot(b.x - a.x, b.y - a.y)
+    }
+
+    /// Vertical divisions across a wide lit panel.
+    ///
+    /// A glazing band is one unbroken slab of light because that is what
+    /// survives being 63 points across; at four times that it reads as a
+    /// painted stripe, because a real facade has panes in it. The count comes
+    /// from the panel's **projected** width rather than its width in tile
+    /// units, so a band on a narrow tower and one on a wide hall both end up
+    /// with panes the same size on screen.
+    private static func mullions(on panel: Panel, in projection: Isometric) -> [Panel] {
+        let across = widthInPoints(of: panel, in: projection)
+        let panes = Int((across / paneWidth).rounded())
+        guard panes >= 2 else { return [] }
+
+        // `u` is a fraction of the whole box, not of the panel, so a width in
+        // points converts through the panel's own span.
+        let span = panel.u1 - panel.u0
+        let bar = hairline * span / across
+        return (1 ..< panes).map { index in
+            let centre = panel.u0 + span * CGFloat(index) / CGFloat(panes)
+            var mullion = panel
+            mullion.u0 = centre - bar / 2
+            mullion.u1 = centre + bar / 2
+            mullion.color = NeonStyle.silhouetteFill.withAlphaComponent(0.85)
+            return mullion
+        }
+    }
+
+    /// The floor slab a row of windows sits on.
+    ///
+    /// Drawn in the building's accent rather than in the silhouette, which is
+    /// the correction this project already wrote down once: the elevation
+    /// version of this mark was "3-point storey slab lines (near-black on
+    /// near-black)" and it was cut for being invisible. A slab edge catches
+    /// the light the creases catch.
+    private static func slabLine(under panel: Panel, accent: SKColor,
+                                 in projection: Isometric) -> Panel {
+        let thickness = hairline / (projection.heightUnit * max(panel.box.height, 0.01))
+        var ledge = panel
+        ledge.u0 = 0
+        ledge.u1 = 1
+        ledge.v0 = max(0, panel.v0 - thickness)
+        ledge.v1 = max(0, panel.v0)
+        ledge.color = accent.withAlphaComponent(0.42)
+        return ledge
+    }
+
+    /// Identifies the row a panel belongs to, so a band of eight windows gets
+    /// one slab line rather than eight stacked on each other.
+    private static func ledgeKey(for panel: Panel) -> String {
+        let box = panel.box
+        func r(_ value: CGFloat) -> Int { Int((value * 1000).rounded()) }
+        return "\(r(box.x))|\(r(box.y))|\(r(box.z))|\(r(box.height))"
+            + "|\(panel.face == .right ? "r" : "l")|\(r(panel.v0))"
     }
 
     /// A blurred copy of every visible face, behind everything.
