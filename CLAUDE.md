@@ -5838,6 +5838,91 @@ and every picture taken of a 200-day city has been a picture of scaffolding.
 city is about a minute of Release simulation and re-cutting the other seven to
 look at one of them is the sort of wait that stops a fixture being re-cut.
 
+## The buildings were not translucent; the bloom was printing ghosts
+
+Reported from play, on the close-zoom portrait: *"it seems like because we have
+translucent buildings the buildings look funny when they're close together."*
+
+The reading was right and the cause was not the buildings. Two measurements
+settled it in a few minutes, and the order matters — the cheap one first:
+
+- **A building rasterised over a saturated background leaks 2–5% of its
+  pixels**, all of it the soft edge of the baked glow. The bodies are opaque.
+- **The same frame with the post-process switched off is completely solid.**
+  No see-through anywhere.
+
+So it was one of the seven terms running over the finished picture, and a
+still of all seven together cannot say which. `setShaderUniformForTesting`
+exists to knock them out one at a time; with bloom at zero the frame is clean.
+
+### Sixteen taps, and every pixel used the same sixteen
+
+The spiral was `angle * float(i)` — **identical for every pixel in the
+frame**. So a bright source is not blurred by that loop, it is *copied*,
+sixteen times, to sixteen fixed offsets.
+
+A few pixels across, those copies overlap into something that passes for a
+halo. That is why this looked right: it was built and reviewed on whole-city
+frames, where a lit window is two or three pixels. Forty pixels across — which
+is what a window is at `minimumZoomScale` on a Retina display — each copy is a
+plainly readable rectangle printed onto whatever building stands next door.
+A ghost of the window behind, on the wall in front, is *exactly* what
+"translucent" looks like.
+
+A per-pixel rotation of the spiral turns sixteen copies into sixteen different
+offsets per pixel, which is noise rather than structure — and this frame
+already ends in grain, so noise is the one artefact it can absorb.
+
+### And the reach was tracking the render target, not the screen
+
+`u_bloomRadius` is a fraction of the render target, and `SKEffectNode` sizes
+its target to whatever its children cover — which
+`cullTilesOutsideTheView` deliberately made **camera-dependent** when it cut
+the shaded area down to the visible slice. Measured:
+
+| camera | bloom reach on screen |
+|---|---|
+| 0.5 (closest) | **33.3 pt** |
+| 1.0 (rest) | 23.0 pt |
+| 2.0 | 14.4 pt |
+| 3.0 (widest) | 14.4 pt |
+
+A 2.3× swing nobody chose, in the worst direction: widest exactly where a lit
+window is already four times its resting size. Bloom is a lens artefact — it
+happens in the camera, so it covers a fixed distance on the glass however far
+away the subject is. `GameScene.matchBloomReachToTheCamera` sets the fraction
+from the camera each frame and it reads a flat **23 points** at every zoom,
+23 being what the resting camera already had so the view the game is mostly
+played at is unchanged.
+
+Worth keeping as a shape, because it is a new one for this file: **a change
+made for performance can silently re-scale something that reads off the thing
+it changed.** The culling fix was correct, measured, and tested; it also
+quietly moved a value in the shader, and nothing failed.
+
+### Two things the test for this got wrong first
+
+`BloomTests.testTheHaloIsEvenRatherThanSixteenGhosts` measures the evenness of
+the halo around a bright source — sixteen discrete copies make a lobed ring, a
+real halo a flat one. Both mistakes are the same mistake: **measuring the
+fixture rather than the thing.**
+
+- **The source was a square.** A circle of any radius crosses a square's edge
+  at some angles and its corner at others, so the ring came back lobed on a
+  picture with *no bloom in it at all*. A disc has no angular structure of its
+  own.
+- **The effect node held only the source**, so its render target was 40×40
+  points and there was nowhere outside the source for a halo to land — a test
+  for the bloom, measuring a frame the bloom could not reach. The same
+  `SKEffectNode` sizing rule that caused the original performance bug, met
+  from the other direction.
+
+And one about where to measure: close to the source all sixteen copies overlap
+heavily, and measured there the test **passes on the bug it exists for** —
+1.30 against a bound of 1.6. Out in the falloff where the copies separate it
+reads **2.08 against 1.15**. Verified by putting the old shader line back,
+which is this project's standing rule for a test written after the fact.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

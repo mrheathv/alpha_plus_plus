@@ -118,10 +118,35 @@ enum RetroShader {
         if (u_bloomStrength > 0.0) {
             vec3 bloom = vec3(0.0);
             float angle = 2.39996323;  // golden angle, radians
+            // **The spiral is rotated per pixel, and it has to be.**
+            //
+            // Without this every pixel in the frame samples the same sixteen
+            // directions, so a bright source is not blurred — it is *copied*,
+            // sixteen times, to sixteen fixed offsets. With a source a few
+            // pixels across those copies overlap into something that passes
+            // for a halo, which is why this looked right when it was built
+            // and reviewed on a whole-city frame.
+            //
+            // Zoom in and it falls apart: a lit window is forty pixels across
+            // at the closest camera, so each copy is a plainly readable
+            // forty-pixel rectangle landing on whatever stands next door.
+            // Reported from play as buildings looking *translucent* when they
+            // crowd together — which is exactly what a ghost of the window
+            // behind, printed across the wall in front, looks like.
+            //
+            // A per-pixel rotation turns those sixteen copies into sixteen
+            // *different* offsets per pixel, which is noise rather than
+            // structure — and this frame already ends in grain, so noise is
+            // the one artefact it can absorb. The hash is the standard
+            // sin-dot-fract one: cheap, and its quality does not matter when
+            // all it has to do is decorrelate neighbours.
+            float jitter = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
+            float spin = jitter * 6.28318531;
             for (int i = 0; i < 16; i++) {
                 float t = (float(i) + 0.5) / 16.0;
                 float r = u_bloomRadius * sqrt(t);
-                vec2 tap = vec2(cos(angle * float(i)), sin(angle * float(i))) * r;
+                float a = angle * float(i) + spin;
+                vec2 tap = vec2(cos(a), sin(a)) * r;
                 tap.x /= max(u_aspect, 0.0001);
                 vec3 sampled = texture2D(u_texture, uv + tap).rgb;
                 // Keep only what is already bright. Without the bright-pass

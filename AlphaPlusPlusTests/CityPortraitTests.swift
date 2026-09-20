@@ -160,5 +160,14 @@ final class CityPortraitTests: XCTestCase {
 
         XCTAssertEqual(scene.buildingDetailForTesting, .near,
                        "the close shot did not reach the near-detail tier")
+
+        // The same frame with the post-process off, which is the only way to
+        // tell a *drawing* problem from a *grading* one. Reported from play as
+        // buildings looking translucent where they crowd together, and a
+        // picture of the graded frame alone cannot say whether that is the
+        // geometry or the shader on top of it.
+        scene.setPostProcessEnabledForTesting(false)
+        try shoot(scene, view, to: directory.appendingPathComponent("\(name)-close-raw.png"))
+        scene.setPostProcessEnabledForTesting(true)
     }
 }

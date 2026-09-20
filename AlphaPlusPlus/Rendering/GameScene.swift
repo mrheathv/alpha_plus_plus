@@ -495,6 +495,7 @@ final class GameScene: SKScene {
         showVisibleSliceOfBackground()
         cullTilesOutsideTheView()
         matchBuildingDetailToTheCamera()
+        matchBloomReachToTheCamera()
 
         guard controller.isRunning else {
             // Paused: forget when we last ticked, so resuming waits a full
@@ -1199,6 +1200,14 @@ final class GameScene: SKScene {
         retroEffectLayer.shouldEnableEffects = enabled
     }
 
+    /// Poke one post-process term, for isolating which of them is
+    /// responsible for something seen in a frame. Seven uniforms run over the
+    /// finished picture and a still of all of them together cannot say which
+    /// one did anything.
+    func setShaderUniformForTesting(_ name: String, _ value: Float) {
+        retroEffectLayer.shader?.uniforms.first { $0.name == name }?.floatValue = value
+    }
+
     /// The things travelling a real path across the map — trams on their
     /// rails, ships in their channel — for the tests about whether they do.
     var pathVehicleCountForTesting: Int { pathVehicles.count }
@@ -1559,6 +1568,48 @@ final class GameScene: SKScene {
 
     /// The view the tiles were last culled for.
     private var culledFor: CGRect?
+
+    // MARK: - Bloom
+
+    /// How far the bloom reaches, in **screen** points.
+    ///
+    /// Bloom is a lens artefact: it happens in the camera, so it covers a
+    /// fixed distance on the glass however far away the thing being
+    /// photographed is. That is not what it was doing.
+    ///
+    /// `u_bloomRadius` is a fraction of the *render target*, and an
+    /// `SKEffectNode` sizes its target to whatever its children cover — which
+    /// `cullTilesOutsideTheView` deliberately made camera-dependent. So the
+    /// reach drifted with zoom, and in the worst possible direction:
+    /// **33 points at the closest camera against 14 at the widest**, a 2.3×
+    /// swing, largest exactly where a lit window is already four times its
+    /// resting size. Nobody chose that; it fell out of the cull margin.
+    ///
+    /// 23 points because that is what the resting camera was already getting,
+    /// so the view the game is mostly played at is unchanged and only the
+    /// ends of the range move.
+    private static let bloomReachInPoints: CGFloat = 23
+
+    private func matchBloomReachToTheCamera() {
+        guard let shader = retroEffectLayer.shader else { return }
+        let shaded = retroEffectLayer.calculateAccumulatedFrame().height
+        guard shaded > 1 else { return }
+        // A screen point is `cameraScale` world points, and the shader's
+        // radius is a fraction of the target's height in world points.
+        let fraction = Self.bloomReachInPoints * cameraNode.yScale / shaded
+        shader.uniforms.first { $0.name == "u_bloomRadius" }?.floatValue = Float(fraction)
+    }
+
+    /// What the bloom currently reaches, in screen points, for the test that
+    /// it is the same at every zoom.
+    var bloomReachInPointsForTesting: CGFloat {
+        guard let shader = retroEffectLayer.shader,
+              let radius = shader.uniforms.first(where: { $0.name == "u_bloomRadius" })?.floatValue,
+              cameraNode.yScale > 0
+        else { return 0 }
+        return CGFloat(radius) * retroEffectLayer.calculateAccumulatedFrame().height
+            / cameraNode.yScale
+    }
 
     // MARK: - Detail tier
 
