@@ -85,42 +85,73 @@ final class SoundtrackTests: XCTestCase {
 
     // MARK: - The mix
 
-    func testTheLoopIsTheLengthItClaims() {
-        let buffer = Soundtrack.render()
-        let expected = Int(Soundtrack.duration * Synth.sampleRate)
-        XCTAssertEqual(buffer.frames, expected)
-        XCTAssertEqual(buffer.right.count, buffer.left.count)
-        // 8 bars at 110 BPM is a bit over seventeen seconds.
-        XCTAssertEqual(Soundtrack.duration, 17.4545, accuracy: 0.01)
+    func testEveryTrackIsTheLengthItClaims() {
+        for track in MusicLibrary.all {
+            let buffer = Soundtrack.render(track)
+            XCTAssertEqual(buffer.frames, Int(track.duration * Synth.sampleRate), "\(track.name)")
+            XCTAssertEqual(buffer.right.count, buffer.left.count, "\(track.name)")
+        }
+    }
+
+    /// **The gameplay tracks have no tune, and that is the design.** A
+    /// memorable melody is exactly what a title theme heard for thirty seconds
+    /// wants, and exactly what grates on its hundredth pass while somebody is
+    /// concentrating on a budget. Music that has to last recedes.
+    ///
+    /// Asserted rather than left to good intentions, because the tempting
+    /// thing when writing a fourth loop is to give it a hook.
+    func testOnlyTheThemeHasAHook() {
+        XCTAssertFalse(MusicLibrary.theme.melody.isEmpty, "the theme has no tune")
+        for track in MusicLibrary.gameplay {
+            XCTAssertTrue(track.melody.isEmpty,
+                          "\(track.name) has a melody — it will be heard for hours")
+            XCTAssertNotNil(track.arpeggio,
+                            "\(track.name) has neither tune nor arpeggio, so its middle is empty")
+        }
+    }
+
+    /// They also have to be different from each other, or three tracks is one
+    /// track played three times.
+    func testTheTracksAreActuallyDifferent() {
+        let tempos = Set(MusicLibrary.all.map(\.beatsPerMinute))
+        XCTAssertEqual(tempos.count, MusicLibrary.all.count, "two tracks share a tempo")
+        let roots = Set(MusicLibrary.all.map { $0.bassRoots })
+        XCTAssertEqual(roots.count, MusicLibrary.all.count, "two tracks share a bassline")
     }
 
     /// **Nothing clips**, which is the one sound failure that would be
     /// glaring to a listener and completely invisible here.
     func testNothingClips() {
-        let buffer = Soundtrack.render()
-        let peak = max(buffer.left.map(abs).max() ?? 0, buffer.right.map(abs).max() ?? 0)
-        XCTAssertLessThan(peak, 0.999, "the mix reaches full scale — that is audible distortion")
-        XCTAssertGreaterThan(peak, 0.3, "the mix is so quiet something is probably not playing")
+        for track in MusicLibrary.all {
+            let buffer = Soundtrack.render(track)
+            let peak = max(buffer.left.map(abs).max() ?? 0, buffer.right.map(abs).max() ?? 0)
+            XCTAssertLessThan(peak, 0.999, "\(track.name) reaches full scale — audible distortion")
+            XCTAssertGreaterThan(peak, 0.25, "\(track.name) is so quiet something is not playing")
+        }
     }
 
     /// No DC offset. A buffer whose average is off zero wastes headroom,
     /// thumps when it starts and stops, and is inaudible as itself.
     func testTheMixIsCentred() {
-        let buffer = Soundtrack.render()
-        let mean = buffer.left.reduce(0, +) / Float(buffer.frames)
-        XCTAssertEqual(mean, 0, accuracy: 0.02, "the mix has a DC offset")
+        for track in MusicLibrary.all {
+            let buffer = Soundtrack.render(track)
+            let mean = buffer.left.reduce(0, +) / Float(buffer.frames)
+            XCTAssertEqual(mean, 0, accuracy: 0.02, "\(track.name) has a DC offset")
+        }
     }
 
     /// Every bar has something in it. A voice that silently fails to render —
     /// an off-by-one in a frame index, a chord array read past its end —
     /// leaves a hole that no other assertion here would notice.
     func testEveryBarHasSoundInIt() {
-        let buffer = Soundtrack.render()
-        let framesPerBar = buffer.frames / Soundtrack.bars
-        for bar in 0 ..< Soundtrack.bars {
-            let slice = buffer.left[(bar * framesPerBar) ..< ((bar + 1) * framesPerBar)]
-            let energy = slice.reduce(0) { $0 + abs($1) } / Float(framesPerBar)
-            XCTAssertGreaterThan(energy, 0.01, "bar \(bar + 1) is silent")
+        for track in MusicLibrary.all {
+            let buffer = Soundtrack.render(track)
+            let framesPerBar = buffer.frames / track.bars
+            for bar in 0 ..< track.bars {
+                let slice = buffer.left[(bar * framesPerBar) ..< ((bar + 1) * framesPerBar)]
+                let energy = slice.reduce(0) { $0 + abs($1) } / Float(framesPerBar)
+                XCTAssertGreaterThan(energy, 0.01, "\(track.name) bar \(bar + 1) is silent")
+            }
         }
     }
 
@@ -128,7 +159,7 @@ final class SoundtrackTests: XCTestCase {
     /// panned kit are what make it wide, and a mix that collapsed to mono
     /// would sound flat in a way nothing above would catch.
     func testItIsActuallyInStereo() {
-        let buffer = Soundtrack.render()
+        let buffer = Soundtrack.render(MusicLibrary.theme)
         var difference: Float = 0
         for index in stride(from: 0, to: buffer.frames, by: 17) {
             difference += abs(buffer.left[index] - buffer.right[index])

@@ -212,3 +212,152 @@ enum Synth {
         440 * pow(2, (Double(note) - 69) / 12)
     }
 }
+
+// MARK: - Effects
+//
+// **The production is most of this genre.** The first pass had the right
+// chords, the right instruments and the right tempo, and still sounded like a
+// synth demo rather than a record, because everything was bone dry and
+// mathematically in tune. What follows is the difference.
+
+extension Synth {
+
+    /// An echo. A dotted-eighth delay on the lead is close to compulsory in
+    /// this music — a dry lead sits oddly forward and sounds bare.
+    ///
+    /// Fixed-size buffer allocated once, so the same type works in the live
+    /// render callback where allocating would be a fault rather than a cost.
+    struct Delay {
+        private var buffer: [Double]
+        private var writeIndex = 0
+
+        init(maximumSeconds: Double = 1.5) {
+            buffer = [Double](repeating: 0, count: Int(maximumSeconds * Synth.sampleRate) + 2)
+        }
+
+        mutating func process(_ input: Double, seconds: Double,
+                              feedback: Double, mix: Double) -> Double {
+            let offset = min(buffer.count - 1, max(1, Int(seconds * Synth.sampleRate)))
+            let readIndex = (writeIndex - offset + buffer.count) % buffer.count
+            let echoed = buffer[readIndex]
+            buffer[writeIndex] = input + echoed * min(feedback, 0.95)
+            writeIndex = (writeIndex + 1) % buffer.count
+            return input + echoed * mix
+        }
+    }
+
+    /// A plain Schroeder reverb: four combs in parallel into two allpasses.
+    ///
+    /// Not a good concert hall — a good concert hall is not what this is for.
+    /// It exists to be **gated**, and a gated reverb is heard for a tenth of a
+    /// second before it is cut off, which is far too short for anyone to
+    /// notice that the tail is not especially sophisticated.
+    struct Reverb {
+        private var combs: [Comb]
+        private var allpasses: [AllPass]
+
+        init(room: Double = 0.84, damping: Double = 0.28) {
+            // Mutually prime-ish lengths, so the combs do not reinforce each
+            // other into a ringing pitch — the same reason the regional
+            // economy's two cycles are co-prime.
+            combs = [1_557, 1_617, 1_491, 1_422].map { Comb(length: $0, feedback: room, damping: damping) }
+            allpasses = [225, 556].map { AllPass(length: $0) }
+        }
+
+        mutating func process(_ input: Double) -> Double {
+            var value = 0.0
+            for index in combs.indices { value += combs[index].process(input) }
+            value /= Double(combs.count)
+            for index in allpasses.indices { value = allpasses[index].process(value) }
+            return value
+        }
+
+        private struct Comb {
+            var buffer: [Double]
+            var index = 0
+            var filterState = 0.0
+            let feedback: Double
+            let damping: Double
+
+            init(length: Int, feedback: Double, damping: Double) {
+                buffer = [Double](repeating: 0, count: length)
+                self.feedback = feedback
+                self.damping = damping
+            }
+
+            mutating func process(_ input: Double) -> Double {
+                let output = buffer[index]
+                // One-pole damping in the loop, so the tail loses its top end
+                // as it decays instead of ringing bright forever.
+                filterState = output * (1 - damping) + filterState * damping
+                buffer[index] = input + filterState * feedback
+                index = (index + 1) % buffer.count
+                return output
+            }
+        }
+
+        private struct AllPass {
+            var buffer: [Double]
+            var index = 0
+
+            init(length: Int) { buffer = [Double](repeating: 0, count: length) }
+
+            mutating func process(_ input: Double) -> Double {
+                let stored = buffer[index]
+                let output = -input + stored
+                buffer[index] = input + stored * 0.5
+                index = (index + 1) % buffer.count
+                return output
+            }
+        }
+    }
+
+    /// **The gate is the eighties.**
+    ///
+    /// A big reverb held wide open and then cut off dead, rather than allowed
+    /// to decay — the Padgham/Collins snare, and the single most identifiable
+    /// production signature in this whole genre. Its absence is most of why a
+    /// correct-sounding drum kit still reads as modern.
+    ///
+    /// - Parameters:
+    ///   - hold: seconds at full before the cut.
+    ///   - cut: how abruptly it closes. Very short on purpose — make this
+    ///     long and it stops being a gate and becomes an ordinary decay,
+    ///     which is the effect it exists to *not* be.
+    static func gate(_ samples: [Double], hold: Double, cut: Double = 0.012) -> [Double] {
+        let holdFrames = Int(hold * sampleRate)
+        let cutFrames = max(1, Int(cut * sampleRate))
+        return samples.enumerated().map { index, value in
+            if index < holdFrames { return value }
+            let through = Double(index - holdFrames) / Double(cutFrames)
+            return through >= 1 ? 0 : value * (1 - through)
+        }
+    }
+
+    /// How hard everything else ducks under the kick, sample by sample.
+    ///
+    /// **Sidechain compression, faked honestly.** A real compressor listens to
+    /// the kick and turns the rest down; there is no need to detect anything
+    /// here because the score already knows exactly where every kick is. The
+    /// result is the pump that makes this music *move* rather than merely
+    /// play — and it costs one multiply per sample.
+    ///
+    /// - Parameter depth: 0 for no ducking, 1 for full silence under the kick.
+    static func duckEnvelope(frames: Int, kicks: [Int],
+                             depth: Double = 0.55, recovery: Double = 0.26) -> [Double] {
+        var envelope = [Double](repeating: 1, count: frames)
+        let recoveryFrames = max(1, Int(recovery * sampleRate))
+        for kick in kicks {
+            for offset in 0 ..< recoveryFrames {
+                let index = kick + offset
+                guard index >= 0, index < frames else { continue }
+                let through = Double(offset) / Double(recoveryFrames)
+                // Eased rather than linear: a straight ramp back up reads as a
+                // volume slider being pushed, where this reads as a release.
+                let ducked = 1 - depth * (1 - through) * (1 - through)
+                envelope[index] = min(envelope[index], ducked)
+            }
+        }
+        return envelope
+    }
+}

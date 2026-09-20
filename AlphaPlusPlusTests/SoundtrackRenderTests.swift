@@ -18,24 +18,23 @@ import XCTest
 /// ```
 final class SoundtrackRenderTests: XCTestCase {
 
-    func testWriteTheThemeToListenTo() throws {
-        let buffer = Soundtrack.render()
-        let data = Self.wav(buffer)
-
-        let destination = URL(fileURLWithPath: #filePath)
+    func testWriteEveryTrackToListenTo() throws {
+        let folder = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/Audio/theme.wav")
-        try FileManager.default.createDirectory(
-            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try data.write(to: destination)
+            .appendingPathComponent("build/Audio")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
-        print("""
-        🎹 Theme: \(destination.path)
-           \(Soundtrack.bars) bars · \(Int(Soundtrack.beatsPerMinute)) BPM · \
-        \(String(format: "%.1f", Soundtrack.duration))s · \(data.count / 1024) KB
-        """)
-        XCTAssertGreaterThan(data.count, 44, "nothing but a header was written")
+        for track in MusicLibrary.all {
+            let data = Self.wav(Soundtrack.render(track))
+            let destination = folder.appendingPathComponent("\(track.name).wav")
+            try data.write(to: destination)
+            print(String(
+                format: "🎹 %-12@ %d bars · %3d BPM · %5.1fs · %4d KB — %@",
+                track.name as NSString, track.bars, Int(track.beatsPerMinute),
+                track.duration, data.count / 1024, track.intent as NSString
+            ))
+            XCTAssertGreaterThan(data.count, 44, "\(track.name): nothing but a header was written")
+        }
     }
 
     /// 16-bit PCM stereo. Written by hand rather than through `AVAudioFile`
