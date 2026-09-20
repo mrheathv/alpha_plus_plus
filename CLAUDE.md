@@ -5059,6 +5059,110 @@ screen, and past about 0.5 the lift turns the ground purple rather than warm.
 switch keeps answering the only question that matters here, which is whether
 any of it is an improvement.
 
+## G6–G11: motion, weather, and a reflection that works
+
+The six-phase visual overhaul and four GPU phases left the city a beautiful
+still. What it lacked was things *moving*, and the most on-theme image
+available to a neon game at night — its own reflection — had never been
+attempted. The plan runs G6 cars, G7 trams, G8 ports, G9 weather, G10
+reflections, G11 camera.
+
+### G7 (done): trams run on the rails they actually laid
+
+`Transit.tramTracks` has computed a tram line's track since trams landed and
+nothing ever drew a vehicle on it. `Transit.tramPath` is the same information
+**in order** — a set answers "which tiles carry rails", which is what
+`Traffic.congestion` and the texture cache want, and it cannot say which end
+of the line a vehicle starts from.
+
+**It is the only mode that can answer the question at all.** Every other route
+here is a schematic between stations: a bus route says which stops are on one
+line and nothing about the streets between them, which is why transit vehicles
+have only ever run over their own diagram. A tram runs on the map itself.
+
+**Driven per frame rather than by an `SKAction`**, which buys two things. A
+tram crosses tiles, so its painter's-algorithm key changes as it goes and an
+action would need `zPosition` rewritten every frame anyway — at which point
+the action is only supplying position. And it advances after `update`'s own
+`isRunning` guard, so a stopped city stops its trams with none of the
+`animatedBySimulation` bookkeeping an `SKAction` needs to dodge the "cars kept
+driving around a paused map" bug.
+
+A severed line has no path and gets no vehicle, rather than a tram gliding
+across missing street — the distinction the conduit overlay already draws
+between a pipe that exists and one that is live.
+
+### G9 and G10 (done): rain, and the wet street
+
+`Weather` is a clock, not a dice roll, for the three reasons `RegionalEconomy`
+is one, plus a fourth that is specific to it: this one is *visible*, so a
+forecast that re-rolled between frames would be a broken effect rather than a
+surprising one. Two sines of co-prime period biased below zero — **measured
+over 400 days, it rains on 22% of them in spells averaging 8**, about sixteen
+seconds of rain every couple of minutes at normal speed. The first draft of
+that comment said "spells of two to four", which was reasoning rather than
+counting.
+
+It lives in `Rendering/` because nothing in the city's economics reads it, and
+putting it in `Simulation/` would claim a mechanic the game does not have.
+
+#### A reflection belongs to the ground it lands on
+
+The reflection is a building's **own cached texture**, flipped and squashed —
+no new texture and nothing to invalidate, because it *is* the building's
+texture. It is emphatically not the render-target reflection G5 is holding out
+for: this is one building reflecting only itself. It works anyway because wet
+asphalt does not return a picture, it returns a dim smear directly beneath
+whatever stands on it, which is exactly the shape of the approximation.
+
+**Getting the ownership backwards is why the first two renders showed
+nothing.** Hung off the building's own tile node, a reflection falls on ground
+that building already covers, and anything reaching past the lot is painted
+over by the tile in front — drawn later, and opaque. Reflections appeared
+*only* where they happened to hang over the edge of the map into open ground.
+The ground asks the question instead: `GameScene.reflection(at:)` looks
+up-screen at `(x-1, y)` and `(x, y-1)` and reports whatever stands there,
+which puts the mark on the road in front of a tower where you would see it.
+
+Worth keeping as the general shape: **in a painter's-algorithm renderer, a
+mark that falls outside the node that owns it is a mark nobody will see.**
+
+#### Four things the renders and the harness caught
+
+None of which the compiler could have:
+
+- **Camera children are positioned in points**, because the camera's own scale
+  cancels out. Sizing the rain by the zoom spread it over several times the
+  screen and the first frame had about four drops in it.
+- **`advanceSimulationTime` only works once the emitter is in the scene graph
+  with its `targetNode` set.** Pre-rolling before either existed produced a
+  handful of drops in the wrong coordinate space — which looked exactly like a
+  birth rate set too low.
+- **`??` binds looser than `+`.** The obvious spelling of the cache key put
+  the wetness on the fallback branch only, so a tile that *did* reflect
+  something was keyed without it.
+- **A reflection is a statement about a neighbour**, like a road's lane mask,
+  and `refreshRoadNeighbors` only refreshes neighbours that are road. A
+  reflection lands on bare ground too, so placing a park at (9, 7) left
+  (10, 7) and (9, 8) reflecting nothing. `ScenePlaytest` caught that, which is
+  precisely the shape of bug it exists for — nothing failed, the map was
+  simply showing less than it knew.
+
+And `Weather.wetness` is floored at one step rather than rounded to the
+nearest, because rounding sent the first and last day of every shower to zero:
+it was raining on dry ground.
+
+#### The fixture had to be plumbed before any of it was visible
+
+An unserved city wears a water drop and a lightning bolt over every building,
+and the first render of this was a picture of badges with a city somewhere
+behind them. Worse, laying pipe was not enough: **funding buys capacity, not
+just coverage**, so thirty lots at density 3–5 draw several times what one
+tower supplies and the city sat in an outage that looks identical to having no
+pipes at all. Same lesson as every fixture note in this file — *a picture in
+which the failing case cannot occur reports success*, and its twin, a picture
+in which the effect cannot be seen reports failure.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
