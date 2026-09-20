@@ -220,3 +220,92 @@ final class TransitOverlayTests: XCTestCase {
         node.children.filter { $0.name == name }.count
     }
 }
+
+// MARK: - Something running the line
+
+@MainActor
+extension TransitOverlayTests {
+
+    private func lineCity(mode: TransitRoute.Mode) -> CityMap {
+        var map = CityMap(width: 20, height: 12)
+        for x in 0 ..< 20 { map[GridPosition(x: x, y: 6)].zone = .road }
+        let stops = [GridPosition(x: 4, y: 5), GridPosition(x: 12, y: 5)]
+        for stop in stops { map.placeBuilding(zone: mode.stationZone, origin: stop) }
+        map.transit.add(mode: mode, stops: stops)
+        return map
+    }
+
+    private func scene(_ map: CityMap, looking at: OverlayMode) -> GameScene {
+        let controller = GameController(map: map, rng: SeededRNG(seed: 2),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        controller.overlayMode = at
+        let scene = GameScene(controller: controller)
+        scene.size = CGSize(width: 800, height: 520)
+        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        scene.refreshAll()
+        return scene
+    }
+
+    /// **The tram and rail views drew no lines at all.**
+    ///
+    /// `GameScene.syncTransitDiagram` switched on `.bus` and `.subway` with a
+    /// `default: return`, written when those were the only two modes — so
+    /// routes in the two added later were invisible in their own views.
+    /// Nothing failed, because every existing test asks
+    /// `IsoTileRenderer.transitDiagram` directly and the *renderer* was
+    /// always right; it was the scene's dispatch that had gone stale. Exactly
+    /// the shape of bug `OverlayMode.view(for:)` was introduced to kill, at a
+    /// fifth site it missed.
+    func testEveryModeDrawsItsLinesInItsOwnView() {
+        for mode in TransitRoute.Mode.allCases {
+            let scene = scene(lineCity(mode: mode), looking: OverlayMode.view(for: mode))
+            XCTAssertFalse(scene.transitDiagramForTesting.children.isEmpty,
+                           "the \(mode) view draws no lines at all")
+        }
+    }
+
+    /// The transit module has four modes, routes, ridership and capacity, and
+    /// until now nothing ever *moved* along a line — the only evidence a
+    /// route carried anyone was a number in a panel.
+    func testAWorkingLineHasSomethingRunningIt() {
+        for mode in TransitRoute.Mode.allCases {
+            let scene = scene(lineCity(mode: mode), looking: OverlayMode.view(for: mode))
+            XCTAssertEqual(scene.transitVehicleCountForTesting, 1,
+                           "nothing is running the \(mode) line")
+        }
+    }
+
+    /// A line with one working stop goes nowhere, so nothing runs it — the
+    /// same rule `Transit` already applies to whether it carries anyone.
+    func testALineGoingNowhereRunsNothing() {
+        var map = lineCity(mode: .bus)
+        // Demolish one end. The route survives losing a stop by design; what
+        // it loses is its service.
+        for cell in map.footprintCells(origin: GridPosition(x: 12, y: 5), size: 2) {
+            map[cell] = Tile(position: cell)
+        }
+        let scene = scene(map, looking: .bus)
+        XCTAssertEqual(scene.transitVehicleCountForTesting, 0,
+                       "a line with one stop left still has a bus on it")
+    }
+
+    /// A bus still running its route around a stopped city is the same bug as
+    /// the cars that used to keep driving — one layer up, on a node the
+    /// per-tile pause walk cannot reach.
+    func testTheVehicleStopsWhenTheCityDoes() {
+        let controller = GameController(map: lineCity(mode: .bus), rng: SeededRNG(seed: 2),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        controller.overlayMode = .bus
+        controller.isRunning = false
+        let scene = GameScene(controller: controller)
+        scene.size = CGSize(width: 800, height: 520)
+        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        scene.refreshAll()
+        XCTAssertTrue(scene.transitVehiclesArePausedForTesting,
+                      "a bus is still running its line around a stopped city")
+    }
+}

@@ -411,19 +411,69 @@ final class IsoTextureCache {
     }
 
     /// A car, pointing down one of the two road diagonals.
-    func car(alongX: Bool) -> Rendered? {
-        rendered(Key(kind: .car, zone: .road, variant: alongX ? 0 : 1)) {
-            let length: CGFloat = 0.34, width: CGFloat = 0.2, height: CGFloat = 0.15
+    /// What kind of thing is on the road.
+    ///
+    /// Every vehicle used to be the same vehicle — one texture per axis, so a
+    /// street outside a factory carried the same hatchback as one outside a
+    /// tower block. Traffic is one of the few things on this map that
+    /// *moves*, which makes it one of the few places variety is actually
+    /// watched rather than glanced at.
+    enum Vehicle: Hashable {
+        case car
+        /// Longer, taller, and carrying a separate box body, so it reads as
+        /// freight from the silhouette alone rather than from its colour.
+        case lorry
+        /// A transit vehicle, running a line. Longest of the three and lit
+        /// along its flank, because the point of it is being *recognisable*
+        /// from across the map: this is the only thing on screen that proves
+        /// a route you drew is carrying anybody.
+        case transit(TransitRoute.Mode)
+
+        var length: CGFloat {
+            switch self {
+            case .car: return 0.34
+            case .lorry: return 0.52
+            case .transit: return 0.62
+            }
+        }
+
+        var height: CGFloat {
+            switch self {
+            case .car: return 0.15
+            case .lorry: return 0.24
+            case .transit: return 0.22
+            }
+        }
+    }
+
+    func car(_ vehicle: Vehicle = .car, alongX: Bool, braking: Bool = false) -> Rendered? {
+        let variant = (alongX ? 0 : 1) | (braking ? 2 : 0)
+        let zone: ZoneType
+        switch vehicle {
+        case .car: zone = .road
+        case .lorry: zone = .industrial
+        case .transit(let mode): zone = mode.stationZone
+        }
+        return rendered(Key(kind: .car, zone: zone, variant: variant)) {
+            let length = vehicle.length, width: CGFloat = 0.2, height = vehicle.height
             let box = alongX
                 ? Box(x: -length / 2, y: -width / 2, z: 0, width: length, depth: width, height: height)
                 : Box(x: -width / 2, y: -length / 2, z: 0, width: width, depth: length, height: height)
 
+            let body: SKColor
+            switch vehicle {
+            case .car, .lorry: body = RenderPalette.trafficCarBody
+            // A bus is the colour of the line it runs, which is what makes it
+            // legible as *that route's* bus rather than as a long car.
+            case .transit(let mode): body = RenderPalette.fullColor(for: mode.stationZone)
+            }
+
             let car = SKNode()
             for face in box.faces where Isometric.isVisible(face) {
                 let shape = SKShapeNode(path: projection.path(face.points))
-                shape.fillColor = RenderPalette.trafficCarBody.blended(
+                shape.fillColor = body.blended(
                     withFraction: 0.2 + 0.5 * Isometric.shade(face), of: .white
-                ) ?? RenderPalette.trafficCarBody
+                ) ?? body
                 shape.strokeColor = RenderPalette.trafficCarOutline
                 shape.lineWidth = 1
                 car.addChild(shape)
@@ -438,13 +488,23 @@ final class IsoTextureCache {
                 ? projection.project(-length / 2, 0, height * 0.6)
                 : projection.project(0, -length / 2, height * 0.6)
             car.addChild(lamp(at: nose, color: NeonStyle.litAccent))
-            car.addChild(lamp(at: tail, color: RenderPalette.networkAccentColor(for: .road)))
+            // **Brake lights are what makes a jam look like a jam.** Congestion
+            // already changes how many cars there are and how slowly they
+            // cross, and neither of those reads as *stopping*. A hot red tail
+            // does, and it costs one more texture variant rather than a node
+            // per car.
+            car.addChild(lamp(
+                at: tail,
+                color: braking ? RenderPalette.brakeLight
+                               : RenderPalette.networkAccentColor(for: .road),
+                scale: braking ? 1.7 : 1
+            ))
             return car
         }
     }
 
-    private func lamp(at point: CGPoint, color: SKColor) -> SKShapeNode {
-        let lamp = SKShapeNode(circleOfRadius: max(1.2, projection.tileWidth * 0.022))
+    private func lamp(at point: CGPoint, color: SKColor, scale: CGFloat = 1) -> SKShapeNode {
+        let lamp = SKShapeNode(circleOfRadius: max(1.2, projection.tileWidth * 0.022) * scale)
         lamp.position = point
         lamp.fillColor = color
         lamp.strokeColor = color

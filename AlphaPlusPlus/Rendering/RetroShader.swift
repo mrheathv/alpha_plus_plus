@@ -34,8 +34,25 @@ enum RetroShader {
             SKUniform(name: "u_vignetteStrength", float: 0.35),
             SKUniform(name: "u_aberrationStrength", float: 0.2),
             SKUniform(name: "u_aspect", float: 1),
+            SKUniform(name: "u_bloomStrength", float: 0),
+            SKUniform(name: "u_bloomThreshold", float: 0.62),
+            SKUniform(name: "u_bloomRadius", float: 0.012),
         ]
+        applyStyle(shader)
         return shader
+    }
+
+    /// Pushes the current `VisualStyle`'s bloom settings into `shader`.
+    ///
+    /// Read from the style rather than fixed here so the Classic/Cinematic
+    /// toggle can turn bloom *off* — which is the only way to answer whether
+    /// it is an improvement, and the same argument that switch was built on.
+    static func applyStyle(_ shader: SKShader) {
+        let style = VisualStyle.current
+        shader.uniforms.first { $0.name == "u_bloomStrength" }?
+            .floatValue = Float(style.bloomStrength)
+        shader.uniforms.first { $0.name == "u_bloomThreshold" }?
+            .floatValue = Float(style.bloomThreshold)
     }
 
     /// Keeps the vignette and chromatic-aberration math circular rather
@@ -68,6 +85,46 @@ enum RetroShader {
         vec4 color = texture2D(u_texture, uv);
         color.r = mix(color.r, redSample, u_aberrationStrength);
         color.b = mix(color.b, blueSample, u_aberrationStrength);
+
+        // **Bloom, and the one place this game's light is not faked.**
+        //
+        // Every glow on the map until now was *baked*: a blurred copy of each
+        // building rasterised into its texture once, which is why it costs
+        // nothing per tile and why it can never respond to anything. Two
+        // towers side by side do not brighten where they overlap, because
+        // each one's halo was drawn before the other existed.
+        //
+        // This does it in the frame instead. A bright-pass keeps only what is
+        // already near white, and a ring of taps around each pixel sums what
+        // it finds, so overlapping neon genuinely adds up and a dense
+        // district blazes the way a dense district should.
+        //
+        // **Sixteen taps on a golden-angle spiral, not a grid.** A regular
+        // ring at this tap count bands visibly — you can count the samples in
+        // a wide glow. Rotating each tap by the golden angle and growing the
+        // radius with its index scatters them evenly at every scale, which is
+        // what buys a smooth falloff out of sixteen reads instead of the
+        // several hundred a separable two-pass blur would want. A second pass
+        // is not available here: `SKShader` is one fragment function over one
+        // texture, and adding render targets means nesting effect nodes,
+        // which this project already knows silently stops servicing past a
+        // budget.
+        if (u_bloomStrength > 0.0) {
+            vec3 bloom = vec3(0.0);
+            float angle = 2.39996323;  // golden angle, radians
+            for (int i = 0; i < 16; i++) {
+                float t = (float(i) + 0.5) / 16.0;
+                float r = u_bloomRadius * sqrt(t);
+                vec2 tap = vec2(cos(angle * float(i)), sin(angle * float(i))) * r;
+                tap.x /= max(u_aspect, 0.0001);
+                vec3 sampled = texture2D(u_texture, uv + tap).rgb;
+                // Keep only what is already bright. Without the bright-pass
+                // this is a blur, and a blurred city is a smeared city.
+                float luma = dot(sampled, vec3(0.2126, 0.7152, 0.0722));
+                bloom += sampled * smoothstep(u_bloomThreshold, 1.0, luma);
+            }
+            color.rgb += bloom / 16.0 * u_bloomStrength;
+        }
 
         // Scanlines: a faint, repeating horizontal darkening band -- the
         // classic CRT/VHS texture sitting behind every synthwave still

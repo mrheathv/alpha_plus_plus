@@ -4620,6 +4620,85 @@ bumps `screenshotRequests` and the view does the work — the same shape
 
 That completes phase 6, and with it the six-phase visual overhaul.
 
+## Traffic, and the thing that was never on the lines
+
+Reported as wanting a turn on how cars look. It turned into three changes and
+one real bug.
+
+### What is on the street depends on what is beside it
+
+Every vehicle was the same vehicle — one texture per axis, so a street
+outside a factory carried the same hatchback as one outside a tower block.
+Traffic is one of the few things on this map that *moves*, which makes it one
+of the few places variety is watched rather than glanced at.
+
+Roads running past industry now carry **lorries** (longer, taller, a separate
+box body so they read as freight from the silhouette rather than the colour);
+elsewhere they carry cars. Seeded from the tile, so a street keeps its own mix
+instead of reshuffling on every refresh, and mixed with the car's index so
+three vehicles on one tile are not three of the same thing.
+
+### A jam that looks like stopping
+
+Congestion already changed how many cars a tile has and how slowly they
+cross, and **neither of those reads as a brake**. Above two thirds — exactly
+where `Traffic.carCount` adds its third car, so the street gains a vehicle and
+turns red in the same moment — the tail lamp goes hot red and larger. One
+more texture variant rather than a node per car.
+
+### Something actually running the line
+
+The transit module has four modes, routes, ridership, capacity and a
+transfer graph, and until now **nothing ever moved along a line**. The lines
+were a diagram, and the only evidence a route carried anyone was a number in
+a panel.
+
+A vehicle now runs each working route, paced off that mode's own
+`minutesPerTile` — the same constant the router weighs journeys with, so a
+subway visibly outruns a bus over the same stations rather than being told to
+by a second number that could disagree.
+
+**Only in the route's own view**, which is honest rather than timid: a route
+here is schematic, a straight run between stations rather than a path along
+streets, so a bus cutting diagonally across blocks would be a lie in Normal
+view. Over the diagram it is exactly what the diagram means. (Trams are the
+one mode with a real path — `Transit.tramTracks` already follows roads — so
+running a tram on its actual rails in Normal view is the obvious next step.)
+
+It joins `animatedBySimulation`, and needed one thing the cars did not: the
+pause walk only visits **tile** nodes, and a transit vehicle hangs off
+`transitDiagramNode`, a sibling of `tileLayer`. A bus still running its line
+around a stopped city is the cars-keep-driving bug one layer up.
+
+### And the tram and rail views drew no lines at all
+
+Found while adding the above. `syncTransitDiagram` switched on `.bus` and
+`.subway` with a `default: return` — written when those were the only two
+modes, and never revisited when tram and rail landed. **Routes in either were
+invisible in their own view.**
+
+Nothing failed, and the reason is worth keeping: every existing test asks
+`IsoTileRenderer.transitDiagram` directly, and the *renderer* was always
+right. It was the scene's dispatch that had gone stale. `OverlayMode` already
+answers "which line is this view drawing" — this was the fifth copy of that
+question, and `view(for:)` was introduced to kill four of them and missed
+this one.
+
+### A third mark nothing could see
+
+Cars are drawn by `GameScene` and by nothing else, so the city render has
+never shown a single one — the same blind spot as the backdrop and the
+utility badge, now three for three. There is a scene render for traffic now,
+and it is framed **at the zoom the game is played at** rather than the zoom
+that fits the map: a car is about eleven points across at camera 1.0 and half
+that with the whole city in frame, and reviewing vehicles at the second one is
+precisely the mistake `minimumDetailSize` was written about.
+
+One honest limit of that render: `SKAction`s do not advance in a headless
+capture, so a still cannot show a bus part-way along its route — it sits at
+its first stop, which is where it starts. The vehicle is covered by tests
+instead, and judged in the running app.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -1444,8 +1444,10 @@ struct IsoTileRenderer {
     /// of them moving at once, which is the worst possible thing to be drawing
     /// with shape nodes — so they are rasterised like everything else that
     /// repeats, and there are exactly two of them: one per road diagonal.
-    func carSprite(alongX: Bool) -> SKNode {
-        guard let rendered = textures.car(alongX: alongX) else { return SKNode() }
+    func carSprite(_ vehicle: IsoTextureCache.Vehicle = .car,
+                   alongX: Bool, braking: Bool = false) -> SKNode {
+        guard let rendered = textures.car(vehicle, alongX: alongX, braking: braking)
+        else { return SKNode() }
         let sprite = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         sprite.position = rendered.offset
         return sprite

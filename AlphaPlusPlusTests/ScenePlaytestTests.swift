@@ -183,6 +183,60 @@ final class ScenePlaytestTests: XCTestCase {
         if let url { print("⚡️ Utility warnings: \(url.path)") }
     }
 
+    /// **What is on the streets, and what is running the lines.**
+    ///
+    /// Traffic is drawn by `GameScene` and by nothing else, so — like the
+    /// backdrop and the utility badge before it — the city render has never
+    /// shown a single car. That is now three separate marks this project has
+    /// shipped with no picture of them anywhere, all for the same reason.
+    ///
+    /// Two frames: Normal, where the question is whether lorries read apart
+    /// from cars and whether a jam looks like stopping; and the Bus view,
+    /// where the question is whether a vehicle running the line is visible at
+    /// all.
+    func testRenderTrafficAndTransit() {
+        var map = CityMap(width: 22, height: 14)
+        for x in 0 ..< 22 { map[GridPosition(x: x, y: 7)].zone = .road }
+        for x in stride(from: 2, to: 20, by: 6) {
+            for y in 0 ..< 14 { map[GridPosition(x: x, y: y)].zone = .road }
+        }
+        // Homes at one end, factories at the other, so the router actually
+        // sends traffic down the middle and the congestion is real rather
+        // than a number typed into the fixture.
+        for origin in [GridPosition(x: 3, y: 2), GridPosition(x: 3, y: 10)] {
+            map.placeBuilding(zone: .residential, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 5 }
+        }
+        for origin in [GridPosition(x: 15, y: 2), GridPosition(x: 15, y: 10)] {
+            map.placeBuilding(zone: .industrial, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 5 }
+        }
+        for x in [8, 14] { map.placeBuilding(zone: .publicTransit, origin: GridPosition(x: x, y: 6)) }
+        map.transit.add(mode: .bus,
+                        stops: [GridPosition(x: 8, y: 6), GridPosition(x: 14, y: 6)])
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        let game = ScenePlaytest(map: map)
+        game.play()
+        // **At the zoom the game is played at, not the zoom that fits the
+        // map.** A car is about eleven points across at camera 1.0 and half
+        // that with the whole city in frame — reviewing vehicles at the
+        // second one is the mistake `minimumDetailSize` was written about,
+        // where art was judged at a size the game never shows.
+        game.scene.camera?.setScale(1.0)
+        game.scene.camera?.position = game.scene.tileNodesForTesting[
+            GridPosition(x: 9, y: 7)
+        ]?.position ?? .zero
+        game.frame()
+        game.capture("normal — cars, lorries, and a jam")
+        game.look(at: .bus)
+        game.frame()
+        game.capture("the bus view — something running the line")
+        let url = game.writeFilmstrip(named: "traffic")
+        XCTAssertNotNil(url)
+        if let url { print("🚗 Traffic: \(url.path)") }
+    }
+
     // MARK: - The three, replayed
 
     /// **"You can't put a pipe under a building."** Drag a run straight

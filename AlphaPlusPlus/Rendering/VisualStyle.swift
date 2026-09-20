@@ -75,6 +75,31 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// How hard the frame blooms, and what counts as bright enough to.
+    ///
+    /// **Zero for `classic`, which is the point of having it here.** Bloom is
+    /// the first thing in this project the GPU actually does, and whether a
+    /// lit frame is better than a baked one is a judgement, not a
+    /// measurement — so it goes on the same switch the value ladder did, and
+    /// can be turned off and looked at.
+    ///
+    /// The threshold sits high on purpose: below it this stops being a bloom
+    /// and becomes a blur, and a blurred city is a smeared one. Only the
+    /// windows, signage, lane lines and fire are meant to cross it.
+    var bloomStrength: Double {
+        switch self {
+        case .classic: return 0
+        case .cinematic: return 0.55
+        }
+    }
+
+    var bloomThreshold: Double {
+        switch self {
+        case .classic: return 1
+        case .cinematic: return 0.62
+        }
+    }
+
     /// How hard a building's neon burns, by growth tier.
     ///
     /// **The contrast is bought at the bottom, not the top**, and that is a

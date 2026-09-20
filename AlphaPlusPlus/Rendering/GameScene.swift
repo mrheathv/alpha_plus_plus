@@ -389,7 +389,7 @@ final class GameScene: SKScene {
     /// So the rule is by name: things the simulation is driving stop, things
     /// answering the player do not.
     private static let animatedBySimulation: Set<String> = [
-        trafficCarNodeName, IsoTileRenderer.fireNodeName,
+        trafficCarNodeName, transitVehicleNodeName, IsoTileRenderer.fireNodeName,
         // A lot's light breathing is the city being inhabited, so it stops
         // when the city does — same side of the line as the traffic, and the
         // opposite side from a placement flash, which answers a *click* and
@@ -423,6 +423,12 @@ final class GameScene: SKScene {
         for node in tileNodes.values {
             applyAnimationPause(to: node)
         }
+        // Transit vehicles hang off `transitDiagramNode`, which is a *sibling*
+        // of `tileLayer` — so the walk above, which only visits tile nodes,
+        // cannot reach them. A bus still running its line around a stopped
+        // city is the same bug as the cars that used to keep driving, one
+        // layer up.
+        applyAnimationPause(to: transitDiagramNode)
     }
 
     /// Whether the tiles were last touched while the city was running — only
@@ -1045,6 +1051,19 @@ final class GameScene: SKScene {
     /// appeared in that render either.
     var backdropNodeForTesting: SKSpriteNode { backdropNode }
 
+    /// The transit diagram and what is running on it, for the tests that the
+    /// lines are drawn at all and that something moves along them.
+    var transitDiagramForTesting: SKNode { transitDiagramNode }
+
+    var transitVehicleCountForTesting: Int {
+        transitDiagramNode.children.filter { $0.name == Self.transitVehicleNodeName }.count
+    }
+
+    var transitVehiclesArePausedForTesting: Bool {
+        let vehicles = transitDiagramNode.children.filter { $0.name == Self.transitVehicleNodeName }
+        return !vehicles.isEmpty && vehicles.allSatisfy(\.isPaused)
+    }
+
     /// The placement cursor, for the tests about what it says.
     var placementPreviewForTesting: SKShapeNode { placementPreviewNode }
     var tileLayerChildCountForTesting: Int { tileLayer.children.count }
@@ -1071,6 +1090,10 @@ final class GameScene: SKScene {
     func restyle() {
         tileRenderer.textures.purge()
         backgroundColor = RenderPalette.background
+        // Bloom lives in the shader rather than in a texture, so it is the
+        // one part of a style change that a purge-and-rebuild would *not*
+        // pick up on its own.
+        if let shader = retroEffectLayer.shader { RetroShader.applyStyle(shader) }
         rebuildEntireGrid()
         refreshAll()
     }
@@ -1578,17 +1601,74 @@ final class GameScene: SKScene {
 
     private func syncTransitDiagram() {
         transitDiagramNode.removeAllChildren()
-        let mode: TransitRoute.Mode
-        switch controller.overlayMode {
-        case .bus: mode = .bus
-        case .subway: mode = .subway
-        default: return
-        }
+        // **`routeMode`, not a second switch.** This was a `case .bus` /
+        // `case .subway` with a `default: return`, written when those were
+        // the only two lines — so tram and rail routes were never drawn in
+        // their own views at all. Nothing failed: every test asks
+        // `IsoTileRenderer.transitDiagram` directly, and the renderer was
+        // always right; it was the scene's dispatch that had gone stale.
+        //
+        // `OverlayMode` already answers "which line is this view drawing",
+        // and this was the fifth copy of that question — `view(for:)` was
+        // introduced to kill four of them and missed this one.
+        guard let mode = controller.overlayMode.routeMode else { return }
         guard let diagram = tileRenderer.transitDiagram(
             for: mode, in: map, drawing: controller.routeDraft
         ) else { return }
         transitDiagramNode.addChild(diagram)
+        runVehicles(for: mode)
     }
+
+    /// **Something actually running the line.**
+    ///
+    /// The transit module has four modes, routes, ridership and capacity, and
+    /// until now *nothing ever moved along a line* — the lines were a
+    /// diagram, and the only evidence a route carried anyone was a number in
+    /// a panel. A vehicle travelling it is the one piece of feedback that
+    /// says the thing you drew is working.
+    ///
+    /// **Only in the route's own view**, and that is honest rather than
+    /// timid: a route here is schematic, a straight run between stations
+    /// rather than a path along streets (see `TransitRoute`). A bus cutting
+    /// diagonally across blocks would be a lie in Normal view; over the
+    /// diagram it is exactly what the diagram means.
+    private func runVehicles(for mode: TransitRoute.Mode) {
+        for route in map.transit.routes(mode: mode) {
+            let stops = Transit.workingStops(of: route, in: map)
+            guard stops.count >= 2 else { continue }
+
+            let points = stops.map {
+                projection.centerPoint(ofFootprintOrigin: $0, size: map[$0].zone.footprintSize)
+            }
+            let path = CGMutablePath()
+            path.addLines(between: points)
+            let back = CGMutablePath()
+            back.addLines(between: points.reversed())
+
+            // Paced off the mode's own `minutesPerTile`, so a subway visibly
+            // outruns a bus over the same stations — the same constant the
+            // router weighs the journey with, rather than a second number
+            // that could disagree with it.
+            let tiles = zip(stops, stops.dropFirst()).reduce(0.0) { total, pair in
+                total + Double(abs(pair.1.x - pair.0.x) + abs(pair.1.y - pair.0.y))
+            }
+            let duration = max(2.0, tiles * mode.minutesPerTile * 0.55)
+
+            let vehicle = tileRenderer.carSprite(.transit(mode), alongX: true)
+            vehicle.name = Self.transitVehicleNodeName
+            vehicle.zPosition = 1_200
+            vehicle.run(.repeatForever(.sequence([
+                .follow(path, asOffset: false, orientToPath: false, duration: duration),
+                // Back the other way rather than snapping to the start: a
+                // line is a there-and-back service, not a loop.
+                .follow(back, asOffset: false, orientToPath: false, duration: duration),
+            ])))
+            vehicle.isPaused = !controller.isRunning
+            transitDiagramNode.addChild(vehicle)
+        }
+    }
+
+    private static let transitVehicleNodeName = "transitVehicle"
 
     // MARK: - Traffic animation
 
@@ -1678,6 +1758,14 @@ final class GameScene: SKScene {
     /// whose congestion changed because a neighboring building was
     /// bulldozed (not the road itself) won't catch up until the next
     /// simulation tick's `refreshAll()` — a one-tick lag, not incorrect data.
+    /// Does this road run alongside industry? What decides whether its
+    /// traffic is lorries or cars.
+    private func servesIndustry(at position: GridPosition) -> Bool {
+        position.orthogonalNeighbors().contains {
+            map.contains($0) && map[$0].zone == .industrial
+        }
+    }
+
     private func syncTrafficAnimation(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let existingCars = node.children.filter { $0.name == Self.trafficCarNodeName }
@@ -1748,7 +1836,21 @@ final class GameScene: SKScene {
             // pointing down one of two diagonals.
             let carSize = CGSize(width: max(6, projection.tileWidth * 0.26),
                                  height: max(4, projection.tileWidth * 0.16))
-            let car = tileRenderer.carSprite(alongX: horizontal)
+            // **What is on this street depends on what is beside it.** A road
+            // running past a factory carries lorries; one through a
+            // neighbourhood does not. Seeded from the tile so a street keeps
+            // its own mix rather than reshuffling on every refresh, and mixed
+            // with the car's index so three vehicles on one tile are not
+            // three of the same thing.
+            var random = BuildingRandom(seed: position, salt: 400 + index)
+            let freight = servesIndustry(at: position) ? 0.55 : 0.12
+            let vehicle: IsoTextureCache.Vehicle = random.chance(freight) ? .lorry : .car
+            // Braking above two thirds congestion, which is exactly where
+            // `Traffic.carCount` puts its third car — so the street gains a
+            // vehicle and turns red at the same moment rather than passing
+            // through a state that says neither.
+            let car = tileRenderer.carSprite(vehicle, alongX: horizontal,
+                                             braking: congestion >= 0.67)
             car.name = Self.trafficCarNodeName
             car.zPosition = 2
             car.addChild(makeSpeedTrail(

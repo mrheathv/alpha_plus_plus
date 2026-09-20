@@ -81,6 +81,12 @@ enum RenderPalette {
     /// The parapet along a bridge deck — cool and pale, a structural mark
     /// rather than a neon one, so a crossing reads as engineering standing in
     /// the water rather than as another lit street.
+    /// A tail light under braking. Hotter and redder than the running lamp,
+    /// because a jam has to look like *stopping* — congestion already changes
+    /// how many cars there are and how slowly they cross, and neither of
+    /// those reads as a brake.
+    static let brakeLight = SKColor(srgbRed: 1.0, green: 0.14, blue: 0.20, alpha: 1.0)
+
     static let bridgeDeck = SKColor(srgbRed: 0.62, green: 0.72, blue: 0.85, alpha: 0.85)
 
     static let unclaimedGround = SKColor(srgbRed: 0.068, green: 0.038, blue: 0.142, alpha: 1.0)
