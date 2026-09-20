@@ -487,12 +487,27 @@ final class IsoTextureCache {
         /// from across the map: this is the only thing on screen that proves
         /// a route you drew is carrying anybody.
         case transit(TransitRoute.Mode)
+        /// A ship at the dock. By a distance the largest thing that moves on
+        /// this map, which is the point: a seaport was the only building in
+        /// the game whose entire purpose was invisible once it was built, and
+        /// a hull long enough to read from across the map is what says the
+        /// quay is trading.
+        case ship
+        /// An airliner on the runway. **Drawn moving, having been cut as a
+        /// static mark**: standing still at three tiles across, a fuselage, a
+        /// wing and a fin merged into one lump that read as a crate. Motion
+        /// is a different channel from shape — a shape sliding down a lit
+        /// centreline is an aircraft because of where it is and what it is
+        /// doing, not because its silhouette resolves.
+        case aircraft
 
         var length: CGFloat {
             switch self {
             case .car: return 0.34
             case .lorry: return 0.52
             case .transit: return 0.62
+            case .ship: return 1.9
+            case .aircraft: return 0.66
             }
         }
 
@@ -501,6 +516,21 @@ final class IsoTextureCache {
             case .car: return 0.15
             case .lorry: return 0.24
             case .transit: return 0.22
+            case .ship: return 0.3
+            case .aircraft: return 0.17
+            }
+        }
+
+        /// How wide across the beam. A ship is the one vehicle here that is
+        /// not roughly a lane wide — a hull as narrow as a bus would read as
+        /// a very long tram that had fallen in the water.
+        var beam: CGFloat {
+            switch self {
+            case .ship: return 0.62
+            // Wings. The one proportion that separates an aircraft from a bus
+            // once both are a few points across.
+            case .aircraft: return 0.5
+            default: return 0.2
             }
         }
     }
@@ -512,9 +542,11 @@ final class IsoTextureCache {
         case .car: zone = .road
         case .lorry: zone = .industrial
         case .transit(let mode): zone = mode.stationZone
+        case .ship: zone = .seaport
+        case .aircraft: zone = .airport
         }
         return rendered(Key(kind: .car, zone: zone, variant: variant)) {
-            let length = vehicle.length, width: CGFloat = 0.2, height = vehicle.height
+            let length = vehicle.length, width = vehicle.beam, height = vehicle.height
             let box = alongX
                 ? Box(x: -length / 2, y: -width / 2, z: 0, width: length, depth: width, height: height)
                 : Box(x: -width / 2, y: -length / 2, z: 0, width: width, depth: length, height: height)
@@ -522,6 +554,9 @@ final class IsoTextureCache {
             let body: SKColor
             switch vehicle {
             case .car, .lorry: body = RenderPalette.trafficCarBody
+            // A hull is dark like everything else that moves, lit by what it
+            // carries rather than by being painted bright.
+            case .ship, .aircraft: body = RenderPalette.trafficCarBody
             // A bus is the colour of the line it runs, which is what makes it
             // legible as *that route's* bus rather than as a long car.
             case .transit(let mode): body = RenderPalette.fullColor(for: mode.stationZone)

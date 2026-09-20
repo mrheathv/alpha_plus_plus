@@ -117,6 +117,90 @@ final class ScenePlaytestTests: XCTestCase {
         }
     }
 
+    /// **A ship, for the one building whose whole purpose was invisible.**
+    ///
+    /// A seaport is built, and then it sits there. Everything it does happens
+    /// in `Demand`, which is a number in a panel — nothing on the map ever
+    /// said the quay was trading. A hull moving in the channel does, and it is
+    /// the largest moving thing in the game precisely so it reads from across
+    /// the map.
+    ///
+    /// It also answers the aircraft this project cut from the airport: a
+    /// static plane merged into a crate at three tiles across, but **motion is
+    /// a different channel from shape** — a hull tracking across open water
+    /// has nothing it can be confused with.
+    func testAShipSailsForAWorkingDock() {
+        var map = CityMap(width: 22, height: 16)
+        for x in 0 ..< 22 { map[GridPosition(x: x, y: 6)].zone = .road }
+        // A sea along the bottom, reaching the edge of the map so there is
+        // somewhere for a ship to come from.
+        for y in 10 ..< 16 {
+            for x in 0 ..< 22 { map[GridPosition(x: x, y: y)].isWater = true }
+        }
+        map.placeBuilding(zone: .seaport, origin: GridPosition(x: 8, y: 7))
+
+        let lane = ShippingLane.path(in: map)
+        XCTAssertFalse(lane.isEmpty, "a dock on a sea that reaches the edge has no route out")
+        XCTAssertTrue(lane.allSatisfy { map[$0].isWater }, "the lane runs over dry land")
+
+        let game = ScenePlaytest(map: map)
+        game.play()
+        game.frame()
+        XCTAssertEqual(game.scene.pathVehicleCountForTesting, 1, "the dock got no ship")
+
+        let before = game.scene.pathVehiclePositionsForTesting
+        for _ in 0 ..< 40 { game.frame() }
+        XCTAssertNotEqual(game.scene.pathVehiclePositionsForTesting, before, "the ship never moved")
+
+        game.scene.camera?.setScale(1.6)
+        game.scene.camera?.position = game.scene.tileNodesForTesting[
+            GridPosition(x: 9, y: 9)
+        ]?.position ?? .zero
+        game.frame()
+        game.capture("a working dock, and something using it")
+
+        // And the airport, which had the same problem: everything it does is
+        // a number in a panel.
+        var air = CityMap(width: 22, height: 16)
+        for x in 0 ..< 22 { air[GridPosition(x: x, y: 12)].zone = .road }
+        air.placeBuilding(zone: .airport, origin: GridPosition(x: 8, y: 8))
+        let field = ScenePlaytest(map: air)
+        field.play()
+        field.frame()
+        field.scene.camera?.setScale(0.9)
+        field.scene.camera?.position = field.scene.tileNodesForTesting[
+            GridPosition(x: 9, y: 9)
+        ]?.position ?? .zero
+        field.frame()
+        field.capture("the airport — an aircraft on the centreline")
+        if let url = field.writeFilmstrip(named: "airfield") { print("✈️  Airfield: \(url.path)") }
+
+        if let url = game.writeFilmstrip(named: "ship") { print("🚢 Ship: \(url.path)") }
+    }
+
+    /// No dock, no ship. A vessel gliding past an empty coastline would be
+    /// scenery, and nothing else on this map is scenery — every mark says
+    /// something about the city.
+    func testAnEmptyCoastGetsNoShip() {
+        var map = CityMap(width: 22, height: 16)
+        for y in 10 ..< 16 {
+            for x in 0 ..< 22 { map[GridPosition(x: x, y: y)].isWater = true }
+        }
+        XCTAssertTrue(ShippingLane.path(in: map).isEmpty)
+    }
+
+    /// A dock on a pond has nowhere to sail, and gets nothing — the same
+    /// honesty a severed tram line gets.
+    func testADockOnAPondHasNoLane() {
+        var map = CityMap(width: 22, height: 16)
+        for y in 8 ..< 11 {
+            for x in 8 ..< 12 { map[GridPosition(x: x, y: y)].isWater = true }
+        }
+        map.placeBuilding(zone: .seaport, origin: GridPosition(x: 8, y: 5))
+        XCTAssertTrue(ShippingLane.path(in: map).isEmpty,
+                      "a landlocked pond reported a route to open sea")
+    }
+
     /// **A tram runs on the streets, in Normal view.**
     ///
     /// Every other transit vehicle can only be drawn over its own diagram,
@@ -138,21 +222,21 @@ final class ScenePlaytestTests: XCTestCase {
         let game = ScenePlaytest(map: map)
         game.play()
         game.frame()
-        XCTAssertEqual(game.scene.tramCountForTesting, 1,
+        XCTAssertEqual(game.scene.pathVehicleCountForTesting, 1,
                        "a drawn tram line put no vehicle on the map")
 
-        let before = game.scene.tramPositionsForTesting
+        let before = game.scene.pathVehiclePositionsForTesting
         for _ in 0 ..< 30 { game.frame() }
-        XCTAssertNotEqual(game.scene.tramPositionsForTesting, before, "the tram never moved")
+        XCTAssertNotEqual(game.scene.pathVehiclePositionsForTesting, before, "the tram never moved")
 
         // And it stops with the city. This rides on `update`'s own pause
         // guard rather than on `animatedBySimulation`, which is the whole
         // reason it is driven per frame instead of by an `SKAction` — the
         // shape that let cars keep driving around a stopped map.
         game.pause()
-        let parked = game.scene.tramPositionsForTesting
+        let parked = game.scene.pathVehiclePositionsForTesting
         for _ in 0 ..< 30 { game.frame() }
-        XCTAssertEqual(game.scene.tramPositionsForTesting, parked,
+        XCTAssertEqual(game.scene.pathVehiclePositionsForTesting, parked,
                        "the tram kept running around a paused city")
     }
 

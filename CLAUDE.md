@@ -5129,6 +5129,56 @@ What is *not* done is whether cars read well at all now. That is a judgement
 and needs eyes on a moving map; the render exists so the question can be
 asked from a picture rather than a memory.
 
+### G8 (done): the ports do something
+
+A seaport and an airport were built and then sat there. Everything they do
+happens in `Demand`, which is a number in a panel — **nothing on the map ever
+said the quay was trading**, which made them the only buildings in the game
+whose entire purpose was invisible once placed.
+
+`ShippingLane.path(in:)` is a breadth-first search over water from the tile a
+quay touches out to the edge of the map, the same shape as `Transit.tramPath`
+over roads. A hull travels it, and it is by a distance the largest moving
+thing in the game so that it reads from across the map.
+
+**A ship only sails for a port that works**, and an empty coastline gets
+nothing. A vessel gliding past a shore with no dock on it would be *scenery*,
+and nothing else on this map is scenery — every mark says something about the
+city. A dock on a landlocked pond gets nothing either, which is the same
+honesty a severed tram line already gets: drawing a ship sailing into a dead
+end would claim a connection the map does not have.
+
+The tram runner generalised into `PathVehicle` rather than being copied. A
+tram and a ship are the same problem — a vehicle whose route is real ground
+rather than a schematic, so it has to be sorted against the city it moves
+through — and a third copy of that loop was the wrong answer.
+
+#### And the aircraft came back, because motion is not shape
+
+`ServiceMassing.airport` cut its static aircraft: at three tiles across a
+fuselage, a wing and a fin merged into one lump that read as a crate, and
+scaled up enough to separate they stopped being a plane and became a hangar.
+
+The same mark **moving** is a different proposition, for the reason the fire's
+embers already established — a moving mark reads at a size a still one cannot.
+A shape sliding down a lit centreline is an aircraft because of where it is
+and what it is doing, not because its silhouette resolves.
+
+It is a child of the airport's own node rather than a `PathVehicle`, because
+it never leaves the lot: its depth key is the building's, so there is nothing
+to re-sort per frame and an `SKAction` is the cheaper tool.
+
+**It is invisible except while moving**, and that is the whole basis for
+drawing it. Parked at the threshold between departures it is a grey lump on
+the apron — which is precisely why the static version was cut — so it fades in
+as it accelerates and out as it goes. Without that it would be a lump for half
+of every cycle, and half of every screenshot.
+
+One honest limit: `SKAction`s do not advance in a headless capture, so **no
+render in this project can show the aircraft mid-roll or the ship under way**.
+Both are covered by tests for existence and movement, and judged in the
+running app.
+
 ### G9 and G10 (done): rain, and the wet street
 
 `Weather` is a clock, not a dice roll, for the three reasons `RegionalEconomy`

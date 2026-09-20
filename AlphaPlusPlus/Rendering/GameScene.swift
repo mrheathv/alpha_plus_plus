@@ -392,7 +392,7 @@ final class GameScene: SKScene {
     /// So the rule is by name: things the simulation is driving stop, things
     /// answering the player do not.
     private static let animatedBySimulation: Set<String> = [
-        trafficCarNodeName, transitVehicleNodeName, IsoTileRenderer.fireNodeName, rainNodeName,
+        trafficCarNodeName, transitVehicleNodeName, IsoTileRenderer.fireNodeName, rainNodeName, IsoTileRenderer.aircraftNodeName,
         // A lot's light breathing is the city being inhabited, so it stops
         // when the city does — same side of the line as the traffic, and the
         // opposite side from a placement flash, which answers a *click* and
@@ -471,7 +471,7 @@ final class GameScene: SKScene {
             lastTickTime = nil
             return
         }
-        advanceTrams(by: frameDelta)
+        advancePathVehicles(by: frameDelta)
 
         guard let lastTickTime else {
             // Just resumed (or this is the first frame ever): start the
@@ -1106,9 +1106,10 @@ final class GameScene: SKScene {
     /// lines are drawn at all and that something moves along them.
     var transitDiagramForTesting: SKNode { transitDiagramNode }
 
-    /// The trams running on real track, for the tests about whether they do.
-    var tramCountForTesting: Int { tramRuns.count }
-    var tramPositionsForTesting: [CGPoint] { tramRuns.map(\.holder.position) }
+    /// The things travelling a real path across the map — trams on their
+    /// rails, ships in their channel — for the tests about whether they do.
+    var pathVehicleCountForTesting: Int { pathVehicles.count }
+    var pathVehiclePositionsForTesting: [CGPoint] { pathVehicles.map(\.holder.position) }
 
     var transitVehicleCountForTesting: Int {
         transitDiagramNode.children.filter { $0.name == Self.transitVehicleNodeName }.count
@@ -1132,8 +1133,8 @@ final class GameScene: SKScene {
         // to be cleared too, or `syncTramRuns` decides nothing has changed and
         // they never come back. Exactly the stale-cache shape an overlay has
         // to invalidate the keys of what it hides for.
-        tramRuns = []
-        tramRunsKey = nil
+        pathVehicles = []
+        pathVehiclesKey = nil
         tileLayer.removeAllChildren()
         tileNodes.removeAll()
         buildTileNodes()
@@ -1629,7 +1630,7 @@ final class GameScene: SKScene {
 
     func refreshAll() {
         syncOverlayGeneration()
-        syncTramRuns()
+        syncPathVehicles()
         syncWeather()
         // **Every overlay that reads distances, not just land value.** This
         // said `== .landValue` when land value was the only one, and by the
@@ -1847,9 +1848,14 @@ final class GameScene: SKScene {
     var rainIsFallingForTesting: Bool { rainNode != nil }
     var wetnessForTesting: CGFloat { wetnessDrawn }
 
-    // MARK: - Trams, on the rails they actually laid
+    // MARK: - Things that travel a path across the map
 
-    /// A tram and where it has got to along its own track.
+    /// Something that travels a path of tiles, and where it has got to.
+    ///
+    /// One mechanism for both the tram on its rails and the ship in its
+    /// channel, because they are the same problem: a vehicle whose route is
+    /// *real ground* rather than a schematic between stations, so it has to
+    /// be sorted against the city it moves through.
     ///
     /// **Driven per frame rather than by an `SKAction`**, which buys two
     /// things the diagram's vehicles do without. Depth: a tram crosses tiles,
@@ -1860,7 +1866,7 @@ final class GameScene: SKScene {
     /// city stops its trams for free, with none of the `animatedBySimulation`
     /// bookkeeping an `SKAction` needs to avoid the "cars kept driving around
     /// a paused map" bug.
-    private struct TramRun {
+    private struct PathVehicle {
         let holder: SKNode
         let alongX: SKNode
         let alongY: SKNode
@@ -1874,8 +1880,8 @@ final class GameScene: SKScene {
         var outbound: Bool
     }
 
-    private var tramRuns: [TramRun] = []
-    private var tramRunsKey: String?
+    private var pathVehicles: [PathVehicle] = []
+    private var pathVehiclesKey: String?
 
     /// Rebuild the trams when the lines or the track have changed, and not
     /// otherwise.
@@ -1886,26 +1892,37 @@ final class GameScene: SKScene {
     /// `map.tramTracks` is already cached on `CityMap` for
     /// `Traffic.congestion`, so its count costs nothing and catches a street
     /// being cut or laid under an existing line.
-    private func syncTramRuns() {
+    private func syncPathVehicles() {
         let routes = map.transit.routes(mode: .tram)
+        let lane = ShippingLane.path(in: map)
         let key = routes.map { $0.stops.map { "\($0.x),\($0.y)" }.joined(separator: ";") }
-            .joined(separator: "|") + "#\(map.tramTracks.count)"
-        guard key != tramRunsKey else { return }
-        tramRunsKey = key
+            .joined(separator: "|")
+            + "#\(map.tramTracks.count)"
+            + "~\(lane.count)/\(lane.first.map { "\($0.x),\($0.y)" } ?? "-")"
+        guard key != pathVehiclesKey else { return }
+        pathVehiclesKey = key
 
-        for run in tramRuns { run.holder.removeFromParent() }
-        tramRuns = []
+        for run in pathVehicles { run.holder.removeFromParent() }
+        pathVehicles = []
 
-        for route in routes {
-            let tiles = Transit.tramPath(of: route, in: map)
+        add(.transit(.tram), along: routes.map { Transit.tramPath(of: $0, in: map) },
+            tilesPerSecond: 1 / CGFloat(TransitRoute.Mode.tram.minutesPerTile * 0.55))
+        // A ship is slow. Speed is most of what tells a hull from a tram at a
+        // glance once both are small on screen.
+        add(.ship, along: [lane], tilesPerSecond: 0.55)
+    }
+
+    private func add(_ vehicle: IsoTextureCache.Vehicle,
+                     along paths: [[GridPosition]], tilesPerSecond: CGFloat) {
+        for tiles in paths {
             // Two tiles is the shortest thing that has a direction. A severed
             // line returns nothing, and drawing a tram gliding across the gap
             // would claim a connection the simulation does not have.
             guard tiles.count >= 2 else { continue }
 
             let holder = SKNode()
-            let alongX = tileRenderer.carSprite(.transit(.tram), alongX: true)
-            let alongY = tileRenderer.carSprite(.transit(.tram), alongX: false)
+            let alongX = tileRenderer.carSprite(vehicle, alongX: true)
+            let alongY = tileRenderer.carSprite(vehicle, alongX: false)
             alongY.isHidden = true
             holder.addChild(alongX)
             holder.addChild(alongY)
@@ -1915,18 +1932,17 @@ final class GameScene: SKScene {
             // vehicle that runs on the map instead of over a schematic.
             tileLayer.addChild(holder)
 
-            tramRuns.append(TramRun(
+            pathVehicles.append(PathVehicle(
                 holder: holder, alongX: alongX, alongY: alongY, tiles: tiles,
-                speed: 1 / CGFloat(TransitRoute.Mode.tram.minutesPerTile * 0.55),
-                travelled: 0, outbound: true
+                speed: tilesPerSecond, travelled: 0, outbound: true
             ))
         }
     }
 
-    private func advanceTrams(by delta: TimeInterval) {
-        guard !tramRuns.isEmpty, delta > 0 else { return }
-        for index in tramRuns.indices {
-            var run = tramRuns[index]
+    private func advancePathVehicles(by delta: TimeInterval) {
+        guard !pathVehicles.isEmpty, delta > 0 else { return }
+        for index in pathVehicles.indices {
+            var run = pathVehicles[index]
             let last = CGFloat(run.tiles.count - 1)
 
             run.travelled += run.speed * CGFloat(delta) * (run.outbound ? 1 : -1)
@@ -1951,7 +1967,7 @@ final class GameScene: SKScene {
             run.alongX.isHidden = !alongXNow
             run.alongY.isHidden = alongXNow
 
-            tramRuns[index] = run
+            pathVehicles[index] = run
         }
     }
 

@@ -27,6 +27,7 @@ struct IsoTileRenderer {
     /// sprite here" no longer answers that question.
     static let buildingNodeName = "isoBuilding"
     static let reflectionNodeName = "isoReflection"
+    static let aircraftNodeName = "isoAircraft"
     private static let laneNodeName = "isoLane"
     static let contactNodeName = "isoContact"
     static let smokeNodeName = "isoSmoke"
@@ -97,6 +98,7 @@ struct IsoTileRenderer {
         syncZoneMarker(on: node, tile: tile)
         syncReflection(on: node, tile: tile, reflecting: reflecting)
         syncBuilding(on: node, tile: tile)
+        syncAircraft(on: node, tile: tile)
     }
 
     static func nodeName(for position: GridPosition) -> String { "iso-\(position.x)-\(position.y)" }
@@ -350,6 +352,57 @@ struct IsoTileRenderer {
         sprite.name = Self.reflectionNodeName
         // Under the building and over the ground it is cast on.
         sprite.zPosition = 0.25
+        node.addChild(sprite)
+    }
+
+    /// An airliner running the length of the runway.
+    ///
+    /// A child of the airport's own node rather than a path vehicle, because
+    /// it never leaves the lot: its depth key is the building's, so there is
+    /// nothing to re-sort per frame and an `SKAction` is the cheaper tool. It
+    /// joins `animatedBySimulation`, so it stops when the city does — an
+    /// aircraft taking off over a paused map is the "cars kept driving" bug
+    /// with wings.
+    ///
+    /// The geometry matches `ServiceMassing.airport`: the runway is a deck
+    /// across the front of the lot with a dashed centreline of lit slabs, and
+    /// the aircraft runs down the middle of it.
+    private func syncAircraft(on node: SKNode, tile: Tile) {
+        let key = tile.zone == .airport ? "on" : "off"
+        guard !isUpToDate(node, Self.aircraftNodeName, key) else { return }
+        markUpToDate(node, Self.aircraftNodeName, key)
+        node.childNode(withName: Self.aircraftNodeName)?.removeFromParent()
+        guard tile.zone == .airport else { return }
+
+        let sprite = carSprite(.aircraft, alongX: true)
+        sprite.name = Self.aircraftNodeName
+        sprite.zPosition = 0.35
+
+        let span = CGFloat(ZoneType.airport.footprintSize) - 0.16
+        let lane = 0.08 + span * 0.13
+        let deck: CGFloat = 0.1
+        let start = projection.project(0.2, lane, deck)
+        let end = projection.project(span, lane, deck)
+        sprite.position = start
+        // **Invisible except while moving**, which is the whole basis for
+        // drawing it at all. Standing still it is a grey lump on the apron —
+        // that is exactly why the static aircraft was cut from
+        // `ServiceMassing.airport` — and it only becomes an aircraft once it
+        // is running down a lit centreline. Parked at the threshold between
+        // departures it would be a lump for half of every cycle, and half of
+        // every screenshot.
+        sprite.alpha = 0
+        // A take-off run, not a shuttle: it accelerates away, and the next one
+        // begins at the threshold rather than the same aircraft reversing back
+        // down the runway like a tram.
+        sprite.run(.repeatForever(.sequence([
+            .wait(forDuration: 2.5),
+            .group([.move(to: end, duration: 2.2),
+                    .sequence([.fadeIn(withDuration: 0.3),
+                               .wait(forDuration: 1.4),
+                               .fadeOut(withDuration: 0.5)])]),
+            .move(to: start, duration: 0),
+        ])))
         node.addChild(sprite)
     }
 
