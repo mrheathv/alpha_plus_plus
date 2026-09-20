@@ -139,6 +139,17 @@ enum PlaytestHarness {
         /// Map dimension; the city is always square.
         var size: Int = MapSize.large.dimension
 
+        /// The shape of the land under the city.
+        ///
+        /// **`.flat` by default, and that is the same measurement decision
+        /// `regionalWeather` documents below.** Water removes lots, moves land
+        /// value and forces roads onto bridges, so a scenario that changed it
+        /// silently would stop being a measurement about economics. Set it
+        /// where the terrain *is* the subject — a seaport cannot exist without
+        /// it, since `RegionalTrade.canBerth` needs a shore.
+        var terrain: Terrain = .flat
+        var terrainSeed: UInt64 = 7
+
         /// A road runs along every row where `y % roadSpacing == 0`, and
         /// 2×2 lots fill the rows between. At the default 3 that is one road
         /// row per two rows of buildings, so every lot touches a road — the
@@ -247,6 +258,11 @@ enum PlaytestHarness {
     static func buildCity(_ spec: CitySpec) -> CityMap {
         var map = CityMap(width: spec.size, height: spec.size)
         if !spec.regionalWeather { map.regionalEconomy = .calm }
+        // Before anything is placed: `placeBuilding` carries `isWater`
+        // forward, so a road laid across a river becomes a bridge exactly as
+        // it would under the player's hands, but a lot dropped in the water
+        // would be a building standing in it.
+        TerrainGenerator.apply(spec.terrain, to: &map, seed: spec.terrainSeed)
 
         // Road rows first, so lots can be placed against them.
         for y in stride(from: 0, to: spec.size, by: spec.roadSpacing) {
@@ -298,7 +314,11 @@ enum PlaytestHarness {
             var x = 0
             for _ in 0 ..< plantCount {
                 guard x + 3 <= spec.size else { break }
-                map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: x, y: plantStripTop))
+                let origin = GridPosition(x: x, y: plantStripTop)
+                let footprint = map.footprintCells(origin: origin, size: 3)
+                if !footprint.isEmpty, footprint.allSatisfy({ !map[$0].isWater }) {
+                    map.placeBuilding(zone: .powerPlant, origin: origin)
+                }
                 x += 4
             }
         }
@@ -318,6 +338,12 @@ enum PlaytestHarness {
             for x in stride(from: 0, to: spec.size - 1, by: 2) {
                 let origin = GridPosition(x: x, y: y)
                 guard map[origin].zone == .empty else { continue }
+                // Roads bridge water; buildings do not stand in it. Checked
+                // across the whole 2×2 footprint rather than the anchor,
+                // which is the same distinction `RegionalTrade.canBerth`
+                // draws and the one an anchor-only check gets wrong.
+                let footprint = map.footprintCells(origin: origin, size: 2)
+                guard !footprint.isEmpty, footprint.allSatisfy({ !map[$0].isWater }) else { continue }
                 lots.append(origin)
             }
         }
