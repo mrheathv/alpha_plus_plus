@@ -166,6 +166,22 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// How much of itself a building throws back off a wet street.
+    ///
+    /// Zero for `classic` for the same reason bloom is: this is an addition
+    /// to the graded look, and the switch exists so it can be turned off and
+    /// looked at rather than argued about.
+    ///
+    /// Small on purpose. A mirror-bright reflection reads as ice; what wet
+    /// asphalt actually does is return a dim, smeared suggestion of what
+    /// stands on it, and the neon does the rest.
+    var wetReflection: CGFloat {
+        switch self {
+        case .classic: return 0
+        case .cinematic: return 0.34
+        }
+    }
+
     /// How hard a building's neon burns, by growth tier.
     ///
     /// **The contrast is bought at the bottom, not the top**, and that is a

@@ -100,3 +100,73 @@ enum Emitters {
         return node
     }
 }
+
+extension Emitters {
+
+    /// Rain, as a sheet in front of the camera.
+    ///
+    /// **Parented to the camera rather than to the map**, which is the whole
+    /// reason this is affordable: weather covers the *view*, so one emitter
+    /// sized to the viewport does the entire city at any zoom, where one per
+    /// tile would be thousands of nodes to draw the same thing.
+    ///
+    /// It falls very slightly off vertical. Dead-straight rain reads as
+    /// static — a drawn texture rather than weather — and the same prevailing
+    /// lean that makes a row of factory chimneys read as one district under
+    /// one wind does the same job here.
+    ///
+    /// Thin, bright, short-lived streaks rather than droplets: at the zoom
+    /// this game is played at a round drop is a single pixel of noise, and
+    /// `minimumDetailSize`'s argument applies to a particle exactly as it does
+    /// to a window. What reads as rain is the *streak*.
+    static func rain(size: CGSize, intensity: CGFloat) -> SKEmitterNode {
+        let emitter = SKEmitterNode()
+        emitter.particleTexture = streak
+        emitter.particleBirthRate = 1_600 * intensity
+        emitter.particleLifetime = 1.1
+        emitter.particleLifetimeRange = 0.3
+
+        // Born along a line above the view, falling across it.
+        emitter.particlePositionRange = CGVector(dx: size.width * 1.4, dy: 0)
+        emitter.position = CGPoint(x: 0, y: size.height * 0.75)
+        emitter.particleSpeed = size.height * 1.5
+        emitter.particleSpeedRange = size.height * 0.25
+        emitter.emissionAngle = -.pi / 2 + 0.16
+        emitter.emissionAngleRange = 0.02
+
+        emitter.particleAlpha = 0.5 * intensity
+        emitter.particleAlphaRange = 0.12
+        emitter.particleScale = 1.5
+        emitter.particleScaleRange = 0.5
+        // Cool and pale rather than white: it is lit by the city under it,
+        // and the city is magenta and cyan.
+        emitter.particleColor = SKColor(srgbRed: 0.74, green: 0.86, blue: 1.0, alpha: 1)
+        emitter.particleColorBlendFactor = 1
+        emitter.particleBlendMode = .add
+
+        // **Deliberately not advanced here.** Pre-rolling the simulation only
+        // works once the emitter is in the scene graph with its `targetNode`
+        // set — particles are emitted into that node's space, and advancing
+        // before either exists produces a handful of drops in the wrong
+        // coordinate system. The caller does it after adding. The first render
+        // of this came back with about ten visible streaks for a birth rate
+        // that should have put well over a thousand on screen.
+        return emitter
+    }
+
+    /// One raindrop: a soft vertical streak, drawn once and reused by every
+    /// particle.
+    private static let streak: SKTexture = {
+        let size = CGSize(width: 2, height: 22)
+        let renderer = NSImage(size: size, flipped: false) { rect in
+            let gradient = NSGradient(colors: [
+                NSColor(white: 1, alpha: 0),
+                NSColor(white: 1, alpha: 1),
+                NSColor(white: 1, alpha: 0),
+            ])
+            gradient?.draw(in: NSBezierPath(rect: rect), angle: 90)
+            return true
+        }
+        return SKTexture(image: renderer)
+    }()
+}

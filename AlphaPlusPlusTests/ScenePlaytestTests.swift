@@ -481,6 +481,74 @@ extension ScenePlaytestTests {
     ///
     /// The assertions above already say whether the picture agrees. This says
     /// what it looks like, which is the half no assertion can carry.
+    /// **Rain, and the city thrown back off the wet street.**
+    ///
+    /// A dry frame and a wet one of the same city, so the question the render
+    /// has to answer — is the reflection doing anything, and is it doing too
+    /// much — can be asked by comparing rather than remembered between runs.
+    ///
+    /// `Weather` is a pure function of the day, so day 350 is the heaviest
+    /// rain in the first year every single run. That determinism is the whole
+    /// reason it is a clock rather than a dice roll.
+    func testFilmstripOfRain() {
+        var map = startedCity()
+        var index = 0
+        for y in stride(from: 1, to: 15, by: 3) {
+            for x in stride(from: 0, to: 21, by: 3) {
+                let origin = GridPosition(x: x, y: y)
+                guard map.footprintCells(origin: origin, size: 2)
+                    .allSatisfy({ map[$0].zone == .empty }) else { continue }
+                index += 1
+                let zone = [ZoneType.residential, .commercial, .commercial, .industrial][index % 4]
+                map.placeBuilding(zone: zone, origin: origin)
+                // Tall, because a reflection is a statement about height and a
+                // city of two-storey blocks cannot show whether it works.
+                for cell in map.footprintCells(origin: origin, size: 2) {
+                    map[cell].density = 3 + index % 3
+                }
+            }
+        }
+
+        // The city is simply *played* to each day rather than having its clock
+        // set, because `GameController.map` is `private(set)` and that is the
+        // right call — the calendar is the simulation's, not a dial the view
+        // reaches into. Conveniently the first storm of every city lands on
+        // days 2–11 and peaks at 6, so this costs a handful of ticks.
+        // Plumbed and wired, because an unserved city wears a water drop and a
+        // lightning bolt over every building — and the first render of this
+        // was a picture of badges with a city somewhere behind them. A fixture
+        // has to let the thing it is testing be visible.
+        for tile in map.tiles where tile.zone == .road {
+            map[tile.position].hasPipe = true
+            map[tile.position].hasPowerLine = true
+        }
+
+        let game = ScenePlaytest(map: map)
+        // Funding buys *capacity*, not just coverage. Thirty lots at density
+        // three to five draw several times what one tower supplies, so the
+        // first attempt at this had a fully-plumbed city in a city-wide
+        // outage — which looks exactly like no pipes at all.
+        game.controller.setFundingLevel(4, for: .waterTower)
+        game.controller.setFundingLevel(4, for: .powerPlant)
+        game.capture("day 0 — dry")
+
+        game.play()
+        game.tick(6)
+        game.capture("day 6 — the first storm, at its heaviest")
+        XCTAssertTrue(game.scene.rainIsFallingForTesting, "day 6 is a downpour and nothing fell")
+        XCTAssertGreaterThan(game.scene.wetnessForTesting, 0, "the streets never got wet")
+
+        // And it dries up, rather than the city staying shiny forever.
+        game.tick(8)
+        game.capture("day 14 — dried out")
+        XCTAssertFalse(game.scene.rainIsFallingForTesting, "the rain never stopped")
+        XCTAssertEqual(game.scene.wetnessForTesting, 0, "the streets stayed wet after the rain passed")
+
+        if let url = game.writeFilmstrip(named: "rain") {
+            print("🌧  \(url.path)")
+        }
+    }
+
     func testFilmstripOfASession() {
         // A denser city than the scripted sessions use: those are about
         // whether the picture agrees, and this one is about whether I can read

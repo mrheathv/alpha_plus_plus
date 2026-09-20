@@ -27,7 +27,10 @@ final class GameScene: SKScene {
     // MARK: - Rendering
 
     private let projection: Isometric
-    private let tileRenderer: IsoTileRenderer
+    /// `var` rather than `let` because `IsoTileRenderer` is a value type and
+    /// carries the one piece of state the scene drives into it: how wet the
+    /// streets are. See `syncWeather`.
+    private var tileRenderer: IsoTileRenderer
 
     /// All tile sprites live under one parent node rather than directly on the
     /// scene. That gives us a single thing to move, scale, or hide, and keeps
@@ -389,7 +392,7 @@ final class GameScene: SKScene {
     /// So the rule is by name: things the simulation is driving stop, things
     /// answering the player do not.
     private static let animatedBySimulation: Set<String> = [
-        trafficCarNodeName, transitVehicleNodeName, IsoTileRenderer.fireNodeName,
+        trafficCarNodeName, transitVehicleNodeName, IsoTileRenderer.fireNodeName, rainNodeName,
         // A lot's light breathing is the city being inhabited, so it stops
         // when the city does — same side of the line as the traffic, and the
         // opposite side from a placement flash, which answers a *click* and
@@ -675,6 +678,7 @@ final class GameScene: SKScene {
                 controller.bulldoze(at: step)
                 refresh(step)
                 refreshRoadNeighbors(of: step)
+                refreshReflectionNeighbours(of: step)
             }
             lastPaintPosition = position
             return
@@ -700,6 +704,7 @@ final class GameScene: SKScene {
             let outcome = controller.place(at: step)
             refresh(step)
             refreshRoadNeighbors(of: step)
+            refreshReflectionNeighbours(of: step)
             if outcome == .insufficientFunds {
                 flashInsufficientFunds(at: step)
                 // The tool's cost doesn't change mid-stroke, so if this tile
@@ -760,6 +765,7 @@ final class GameScene: SKScene {
             controller.bulldoze(at: step)
             refresh(step)
             refreshRoadNeighbors(of: step)
+            refreshReflectionNeighbours(of: step)
         }
         lastBulldozePosition = position
     }
@@ -793,6 +799,28 @@ final class GameScene: SKScene {
         refresh(position)
         for neighbour in position.orthogonalNeighbors() where map.contains(neighbour) {
             refresh(neighbour)
+        }
+    }
+
+    /// Redraw what the tiles *in front of* `position` reflect.
+    ///
+    /// A reflection is a statement about a neighbour, exactly as a road's lane
+    /// mask is — and this project has already had to learn that once, when a
+    /// freshly dragged conduit run drew every joint as a dead end because
+    /// nothing told the tiles already down that their neighbours had changed.
+    ///
+    /// `refreshRoadNeighbors` is not enough on its own: it only refreshes
+    /// neighbours that are *road*, and a reflection lands on bare ground too.
+    /// Placing a park at (9, 7) left (10, 7) and (9, 8) — its two down-screen
+    /// neighbours, both empty — still reflecting nothing, which is how the
+    /// scene playtest caught this.
+    private func refreshReflectionNeighbours(of position: GridPosition) {
+        // Down-screen is increasing x and increasing y: those are the tiles a
+        // building's reflection can fall on.
+        for ahead in [GridPosition(x: position.x + 1, y: position.y),
+                      GridPosition(x: position.x, y: position.y + 1)]
+        where map.contains(ahead) {
+            refresh(ahead)
         }
     }
 
@@ -1423,7 +1451,7 @@ final class GameScene: SKScene {
         switch controller.overlayMode {
         case .none:
             tileRenderer.restoreFromOverlay(on: node)
-            tileRenderer.update(node, for: tile)
+            tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position))
             tileRenderer.syncConduits(on: node, isPipe: true, segments: [])
             tileRenderer.syncConduits(on: node, isPipe: false, segments: [])
             tileRenderer.syncTramTrack(on: node, present: false, mask: 0)
@@ -1461,7 +1489,7 @@ final class GameScene: SKScene {
                 // on the *view* changing rather than on every tile of every
                 // tick: an unchanged lot costs a dictionary lookup, and a
                 // changed one rebuilds exactly once.
-                tileRenderer.update(node, for: tile)
+                tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position))
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor,
                                      keepingRoads: paint.showsRoads)
@@ -1602,6 +1630,7 @@ final class GameScene: SKScene {
     func refreshAll() {
         syncOverlayGeneration()
         syncTramRuns()
+        syncWeather()
         // **Every overlay that reads distances, not just land value.** This
         // said `== .landValue` when land value was the only one, and by the
         // time Crime, Fire Risk and Problems arrived it was quietly making
@@ -1705,6 +1734,118 @@ final class GameScene: SKScene {
             transitDiagramNode.addChild(vehicle)
         }
     }
+
+    // MARK: - Weather
+
+    private var rainNode: SKEmitterNode?
+    private var wetnessDrawn: CGFloat = -1
+
+    /// Rain, and the wet street it leaves behind.
+    ///
+    /// Both come off `Weather`, which is a pure function of the day the city
+    /// is on — so a filmstrip taken on day 200 is wet every run, and the
+    /// forecast is something a player can read rather than noise that
+    /// re-rolls under them.
+    ///
+    /// The two are deliberately separate. Rain is particles in front of the
+    /// camera and costs one node; wetness is a texture-key on every lot, so
+    /// it changes far less often — `Weather.wetness` is quantised into steps
+    /// precisely so this does not rebuild the city every tick.
+    private func syncWeather() {
+        let day = map.elapsedDays
+        let rainfall = CGFloat(Weather.rainfall(onDay: day))
+        let wet = CGFloat(Weather.wetness(onDay: day))
+
+        if wet != wetnessDrawn {
+            wetnessDrawn = wet
+            tileRenderer.wetness = wet
+            // Every tile's reflection key just changed meaning, and the ones
+            // that reflect are *ground* tiles whose own data did not move —
+            // so nothing else would rebuild them. Same shape as an overlay
+            // having to invalidate the keys of what it hides.
+            for node in tileNodes.values {
+                tileRenderer.invalidateDecoration(IsoTileRenderer.reflectionNodeName, on: node)
+            }
+        }
+
+        // **Sized in points, not world units.** A child of the camera is
+        // drawn at its local coordinate *in screen points* — the camera's own
+        // scale cancels out — so multiplying by the zoom spread the rain over
+        // an area several times the screen and the first render came back with
+        // about four visible drops. The view is simply the scene's size.
+        let view = size
+        guard rainfall > 0, VisualStyle.current.wetReflection > 0 else {
+            rainNode?.removeFromParent()
+            rainNode = nil
+            return
+        }
+        if rainNode == nil {
+            let node = Emitters.rain(size: view, intensity: rainfall)
+            node.name = Self.rainNodeName
+            // Above the city and below nothing: rain falls in front of
+            // everything, which is the one thing on screen that is allowed to.
+            node.zPosition = 5_000
+            node.targetNode = cameraNode
+            cameraNode.addChild(node)
+            // Now that it has a parent and a target, roll it forward so a
+            // shower is already falling rather than filling the screen from
+            // the top over the next second and a half.
+            node.advanceSimulationTime(2.0)
+            rainNode = node
+        }
+        rainNode?.particleBirthRate = 1_600 * rainfall
+        rainNode?.particleAlpha = 0.5 * rainfall
+        rainNode?.position = CGPoint(x: 0, y: view.height * 0.75)
+        rainNode?.particlePositionRange = CGVector(dx: view.width * 1.4, dy: 0)
+        rainNode?.particleSpeed = view.height * 1.5
+    }
+
+    /// What the wet ground at `position` throws back.
+    ///
+    /// **A reflection belongs to the ground it lands on, not to the building
+    /// that casts it**, and getting that backwards is why the first version
+    /// was invisible. Hung off the building's own tile node, a reflection
+    /// falls on ground that building is already standing on, and anything
+    /// reaching past its lot is painted over by the tile in front — which is
+    /// drawn later and opaque. The render showed reflections *only* where
+    /// they happened to hang over the edge of the map into open ground.
+    ///
+    /// So the ground asks the question instead. It looks up-screen — the two
+    /// neighbours at `(x-1, y)` and `(x, y-1)`, which are the tiles nearer the
+    /// back of the picture — and reports whatever building stands there. That
+    /// puts the mark on the road in front of a tower, which is exactly where
+    /// you would see it, and it is drawn with that road rather than behind it.
+    ///
+    /// Only bare ground reflects. A tile with its own building on it has no
+    /// visible floor to catch anything, and water is already doing something
+    /// far better of its own (`WaterShader`).
+    private func reflection(at position: GridPosition) -> IsoTileRenderer.Reflected? {
+        guard VisualStyle.current.wetReflection > 0, wetnessDrawn > 0 else { return nil }
+        let here = map[position]
+        guard !here.isWater, here.zone == .road || here.zone == .highway || here.zone == .empty
+        else { return nil }
+
+        for behind in [GridPosition(x: position.x - 1, y: position.y),
+                       GridPosition(x: position.x, y: position.y - 1)] {
+            guard map.contains(behind) else { continue }
+            let anchor = map[behind].buildingOrigin
+            let building = map[anchor]
+            // A zone with no building on it reflects nothing — bare road, and
+            // a zoned lot that has not grown yet.
+            guard building.zone != .empty, building.zone != .road, building.zone != .highway,
+                  building.zone.maxDensity == 0 || building.density > 0
+            else { continue }
+            return .init(zone: building.zone, density: building.density, seed: anchor)
+        }
+        return nil
+    }
+
+    private static let rainNodeName = "rain"
+
+    /// Rain stops when the city does — it is on the simulation's clock, and a
+    /// downpour over a stopped map is the "cars kept driving" bug in weather.
+    var rainIsFallingForTesting: Bool { rainNode != nil }
+    var wetnessForTesting: CGFloat { wetnessDrawn }
 
     // MARK: - Trams, on the rails they actually laid
 

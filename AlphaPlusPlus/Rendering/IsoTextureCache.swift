@@ -180,6 +180,65 @@ final class IsoTextureCache {
         return sprite
     }
 
+    /// The same building, thrown back off the wet street under it.
+    ///
+    /// **It costs no texture.** The building has already been rasterised —
+    /// that is what this whole cache exists for — so a reflection is the
+    /// identical texture drawn a second time, flipped and squashed. One extra
+    /// sprite per lot, no new entry in the cache, and nothing to invalidate
+    /// when the building changes because it *is* the building's texture.
+    ///
+    /// That is also why this is not the reflection G5 was holding out for. A
+    /// true mirror needs the whole scene in a render target — every
+    /// neighbour, the road, the sky — and this is one building reflecting
+    /// only itself. What makes it work anyway is that wet asphalt does not
+    /// return a picture: it returns a dim smear directly beneath whatever is
+    /// standing on it, which is exactly the shape of this approximation.
+    ///
+    /// Mirrored about the sprite's **base** rather than its centre, since the
+    /// base is where the building meets the ground and a reflection hinged
+    /// anywhere else floats. Squashed because the ground is seen at a glancing
+    /// angle in this projection — an unsquashed mirror reads as a second
+    /// building hanging upside down.
+    /// - Parameter footprint: how many tiles across the lot is, which is what
+    ///   bounds how far the reflection may fall. **This is not a style
+    ///   choice.** A reflection is a child of its own tile node, and the tile
+    ///   in front of it is drawn later and is opaque, so anything reaching
+    ///   past the lot is simply painted over — the first render showed
+    ///   reflections only where they happened to hang off the edge of the map
+    ///   into open ground. Squashing each one to its own lot is what makes it
+    ///   visible everywhere instead of nowhere.
+    func reflectionSprite(
+        for zone: ZoneType, density: Int, seed: GridPosition,
+        at origin: CGPoint, footprint: Int, maximumSquash: CGFloat, strength: CGFloat
+    ) -> SKSpriteNode? {
+        guard strength > 0, maximumSquash > 0,
+              let rendered = rendered(for: zone, density: density, seed: seed)
+        else { return nil }
+
+        // The room available is the ground it is drawn on, not the building
+        // it is drawn from.
+        let room = projection.tileHeight * CGFloat(footprint)
+        let squash = min(maximumSquash, room / rendered.size.height)
+
+        let sprite = SKSpriteNode(texture: rendered.texture, size: rendered.size)
+        // Hung from `origin`, which the caller puts at the back edge of the
+        // ground doing the reflecting.
+        sprite.position = CGPoint(
+            x: origin.x + rendered.offset.x,
+            y: origin.y - rendered.size.height * squash / 2
+        )
+        sprite.yScale = -squash
+        sprite.alpha = strength
+        // Additive, because a reflection on a near-black street is *light*
+        // returning off it rather than paint laid on it — the same reasoning
+        // that made the contact light a bright mark instead of a shadow.
+        // Held low: this project has recorded additive saturation three times,
+        // and a reflection blowing out to white would read as fog.
+        sprite.blendMode = .add
+        return sprite
+    }
+
     // MARK: - Ground, lane lines and cars
 
     /// Renders `node` once and remembers it, keyed however the caller says.

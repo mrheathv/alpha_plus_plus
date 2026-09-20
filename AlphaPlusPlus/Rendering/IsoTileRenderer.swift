@@ -26,6 +26,7 @@ struct IsoTileRenderer {
     /// now that ground and lane lines are rasterised too, "is there a textured
     /// sprite here" no longer answers that question.
     static let buildingNodeName = "isoBuilding"
+    static let reflectionNodeName = "isoReflection"
     private static let laneNodeName = "isoLane"
     static let contactNodeName = "isoContact"
     static let smokeNodeName = "isoSmoke"
@@ -84,12 +85,17 @@ struct IsoTileRenderer {
     /// Re-sync an existing node to current tile data, mutating rather than
     /// rebuilding: no allocation, no scene-graph churn, and it scales to a
     /// full-map refresh every simulation tick.
-    func update(_ node: SKNode, for tile: Tile) {
+    /// - Parameter reflecting: the building the wet ground here throws back,
+    ///   which the *caller* works out because it needs the map and this does
+    ///   not. See `GameScene.reflection(at:)` for why a reflection belongs to
+    ///   the ground it lands on rather than the building that casts it.
+    func update(_ node: SKNode, for tile: Tile, reflecting: Reflected? = nil) {
         syncGround(on: node, tile: tile)
         syncGroundGlow(on: node, tile: tile)
         syncContactLight(on: node, tile: tile)
         syncSmoke(on: node, tile: tile)
         syncZoneMarker(on: node, tile: tile)
+        syncReflection(on: node, tile: tile, reflecting: reflecting)
         syncBuilding(on: node, tile: tile)
     }
 
@@ -301,6 +307,51 @@ struct IsoTileRenderer {
     }
 
     // MARK: - Building
+
+    /// How wet the streets are, 0…1 — set by the scene from `Weather`.
+    ///
+    /// A property rather than an argument because `update(_:for:)` is called
+    /// from half a dozen places and threading a number through all of them to
+    /// answer a question that is the same everywhere on screen is the ceremony
+    /// `VisualStyle.current` already declined.
+    var wetness: CGFloat = 0
+
+    /// A building reflected in the wet street beneath it.
+    ///
+    /// Keyed on the wetness *as well as* the building, so a shower arriving
+    /// rebuilds these and nothing else — and `Weather.wetness` is quantised
+    /// into steps before it ever reaches here, because a value drifting by a
+    /// thousandth a day would rebuild every lot in the city every tick. Road
+    /// wear needed exactly the same treatment for exactly the same reason.
+    /// What the wet ground on a tile throws back — the building standing
+    /// immediately behind it.
+    struct Reflected: Equatable {
+        let zone: ZoneType
+        let density: Int
+        let seed: GridPosition
+    }
+
+    private func syncReflection(on node: SKNode, tile: Tile, reflecting: Reflected?) {
+        let strength = wetness * VisualStyle.current.wetReflection
+        // Parenthesised deliberately: `+` binds tighter than `??`, so the
+        // obvious spelling of this put the strength on the *fallback* only and
+        // a tile that did reflect something was keyed without it.
+        let what = reflecting.map { "\($0.zone.rawValue)|\($0.density)|\($0.seed.x),\($0.seed.y)" } ?? "-"
+        let key = what + "|\(Int(strength * 100))"
+        guard !isUpToDate(node, Self.reflectionNodeName, key) else { return }
+        markUpToDate(node, Self.reflectionNodeName, key)
+        node.childNode(withName: Self.reflectionNodeName)?.removeFromParent()
+        guard strength > 0, let reflecting else { return }
+        guard let sprite = textures.reflectionSprite(
+            for: reflecting.zone, density: reflecting.density, seed: reflecting.seed,
+            at: .zero, footprint: 1,
+            maximumSquash: 0.5, strength: strength
+        ) else { return }
+        sprite.name = Self.reflectionNodeName
+        // Under the building and over the ground it is cast on.
+        sprite.zPosition = 0.25
+        node.addChild(sprite)
+    }
 
     private func syncBuilding(on node: SKNode, tile: Tile) {
         let key = "\(tile.zone.rawValue)|\(tile.density)"
@@ -583,11 +634,21 @@ struct IsoTileRenderer {
     static let overlayDisturbedNodes = [
         markerNodeName, laneNodeName, warningNodeName, damageNodeName,
         constructionNodeName, fireNodeName, buildingNodeName, glowNodeName,
-        contactNodeName, smokeNodeName,
+        contactNodeName, smokeNodeName, reflectionNodeName,
     ]
 
     /// Forgets what this tile is showing, so the next refresh rebuilds all of
     /// it. Called when the view changes — see `overlayDisturbedNodes`.
+    /// Forget one decoration, so the next refresh rebuilds it.
+    ///
+    /// Needed from outside for the reflections: when the weather turns, every
+    /// tile's reflection key changes meaning, and the tiles that carry one are
+    /// *ground* whose own data has not moved — so nothing else would rebuild
+    /// them.
+    func invalidateDecoration(_ name: String, on node: SKNode) {
+        invalidate(node, name)
+    }
+
     func invalidateOverlayNodes(on node: SKNode) {
         for name in Self.overlayDisturbedNodes { invalidate(node, name) }
     }
