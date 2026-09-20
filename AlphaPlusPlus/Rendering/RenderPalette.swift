@@ -614,8 +614,23 @@ enum RenderPalette {
     /// Body and outline for the small ambient "cars" `GameScene` animates
     /// driving along road tiles (see `Traffic.carCount(forCongestion:)`).
     /// Pale, headlight-like body so they stand out against road's own gray.
-    static let trafficCarBody = SKColor(white: 0.95, alpha: 0.95)
-    static let trafficCarOutline = SKColor.black.withAlphaComponent(0.4)
+    /// **A car is a dark little volume with its lamps lit**, not a bright
+    /// one — and it used to be `white: 0.95`, then blended *further* toward
+    /// white by up to 0.7 for the face shading. That made an eleven-point car
+    /// brighter than a lit window and well past `VisualStyle.bloomThreshold`,
+    /// so traffic bloomed into a row of identical white lozenges sliding along
+    /// the lane glow. The fourth time this project has walked into additive
+    /// saturation, after the conduit runs, the route lines and the tram rails.
+    ///
+    /// The value ladder `VisualStyle` sets puts building silhouettes in the
+    /// mid tones and reserves the top for lit windows and signage. A car is
+    /// smaller than any of them, so it belongs at or below a silhouette — and
+    /// against the magenta of a lit street a dark body reads *better*, because
+    /// the road is doing the lighting.
+    static let trafficCarBody = SKColor(srgbRed: 0.17, green: 0.16, blue: 0.23, alpha: 1)
+    /// A soft rim rather than black: on a body this dark, a black outline is
+    /// the same colour as the body and the car loses its edges.
+    static let trafficCarOutline = SKColor(white: 0.62, alpha: 0.55)
 
     /// Fill/stroke for the placement-preview outline that follows the
     /// cursor before a click commits (`GameScene.updatePlacementPreview`) —

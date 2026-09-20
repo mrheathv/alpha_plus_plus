@@ -5092,6 +5092,43 @@ A severed line has no path and gets no vehicle, rather than a tram gliding
 across missing street — the distinction the conduit overlay already draws
 between a pipe that exists and one that is live.
 
+### G6 (part done): the cars were the fourth additive saturation
+
+Reported twice from play as "we need to revisit cars", with no more detail —
+so the first move was a *diagnostic*, not a change.
+`ScenePlaytestTests.testRenderCarsAtEveryZoom` photographs traffic at 0.5,
+1.0 and 3.0, the range the camera actually covers. The existing traffic render
+only ever showed camera 1.0, so there had never been a picture of what a
+vehicle becomes when you pull back.
+
+It answered the question immediately, and the answer was a defect rather than
+a preference. `RenderPalette.trafficCarBody` was `white: 0.95`, and the face
+shading then blended it *further* toward white by up to 0.7 — so an
+eleven-point car was brighter than a lit window and comfortably past
+`VisualStyle.bloomThreshold`. Traffic bloomed into a row of identical white
+lozenges sliding along the lane glow.
+
+**That is the fourth time this project has walked into additive saturation**,
+after the conduit runs, the route lines and the tram rails. The plan written
+the night before said "assume the fourth is waiting"; it was already there.
+
+The fix is the value ladder `VisualStyle` already states: silhouettes are mid
+tones, and the top is reserved for lit windows and signage. A car is smaller
+than any of them, so it belongs at or below a silhouette — and against the
+magenta of a lit street a *dark* body reads better, because the road is doing
+the lighting. The lamps carry the car, which is what they were added for.
+
+The same render showed a second thing the code could not: **every tile
+staggered its cars identically**, so adjacent tiles ran in lockstep and a
+street came out as an evenly spaced dotted line marching in step. A seeded
+per-tile phase breaks it, seeded from the position for the reason
+`BuildingRandom` always is — a street keeps its own rhythm rather than
+reshuffling whenever a tile is rebuilt.
+
+What is *not* done is whether cars read well at all now. That is a judgement
+and needs eyes on a moving map; the render exists so the question can be
+asked from a picture rather than a memory.
+
 ### G9 and G10 (done): rain, and the wet street
 
 `Weather` is a clock, not a dice roll, for the three reasons `RegionalEconomy`

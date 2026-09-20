@@ -2171,8 +2171,18 @@ final class GameScene: SKScene {
             let fadeInAtStart = SKAction.fadeIn(withDuration: 0.2)
             let loop = SKAction.repeatForever(.sequence([drive, fadeOutAtEnd, teleportToStart, fadeInAtStart]))
             // Stagger each car's start so a multi-car tile doesn't drive in
-            // lockstep.
-            let stagger = crossingDuration * Double(index) / Double(carCount)
+            // lockstep — **and offset the whole tile by a seeded phase**, or
+            // every tile staggers identically and the street comes out as an
+            // evenly spaced dotted line marching in step. That is what the
+            // three-zoom render showed: not traffic, a conveyor.
+            //
+            // Seeded from the position for the reason `BuildingRandom` always
+            // is: a street keeps its own rhythm across refreshes and launches
+            // rather than reshuffling every time a tile is rebuilt.
+            var phaseRandom = BuildingRandom(seed: position, salt: 911)
+            let tilePhase = CGFloat(phaseRandom.value(in: 0 ... 1))
+            let stagger = crossingDuration
+                * (Double(index) + Double(tilePhase)) / Double(carCount)
             car.run(.sequence([.wait(forDuration: stagger), loop]))
 
             node.addChild(car)

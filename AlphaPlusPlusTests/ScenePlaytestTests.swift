@@ -278,6 +278,47 @@ final class ScenePlaytestTests: XCTestCase {
     /// from cars and whether a jam looks like stopping; and the Bus view,
     /// where the question is whether a vehicle running the line is visible at
     /// all.
+    /// **What the cars actually look like, at the three zooms the game is
+    /// played at.** The diagnostic for G6, and deliberately a diagnostic
+    /// rather than a change: "revisit the cars" is a judgement, and the
+    /// existing traffic render only ever showed them at camera 1.0, so there
+    /// has never been a picture of what they become when you pull back.
+    ///
+    /// The camera runs 0.5 to 3.0 and a 2×2 lot is 126 screen points zoomed
+    /// in, 63 at rest and about 21 zoomed out — so one vehicle goes from
+    /// roughly twenty points to four. `minimumDetailSize` was written about
+    /// exactly this gap, for facade details, and nothing had ever applied it
+    /// to the things that move.
+    func testRenderCarsAtEveryZoom() {
+        var map = CityMap(width: 22, height: 14)
+        for x in 0 ..< 22 { map[GridPosition(x: x, y: 7)].zone = .road }
+        for x in stride(from: 2, to: 20, by: 6) {
+            for y in 0 ..< 14 { map[GridPosition(x: x, y: y)].zone = .road }
+        }
+        for origin in [GridPosition(x: 3, y: 2), GridPosition(x: 3, y: 10)] {
+            map.placeBuilding(zone: .residential, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 5 }
+        }
+        for origin in [GridPosition(x: 15, y: 2), GridPosition(x: 15, y: 10)] {
+            map.placeBuilding(zone: .industrial, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 5 }
+        }
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        let game = ScenePlaytest(map: map)
+        game.play()
+        let centre = game.scene.tileNodesForTesting[GridPosition(x: 9, y: 7)]?.position ?? .zero
+        for (scale, label) in [(0.5, "zoomed in — 0.5"),
+                               (1.0, "at rest — 1.0"),
+                               (3.0, "zoomed out — 3.0")] {
+            game.scene.camera?.setScale(CGFloat(scale))
+            game.scene.camera?.position = centre
+            game.frame()
+            game.capture(label)
+        }
+        if let url = game.writeFilmstrip(named: "cars") { print("🚗 Cars: \(url.path)") }
+    }
+
     func testRenderTrafficAndTransit() {
         var map = CityMap(width: 22, height: 14)
         for x in 0 ..< 22 { map[GridPosition(x: x, y: 7)].zone = .road }

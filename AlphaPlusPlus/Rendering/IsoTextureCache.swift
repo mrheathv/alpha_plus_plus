@@ -530,8 +530,12 @@ final class IsoTextureCache {
             let car = SKNode()
             for face in box.faces where Isometric.isVisible(face) {
                 let shape = SKShapeNode(path: projection.path(face.points))
+                // A light touch. At `0.2 + 0.5 * shade` the top face came out
+                // near-white whatever body colour it started from, which also
+                // threw away the one thing a *bus*'s colour is for — saying
+                // which line it runs.
                 shape.fillColor = body.blended(
-                    withFraction: 0.2 + 0.5 * Isometric.shade(face), of: .white
+                    withFraction: 0.04 + 0.22 * Isometric.shade(face), of: .white
                 ) ?? body
                 shape.strokeColor = RenderPalette.trafficCarOutline
                 shape.lineWidth = 1
