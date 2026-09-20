@@ -1948,14 +1948,27 @@ final class GameScene: SKScene {
             }
             let duration = max(2.0, tiles * mode.minutesPerTile * 0.55)
 
-            let vehicle = tileRenderer.carSprite(.transit(mode), alongX: true)
+            // A trace of light, like everything else that moves. And
+            // **oriented to the path**, which a box could not be: the boxes
+            // came in one texture per axis, so a route running at any other
+            // angle had a vehicle pointing the wrong way along it. A streak
+            // has no faces to get wrong.
+            let vehicle = streakSprite(for: .transit(mode),
+                                       length: projection.tileWidth * 0.95, alpha: 0.75)
             vehicle.name = Self.transitVehicleNodeName
             vehicle.zPosition = 1_200
+            // **Parked at the first stop before the action runs.** `follow`
+            // only moves the node once it ticks, so without this a vehicle
+            // spends its first frame at the scene's origin — which is off the
+            // map entirely, and showed up in the render as a streak floating
+            // above the city. Brief in play, and wrong every time a route is
+            // drawn or the view is switched.
+            vehicle.position = points[0]
             vehicle.run(.repeatForever(.sequence([
-                .follow(path, asOffset: false, orientToPath: false, duration: duration),
+                .follow(path, asOffset: false, orientToPath: true, duration: duration),
                 // Back the other way rather than snapping to the start: a
                 // line is a there-and-back service, not a loop.
-                .follow(back, asOffset: false, orientToPath: false, duration: duration),
+                .follow(back, asOffset: false, orientToPath: true, duration: duration),
             ])))
             vehicle.isPaused = !controller.isRunning
             transitDiagramNode.addChild(vehicle)
@@ -2180,16 +2193,20 @@ final class GameScene: SKScene {
             // streets is drawn that way too — a fire engine as a little box
             // among streaks would be the one thing on the road still trying
             // to be a shape.
-            let streak: SKSpriteNode? = vehicle == .fire ? {
-                let trace = SKSpriteNode(texture: Self.speedTrailTexture)
-                trace.size = CGSize(width: projection.tileWidth * 0.75,
-                                    height: max(3, projection.tileWidth * 0.07))
-                trace.color = RenderPalette.vehicleColor(for: vehicle)
-                trace.colorBlendFactor = 1
-                trace.blendMode = .add
-                trace.alpha = 0.85
-                return trace
-            }() : nil
+            // **Everything that runs on a street is light now** — the tram
+            // included. A tram drawn as a little box among traces would be the
+            // one vehicle on the road still trying to be a shape, and it is
+            // the mode whose whole point is that it shares the street.
+            //
+            // The ship keeps its hull: it is the largest moving thing in the
+            // game and a streak would throw away the silhouette that makes a
+            // seaport read as trading at all.
+            let isLight = vehicle == .fire || vehicle == .transit(.tram)
+            let streak: SKSpriteNode? = isLight
+                ? streakSprite(for: vehicle,
+                               length: projection.tileWidth * (vehicle == .fire ? 0.75 : 0.95),
+                               alpha: vehicle == .fire ? 0.85 : 0.7)
+                : nil
             let alongX = streak ?? tileRenderer.carSprite(vehicle, alongX: true)
             let alongY = streak == nil ? tileRenderer.carSprite(vehicle, alongX: false) : SKNode()
             if streak == nil { alongY.isHidden = true }
@@ -2368,6 +2385,33 @@ final class GameScene: SKScene {
     ///   amount of shape ever could.
     /// - **A patrol car** where a police station covers the street, so the
     ///   service you paid for is visible doing something.
+    /// One trace of light, for anything that moves on a street or a line.
+    ///
+    /// Shared by the three things that used to draw their own little box: road
+    /// traffic, the vehicles running a transit line over its diagram, and the
+    /// path vehicles (trams on real rails, fire engines). Drawing them three
+    /// different ways was how the traffic ended up saying one thing about
+    /// congestion and the buses another.
+    ///
+    /// **Additive, held well below the ceiling.** Saturation is a function of
+    /// alpha, not of additive — at this level a saturated hue tints the lane
+    /// it crosses rather than bleaching it, which is what keeps a cyan car and
+    /// a red engine visibly different colours. Alpha blending was tried first
+    /// and produced pale bars painted on the road: a trace that cannot be
+    /// brighter than what it lies on is paint, not light.
+    private func streakSprite(for vehicle: IsoTextureCache.Vehicle,
+                              length: CGFloat, alpha: CGFloat) -> SKSpriteNode {
+        let streak = SKSpriteNode(texture: Self.speedTrailTexture)
+        // Thin: a trace is mostly length, and thickness is what makes one look
+        // like an object instead.
+        streak.size = CGSize(width: length, height: max(2.5, projection.tileWidth * 0.06))
+        streak.color = RenderPalette.vehicleColor(for: vehicle)
+        streak.colorBlendFactor = 1
+        streak.blendMode = .add
+        streak.alpha = alpha
+        return streak
+    }
+
     private func vehicleKind(at position: GridPosition,
                              random: inout BuildingRandom) -> IsoTextureCache.Vehicle {
         if Fire.count(in: map) > 0, isNear(position, { self.map[$0].isBurning }, within: 6),
@@ -2491,31 +2535,11 @@ final class GameScene: SKScene {
             // the light a thing throws, not from repainting it* — and it is
             // what finally makes the **kind** of vehicle legible, because hue
             // reads at a size silhouette never could.
-            let car = SKSpriteNode(texture: Self.speedTrailTexture)
-            let length = projection.tileWidth * (0.18 + speedFactor * 0.8)
-            // **Thin.** The first pass drew these eight points thick and they
-            // read as pale bars painted on the road rather than as light
-            // moving along it — a trace is mostly length, and thickness is
-            // what makes it look like an object instead.
-            car.size = CGSize(width: length, height: max(2.5, projection.tileWidth * 0.05))
-            car.color = RenderPalette.vehicleColor(for: vehicle)
-            car.colorBlendFactor = 1
-            // **Additive, but held well below the ceiling** — and getting
-            // that balance right is the whole job. Alpha blending was tried
-            // first, on the reasoning that this project has saturated to
-            // white four times now (conduits, route lines, tram rails, the
-            // cars themselves). It does avoid the sum, and it also removes
-            // the one property that makes light look like light: a trace that
-            // cannot be *brighter* than the road it is on reads as paint.
-            //
-            // Saturation is a function of alpha, not of additive. At this
-            // level a saturated hue tints the lane rather than bleaching it —
-            // a cyan streak and a red one land on visibly different colours —
-            // where a pale colour at high alpha would whiten whatever it
-            // touched. Hence the vehicle colours being saturated rather than
-            // near-white, which is also why the first attempt read grey.
-            car.blendMode = .add
-            car.alpha = 0.3 + speedFactor * 0.35
+            let car = streakSprite(
+                for: vehicle,
+                length: projection.tileWidth * (0.18 + speedFactor * 0.8),
+                alpha: 0.3 + speedFactor * 0.35
+            )
             car.zRotation = travelAngle
             car.name = Self.trafficCarNodeName
             car.zPosition = 2

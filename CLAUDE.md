@@ -5477,6 +5477,33 @@ alpha, and it works.
 The other half was thickness. Eight points read as a bar; a trace is mostly
 length, and thickness is what makes it look like an object instead.
 
+## Everything that moves is a trace of light
+
+Road traffic, trams on their rails, fire engines, and the vehicles running a
+transit line over its diagram all draw through one `streakSprite` now. Three
+separate implementations of "a small thing that moves" is how the cars ended
+up saying one thing about congestion and the buses another.
+
+Two things fell out that a box could not have done:
+
+- **A streak points anywhere.** The projected boxes came in one texture per
+  axis, because they are little volumes with faces, so a turn swapped
+  textures — and a route running at any angle other than the two had a vehicle
+  pointing the wrong way along it. A trace has no faces to get wrong, so the
+  diagram vehicles are `orientToPath: true` now and simply face where they are
+  going.
+- **A vehicle parks at its first stop.** `SKAction.follow` only moves a node
+  once it ticks, so a transit vehicle spent its first frame at the scene's
+  origin — off the map entirely. It showed up in the render as a streak
+  floating above the city, brief in play and wrong every time a route is drawn
+  or a view switched.
+
+**The ship keeps its hull.** It is the largest moving thing in the game, and a
+streak would throw away the silhouette that makes a seaport read as trading at
+all — which is the whole reason that building got a vehicle. The rule is not
+"light is better", it is that a mark too small to show its shape should stop
+trying to have one.
+
 ## Engines that actually drive to the fire
 
 Colouring traffic by type made a vehicle near a burning block red. That is a
