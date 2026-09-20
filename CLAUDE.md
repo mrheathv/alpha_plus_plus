@@ -5477,6 +5477,56 @@ alpha, and it works.
 The other half was thickness. Eight points read as a bar; a trace is mostly
 length, and thickness is what makes it look like an object instead.
 
+## Engines that actually drive to the fire
+
+Colouring traffic by type made a vehicle near a burning block red. That is a
+*hint*: something that happens to be the right colour because it is standing
+near the right thing. `EmergencyResponse` is the real version — a route from a
+fire station, along streets that exist, to the building that is alight.
+
+**The difference is information rather than decoration.** A hint says a fire
+is roughly over there. An engine leaving a station and crossing the map says
+*which station is covering it*, and — when none appears at all — that nothing
+is. That is what the Fire Risk overlay tells you, except you get it without
+going to look for it.
+
+It reuses `PathVehicle` unchanged, which is the payoff for having generalised
+the tram runner rather than copying it: a fire engine is the same problem as a
+tram and a ship — a vehicle whose route is real ground rather than a schematic,
+so it has to be sorted against the city it moves through and stop when the city
+does.
+
+Three decisions worth keeping:
+
+- **Searched from the fire outward**, not from each station. A search from the
+  fire stops the instant it meets any station; one from each station would
+  have to run to completion to find out which fire is nearest. In a bad moment
+  there are more fires than stations, and this is the cheaper direction either
+  way.
+- **One-way.** An engine runs to the fire and the next one leaves the depot. A
+  vehicle sliding back to its station in reverse — which is what the shuttle
+  behaviour trams and ships use would have done — says something untrue about
+  what it is doing.
+- **Capped at four.** A citywide conflagration is exactly when you least want
+  forty extra vehicles in the scene, and past a handful of converging streaks
+  the mark stops reading as "the response" and starts reading as noise.
+
+### Two things that would have shipped broken
+
+- **The path comes out station-first already**, because the search walks back
+  from its arrival — which is the depot. The instinct is to reverse it, and
+  the first version did, which would have sent every engine *away* from the
+  emergency. Caught by tracing the direction rather than trusting the comment
+  that was sitting above it, which said the opposite of what the code did.
+- **The fires had to go in the cache key.** Tram routes are drawn once and a
+  shipping lane lasts as long as the dock, but a block catches alight on the
+  simulation's own clock. Keyed without them, an engine would only ever have
+  appeared if the player happened to redraw a tram route while something was
+  burning — and the test asserting the route is correct would have passed the
+  whole time. Asked of the scene rather than of the route, for exactly that
+  reason: the trams already shipped once with a path computed and nothing
+  drawing it.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

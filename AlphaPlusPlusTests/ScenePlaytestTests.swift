@@ -117,6 +117,90 @@ final class ScenePlaytestTests: XCTestCase {
         }
     }
 
+    /// **An engine drives to the fire**, rather than traffic happening to be
+    /// red near one.
+    ///
+    /// The difference is information. A hint says a fire is roughly over
+    /// there; an engine leaving a station and crossing the map says *which
+    /// station is covering it* — and when none appears, that nothing is.
+    func testAFireEngineDrivesFromItsStationToTheFire() {
+        var map = startedCity()
+        for x in 0 ..< map.width { map[GridPosition(x: x, y: 5)].zone = .road }
+        map.placeBuilding(zone: .fireStation, origin: GridPosition(x: 1, y: 6))
+        map.placeBuilding(zone: .industrial, origin: GridPosition(x: 16, y: 6))
+        for cell in map.footprintCells(origin: GridPosition(x: 16, y: 6), size: 2) {
+            map[cell].density = 3
+        }
+
+        XCTAssertTrue(EmergencyResponse.fireRoutes(in: map).isEmpty,
+                      "an engine set out with nothing burning")
+
+        map[GridPosition(x: 16, y: 6)].fireTicks = 0
+        let routes = EmergencyResponse.fireRoutes(in: map)
+        XCTAssertEqual(routes.count, 1, "a burning block summoned no engine")
+
+        // **Station first.** The search walks back from its arrival, so the
+        // path comes out already pointing the right way — reversing it, which
+        // is the instinct, would send every engine away from the emergency.
+        let run = routes[0]
+        let start = run[0], finish = run[run.count - 1]
+        func distance(_ a: GridPosition, _ b: GridPosition) -> Int {
+            abs(a.x - b.x) + abs(a.y - b.y)
+        }
+        XCTAssertLessThan(distance(start, GridPosition(x: 1, y: 6)),
+                          distance(finish, GridPosition(x: 1, y: 6)),
+                          "the engine is driving away from its own station")
+        XCTAssertTrue(run.allSatisfy { map[$0].zone == .road || map[$0].zone == .highway },
+                      "the engine is driving over something that is not a street")
+        for (from, to) in zip(run, run.dropFirst()) {
+            XCTAssertEqual(abs(to.x - from.x) + abs(to.y - from.y), 1,
+                           "the engine jumps from \(from) to \(to)")
+        }
+
+        // **And the scene actually puts one on the map.** A correct route and
+        // a vehicle appearing are different failures: the trams shipped with
+        // the path computed and nothing drawing it, and the same cache key
+        // that made engines possible could just as easily decide nothing had
+        // changed. Asked of the scene rather than of the route.
+        let game = ScenePlaytest(map: map)
+        game.play()
+        game.frame()
+        XCTAssertGreaterThan(game.scene.pathVehicleCountForTesting, 0,
+                             "the route exists and nothing is driving it")
+        let before = game.scene.pathVehiclePositionsForTesting
+        for _ in 0 ..< 20 { game.frame() }
+        XCTAssertNotEqual(game.scene.pathVehiclePositionsForTesting, before,
+                          "the engine never set off")
+    }
+
+    /// No station, no engine — the absence is the point. A city that cannot
+    /// answer a fire should visibly not answer it.
+    func testNoFireStationMeansNoEngine() {
+        var map = startedCity()
+        for x in 0 ..< map.width { map[GridPosition(x: x, y: 5)].zone = .road }
+        map.placeBuilding(zone: .industrial, origin: GridPosition(x: 16, y: 6))
+        map[GridPosition(x: 16, y: 6)].fireTicks = 0
+        XCTAssertTrue(EmergencyResponse.fireRoutes(in: map).isEmpty)
+    }
+
+    /// And a conflagration does not put forty vehicles on the map. Past a
+    /// handful of converging streaks the mark stops reading as "the response"
+    /// and starts reading as noise.
+    func testACitywideFireDoesNotFloodTheMapWithEngines() {
+        var map = startedCity()
+        for x in 0 ..< map.width { map[GridPosition(x: x, y: 5)].zone = .road }
+        map.placeBuilding(zone: .fireStation, origin: GridPosition(x: 1, y: 6))
+        for x in stride(from: 4, to: 20, by: 2) {
+            let origin = GridPosition(x: x, y: 6)
+            guard map.footprintCells(origin: origin, size: 2).allSatisfy({ map[$0].zone == .empty })
+            else { continue }
+            map.placeBuilding(zone: .industrial, origin: origin)
+            map[origin].fireTicks = 0
+        }
+        XCTAssertLessThanOrEqual(EmergencyResponse.fireRoutes(in: map).count,
+                                 EmergencyResponse.simultaneousEngines)
+    }
+
     /// **A ship, for the one building whose whole purpose was invisible.**
     ///
     /// A seaport is built, and then it sits there. Everything it does happens

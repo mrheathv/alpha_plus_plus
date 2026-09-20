@@ -2094,16 +2094,28 @@ final class GameScene: SKScene {
     /// a paused map" bug.
     private struct PathVehicle {
         let holder: SKNode
+        /// A box drawn along each axis, or one streak rotated to the heading.
+        ///
+        /// **A streak can point anywhere; a box cannot.** The projected boxes
+        /// come in two flavours because they are little volumes with faces,
+        /// so a turn swaps textures rather than rotating. A trace of light has
+        /// no faces to get wrong, which is the other quiet advantage of
+        /// drawing vehicles as light.
         let alongX: SKNode
         let alongY: SKNode
+        let streak: SKSpriteNode?
         /// The track, in order.
         let tiles: [GridPosition]
-        /// Tiles per second, off the mode's own `minutesPerTile`.
+        /// Tiles per second.
         let speed: CGFloat
         /// How far along `tiles`, in index units.
         var travelled: CGFloat
         /// A line is a there-and-back service, not a loop.
         var outbound: Bool
+        /// **An engine does not shuttle.** It runs to the fire and the next
+        /// one leaves the station — a vehicle sliding back to its depot in
+        /// reverse would be saying something untrue about what it is doing.
+        let oneWay: Bool
     }
 
     private var pathVehicles: [PathVehicle] = []
@@ -2121,10 +2133,19 @@ final class GameScene: SKScene {
     private func syncPathVehicles() {
         let routes = map.transit.routes(mode: .tram)
         let lane = ShippingLane.path(in: map)
+        // **The fires have to be in the key.** They are the one thing here
+        // that changes on its own: a tram line is drawn once and a shipping
+        // lane lasts as long as the dock, but a block catches alight and goes
+        // out on the simulation's own clock. Keyed without them, an engine
+        // would only ever appear if the player happened to redraw a tram
+        // route at the same moment something was burning.
+        let fires = map.tiles.filter { $0.isBuildingAnchor && $0.isBurning }
+            .map { "\($0.position.x),\($0.position.y)" }.sorted().joined(separator: ";")
         let key = routes.map { $0.stops.map { "\($0.x),\($0.y)" }.joined(separator: ";") }
             .joined(separator: "|")
             + "#\(map.tramTracks.count)"
             + "~\(lane.count)/\(lane.first.map { "\($0.x),\($0.y)" } ?? "-")"
+            + "!\(fires)"
         guard key != pathVehiclesKey else { return }
         pathVehiclesKey = key
 
@@ -2136,10 +2157,18 @@ final class GameScene: SKScene {
         // A ship is slow. Speed is most of what tells a hull from a tram at a
         // glance once both are small on screen.
         add(.ship, along: [lane], tilesPerSecond: 0.55)
+
+        // **Engines that actually go to the fire**, rather than traffic that
+        // happens to be red near one. Fast, because the one thing everybody
+        // knows about a fire engine is that it is in a hurry, and speed is
+        // legible at this size where a shape is not.
+        add(.fire, along: EmergencyResponse.fireRoutes(in: map),
+            tilesPerSecond: 2.6, oneWay: true)
     }
 
     private func add(_ vehicle: IsoTextureCache.Vehicle,
-                     along paths: [[GridPosition]], tilesPerSecond: CGFloat) {
+                     along paths: [[GridPosition]], tilesPerSecond: CGFloat,
+                     oneWay: Bool = false) {
         for tiles in paths {
             // Two tiles is the shortest thing that has a direction. A severed
             // line returns nothing, and drawing a tram gliding across the gap
@@ -2147,11 +2176,25 @@ final class GameScene: SKScene {
             guard tiles.count >= 2 else { continue }
 
             let holder = SKNode()
-            let alongX = tileRenderer.carSprite(vehicle, alongX: true)
-            let alongY = tileRenderer.carSprite(vehicle, alongX: false)
-            alongY.isHidden = true
+            // Road vehicles are traces of light now, so anything that runs on
+            // streets is drawn that way too — a fire engine as a little box
+            // among streaks would be the one thing on the road still trying
+            // to be a shape.
+            let streak: SKSpriteNode? = vehicle == .fire ? {
+                let trace = SKSpriteNode(texture: Self.speedTrailTexture)
+                trace.size = CGSize(width: projection.tileWidth * 0.75,
+                                    height: max(3, projection.tileWidth * 0.07))
+                trace.color = RenderPalette.vehicleColor(for: vehicle)
+                trace.colorBlendFactor = 1
+                trace.blendMode = .add
+                trace.alpha = 0.85
+                return trace
+            }() : nil
+            let alongX = streak ?? tileRenderer.carSprite(vehicle, alongX: true)
+            let alongY = streak == nil ? tileRenderer.carSprite(vehicle, alongX: false) : SKNode()
+            if streak == nil { alongY.isHidden = true }
             holder.addChild(alongX)
-            holder.addChild(alongY)
+            if streak == nil { holder.addChild(alongY) }
             // Into `tileLayer` rather than the diagram node: `zPosition` is
             // only comparable against the tiles when it shares their parent,
             // and being sorted against the city is the whole point of a
@@ -2159,8 +2202,9 @@ final class GameScene: SKScene {
             tileLayer.addChild(holder)
 
             pathVehicles.append(PathVehicle(
-                holder: holder, alongX: alongX, alongY: alongY, tiles: tiles,
-                speed: tilesPerSecond, travelled: 0, outbound: true
+                holder: holder, alongX: alongX, alongY: alongY, streak: streak,
+                tiles: tiles, speed: tilesPerSecond, travelled: 0,
+                outbound: true, oneWay: oneWay
             ))
         }
     }
@@ -2172,7 +2216,10 @@ final class GameScene: SKScene {
             let last = CGFloat(run.tiles.count - 1)
 
             run.travelled += run.speed * CGFloat(delta) * (run.outbound ? 1 : -1)
-            if run.travelled >= last { run.travelled = last; run.outbound = false }
+            if run.travelled >= last {
+                // One-way runs restart from the depot rather than reversing.
+                if run.oneWay { run.travelled = 0 } else { run.travelled = last; run.outbound = false }
+            }
             if run.travelled <= 0 { run.travelled = 0; run.outbound = true }
 
             let step = min(Int(run.travelled), run.tiles.count - 2)
@@ -2189,9 +2236,19 @@ final class GameScene: SKScene {
             // textures shows, the same pair the traffic uses — a tram turning
             // a corner swaps rather than rotating, because these are little
             // projected boxes and not sprites with a free angle.
-            let alongXNow = to.x != from.x
-            run.alongX.isHidden = !alongXNow
-            run.alongY.isHidden = alongXNow
+            if let streak = run.streak {
+                // A trace points wherever it is going; no texture to swap.
+                streak.zRotation = atan2(
+                    projection.project(CGFloat(to.x), CGFloat(to.y), 0).y
+                        - projection.project(CGFloat(from.x), CGFloat(from.y), 0).y,
+                    projection.project(CGFloat(to.x), CGFloat(to.y), 0).x
+                        - projection.project(CGFloat(from.x), CGFloat(from.y), 0).x
+                )
+            } else {
+                let alongXNow = to.x != from.x
+                run.alongX.isHidden = !alongXNow
+                run.alongY.isHidden = alongXNow
+            }
 
             pathVehicles[index] = run
         }
