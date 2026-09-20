@@ -5270,6 +5270,70 @@ pipes at all. Same lesson as every fixture note in this file — *a picture in
 which the failing case cannot occur reports success*, and its twin, a picture
 in which the effect cannot be seen reports failure.
 
+## The soundtrack is synthesised, not sampled
+
+The game had **no audio at all** — not a line of it, and not a mention
+anywhere in this file. For a project whose whole identity is retrowave and
+whose target is the App Store, that was the largest hole in it.
+
+It is a **synthesiser** rather than a file, and that is not a workaround. This
+project has exactly one raster asset, the app icon, recorded here as an
+admitted exception; a sampled soundtrack would be the first real asset in it
+and a synthesised one is not. Synthwave is also the most synthesisable genre
+there is — saw bass, detuned pads, a narrow-pulse lead and a drum machine that
+is a pitch-enveloped sine, filtered noise and a noise burst. Oscillators are
+not an approximation of this music, they are what it is made of.
+
+And it can take the city as input the way `Weather` takes the day: pads
+thickening with density, bass dropping when you pause, tempo following
+`SimulationSpeed`. A fixed loop is wallpaper. That is the argument the contact
+light's pulse already won over a blinking beacon — a mark that responds beats
+one that repeats.
+
+`Synth` is pure arithmetic over `Double` with no AVFoundation in it, so the
+whole instrument is testable offline, and because the live render callback
+must not allocate or lock, the code it runs has to be that plain anyway.
+`Soundtrack` is the score and the mix. `SoundtrackRenderTests` writes
+`build/Audio/theme.wav` — the contact sheet for sound, so the theme can be
+heard without launching the game.
+
+### Composing without ears
+
+**The author of this code cannot hear it.** Every art decision in this project
+goes through "look at the render, don't imagine it", and there is no
+equivalent available. That changes what the tests are for: they catch *wrong*,
+they cannot catch *bad*, and the judgement has to go to whoever plays the WAV.
+
+It also changes the engineering. Where a technique exists that prevents a
+fault outright, use it rather than writing the naive version and listening for
+trouble:
+
+- **Oscillators are band-limited (PolyBLEP).** A naive saw's instantaneous
+  jump carries energy above Nyquist that folds back as inharmonic whistling —
+  the single most common reason a hand-written synth sounds cheap, and exactly
+  the kind of fault a deaf author ships.
+- **The filter is a topology-preserving transform, not the classic Chamberlin
+  form.** The obvious four-line state-variable filter is only stable below
+  about `fs/6`; the first version clamped at `0.45 × fs` and the test asking
+  for an absurd cutoff came back with **infinity**. At volume, in headphones,
+  that is not a bad sound, it is a hazard.
+
+Two things the tests caught immediately, both inaudible as themselves and
+neither findable by reading:
+
+- **The lead's pulse had a constant −0.36 offset.** A pulse spends `width` of
+  its cycle high and the rest low, so a 32% duty wave has a mean of
+  `2 × width − 1` *by construction*. It wastes headroom and thumps at note
+  edges. Centred at the oscillator, with a DC blocker on the master as belt
+  and braces.
+- **The filter diverged**, as above.
+
+The standing checks are the failures that would be glaring to a listener and
+invisible here: nothing clips, nothing is silent, no DC offset, every bar has
+something in it, both channels differ, and a note lands on the frequency it
+claims. A soundtrack a semitone out is still a soundtrack, and nothing else
+would notice.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
