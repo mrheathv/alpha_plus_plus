@@ -763,7 +763,14 @@ final class IsometricCityTests: XCTestCase {
         }
         let nodes = Self.nodeCount(layer)
         let perAnchor = Double(nodes) / Double(anchors)
-        print("🧮 built-out 40×40 — \(anchors) anchors, \(nodes) nodes (\(String(format: "%.1f", perAnchor))/anchor), \(renderer.textures.count) textures")
+        print("🧮 built-out 40×40 — \(anchors) anchors, \(nodes) nodes (\(String(format: "%.1f", perAnchor))/anchor), \(renderer.textures.count) textures, \(String(format: "%.1f", Double(renderer.textures.approximateBytes) / 1_048_576)) MB at \(Int(IsoTextureCache.oversample))× oversample")
+
+        // A number to watch rather than a bound to defend, in the same spirit
+        // as the node count above: raising `oversample` costs its square, and
+        // the point at which that stops being affordable is the point where
+        // drawing buildings as vectors at close zoom stops being optional.
+        XCTAssertLessThan(renderer.textures.approximateBytes, 260 * 1_048_576,
+                          "the texture cache has grown past a quarter of a gigabyte")
 
         // Shape nodes are the number that matters: they do not batch, so each
         // is its own draw call, and `glowWidth` on one costs more still. Ground,

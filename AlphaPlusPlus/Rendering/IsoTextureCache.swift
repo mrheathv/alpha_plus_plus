@@ -41,6 +41,41 @@ final class IsoTextureCache {
     /// unchanged at 2,177. The generators still do not saturate here (they
     /// read 21–32 distinct), so there is headroom above this if it is ever
     /// wanted.
+    /// How many texture pixels are rasterised per world point.
+    ///
+    /// **One was never enough, and not only when zoomed in.** Every building
+    /// is rasterised once at its size in world *points*, and two
+    /// magnifications then stack on top: a Retina display draws two physical
+    /// pixels per point, and zooming to `minimumZoomScale` doubles it again.
+    /// So at rest the textures were already being shown at 2× — which is why
+    /// the city reads as *drawings* rather than objects the closer you get,
+    /// reported from play exactly that way.
+    ///
+    /// **Four, because it turned out to be nearly free.** The estimate that
+    /// set this work going was that a built-out city held ~19 MB of texture
+    /// and that four would therefore cost 300 — the supposed ceiling that made
+    /// oversampling a mitigation rather than a fix. Measured, a 40×40 city
+    /// holds **1.6 MB** at one pixel per point: ninety-three textures of about
+    /// 65 points square, not the 200×250 that guess assumed. So four costs
+    /// **25 MB**, which is nothing, and the ceiling was imaginary.
+    ///
+    /// Four is also exactly what the range needs: a Retina display is 2×, and
+    /// `GameScene.minimumZoomScale` is 0.5, so the closest view asks for four
+    /// texture pixels per point. At rest it asks for two.
+    ///
+    /// What it does cost is cold-cache time — filling every building variant
+    /// goes from about 190 ms to 650. That is paid once, lazily, as buildings
+    /// first appear, so it lands as a hitch when a large saved city is opened.
+    /// Warming the cache off the main thread, or behind the title screen,
+    /// would remove it and has not been done.
+    ///
+    /// **The render harness cannot show the difference between two and four.**
+    /// It captures at one pixel per point, so its only magnification is the
+    /// camera's, and two already covers that. Four is justified by the
+    /// arithmetic above and by a real display — not by any picture in this
+    /// repository, which is worth knowing before someone "simplifies" it back.
+    static let oversample: CGFloat = 4
+
     static let variantCount = 32
 
     /// **Why this grew past buildings.** `SKShapeNode` does not batch — every
@@ -151,17 +186,31 @@ final class IsoTextureCache {
         // Rendered through a scene positioned so the node's own bounds land at
         // the origin, because `SKView.texture(from:crop:)` crops in scene
         // coordinates and a building's bounds start well below zero.
-        let scene = SKScene(size: frame.size)
+        //
+        // **Scaled up for the capture, not rebuilt at a larger projection.**
+        // Building the massing against a bigger projection would make the
+        // drawing bigger while leaving the blur radius and the stroke widths
+        // in points — so the glow would come out relatively tighter and the
+        // neon thinner. That is a change to the *look* wearing the clothes of
+        // a change to resolution. Scaling the finished node keeps every
+        // proportion and only adds pixels.
+        let pixels = CGSize(width: frame.width * Self.oversample,
+                            height: frame.height * Self.oversample)
+        let scene = SKScene(size: pixels)
         scene.backgroundColor = .clear
-        node.position = CGPoint(x: -frame.minX, y: -frame.minY)
+        node.setScale(Self.oversample)
+        node.position = CGPoint(x: -frame.minX * Self.oversample,
+                                y: -frame.minY * Self.oversample)
         scene.addChild(node)
-        renderView.frame = NSRect(origin: .zero, size: frame.size)
+        renderView.frame = NSRect(origin: .zero, size: pixels)
         renderView.allowsTransparency = true
         renderView.presentScene(scene)
-        guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: frame.size)) else {
+        guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: pixels)) else {
             return nil
         }
 
+        // The sprite still draws at the building's world size — only the
+        // texture behind it has more pixels.
         let result = Rendered(
             texture: texture,
             offset: CGPoint(x: frame.midX, y: frame.midY),
@@ -248,14 +297,21 @@ final class IsoTextureCache {
         let frame = node.calculateAccumulatedFrame()
         guard frame.width > 1, frame.height > 1 else { return nil }
 
-        let scene = SKScene(size: frame.size)
+        // Oversampled for the same reason buildings are — the ground diamonds
+        // and lane lines are magnified by exactly as much, and a crisp tower
+        // standing on a soft street would be worse than both being soft.
+        let pixels = CGSize(width: frame.width * Self.oversample,
+                            height: frame.height * Self.oversample)
+        let scene = SKScene(size: pixels)
         scene.backgroundColor = .clear
-        node.position = CGPoint(x: -frame.minX, y: -frame.minY)
+        node.setScale(Self.oversample)
+        node.position = CGPoint(x: -frame.minX * Self.oversample,
+                                y: -frame.minY * Self.oversample)
         scene.addChild(node)
-        renderView.frame = NSRect(origin: .zero, size: frame.size)
+        renderView.frame = NSRect(origin: .zero, size: pixels)
         renderView.allowsTransparency = true
         renderView.presentScene(scene)
-        guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: frame.size)) else {
+        guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: pixels)) else {
             return nil
         }
         let result = Rendered(texture: texture,
@@ -619,4 +675,18 @@ final class IsoTextureCache {
     }
 
     var count: Int { cache.count }
+
+    /// Roughly how much texture memory the cache is holding, in bytes.
+    ///
+    /// Worth being able to state rather than estimate, because `oversample`
+    /// spends exactly this and the ceiling on raising it further *is* this
+    /// number — four would be sixteen times the one-pixel-per-point baseline,
+    /// which is what makes oversampling a mitigation rather than the fix.
+    var approximateBytes: Int {
+        cache.values.reduce(0) { total, rendered in
+            let pixels = rendered.size.width * Self.oversample
+                * rendered.size.height * Self.oversample
+            return total + Int(pixels) * 4
+        }
+    }
 }
