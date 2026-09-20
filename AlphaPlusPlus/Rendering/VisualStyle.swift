@@ -100,6 +100,15 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// How much the water moves. `classic` is the still fill terrain
+    /// shipped with, so the switch answers this too.
+    var waterShimmer: Double {
+        switch self {
+        case .classic: return 0
+        case .cinematic: return 0.55
+        }
+    }
+
     /// How hard a building's neon burns, by growth tier.
     ///
     /// **The contrast is bought at the bottom, not the top**, and that is a

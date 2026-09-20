@@ -13,6 +13,13 @@ struct IsoTileRenderer {
     let textures: IsoTextureCache
 
     private static let groundNodeName = "isoGround"
+
+    /// Shared by every water tile — see `WaterShader`.
+    static let water: SKShader = {
+        let shader = WaterShader.make()
+        WaterShader.applyStyle(shader)
+        return shader
+    }()
     private static let glowNodeName = "isoGroundGlow"
     private static let markerNodeName = "isoZoneMarker"
     /// Not private: tests need to ask whether *the building* is showing, and
@@ -26,6 +33,7 @@ struct IsoTileRenderer {
     /// comes back dimmer and that a building actually lights the ground it
     /// stands on, rather than trusting that a constant nobody reads changed.
     static var laneNodeNameForTesting: String { laneNodeName }
+    static var groundNodeNameForTesting: String { groundNodeName }
     static var glowNodeNameForTesting: String { glowNodeName }
 
     /// Whether a decoration is already showing what the data says, keyed on
@@ -104,6 +112,18 @@ struct IsoTileRenderer {
         ground.name = Self.groundNodeName
         ground.position = rendered.offset
         ground.zPosition = 0
+        if tile.isWater {
+            // One shared shader instance, because an `SKShader` is the
+            // batching unit — a per-tile instance would be a draw call per
+            // tile, the exact cost the texture cache exists to avoid. What is
+            // per-tile is the attribute.
+            ground.shader = Self.water
+            ground.setValue(
+                SKAttributeValue(vectorFloat2: vector_float2(Float(tile.position.x),
+                                                             Float(tile.position.y))),
+                forAttribute: WaterShader.tileAttribute
+            )
+        }
         node.addChild(ground)
     }
 

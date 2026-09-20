@@ -320,6 +320,108 @@ final class VisualStyleTests: XCTestCase {
                        "the capture command does not reach the view that owns the scene")
     }
 
+    // MARK: - Bloom
+
+    /// Bloom is the first thing in this project the GPU actually does, and
+    /// whether a lit frame beats a baked one is a judgement — so it goes on
+    /// the same switch the value ladder did, and `classic` has to genuinely
+    /// turn it off rather than merely turn it down.
+    func testClassicHasNoBloomAtAll() {
+        XCTAssertEqual(VisualStyle.classic.bloomStrength, 0)
+        XCTAssertGreaterThan(VisualStyle.cinematic.bloomStrength, 0)
+    }
+
+    /// Below the threshold this stops being a bloom and becomes a blur, and a
+    /// blurred city is a smeared one. Only the windows, signage, lane lines
+    /// and fire are meant to cross it.
+    func testTheBrightPassIsActuallyABrightPass() {
+        XCTAssertGreaterThan(VisualStyle.cinematic.bloomThreshold, 0.5,
+                             "the bright-pass is low enough to blur the whole frame")
+        XCTAssertLessThan(VisualStyle.cinematic.bloomThreshold, 1.0,
+                          "nothing in the frame can reach the bright-pass, so bloom does nothing")
+    }
+
+    /// The uniform has to actually reach the shader. A strength that lives
+    /// only in `VisualStyle` and never gets pushed is the exact shape of dead
+    /// control this file exists to catch.
+    func testTheStyleReachesTheShader() {
+        func strength(for style: VisualStyle) -> Float? {
+            VisualStyle.current = style
+            let shader = RetroShader.make()
+            return shader.uniforms.first { $0.name == "u_bloomStrength" }?.floatValue
+        }
+        XCTAssertEqual(strength(for: .classic), 0)
+        XCTAssertEqual(strength(for: .cinematic), Float(VisualStyle.cinematic.bloomStrength))
+    }
+
+    /// Bloom lives in the shader rather than in a texture, so it is the one
+    /// part of a style change a purge-and-rebuild would not pick up.
+    func testRestylingPushesBloomToTheShader() {
+        let controller = GameController(map: cityWithAStreet(), rng: SeededRNG(seed: 4))
+        let scene = GameScene(controller: controller)
+        scene.size = CGSize(width: 600, height: 400)
+        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
+        view.presentScene(scene)
+
+        controller.visualStyle = .classic
+        scene.restyle()
+        XCTAssertEqual(scene.bloomStrengthForTesting, 0,
+                       "switching to Classic left the frame blooming")
+        controller.visualStyle = .cinematic
+        scene.restyle()
+        XCTAssertEqual(scene.bloomStrengthForTesting,
+                       Float(VisualStyle.cinematic.bloomStrength))
+    }
+
+    // MARK: - Water
+
+    private func waterAndLand() -> CityMap {
+        var map = CityMap(width: 8, height: 8)
+        map[GridPosition(x: 3, y: 3)].isWater = true
+        return map
+    }
+
+    func testOnlyWaterCarriesTheWaterShader() {
+        let map = waterAndLand()
+        let renderer = IsoTileRenderer(projection: Isometric())
+        func ground(_ position: GridPosition) -> SKSpriteNode? {
+            renderer.makeNode(for: map[position]).children
+                .first { $0.name == IsoTileRenderer.groundNodeNameForTesting } as? SKSpriteNode
+        }
+        XCTAssertNotNil(ground(GridPosition(x: 3, y: 3))?.shader,
+                        "the river is not running the water shader")
+        XCTAssertNil(ground(GridPosition(x: 0, y: 0))?.shader,
+                     "dry land is running the water shader")
+    }
+
+    /// **The attribute is what stops the river looking quilted.**
+    ///
+    /// `v_tex_coord` runs 0…1 across every tile alike, so a wave written in
+    /// it restarts at each tile edge. Each sprite carries its own map
+    /// position so the surface is computed in map space and stitches back
+    /// into one piece.
+    func testEachWaterTileKnowsWhereItIs() {
+        var map = CityMap(width: 8, height: 8)
+        for position in [GridPosition(x: 2, y: 2), GridPosition(x: 3, y: 2)] {
+            map[position].isWater = true
+        }
+        let renderer = IsoTileRenderer(projection: Isometric())
+        func tileAttribute(_ position: GridPosition) -> vector_float2? {
+            let ground = renderer.makeNode(for: map[position]).children
+                .first { $0.name == IsoTileRenderer.groundNodeNameForTesting } as? SKSpriteNode
+            return ground?.value(forAttributeNamed: WaterShader.tileAttribute)?.vectorFloat2Value
+        }
+        XCTAssertEqual(tileAttribute(GridPosition(x: 2, y: 2))?.x, 2)
+        XCTAssertNotEqual(tileAttribute(GridPosition(x: 2, y: 2))?.x,
+                          tileAttribute(GridPosition(x: 3, y: 2))?.x,
+                          "two water tiles claim the same position, so the surface will quilt")
+    }
+
+    func testClassicLeavesTheWaterStill() {
+        XCTAssertEqual(VisualStyle.classic.waterShimmer, 0)
+        XCTAssertGreaterThan(VisualStyle.cinematic.waterShimmer, 0)
+    }
+
     // MARK: - The ladder itself
 
     /// The point of the pass: pavement below buildings. Asserted on the

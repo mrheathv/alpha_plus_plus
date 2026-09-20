@@ -4699,6 +4699,135 @@ capture, so a still cannot show a bus part-way along its route — it sits at
 its first stop, which is where it starts. The vehicle is covered by tests
 instead, and judged in the running app.
 
+## Putting the GPU to work
+
+The GPU was doing almost nothing. `RetroShader` was the only shader in the
+project — one fragment pass over the finished frame doing scanlines, a
+vignette and chromatic aberration — there were no particles anywhere, and the
+neon glow was not a GPU effect at all: `CIGaussianBlur` **baked into each
+texture once** at rasterisation time.
+
+Meanwhile the CPU is the bottleneck (`Traffic.computeLoad` is ~90% of a tick).
+So there is real GPU headroom, and spending it is close to free in a way CPU
+work is not.
+
+### First, something to measure with
+
+This project measures simulation cost carefully and had measured *rendering*
+cost exactly once, as a node count — which is a proxy for draw calls and says
+nothing about what a shader spends. That was fine with one cheap pass over
+the frame. It stops being fine the moment the plan is "put the GPU to work":
+without a number, "it looks better" and "it dropped to 40fps" are
+indistinguishable from outside.
+
+`RenderTimingTests` times `SKView.texture(from:)`, which forces a real render
+through the same draw calls and the same shader. **A relative instrument, and
+it says so**: it is a synchronous off-loop render, so it misses presentation
+and vsync entirely. Every number is a comparison, never a frame rate.
+
+**Its first version was not usable, and fixing it is the point.** It timed
+thirty frames once and reported the mean, and the same bloom pass — a fixed
+per-pixel cost over a fixed 1280×800 frame — came out +5.4 ms at 32×32, +1.2
+at 48×48 and +2.5 at 64×64. A cost that must be flat measured as anything
+but, which means the noise was larger than the signal.
+
+The fix is the general one for timing under contention: **every sample is the
+true cost plus whatever else the machine was doing, so the distribution has a
+floor and no ceiling.** The minimum of several batches is the honest
+estimator and the mean is the one thing not to take. Three batches of sixty,
+report the best.
+
+### G1 (done): bloom, and the first light this game does not fake
+
+Every glow until now was baked — a blurred copy of each building rasterised
+into its texture once. That is why it costs nothing per tile and why it can
+never respond to anything: two towers side by side do not brighten where they
+overlap, because each halo was drawn before the other existed.
+
+Bloom happens in the frame now. A bright-pass keeps only what is already near
+white; a ring of taps sums what it finds; overlapping neon genuinely adds up
+and a dense district blazes the way a dense district should.
+
+**Sixteen taps on a golden-angle spiral, not a grid.** A regular ring at this
+count bands visibly — you can count the samples in a wide glow. Rotating each
+tap by the golden angle and growing the radius with its index scatters them
+evenly at every scale, which buys a smooth falloff out of sixteen reads
+instead of the several hundred a separable two-pass blur would want. A second
+pass is not available: `SKShader` is one fragment function over one texture,
+and more render targets means nesting effect nodes, which this project
+already knows silently stop being serviced past a budget.
+
+The threshold sits high on purpose. Below it this stops being a bloom and
+becomes a blur, and a blurred city is a smeared city — only windows,
+signage, lane lines and fire are meant to cross it.
+
+It rides on `VisualStyle`, so **Classic turns it off entirely** rather than
+turning it down. Whether a lit frame beats a baked one is a judgement, not a
+measurement, and that switch exists precisely for judgements. It is also the
+one part of a style change a purge-and-rebuild would miss, since bloom lives
+in the shader rather than in a texture.
+
+#### Measured
+
+| map | Classic | Cinematic | bloom costs |
+|---|---|---|---|
+| 32×32 | 18.27 | 20.88 | +2.6 |
+| 48×48 | 18.42 | 19.50 | **+1.1** |
+| 64×64 | 27.57 | 28.55 | **+1.0** |
+
+The two larger maps agree at about **a millisecond** for a sixteen-tap bloom
+over 1280×800; the 32×32 figure is residual noise rather than signal, which
+is what the instrument's own limits predict. Classic costs the same at 32×32
+and 48×48 because the frame size is fixed and most of that cost is per-pixel
+— the jump at 64×64 is nodes, not shader.
+
+**Still to do, and the reason this one was first:** with real bloom in the
+frame, the baked per-texture glow can come *down*, which would make buildings
+crisper and rasterisation cheaper at the same time. That is a change to every
+building texture and wants its own render review.
+
+### G2 (done): water that moves
+
+Terrain landed with water as a flat fill — correct, legible, and completely
+still, which on a map where the streets pulse and the traffic runs makes a
+river read as painted floor.
+
+`WaterShader` is the project's second GPU effect, and unlike `RetroShader` it
+runs **per tile rather than over the finished frame**. That distinction is
+the whole design problem: a fragment shader on a sprite knows its own texture
+and its own `v_tex_coord`, which runs 0…1 across *every* water tile
+identically — so a wave written in local coordinates restarts at each tile
+edge and the river comes out **quilted**.
+
+`SKAttribute` is the way out. Each water sprite carries its own tile
+position, the shader adds it to the local coordinate, and the waves are
+computed in **map space**: one continuous surface across however many tiles
+it was cut into.
+
+**One shader instance, shared by every water tile.** An `SKShader` is the
+batching unit, so a per-tile instance would be a draw call per tile — the
+exact cost `IsoTextureCache` exists to avoid. What is per-tile is the
+attribute, which is what attributes are for.
+
+Two crossing waves of different wavelength drifting opposite ways, and only
+their **crests** light: a smooth remap would brighten the whole surface and
+merely make the water paler, where what reads as water is a few moving
+highlights on something otherwise dark. One wave alone is a corrugated sheet;
+the interference between two is what stops the pattern repeating anywhere the
+eye can catch it — the same reason `RegionalEconomy` sums two sines rather
+than running one.
+
+**Not reflections, and worth saying why.** The obvious retrowave move is the
+city mirrored in the water, and it is not reachable from here: a tile shader
+can see its own texture and nothing else, so a reflection needs the scene
+rendered to a texture first. That is a second render target, which in
+SpriteKit means nesting effect nodes — something this project already knows
+silently stops being serviced past a budget. It belongs with the
+light-accumulation work.
+
+Water keeps moving while the city is paused, deliberately: the pause is for
+the *simulation*, and a river is not part of it.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

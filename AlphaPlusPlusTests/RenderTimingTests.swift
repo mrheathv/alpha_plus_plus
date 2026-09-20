@@ -77,12 +77,30 @@ final class RenderTimingTests: XCTestCase {
                 // what a frame costs.
                 _ = view.texture(from: scene)
 
-                let frames = 30
-                let started = CFAbsoluteTimeGetCurrent()
-                for _ in 0 ..< frames { _ = view.texture(from: scene) }
-                let each = (CFAbsoluteTimeGetCurrent() - started) / Double(frames) * 1_000
+                // **Best of several batches, not the mean of one.**
+                //
+                // The first version timed thirty frames once and reported the
+                // average, and the numbers were not usable: the same bloom
+                // pass — a fixed per-pixel cost over a fixed 1280×800 frame —
+                // came out +5.4 ms at 32×32, +1.2 at 48×48 and +2.5 at 64×64.
+                // A cost that should be flat measured as anything but, which
+                // means the noise was larger than the signal and the
+                // instrument could not do the one job it was built for.
+                //
+                // Timing under contention has a floor and no ceiling: every
+                // sample is the true cost *plus* whatever else the machine
+                // was doing. So the minimum of several batches is the honest
+                // estimator, and a mean is the one thing you should not take.
+                let batches = 3, frames = 60
+                var best = Double.infinity
+                for _ in 0 ..< batches {
+                    let started = CFAbsoluteTimeGetCurrent()
+                    for _ in 0 ..< frames { _ = view.texture(from: scene) }
+                    let each = (CFAbsoluteTimeGetCurrent() - started) / Double(frames) * 1_000
+                    best = Swift.min(best, each)
+                }
                 print(String(format: "| %d×%d | %-9@ | %8.2f |",
-                             side, side, style.displayName as NSString, each))
+                             side, side, style.displayName as NSString, best))
             }
         }
         VisualStyle.current = .cinematic

@@ -1051,6 +1051,12 @@ final class GameScene: SKScene {
     /// appeared in that render either.
     var backdropNodeForTesting: SKSpriteNode { backdropNode }
 
+    /// What the frame is actually blooming at, for the test that a style
+    /// change reaches the shader and not only the textures.
+    var bloomStrengthForTesting: Float? {
+        retroEffectLayer.shader?.uniforms.first { $0.name == "u_bloomStrength" }?.floatValue
+    }
+
     /// The transit diagram and what is running on it, for the tests that the
     /// lines are drawn at all and that something moves along them.
     var transitDiagramForTesting: SKNode { transitDiagramNode }
@@ -1094,6 +1100,10 @@ final class GameScene: SKScene {
         // one part of a style change that a purge-and-rebuild would *not*
         // pick up on its own.
         if let shader = retroEffectLayer.shader { RetroShader.applyStyle(shader) }
+        // Water is the other effect that lives in a shader rather than a
+        // texture, so a purge-and-rebuild alone would leave the river moving
+        // in the style just switched away from.
+        WaterShader.applyStyle(IsoTileRenderer.water)
         rebuildEntireGrid()
         refreshAll()
     }
