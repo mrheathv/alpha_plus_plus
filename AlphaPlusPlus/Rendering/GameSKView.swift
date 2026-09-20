@@ -17,7 +17,11 @@ final class GameSKView: SKView {
     }
 
     override func magnify(with event: NSEvent) {
-        (scene as? GameScene)?.zoom(byMagnification: event.magnification)
+        guard let scene = scene as? GameScene else { return }
+        // Anchored on the cursor, so the district you are pinching toward
+        // stays under your fingers instead of sliding off the screen.
+        scene.zoom(byMagnification: event.magnification,
+                   anchoredAt: convert(convert(event.locationInWindow, from: nil), to: scene))
     }
 
     // MARK: - Placement preview tracking

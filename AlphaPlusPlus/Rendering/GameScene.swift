@@ -346,9 +346,31 @@ final class GameScene: SKScene {
     /// world *larger* (a smaller window onto the same content looks zoomed
     /// in), so pinching out (positive magnification, the standard "zoom in"
     /// gesture) reduces scale.
-    func zoom(byMagnification magnification: CGFloat) {
-        let requestedScale = cameraNode.xScale * (1 - magnification)
-        cameraNode.setScale(min(max(requestedScale, minimumZoomScale), maximumZoomScale))
+    /// - Parameter anchor: the scene point to keep still, which should be
+    ///   whatever is under the cursor. **Zooming at the screen's centre is the
+    ///   wrong default for a map**: the thing a player is pinching toward is
+    ///   the thing they are looking at, and centre-anchored zoom slides it out
+    ///   from under them, so getting closer to a district means zoom, pan,
+    ///   zoom, pan. Passing `nil` keeps the old behaviour for callers with no
+    ///   cursor to speak of — the keyboard, and the tests about clamping.
+    func zoom(byMagnification magnification: CGFloat, anchoredAt anchor: CGPoint? = nil) {
+        let before = cameraNode.xScale
+        let requestedScale = before * (1 - magnification)
+        let after = min(max(requestedScale, minimumZoomScale), maximumZoomScale)
+        cameraNode.setScale(after)
+
+        // Keep `anchor` where it was on screen. A point's screen offset from
+        // the centre is `(point - camera) / scale`, so holding that constant
+        // across the change gives the camera position below. Taken off the
+        // *clamped* scale rather than the requested one, or a pinch that hits
+        // the zoom limit would still shove the camera sideways.
+        if let anchor, before > 0 {
+            let ratio = after / before
+            cameraNode.position = CGPoint(
+                x: anchor.x - (anchor.x - cameraNode.position.x) * ratio,
+                y: anchor.y - (anchor.y - cameraNode.position.y) * ratio
+            )
+        }
         clampCameraToMap()
     }
 

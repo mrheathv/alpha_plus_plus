@@ -5129,6 +5129,26 @@ What is *not* done is whether cars read well at all now. That is a judgement
 and needs eyes on a moving map; the render exists so the question can be
 asked from a picture rather than a memory.
 
+### G11 (part done): the zoom anchors on the cursor
+
+Zooming at the screen's centre is the wrong default for a map. The thing a
+player is pinching toward is the thing they are looking at, and a
+centre-anchored zoom slides it out from under them — so getting closer to a
+district was zoom, pan, zoom, pan.
+
+The correction is one line of algebra: a world point's screen offset from the
+centre is `(point - camera) / scale`, so holding that constant across the
+change gives the camera's new position. **Taken off the *clamped* scale rather
+than the requested one**, or a pinch at the end of the zoom range keeps
+shoving the camera sideways while nothing appears to zoom, which reads as the
+gesture being broken. `CameraZoomTests` pins that case specifically.
+
+`anchoredAt` is optional, so callers with no cursor — the keyboard, and the
+clamping tests — keep exactly the behaviour they had.
+
+The rest of G11 (eased transitions, an opening pan on load) is *feel*, and
+this file's rule for feel is that it gets played rather than rendered.
+
 ### G8 (done): the ports do something
 
 A seaport and an airport were built and then sat there. Everything they do
