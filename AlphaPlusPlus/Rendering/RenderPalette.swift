@@ -614,6 +614,35 @@ enum RenderPalette {
     /// Body and outline for the small ambient "cars" `GameScene` animates
     /// driving along road tiles (see `Traffic.carCount(forCongestion:)`).
     /// Pale, headlight-like body so they stand out against road's own gray.
+    /// What colour a vehicle's light trace is.
+    ///
+    /// **This is the channel that boxes could not carry.** A vehicle is about
+    /// eleven screen points across at the zoom this game is played at, and a
+    /// form that small cannot show its form — which is why the lorry's
+    /// separate box body, added so freight would read "from the silhouette
+    /// alone", never actually did. Hue survives the downsample where shape
+    /// does not, so drawing traffic as light makes *type* legible for the
+    /// first time: amber freight, blue patrols, a red engine running to a
+    /// fire, all readable from across the map.
+    ///
+    /// Each colour is the one its own service already uses on the map, so a
+    /// police car and a police station are the same blue and nothing has to
+    /// be learned twice.
+    static func vehicleColor(for vehicle: IsoTextureCache.Vehicle) -> SKColor {
+        switch vehicle {
+        // Ordinary traffic is the quietest thing on the road, deliberately:
+        // it is also the most of it, and a street of individually interesting
+        // cars is a street you cannot read.
+        case .car: return SKColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1)
+        case .lorry: return fullColor(for: .industrial)
+        case .police: return SKColor(srgbRed: 0.35, green: 0.62, blue: 1.0, alpha: 1)
+        case .fire: return SKColor(srgbRed: 1.0, green: 0.36, blue: 0.30, alpha: 1)
+        case .transit(let mode): return fullColor(for: mode.stationZone)
+        case .ship: return fullColor(for: .seaport)
+        case .aircraft: return fullColor(for: .airport)
+        }
+    }
+
     /// **A car is a dark little volume with its lamps lit**, not a bright
     /// one — and it used to be `white: 0.95`, then blended *further* toward
     /// white by up to 0.7 for the face shading. That made an eleven-point car

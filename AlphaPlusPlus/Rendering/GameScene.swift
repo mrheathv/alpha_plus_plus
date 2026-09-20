@@ -2295,6 +2295,50 @@ final class GameScene: SKScene {
         }
     }
 
+    /// What is driving down this particular street.
+    ///
+    /// **Where a vehicle's colour comes from.** Ordinary traffic is the
+    /// quietest thing on the road on purpose — it is also most of it, and a
+    /// street of individually interesting cars is a street nobody can read.
+    /// The exceptions are the ones that mean something:
+    ///
+    /// - **Freight** where the road runs past industry, which is the rule the
+    ///   lorry silhouette was added for and never managed to convey at this
+    ///   size.
+    /// - **A fire engine** where something nearby is alight. This is the one
+    ///   that stops being decoration: red streaks converging on a burning
+    ///   block tell you where the emergency is from across the map, which no
+    ///   amount of shape ever could.
+    /// - **A patrol car** where a police station covers the street, so the
+    ///   service you paid for is visible doing something.
+    private func vehicleKind(at position: GridPosition,
+                             random: inout BuildingRandom) -> IsoTextureCache.Vehicle {
+        if Fire.count(in: map) > 0, isNear(position, { self.map[$0].isBurning }, within: 6),
+           random.chance(0.6) {
+            return .fire
+        }
+        if isNear(position, { self.map[$0].zone == .policeStation }, within: 5),
+           random.chance(0.35) {
+            return .police
+        }
+        return random.chance(servesIndustry(at: position) ? 0.55 : 0.12) ? .lorry : .car
+    }
+
+    /// Is anything matching `test` within `radius` tiles?
+    ///
+    /// Square rather than a true radius, and deliberately small: this runs per
+    /// car per rebuild, and the answer only decides a colour.
+    private func isNear(_ position: GridPosition,
+                        _ test: (GridPosition) -> Bool, within radius: Int) -> Bool {
+        for dy in -radius ... radius {
+            for dx in -radius ... radius {
+                let cell = GridPosition(x: position.x + dx, y: position.y + dy)
+                if map.contains(cell), test(cell) { return true }
+            }
+        }
+        return false
+    }
+
     private func syncTrafficAnimation(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let existingCars = node.children.filter { $0.name == Self.trafficCarNodeName }
@@ -2372,23 +2416,52 @@ final class GameScene: SKScene {
             // with the car's index so three vehicles on one tile are not
             // three of the same thing.
             var random = BuildingRandom(seed: position, salt: 400 + index)
-            let freight = servesIndustry(at: position) ? 0.55 : 0.12
-            let vehicle: IsoTextureCache.Vehicle = random.chance(freight) ? .lorry : .car
-            // Braking above two thirds congestion, which is exactly where
-            // `Traffic.carCount` puts its third car — so the street gains a
-            // vehicle and turns red at the same moment rather than passing
-            // through a state that says neither.
-            let car = tileRenderer.carSprite(vehicle, alongX: horizontal,
-                                             braking: congestion >= 0.67)
+            let vehicle = vehicleKind(at: position, random: &random)
+            // **A trace of light, not a little box.**
+            //
+            // Two real defects were fixed in the boxes — they bloomed into
+            // identical white lozenges, and every tile staggered its cars the
+            // same way so a street read as a dotted line — and they still
+            // looked wrong afterwards, because a box is the wrong object. A
+            // vehicle is about eleven screen points across at the zoom this
+            // is played at, and a form that small cannot show its form. That
+            // is exactly the case `NeonStyle.minimumDetailSize` says to cut
+            // rather than shrink.
+            //
+            // A streak has no such problem: it is a direction and a colour,
+            // and both survive any zoom. It is also this art direction's own
+            // rule applied to the one thing that moves — *colour comes from
+            // the light a thing throws, not from repainting it* — and it is
+            // what finally makes the **kind** of vehicle legible, because hue
+            // reads at a size silhouette never could.
+            let car = SKSpriteNode(texture: Self.speedTrailTexture)
+            let length = projection.tileWidth * (0.18 + speedFactor * 0.8)
+            // **Thin.** The first pass drew these eight points thick and they
+            // read as pale bars painted on the road rather than as light
+            // moving along it — a trace is mostly length, and thickness is
+            // what makes it look like an object instead.
+            car.size = CGSize(width: length, height: max(2.5, projection.tileWidth * 0.05))
+            car.color = RenderPalette.vehicleColor(for: vehicle)
+            car.colorBlendFactor = 1
+            // **Additive, but held well below the ceiling** — and getting
+            // that balance right is the whole job. Alpha blending was tried
+            // first, on the reasoning that this project has saturated to
+            // white four times now (conduits, route lines, tram rails, the
+            // cars themselves). It does avoid the sum, and it also removes
+            // the one property that makes light look like light: a trace that
+            // cannot be *brighter* than the road it is on reads as paint.
+            //
+            // Saturation is a function of alpha, not of additive. At this
+            // level a saturated hue tints the lane rather than bleaching it —
+            // a cyan streak and a red one land on visibly different colours —
+            // where a pale colour at high alpha would whiten whatever it
+            // touched. Hence the vehicle colours being saturated rather than
+            // near-white, which is also why the first attempt read grey.
+            car.blendMode = .add
+            car.alpha = 0.3 + speedFactor * 0.35
+            car.zRotation = travelAngle
             car.name = Self.trafficCarNodeName
             car.zPosition = 2
-            car.addChild(makeSpeedTrail(
-                zone: zone,
-                travelAngle: travelAngle,
-                carLength: carSize.width,
-                carThickness: carSize.height,
-                speedFactor: speedFactor
-            ))
 
             let start = flowsPositive ? lowEnd : highEnd
             let end = flowsPositive ? highEnd : lowEnd

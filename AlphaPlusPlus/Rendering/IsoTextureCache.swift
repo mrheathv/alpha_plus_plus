@@ -493,6 +493,12 @@ final class IsoTextureCache {
         /// a hull long enough to read from across the map is what says the
         /// quay is trading.
         case ship
+        /// A patrol car. Not a different shape — a different *colour*, which
+        /// is the whole point of drawing traffic as light: at eleven points
+        /// across, hue is legible where silhouette is not.
+        case police
+        /// An engine running to a fire.
+        case fire
         /// An airliner on the runway. **Drawn moving, having been cut as a
         /// static mark**: standing still at three tiles across, a fuselage, a
         /// wing and a fin merged into one lump that read as a crate. Motion
@@ -503,8 +509,8 @@ final class IsoTextureCache {
 
         var length: CGFloat {
             switch self {
-            case .car: return 0.34
-            case .lorry: return 0.52
+            case .car, .police: return 0.34
+            case .lorry, .fire: return 0.52
             case .transit: return 0.62
             case .ship: return 1.9
             case .aircraft: return 0.66
@@ -513,8 +519,8 @@ final class IsoTextureCache {
 
         var height: CGFloat {
             switch self {
-            case .car: return 0.15
-            case .lorry: return 0.24
+            case .car, .police: return 0.15
+            case .lorry, .fire: return 0.24
             case .transit: return 0.22
             case .ship: return 0.3
             case .aircraft: return 0.17
@@ -541,6 +547,8 @@ final class IsoTextureCache {
         switch vehicle {
         case .car: zone = .road
         case .lorry: zone = .industrial
+        case .police: zone = .policeStation
+        case .fire: zone = .fireStation
         case .transit(let mode): zone = mode.stationZone
         case .ship: zone = .seaport
         case .aircraft: zone = .airport
@@ -553,7 +561,7 @@ final class IsoTextureCache {
 
             let body: SKColor
             switch vehicle {
-            case .car, .lorry: body = RenderPalette.trafficCarBody
+            case .car, .lorry, .police, .fire: body = RenderPalette.trafficCarBody
             // A hull is dark like everything else that moves, lit by what it
             // carries rather than by being painted bright.
             case .ship, .aircraft: body = RenderPalette.trafficCarBody

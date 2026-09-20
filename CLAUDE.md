@@ -5414,6 +5414,69 @@ deciding which node ought to be big. Thirty seconds, and it would have skipped
 all four. The general form: when a measurement is strange, stop reasoning
 about the mechanism and enumerate the parts.
 
+## Traffic is light, not little boxes
+
+Reported from play: *"they look strange now — I almost wonder if they should
+be small traces of light rather than boxes we draw. This would allow other
+vehicles to have different colors."* Both halves of that are right, and the
+second is the more important one.
+
+**A box is the wrong object at this size.** A vehicle is about eleven screen
+points across at the zoom the game is played at, and a form that small cannot
+show its form. Two genuine defects were fixed in the boxes first — they
+bloomed into identical white lozenges, and every tile staggered its cars the
+same way so a street read as an evenly spaced dotted line — and they *still*
+looked wrong, because the problem was never the execution. It is the case
+`NeonStyle.minimumDetailSize` already describes: a mark that cannot be drawn
+big enough gets cut, not shrunk.
+
+A streak has no such problem. It is a direction and a colour, and both survive
+any zoom. It is also this art direction's own rule applied to the one thing
+that moves — *colour comes from the light a thing throws, not from repainting
+it* — which is the same move the ground/light split made when the map stopped
+being flat coloured tiles.
+
+### The feature was eighty per cent built and assembled backwards
+
+`makeSpeedTrail` already existed behind every car: additive, length and
+brightness scaled by speed, and described in its own comment as a second read
+of congestion — long bright streak means free-flowing, short dim one means
+jammed. The retrowave part was already there, dragging a box around in front
+of it.
+
+And it took `networkAccentColor(for: zone)` — **the colour of the road, not of
+the vehicle.** That one line was the whole thing standing between this and a
+legible vocabulary. Traffic now colours by what is driving: pale cyan for
+ordinary cars, industry's amber for freight, blue for a patrol car, hot red
+for an engine running to a fire.
+
+**The fire engines are the part that stops being decoration.** Red streaks
+converging on a burning block say where the emergency is from across the map,
+which no silhouette at eleven points could ever have said. Same for freight,
+which is the rule the lorry's separate box body was added to convey and never
+actually managed.
+
+### Alpha blending was tried first, and it was wrong
+
+The reasoning was sound: this project has saturated to white four separate
+times — the conduit runs, the route lines, the tram rails, and the cars
+themselves — and every vehicle becoming light on an already-glowing lane is
+exactly that setup a fifth time. So the first pass used `.alpha`.
+
+It looked like **pale bars painted on the road**. Alpha blending removes the
+one property that makes light read as light: a trace that cannot be *brighter*
+than what it lies on is paint.
+
+The correction is that **saturation is a function of alpha, not of additive**.
+Held at 0.3–0.65 a saturated hue tints the lane rather than bleaching it — a
+cyan streak and a red one land on visibly different colours — where a pale
+colour at high alpha whitens whatever it touches. Which is also why the first
+attempt read grey: the car colour was nearly white. Saturated hues, modest
+alpha, and it works.
+
+The other half was thickness. Eight points read as a bar; a trace is mostly
+length, and thickness is what makes it look like an object instead.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
