@@ -384,15 +384,29 @@ final class GameController: ObservableObject {
     /// something you don't want is still one right-click-bulldoze away —
     /// this only removes the *silent* shortcut, not the ability.
     @discardableResult
-    func place(at position: GridPosition) -> PlacementOutcome {
+    /// **Why a placement would be refused, or `nil` if it would go ahead.**
+    ///
+    /// Extracted so that `place(at:)` and the placement cursor cannot
+    /// disagree. They already had: the cursor asked only "would this replace
+    /// something", which is a fair summary of the rules as they stood when it
+    /// was written and has been wrong since water landed — a house hovered
+    /// over a river drew in the clear colour and then refused the click, and
+    /// a seaport on dry land did the same. The whole of the dock's mechanic
+    /// is *where you may put it*, so a cursor that will not say is worse than
+    /// no cursor.
+    ///
+    /// Same contract as `CityHazards.isExposed` and `CitySimulator.needsWater`
+    /// — the rule is owned in one place and *called* by the view, rather than
+    /// restated there and left to drift.
+    func placementRefusal(of tool: ZoneType, at position: GridPosition) -> PlacementOutcome? {
         guard map.contains(position) else { return .unchanged }
         // Checked before anything else that could succeed: a locked tool must
         // not charge the treasury or touch the map, however legal the
         // placement would otherwise be.
-        guard isUnlocked(selectedTool) else { return .locked }
-        guard !(map[position].zone == selectedTool && map[position].isBuildingAnchor) else { return .unchanged }
+        guard isUnlocked(tool) else { return .locked }
+        guard !(map[position].zone == tool && map[position].isBuildingAnchor) else { return .unchanged }
 
-        let footprint = map.footprintCells(origin: position, size: selectedTool.footprintSize)
+        let footprint = map.footprintCells(origin: position, size: tool.footprintSize)
         guard !footprint.isEmpty else { return .unchanged } // doesn't fit on the map
 
         guard footprint.allSatisfy({ map[$0].zone == .empty }) else { return .blocked }
@@ -401,16 +415,32 @@ final class GameController: ObservableObject {
         // `.blocked` so the player gets the same mark as any other rejected
         // placement rather than a click that silently does nothing. See
         // `ZoneType.bridgeSurcharge` for why only roads.
-        let spans = footprint.filter { map[$0].isWater }.count
-        guard spans == 0 || selectedTool.canBridge else { return .blocked }
+        guard footprint.allSatisfy({ !map[$0].isWater }) || tool.canBridge else { return .blocked }
 
-        // Charged per wet cell, so a wide river costs more to cross than a
-        // narrow one — which is the whole decision a bridge represents.
-        let cost = selectedTool.placementCost + spans * (selectedTool.bridgeSurcharge ?? 0)
-        guard treasury >= cost else { return .insufficientFunds }
+        // **A dock has to be on the shore.** The first placement rule in this
+        // game that depends on the terrain, and the thing that turns the
+        // choice at founding from a look into a strategy: a Flat map cannot
+        // have a seaport at all.
+        if tool == .seaport, !RegionalTrade.canBerth(footprint, in: map) { return .blocked }
 
+        guard treasury >= placementCost(of: tool, at: position) else { return .insufficientFunds }
+        return nil
+    }
 
-        treasury -= cost
+    /// What a placement would charge, bridge surcharge included.
+    ///
+    /// Charged per wet cell, so a wide river costs more to cross than a
+    /// narrow one — which is the whole decision a bridge represents.
+    func placementCost(of tool: ZoneType, at position: GridPosition) -> Int {
+        let spans = map.footprintCells(origin: position, size: tool.footprintSize)
+            .filter { map[$0].isWater }.count
+        return tool.placementCost + spans * (tool.bridgeSurcharge ?? 0)
+    }
+
+    func place(at position: GridPosition) -> PlacementOutcome {
+        if let refusal = placementRefusal(of: selectedTool, at: position) { return refusal }
+
+        treasury -= placementCost(of: selectedTool, at: position)
         map.placeBuilding(zone: selectedTool, origin: position)
         // A tower or a plant changes what is supplied the instant it lands,
         // not on the next tick.

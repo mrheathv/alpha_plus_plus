@@ -55,6 +55,18 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // Long hops, few stops, a big station and a long wait: it is built for a
     // journey no other mode is worth making.
     case railStation
+
+    /// **The docks.** A freight connection to the region, and the first
+    /// building in this game that needs the *terrain*: it has to touch water,
+    /// so a Flat map cannot have one. That is what turns the choice at
+    /// founding from a look into a strategy — rivers and coasts were a
+    /// picture until something depended on them. See `RegionalTrade`.
+    case seaport
+
+    /// **The airport.** The same idea for commerce rather than industry, and
+    /// the one that needs space instead of shore: nine tiles of buildable
+    /// ground, which a dense city has to plan for rather than stumble onto.
+    case airport
     // The genre-parity "water & sewage" gap: unlike every access/coverage
     // mechanic above (a single adjacency or falloff-distance check),
     // water is a real network — a building needs an unbroken chain of
@@ -158,6 +170,11 @@ extension ZoneType {
         // less than a tunnel.
         case .tramStop: return 250
         case .railStation: return 700
+        // The two freight connections, priced as the late-game investments
+        // they are: each raises a whole sector's demand on its own, which is
+        // a lever nothing else in the game pulls.
+        case .seaport: return 1_800
+        case .airport: return 2_600
         // Cheap enough to afford alongside the first few zones out of the
         // $10,000 starting treasury, since a new city now has to buy both.
         case .waterPump: return 250
@@ -196,7 +213,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park, .seaport, .airport: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -277,6 +294,13 @@ extension ZoneType {
         case .subway: return 15
         // `.waterTower` *is* a service, same tier as Police/Fire.
         case .waterTower: return 20
+        // The heaviest things in the game to run, and deliberately so: each
+        // raises a whole sector's demand by itself, so the counterweight has
+        // to be an ongoing bill a plateaued treasury actually notices. An
+        // airport costs more than a hospital — the point at which "what else
+        // can I build" finally has an expensive answer.
+        case .seaport: return 60
+        case .airport: return 75
         }
     }
 
@@ -295,7 +319,7 @@ extension ZoneType {
         // the land is part of the price: a bus shelter threads between
         // blocks, a regional terminus takes a lot.
         case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital, .railStation: return 2
-        case .powerPlant, .stadium: return 3
+        case .powerPlant, .stadium, .seaport, .airport: return 3
         }
     }
 }

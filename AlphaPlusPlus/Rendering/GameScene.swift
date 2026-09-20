@@ -920,9 +920,21 @@ final class GameScene: SKScene {
             return
         }
 
-        let wouldReplaceSomething = footprint.contains { map[$0].zone != .empty }
-        placementPreviewNode.fillColor = wouldReplaceSomething ? RenderPalette.placementPreviewBlockedFill : RenderPalette.placementPreviewClearFill
-        placementPreviewNode.strokeColor = wouldReplaceSomething ? RenderPalette.placementPreviewBlockedStroke : RenderPalette.placementPreviewClearStroke
+        // **The cursor asks the question the click will be asked.** It used
+        // to test "would this replace something", which was the whole rule
+        // when it was written and has been a partial one since water landed:
+        // a house hovered over a river, and a seaport hovered over dry land,
+        // both drew clear and then refused. `placementRefusal` is the rule,
+        // owned once by the controller.
+        //
+        // Affordability is deliberately *not* drawn as blocked. It already
+        // has its own feedback — the red flash on the click — and a cursor
+        // that turns red across the whole map the moment you are broke is
+        // saying something about your treasury, not about this lot.
+        let refusal = controller.placementRefusal(of: controller.selectedTool, at: position)
+        let wouldBeRefused = refusal != nil && refusal != .insufficientFunds
+        placementPreviewNode.fillColor = wouldBeRefused ? RenderPalette.placementPreviewBlockedFill : RenderPalette.placementPreviewClearFill
+        placementPreviewNode.strokeColor = wouldBeRefused ? RenderPalette.placementPreviewBlockedStroke : RenderPalette.placementPreviewClearStroke
 
         placementPreviewNode.path = projection.footprintCursor(size: CGFloat(footprintSize))
         placementPreviewNode.position = projection.project(CGFloat(position.x), CGFloat(position.y), 0)

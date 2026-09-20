@@ -168,13 +168,21 @@ enum Demand {
         // `RegionalEconomy` for why the city needed an external input at all.
         let region = map.regionalEconomy
 
+        // **And the two freight connections**, which pull the opposite way to
+        // the rail term above. Outside *jobs* take residents out of the local
+        // labour market and so cost commerce and industry; a port brings
+        // trade *in*, and raises the sector it serves. A city with rail, a
+        // dock and an airport has a reason to be large in every direction at
+        // once — see `RegionalTrade`.
         return CityDemand(
             residential: clamped(pressure(from: unfilledJobs, scale: scale)
                 - taxPressure + region.strength(for: .residential)),
             commercial: clamped(commercialAndIndustrial + commercialBoost
-                - taxPressure + region.strength(for: .commercial)),
+                - taxPressure + region.strength(for: .commercial)
+                + RegionalTrade.commercialBoost(in: map)),
             industrial: clamped(commercialAndIndustrial
-                - taxPressure + region.strength(for: .industrial))
+                - taxPressure + region.strength(for: .industrial)
+                + RegionalTrade.industrialBoost(in: map))
         )
     }
 

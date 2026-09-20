@@ -64,6 +64,9 @@ struct ServiceFunding: Equatable, Codable, Sendable {
 
     /// How well-funded `zone` currently is. Never optional — every
     /// `ZoneType` has an answer, even the ones that can't be funded at all.
+    /// What the city pays to run its dock and its airport.
+    var ports: Double = 1.0
+
     func level(for zone: ZoneType) -> Double {
         switch zone {
         case .policeStation: return policeStation
@@ -74,6 +77,10 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .subway: return subway
         case .tramStop: return tramStop
         case .railStation: return railStation
+        // The two ports share one dial. A budget line is "the ports", and
+        // `ServiceFunding` is explicitly one dial per *service*, not one per
+        // building — the same reasoning the starter utilities follow.
+        case .seaport, .airport: return ports
         // The starter utilities share their upgraded counterpart's dial: a
         // budget line is "water" or "power", not one slider per building
         // size, and `ServiceFunding` is explicitly one dial per service type
@@ -105,6 +112,7 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .subway: subway = level
         case .tramStop: tramStop = level
         case .railStation: railStation = level
+        case .seaport, .airport: ports = level
         case .waterTower, .waterPump: waterTower = level
         case .school: school = level
         case .hospital: hospital = level

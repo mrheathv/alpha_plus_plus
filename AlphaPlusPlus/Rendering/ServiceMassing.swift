@@ -36,6 +36,8 @@ enum ServiceMassing {
         case .hospital: hospital(footprint, &massing, &random)
         case .powerPlant: powerPlant(footprint, &massing, &random)
         case .stadium: stadium(footprint, &massing, &random)
+        case .seaport: seaport(footprint, &massing, &random)
+        case .airport: airport(footprint, &massing, &random)
         default: return nil
         }
         return massing
@@ -622,6 +624,148 @@ enum ServiceMassing {
                 z: shed.height, width: size, depth: size, height: 0.14
             )))
         }
+    }
+
+    /// **A quay with gantry cranes on it** — the mark every port in every
+    /// game has, and the only silhouette in this game with an arm that
+    /// reaches out over nothing. It has to read from across the map as
+    /// *the docks*, because it is the one building whose whole point is
+    /// where it sits.
+    private static func seaport(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.1
+        let span = footprint - margin * 2
+
+        // The quay: a low deck over most of the lot, which is what a dock is
+        // before anything is put on it.
+        massing.add(.box(Box(x: margin, y: margin, z: 0,
+                             width: span, depth: span * 0.62, height: 0.18)))
+
+        // A shed at the back, with the lit doors a freight terminal has.
+        let shed = Box(x: margin, y: margin + span * 0.68, z: 0,
+                       width: span, depth: span * 0.32,
+                       height: CGFloat(random.value(in: 0.55 ... 0.8)))
+        massing.add(.box(shed))
+        windows(on: shed, rows: 1, columns: 4, chance: 0.7, &massing, &random)
+
+        // The cranes. Two or three, spaced along the quay — a gantry leg, a
+        // tower, and a jib cantilevered out over the water. The jib is the
+        // mark: nothing else in the game has a horizontal that ends in mid
+        // air.
+        let cranes = random.int(in: 2 ... 3)
+        for index in 0 ..< cranes {
+            let t = (CGFloat(index) + 0.5) / CGFloat(cranes)
+            let x = margin + t * span
+            let height = CGFloat(random.value(in: 0.9 ... 1.25))
+            for leg in [CGFloat(-0.055), 0.055] {
+                massing.add(.box(Box(x: x + leg - 0.025, y: margin + span * 0.16,
+                                     z: 0.18, width: 0.05, depth: 0.05, height: height)))
+            }
+            // The jib, reaching out toward the water side of the lot.
+            massing.add(.box(Box(x: x - 0.04, y: margin - 0.06, z: 0.18 + height,
+                                 width: 0.08, depth: span * 0.46, height: 0.07)))
+            massing.add(.box(Box(x: x - 0.05, y: margin - 0.08, z: 0.18 + height - 0.06,
+                                 width: 0.1, depth: 0.07, height: 0.05)),
+                        .lit(NeonStyle.litAccent))
+        }
+
+        // Containers on the quay, which is what says freight rather than
+        // marina — and they have to be *big*. The first pass drew five of
+        // them at 0.18 by 0.1, which is a fifth of a tile: on the contact
+        // sheet they were specks on an empty deck, saying nothing. Three
+        // boxes a player can see beats five they cannot, which is
+        // `minimumDetailSize`'s rule applied to massing rather than to marks.
+        for index in 0 ..< random.int(in: 2 ... 3) {
+            let x = margin + span * (0.08 + CGFloat(index) * 0.3)
+            let y = margin + span * CGFloat(random.value(in: 0.16 ... 0.34))
+            let stack = random.int(in: 1 ... 2)
+            for level in 0 ..< stack {
+                massing.add(.box(Box(x: x, y: y, z: 0.18 + CGFloat(level) * 0.22,
+                                     width: 0.42, depth: 0.26, height: 0.21)))
+            }
+        }
+    }
+
+    /// **A runway, a terminal and a control tower.**
+    ///
+    /// The runway is the identity mark, and it is a *lit* mark rather than a
+    /// drawn one: a raised deck with a dashed centreline of glowing slabs.
+    /// The first version drew the strip 0.03 tall with small lamps down the
+    /// middle and the contact sheet showed nothing at all — a flat plane over
+    /// flat ground has no edge in this projection to catch the light, and a
+    /// lamp a twentieth of a tile across is below every floor this project
+    /// has. A long dashed line of light is a shape nothing else in the game
+    /// draws, and light is the one thing `RetroShader`'s vignette cannot
+    /// crush.
+    ///
+    /// Two things were tried and cut, and both are recorded in the body:
+    /// there is no full-lot apron, because a slab that spans the lot paints
+    /// over everything standing on it, and there is no aircraft, because at
+    /// three tiles across its parts merge into a crate.
+    private static func airport(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.08
+        let span = footprint - margin * 2
+
+        // **There is no full-lot apron**, and that is not a simplification.
+        // A slab covering the whole lot sits at the lot's centre, so the
+        // painter's algorithm draws it *after* the runway at the back and
+        // *with* the aircraft in the middle — and it painted over both. The
+        // first two versions of this building were a runway and a plane that
+        // were drawn correctly and then buried under their own hardstanding.
+        //
+        // The general shape, which has bitten this project before in the
+        // draw-order ties on the hospital's cross: **a volume that spans the
+        // lot has no useful depth key**, so it can only be the frontmost or
+        // the backmost thing. Everything here is laid out back to front by
+        // `y` instead — runway, aircraft, terminal, tower — and the lot's own
+        // ground diamond is the hardstanding.
+        let runway = Box(x: margin, y: margin, z: 0,
+                         width: span, depth: span * 0.26, height: 0.1)
+        massing.add(.box(runway))
+
+        // The centreline, as a row of big lit slabs. This is the identity
+        // mark, and it is drawn the size industry's lit bays are drawn —
+        // those read at every zoom, and the first attempt at 0.055 by 0.03
+        // did not read at any. A dashed line of light down a deck is a shape
+        // nothing else in this game has.
+        let dashes = 5
+        for index in 0 ..< dashes {
+            let t = (CGFloat(index) + 0.5) / CGFloat(dashes)
+            massing.add(.box(Box(x: margin + t * span - 0.17,
+                                 y: runway.y + runway.depth / 2 - 0.05,
+                                 z: 0.1, width: 0.34, depth: 0.1, height: 0.05)),
+                        .lit(NeonStyle.litAccent))
+        }
+
+        // **There is no aircraft**, and it was tried twice. A plane is a
+        // fuselage, a wing and a fin, and at three tiles across the wing is
+        // a tenth of a tile thick — so the three volumes merged into one
+        // lump that read as a crate parked beside the runway. Scaled up
+        // enough to separate, it stopped being a plane and became a hangar.
+        //
+        // That is `minimumDetailSize`'s rule reaching massing again: **if a
+        // mark cannot be drawn big enough to read, cut it rather than shrink
+        // the building around it.** The runway carries this lot on its own,
+        // and an airport is mostly open ground anyway.
+
+        // The terminal, across the near edge, where a plane would face it.
+        let terminal = Box(x: margin + span * 0.06, y: margin + span * 0.74, z: 0,
+                           width: span * 0.88, depth: span * 0.18,
+                           height: CGFloat(random.value(in: 0.5 ... 0.72)))
+        massing.add(.box(terminal))
+        windows(on: terminal, rows: 2, columns: 5, chance: 0.8, &massing, &random)
+
+        // The control tower: the one vertical on an otherwise flat lot.
+        let tower = CGFloat(random.value(in: 1.1 ... 1.5))
+        let towerX = margin + span * CGFloat(random.value(in: 0.1 ... 0.8))
+        massing.add(.box(Box(x: towerX, y: margin + span * 0.94, z: 0,
+                             width: 0.12, depth: 0.12, height: tower)))
+        massing.add(.box(Box(x: towerX - 0.045, y: margin + span * 0.94 - 0.045,
+                             z: tower, width: 0.21, depth: 0.21, height: 0.12)),
+                    .lit(NeonStyle.litAccent))
     }
 
     /// **Four kinds of park, not one lawn at four sizes.**

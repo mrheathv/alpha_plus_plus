@@ -90,6 +90,15 @@ enum Unlocks {
         // reaches for once it has outgrown what it can employ itself.
         case .railStation:
             return 1_500
+        // The freight connections come last of all, and above rail on
+        // purpose: rail is how a city outgrows the jobs it can build, and a
+        // port is how it starts supplying somewhere else. The dock first,
+        // because it is cheaper and because a coastal city has been looking
+        // at the water since it was founded.
+        case .seaport:
+            return 2_000
+        case .airport:
+            return 2_800
         }
     }
 

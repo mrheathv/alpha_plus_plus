@@ -193,7 +193,28 @@ final class CommuterRailTests: XCTestCase {
         XCTAssertTrue(entries.contains { $0.zone == .railStation })
         XCTAssertEqual(try XCTUnwrap(entries.first { $0.overlay == .rail }).unlockedBy, .railStation)
 
-        let last = ZoneType.allCases.max { Unlocks.requiredPopulation(for: $0) < Unlocks.requiredPopulation(for: $1) }
-        XCTAssertEqual(last, .railStation, "a regional connection is no longer the last thing earned")
+        // **The last thing earned on the transit ladder**, which is what this
+        // ever meant. It was written as "the last `ZoneType` earned" because
+        // rail was the top of every ladder there was; freight now sits above
+        // it, deliberately — rail is how a city outgrows the jobs it can
+        // build, a port is how it starts supplying somewhere else.
+        //
+        // So the thing moved rather than the yardstick being wrong, and the
+        // claim is restated rather than dropped: derived from
+        // `TransitRoute.Mode` so a fifth mode cannot land above rail without
+        // this saying so.
+        let lastTransit = TransitRoute.Mode.allCases
+            .map(\.stationZone)
+            .max { Unlocks.requiredPopulation(for: $0) < Unlocks.requiredPopulation(for: $1) }
+        XCTAssertEqual(lastTransit, .railStation,
+                       "a regional connection is no longer the last transit tool earned")
+
+        // And freight is above all of it — the property that displaced the
+        // one above, now pinned rather than merely true by accident.
+        for freight in [ZoneType.seaport, .airport] {
+            XCTAssertGreaterThan(Unlocks.requiredPopulation(for: freight),
+                                 Unlocks.requiredPopulation(for: .railStation),
+                                 "\(freight) is earned before the transit ladder is finished")
+        }
     }
 }

@@ -156,12 +156,29 @@ final class CivicServicesTests: XCTestCase {
     /// banking millions with nothing to buy. Civic buildings are the heaviest
     /// ongoing cost in the game.
     func testCivicBuildingsAreASubstantialOngoingCost() {
-        // The hospital is the single heaviest thing in the game to run.
-        let heaviestOther = ZoneType.allCases
-            .filter { $0 != .hospital }
+        // **The heaviest thing a city builds to serve its own residents**,
+        // which is the claim this always meant. It was written as "the
+        // heaviest thing in the game" and held until freight landed: a
+        // seaport and an airport each raise a whole sector's demand on their
+        // own, so the counterweight has to be a bill a plateaued treasury
+        // notices, and CLAUDE.md's own standing finding is that money still
+        // accumulates. A bigger late-game sink is aimed straight at that.
+        //
+        // The thing moved, so the yardstick is restated rather than relaxed —
+        // and the *new* ordering is asserted below rather than left to be
+        // true by accident, which is how this one drifted in the first place.
+        let freight: Set<ZoneType> = [.seaport, .airport]
+        let heaviestOtherService = ZoneType.allCases
+            .filter { $0 != .hospital && !freight.contains($0) }
             .map(\.upkeepCost)
             .max() ?? 0
-        XCTAssertGreaterThan(ZoneType.hospital.upkeepCost, heaviestOther)
+        XCTAssertGreaterThan(ZoneType.hospital.upkeepCost, heaviestOtherService)
+
+        for port in freight {
+            XCTAssertGreaterThan(port.upkeepCost, ZoneType.hospital.upkeepCost,
+                                 "\(port) is meant to be the expensive answer to "
+                                 + "\"what else can I build\"")
+        }
 
         // The school sits below the power plant — a 3×3 plant serving the
         // whole city should cost more than a neighbourhood school — but well

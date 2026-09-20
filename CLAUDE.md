@@ -3523,6 +3523,140 @@ only while every station is 1×1. A 2×2 station reaches one tile further, which
 is correct — a catchment is a walk from the building — and nothing had existed
 to catch it.
 
+## Freight: the seaport, the airport, and terrain that finally matters
+
+Regional rail sends *people* off the map, and it pulls a city toward being a
+dormitory — residential demand up, the other two down. Nothing sent **goods**
+anywhere. `RegionalTrade` is the other half: a **seaport** raises industrial
+demand and an **airport** raises commercial, so a city with all three has a
+reason to be large in every direction at once, which is the shape a late game
+wants.
+
+Both are deliberately **buildings, not networks**. Rail earns its connection by
+being routed to the edge, which is a thing you draw; a port earns its
+connection by existing somewhere it can. One drawn network is enough — a
+second would be the transit module again with different nouns.
+
+### The seaport is the first thing in this game that needs the terrain
+
+It has to touch water, so a **Flat map cannot have one**. That is what turns
+the founding choice from a look into a strategy: rivers and coasts were a
+picture until something depended on them, and this is that something. The
+airport has no such rule, which is what stops Flat being a strictly worse map —
+a landlocked city buys its connection instead of siting it.
+
+The berth is checked against the whole **footprint's** neighbours rather than
+the anchor's, so a 3×3 quay needs water along one of its edges rather than at
+one particular corner. Nothing else in the game asks this question, so nothing
+else would have caught an anchor-only check; `RegionalTradeTests` pins it
+directly. Same shape as the transit catchment that had quietly assumed every
+station was 1×1.
+
+### Diminishing returns, because otherwise a port is a slider
+
+`boostPerPort` is 0.34 and two of the same kind add as `1 - 0.5^n`. The first
+port is the one that *connects* the city at all; every one after it only
+widens a connection that already exists. Without that curve, ports are a demand
+lever a large treasury can simply hold down — and this project has shipped a
+mechanic that never binds before.
+
+The number is sized against the levers it sits among rather than picked:
+above `RegionalEconomy.amplitude` (0.25) so a port outweighs a swing of the
+regional cycle, below `Demand.taxDemandSensitivity` (0.5) so it cannot
+overrule how the city is run. Funding scales it rather than gating it, the
+same way it scales everything else a service does — a mothballed dock connects
+nothing.
+
+### Two buildings, and three goes at the airport
+
+The seaport's mark is a **quay with gantry cranes**, and the jib is the whole
+point: a horizontal that ends in mid-air over the water is a silhouette
+nothing else in this game has. Containers on the deck say freight rather than
+marina — and they had to be drawn **three times the size** of the first
+attempt, which put five of them at a fifth of a tile and produced specks on an
+empty deck. `minimumDetailSize`'s rule reaching massing: three boxes a player
+can see beat five they cannot.
+
+The airport took three passes, and the failures are the useful part.
+
+- **A flat strip over flat ground is not a runway.** The first version drew
+  the deck 0.03 tall with five lamps down the middle, and the contact sheet
+  showed nothing at all — in this projection a plane with no height has no
+  edge to catch the light. It is a deck 0.1 tall now, with a **dashed
+  centreline of big lit slabs** drawn the size industry's lit bays are drawn.
+  Those read at every zoom; the first lamps read at none.
+- **A full-lot apron paints over everything standing on it.** The slab sat at
+  the lot's centre, so the painter's algorithm drew it *after* the runway at
+  the back and *with* the aircraft in the middle. Two versions of this
+  building were drawn correctly and then buried under their own hardstanding.
+  The general shape, and it has bitten here before in the hospital cross's
+  sort ties: **a volume that spans the lot has no useful depth key**, so it
+  can only be frontmost or backmost. Everything is laid out back-to-front by
+  `y` now — runway, terminal, tower — and the lot's own ground diamond is the
+  hardstanding.
+- **There is no aircraft, and it was tried twice.** A plane is a fuselage, a
+  wing and a fin, and at three tiles across the wing is a tenth of a tile
+  thick, so the three volumes merged into one lump that read as a crate.
+  Scaled up enough to separate, it stopped being a plane and became a hangar.
+  Cut, per this file's own rule: **if a mark cannot be drawn big enough to
+  read, cut it rather than shrink the building around it.** The runway carries
+  the lot on its own, and an airport is mostly open ground anyway.
+
+### Freight displaced two properties that were true by accident
+
+Both surfaced as test failures, and both were the *thing* moving rather than
+the yardstick being wrong — so both are restated, and in each case the new
+ordering is now asserted rather than left to be true by accident, which is how
+the old one drifted in the first place.
+
+- **"Rail is the last thing earned."** It meant the last rung of the transit
+  ladder and was written as the last `ZoneType`, because rail was the top of
+  every ladder there was. Freight now sits above it on purpose: rail is how a
+  city outgrows the jobs it can build, a port is how it starts supplying
+  somewhere else. The assertion derives its set from `TransitRoute.Mode`, so a
+  fifth mode cannot land above rail without saying so.
+- **"A hospital is the single most expensive thing in the game to run."**
+  Stated in this file and asserted in `CivicServicesTests`, and the airport
+  (75) now outruns it (55). That is deliberate — each port raises a whole
+  sector's demand by itself, so the counterweight has to be a bill a plateaued
+  treasury notices, and *money still accumulates* is a standing open finding
+  above. The hospital keeps the claim that was really being made: the heaviest
+  thing a city builds to serve **its own residents**.
+
+**Both of those upkeep numbers, and `boostPerPort`, are unmeasured.** They are
+sized by argument against the constants they sit among, which is exactly how
+`capacityPerStop` was first sized — and measuring that one found a ceiling
+nowhere near reach. A harness scenario for a port city against a control is
+the honest next step, and until it exists these are first guesses wearing a
+rationale.
+
+### And the placement cursor had been lying since water landed
+
+Adding a rule about *where* a building may go turned up that the cursor could
+not express one. `updatePlacementPreview` tested `would this replace
+something`, which was the complete rule on the day it was written and a
+partial one ever since: a seaport hovered over dry land drew in the clear
+colour and then refused the click, and so — it turns out — did **a house
+hovered over a river**, which has been true since terrain landed and was
+never noticed.
+
+`GameController.placementRefusal(of:at:)` is the gate chain as a value, and
+`place(at:)` is now written in terms of it. Same direction, and for the same
+reason, as `LotStatus`, `CityHazards.isExposed` and `CitySimulator.needsWater`:
+**the rule is owned in one place and *called* by the view, rather than restated
+there and left to drift.** Affordability is deliberately not drawn as blocked —
+it has its own red flash on the click, and a cursor that turns red across the
+whole map the moment you are broke is saying something about your treasury
+rather than about this lot.
+
+The test is a **sweep, not two examples**. A test naming the cases I thought of
+would have passed on the day water landed; asking every cell of a map with a
+river in it, for four tools, and comparing the cursor's colour against what
+`place` actually returns is what makes the next rule added to
+`placementRefusal` show up here if the cursor is not taught about it. Verified
+by putting the old one-line test back: it fails on residential at (0, 7)
+onward, which is the river.
+
 ## The Problems view, and slowing the clock down
 
 Reported from play: *"everything is happening so fast, there's no way to check

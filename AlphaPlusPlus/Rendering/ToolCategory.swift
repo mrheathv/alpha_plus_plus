@@ -21,6 +21,7 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
     case transport
     case utilities
     case services
+    case trade
 
     var id: String { rawValue }
 
@@ -30,6 +31,7 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
         case .transport: return "Transport"
         case .utilities: return "Water & Power"
         case .services: return "Services"
+        case .trade: return "Trade"
         }
     }
 
@@ -90,6 +92,13 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
             // usable sits to the left.
             return [.zone(.park), .zone(.policeStation), .zone(.fireStation),
                     .zone(.school), .zone(.hospital), .zone(.stadium)]
+        case .trade:
+            // The two freight connections, in unlock order. They are their
+            // own group rather than more Services because they are not a
+            // service at all — nothing they do is coverage. What they do is
+            // connect the city to somewhere else, which is the same job the
+            // Transport group does for people.
+            return [.zone(.seaport), .zone(.airport)]
         }
     }
 

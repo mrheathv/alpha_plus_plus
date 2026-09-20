@@ -410,6 +410,16 @@ enum RenderPalette {
             return SKColor(srgbRed: 0.0, green: 0.85, blue: 0.70, alpha: 1.0)
         case .waterTower:
             return SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)  // deep ocean-blue, distinct from Commercial's cyan family
+        // **The two freight connections share a family**, because that is
+        // what they are: a sea-green and a warmer signal-amber, both well
+        // clear of the blue-violet the urban transit modes live in and of
+        // rail's chartreuse. A player should be able to see at a glance that
+        // these two are the same *kind* of thing as each other and a
+        // different kind from everything else.
+        case .seaport:
+            return SKColor(srgbRed: 0.10, green: 0.82, blue: 0.62, alpha: 1.0)
+        case .airport:
+            return SKColor(srgbRed: 1.0, green: 0.68, blue: 0.16, alpha: 1.0)
         }
     }
 
@@ -647,6 +657,8 @@ enum RenderPalette {
         case .tramStop: return "Tram Stop"
         case .railStation: return "Rail Station"
         case .waterTower: return "Water Tower"
+        case .seaport: return "Seaport"
+        case .airport: return "Airport"
         }
     }
 }

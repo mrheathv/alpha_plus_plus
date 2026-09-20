@@ -117,6 +117,51 @@ final class ScenePlaytestTests: XCTestCase {
         }
     }
 
+    /// **The cursor and the click must agree, everywhere.**
+    ///
+    /// The preview tested "would this replace something", which was the whole
+    /// rule when it was written. Water made it a partial one: a house hovered
+    /// over a river drew in the clear colour and then refused the click, and
+    /// so did a seaport on dry land — which is the worse of the two, because
+    /// *where you may put it* is the dock's entire mechanic.
+    ///
+    /// Written as a sweep rather than as two examples on purpose. A test
+    /// naming the cases I thought of would have passed on the day water
+    /// landed; asking every cell of a map that has a river in it is what
+    /// makes the next rule added to `placementRefusal` show up here if the
+    /// cursor is not taught about it.
+    func testTheCursorNeverPromisesAPlacementTheClickRefuses() {
+        var map = startedCity()
+        for x in 0 ..< map.width { map[GridPosition(x: x, y: 8)].isWater = true }
+        let game = ScenePlaytest(map: map)
+
+        for tool in [ZoneType.residential, .road, .seaport, .airport] {
+            game.controller.selectedTool = tool
+            for position in map.tiles.map(\.position) {
+                game.scene.updatePlacementPreview(at: position)
+                let cursor = game.scene.placementPreviewForTesting
+                guard !cursor.isHidden else { continue }
+                let saysClear = cursor.strokeColor == RenderPalette.placementPreviewClearStroke
+
+                // A copy, so asking the question does not build the city.
+                let trial = GameController(map: map, rng: SystemRandomNumberGenerator(),
+                                           peakPopulation: Unlocks.everythingUnlocked)
+                trial.selectedTool = tool
+                let outcome = trial.place(at: position)
+
+                if saysClear {
+                    XCTAssertEqual(outcome, .placed,
+                                   "\(tool) at \(position): the cursor said clear and the click "
+                                   + "returned \(outcome)")
+                } else {
+                    XCTAssertNotEqual(outcome, .placed,
+                                      "\(tool) at \(position): the cursor said blocked and the "
+                                      + "click placed it anyway")
+                }
+            }
+        }
+    }
+
     /// **"It could be more apparent that you're selecting a valid stop."**
     ///
     /// It was worse than unclear — the cursor was lying. A click names a
