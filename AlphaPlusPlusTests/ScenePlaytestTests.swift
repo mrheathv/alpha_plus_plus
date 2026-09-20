@@ -117,6 +117,45 @@ final class ScenePlaytestTests: XCTestCase {
         }
     }
 
+    /// **A tram runs on the streets, in Normal view.**
+    ///
+    /// Every other transit vehicle can only be drawn over its own diagram,
+    /// because every other route here is a schematic between stations and a
+    /// bus cutting diagonally across blocks would be a lie. A tram lays real
+    /// track down real roads, so it is the one mode that can run on the map —
+    /// and `Transit.tramTracks` has computed that track since trams landed
+    /// with nothing drawing a vehicle on it.
+    func testATramRunsOnItsOwnTrackInNormalView() {
+        var map = startedCity()
+        for x in 0 ..< map.width { map[GridPosition(x: x, y: 5)].zone = .road }
+        map.placeBuilding(zone: .tramStop, origin: GridPosition(x: 2, y: 4))
+        map.placeBuilding(zone: .tramStop, origin: GridPosition(x: map.width - 3, y: 4))
+        map.transit.add(mode: .tram, stops: [
+            GridPosition(x: 2, y: 4), GridPosition(x: map.width - 3, y: 4),
+        ])
+        map.tramTracks = Transit.tramTracks(in: map)
+
+        let game = ScenePlaytest(map: map)
+        game.play()
+        game.frame()
+        XCTAssertEqual(game.scene.tramCountForTesting, 1,
+                       "a drawn tram line put no vehicle on the map")
+
+        let before = game.scene.tramPositionsForTesting
+        for _ in 0 ..< 30 { game.frame() }
+        XCTAssertNotEqual(game.scene.tramPositionsForTesting, before, "the tram never moved")
+
+        // And it stops with the city. This rides on `update`'s own pause
+        // guard rather than on `animatedBySimulation`, which is the whole
+        // reason it is driven per frame instead of by an `SKAction` — the
+        // shape that let cars keep driving around a stopped map.
+        game.pause()
+        let parked = game.scene.tramPositionsForTesting
+        for _ in 0 ..< 30 { game.frame() }
+        XCTAssertEqual(game.scene.tramPositionsForTesting, parked,
+                       "the tram kept running around a paused city")
+    }
+
     /// **The cursor and the click must agree, everywhere.**
     ///
     /// The preview tested "would this replace something", which was the whole

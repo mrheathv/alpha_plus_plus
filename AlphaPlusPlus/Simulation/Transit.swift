@@ -205,6 +205,46 @@ enum Transit {
         return tracks
     }
 
+    /// The rails of one tram route **in order** — the path a vehicle travels,
+    /// rather than the set of tiles that carry track.
+    ///
+    /// `tramTracks` answers "which tiles have rails on them", which is what
+    /// `Traffic.congestion` and the texture cache need and what a `Set` is
+    /// exactly right for. A vehicle needs the same information *in order*,
+    /// and a set cannot say which end of the line it starts from.
+    ///
+    /// **This is the only mode that can answer the question at all.** Every
+    /// other route in this game is a schematic between stations — there is no
+    /// path stored, because a bus route is a statement about which stops are
+    /// on one line and not about the streets between them. So a bus can only
+    /// be drawn running over its own diagram. A tram lays real track down real
+    /// roads, which is what lets it run on the map itself.
+    ///
+    /// Empty when the streets do not join the stops up: a line whose track is
+    /// severed has no path, and drawing a vehicle gliding across the gap would
+    /// claim a connection the simulation does not have.
+    static func tramPath(of route: TransitRoute, in map: CityMap) -> [GridPosition] {
+        guard route.mode == .tram else { return [] }
+        let drivable = Set(map.tiles.filter { $0.zone == .road || $0.zone == .highway }.map(\.position))
+        guard !drivable.isEmpty else { return [] }
+
+        let stops = workingStops(of: route, in: map)
+        guard stops.count >= TransitRoute.minimumStops else { return [] }
+
+        var path: [GridPosition] = []
+        for (from, to) in zip(stops, stops.dropFirst()) {
+            // `roadRun` walks back from the arrival through its parents, so it
+            // comes out destination-first. Reversed here rather than there
+            // because `tramTracks` unions it into a set and does not care.
+            let leg = roadRun(from: from, to: to, over: drivable, in: map).reversed()
+            guard !leg.isEmpty else { return [] }
+            // Drop the joint, so a stop shared by two legs is not visited
+            // twice and the tram does not stutter at every station.
+            path += path.isEmpty ? Array(leg) : Array(leg.dropFirst())
+        }
+        return path
+    }
+
     /// The shortest road run between two stations, or nothing if the streets
     /// do not connect them.
     ///

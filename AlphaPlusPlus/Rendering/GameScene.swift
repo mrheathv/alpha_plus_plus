@@ -457,9 +457,8 @@ final class GameScene: SKScene {
 
         // Before the pause check, deliberately. Looking around a stopped city
         // is most of what pausing is for.
-        if let lastFrameTime {
-            applyKeyboardPan(elapsed: min(currentTime - lastFrameTime, 0.1))
-        }
+        let frameDelta = lastFrameTime.map { min(currentTime - $0, 0.1) } ?? 0
+        if lastFrameTime != nil { applyKeyboardPan(elapsed: frameDelta) }
         lastFrameTime = currentTime
 
         guard controller.isRunning else {
@@ -469,6 +468,8 @@ final class GameScene: SKScene {
             lastTickTime = nil
             return
         }
+        advanceTrams(by: frameDelta)
+
         guard let lastTickTime else {
             // Just resumed (or this is the first frame ever): start the
             // clock from now rather than ticking on this very frame.
@@ -1077,6 +1078,10 @@ final class GameScene: SKScene {
     /// lines are drawn at all and that something moves along them.
     var transitDiagramForTesting: SKNode { transitDiagramNode }
 
+    /// The trams running on real track, for the tests about whether they do.
+    var tramCountForTesting: Int { tramRuns.count }
+    var tramPositionsForTesting: [CGPoint] { tramRuns.map(\.holder.position) }
+
     var transitVehicleCountForTesting: Int {
         transitDiagramNode.children.filter { $0.name == Self.transitVehicleNodeName }.count
     }
@@ -1095,6 +1100,12 @@ final class GameScene: SKScene {
     static var simulationDrivenNodeNamesForTesting: Set<String> { animatedBySimulation }
 
     func rebuildEntireGrid() {
+        // The trams live in `tileLayer`, so they go with it — and the key has
+        // to be cleared too, or `syncTramRuns` decides nothing has changed and
+        // they never come back. Exactly the stale-cache shape an overlay has
+        // to invalidate the keys of what it hides for.
+        tramRuns = []
+        tramRunsKey = nil
         tileLayer.removeAllChildren()
         tileNodes.removeAll()
         buildTileNodes()
@@ -1590,6 +1601,7 @@ final class GameScene: SKScene {
 
     func refreshAll() {
         syncOverlayGeneration()
+        syncTramRuns()
         // **Every overlay that reads distances, not just land value.** This
         // said `== .landValue` when land value was the only one, and by the
         // time Crime, Fire Risk and Problems arrived it was quietly making
@@ -1691,6 +1703,114 @@ final class GameScene: SKScene {
             ])))
             vehicle.isPaused = !controller.isRunning
             transitDiagramNode.addChild(vehicle)
+        }
+    }
+
+    // MARK: - Trams, on the rails they actually laid
+
+    /// A tram and where it has got to along its own track.
+    ///
+    /// **Driven per frame rather than by an `SKAction`**, which buys two
+    /// things the diagram's vehicles do without. Depth: a tram crosses tiles,
+    /// so its painter's-algorithm key changes as it goes, and a node running
+    /// an action would need its `zPosition` rewritten every frame anyway —
+    /// at which point the action is only supplying the position. And pause:
+    /// this advances after `update`'s own `isRunning` guard, so a stopped
+    /// city stops its trams for free, with none of the `animatedBySimulation`
+    /// bookkeeping an `SKAction` needs to avoid the "cars kept driving around
+    /// a paused map" bug.
+    private struct TramRun {
+        let holder: SKNode
+        let alongX: SKNode
+        let alongY: SKNode
+        /// The track, in order.
+        let tiles: [GridPosition]
+        /// Tiles per second, off the mode's own `minutesPerTile`.
+        let speed: CGFloat
+        /// How far along `tiles`, in index units.
+        var travelled: CGFloat
+        /// A line is a there-and-back service, not a loop.
+        var outbound: Bool
+    }
+
+    private var tramRuns: [TramRun] = []
+    private var tramRunsKey: String?
+
+    /// Rebuild the trams when the lines or the track have changed, and not
+    /// otherwise.
+    ///
+    /// Called from `refreshAll`, so it is checked once a tick rather than
+    /// once a frame — and the key is cheap on purpose, because the work it
+    /// guards is a breadth-first search per segment of every tram line.
+    /// `map.tramTracks` is already cached on `CityMap` for
+    /// `Traffic.congestion`, so its count costs nothing and catches a street
+    /// being cut or laid under an existing line.
+    private func syncTramRuns() {
+        let routes = map.transit.routes(mode: .tram)
+        let key = routes.map { $0.stops.map { "\($0.x),\($0.y)" }.joined(separator: ";") }
+            .joined(separator: "|") + "#\(map.tramTracks.count)"
+        guard key != tramRunsKey else { return }
+        tramRunsKey = key
+
+        for run in tramRuns { run.holder.removeFromParent() }
+        tramRuns = []
+
+        for route in routes {
+            let tiles = Transit.tramPath(of: route, in: map)
+            // Two tiles is the shortest thing that has a direction. A severed
+            // line returns nothing, and drawing a tram gliding across the gap
+            // would claim a connection the simulation does not have.
+            guard tiles.count >= 2 else { continue }
+
+            let holder = SKNode()
+            let alongX = tileRenderer.carSprite(.transit(.tram), alongX: true)
+            let alongY = tileRenderer.carSprite(.transit(.tram), alongX: false)
+            alongY.isHidden = true
+            holder.addChild(alongX)
+            holder.addChild(alongY)
+            // Into `tileLayer` rather than the diagram node: `zPosition` is
+            // only comparable against the tiles when it shares their parent,
+            // and being sorted against the city is the whole point of a
+            // vehicle that runs on the map instead of over a schematic.
+            tileLayer.addChild(holder)
+
+            tramRuns.append(TramRun(
+                holder: holder, alongX: alongX, alongY: alongY, tiles: tiles,
+                speed: 1 / CGFloat(TransitRoute.Mode.tram.minutesPerTile * 0.55),
+                travelled: 0, outbound: true
+            ))
+        }
+    }
+
+    private func advanceTrams(by delta: TimeInterval) {
+        guard !tramRuns.isEmpty, delta > 0 else { return }
+        for index in tramRuns.indices {
+            var run = tramRuns[index]
+            let last = CGFloat(run.tiles.count - 1)
+
+            run.travelled += run.speed * CGFloat(delta) * (run.outbound ? 1 : -1)
+            if run.travelled >= last { run.travelled = last; run.outbound = false }
+            if run.travelled <= 0 { run.travelled = 0; run.outbound = true }
+
+            let step = min(Int(run.travelled), run.tiles.count - 2)
+            let fraction = run.travelled - CGFloat(step)
+            let from = run.tiles[step], to = run.tiles[step + 1]
+            let x = CGFloat(from.x) + CGFloat(to.x - from.x) * fraction
+            let y = CGFloat(from.y) + CGFloat(to.y - from.y) * fraction
+
+            run.holder.position = projection.project(x + 0.5, y + 0.5, 0)
+            // Half a step above the tile it is over, so it draws on top of
+            // the street and still behind whatever stands on the next one.
+            run.holder.zPosition = x + y + 0.5
+            // Which way the track runs decides which of the two vehicle
+            // textures shows, the same pair the traffic uses — a tram turning
+            // a corner swaps rather than rotating, because these are little
+            // projected boxes and not sprites with a free angle.
+            let alongXNow = to.x != from.x
+            run.alongX.isHidden = !alongXNow
+            run.alongY.isHidden = alongXNow
+
+            tramRuns[index] = run
         }
     }
 

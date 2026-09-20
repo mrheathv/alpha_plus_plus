@@ -23,6 +23,80 @@ final class TramTests: XCTestCase {
         return position
     }
 
+    // MARK: - The rails, in order
+
+    /// **A path, not a set**, and the difference is what a vehicle needs.
+    ///
+    /// Written against the track `tramTracks` already reports rather than
+    /// against a hand-drawn list of tiles: a second description of where the
+    /// rails go would agree with itself forever, which is the failure this
+    /// project keeps recording. The path has to be a walk over exactly those
+    /// tiles, in order, with no jumps.
+    func testTheTramPathWalksTheTrackItLaid() {
+        var map = corridor()
+        let a = stop(&map, at: GridPosition(x: 1, y: 2))
+        let b = stop(&map, at: GridPosition(x: 28, y: 2))
+        map.transit.add(mode: .tram, stops: [a, b])
+        map.tramTracks = Transit.tramTracks(in: map)
+
+        let route = map.transit.routes(mode: .tram)[0]
+        let path = Transit.tramPath(of: route, in: map)
+
+        XCTAssertFalse(path.isEmpty, "a connected line produced no path at all")
+        XCTAssertEqual(Set(path), map.tramTracks,
+                       "the path visits different tiles than the track it is on")
+        for (from, to) in zip(path, path.dropFirst()) {
+            XCTAssertEqual(abs(to.x - from.x) + abs(to.y - from.y), 1,
+                           "the tram jumps from \(from) to \(to) rather than walking")
+        }
+    }
+
+    /// A stop shared by two legs is one tile on the path, not two — otherwise
+    /// a tram stutters on the spot at every station in the middle of a line.
+    func testAStopBetweenTwoLegsIsVisitedOnce() {
+        var map = corridor()
+        let a = stop(&map, at: GridPosition(x: 1, y: 2))
+        let b = stop(&map, at: GridPosition(x: 14, y: 2))
+        let c = stop(&map, at: GridPosition(x: 28, y: 2))
+        map.transit.add(mode: .tram, stops: [a, b, c])
+
+        let path = Transit.tramPath(of: map.transit.routes(mode: .tram)[0], in: map)
+        XCTAssertEqual(path.count, Set(path).count, "the path doubles back over itself")
+    }
+
+    /// **A severed line has no path**, and that is the honest answer rather
+    /// than a straight line across the gap. Drawing a tram gliding over
+    /// missing street would claim a connection the simulation does not have —
+    /// the same distinction the conduit overlay draws between a pipe that
+    /// exists and a pipe that is live.
+    func testALineWithNoStreetBetweenItsStopsHasNoPath() {
+        var map = corridor()
+        let a = stop(&map, at: GridPosition(x: 1, y: 2))
+        let b = stop(&map, at: GridPosition(x: 28, y: 2))
+        map.transit.add(mode: .tram, stops: [a, b])
+        // Cut the one street that joins them.
+        map[GridPosition(x: 15, y: 3)].zone = .empty
+
+        XCTAssertTrue(Transit.tramPath(of: map.transit.routes(mode: .tram)[0], in: map).isEmpty)
+    }
+
+    /// Only the tram has one. Every other route in this game is a schematic
+    /// between stations, so there is no path to report — asserted rather than
+    /// assumed, because a mode quietly gaining one would put a bus on streets
+    /// the simulation never routed it down.
+    func testNoOtherModeHasAPath() {
+        for mode in TransitRoute.Mode.allCases where mode != .tram {
+            var map = corridor()
+            let a = stop(&map, at: GridPosition(x: 1, y: 2), mode: mode)
+            let b = stop(&map, at: GridPosition(x: 28, y: 2), mode: mode)
+            map.transit.add(mode: mode, stops: [a, b])
+            XCTAssertTrue(
+                Transit.tramPath(of: map.transit.routes(mode: mode)[0], in: map).isEmpty,
+                "\(mode) reported a street path it does not have"
+            )
+        }
+    }
+
     // MARK: - A tram takes a lane
 
     /// **The mechanic.** The street a tram runs down carries less traffic than
