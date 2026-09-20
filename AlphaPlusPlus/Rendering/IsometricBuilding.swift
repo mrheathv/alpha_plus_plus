@@ -129,10 +129,37 @@ enum IsometricBuilding {
         let layer = SKEffectNode()
         layer.shouldRasterize = true
         let blur = CIFilter(name: "CIGaussianBlur")
-        blur?.setValue(7, forKey: "inputRadius")
-        layer.filter = blur
+        // **The baked halo comes down now that the frame blooms.**
+        //
+        // This blur is the *whole* glow a building had: a blurred copy of
+        // itself, rasterised once into its texture. With real bloom in the
+        // post-process, most of what it was doing is now done in the frame —
+        // and done better, because the frame's version knows about the
+        // building next door and this one never could.
+        //
+        // Keeping both at full strength double-counts: a tier-3 tower ended
+        // up with a baked halo *and* a lit one, which is how a dense block
+        // went to mush. Pulling the bake back to a tight rim leaves the
+        // silhouette crisp and lets the bloom carry the spill, which is the
+        // right division of labour — and it is the reason bloom was the
+        // first GPU job rather than the prettiest one.
+        //
+        // **The cost argument for this was wrong, and measuring it is the
+        // only reason that is known.** The claim was that radius scales blur
+        // cost superlinearly, so a smaller bake would make filling the cache
+        // cheaper as well as crisper. Measured over every building variant on
+        // a cold cache: radius 7 takes 191.9 ms and radius 4 takes 191.0 —
+        // nine tenths of a millisecond out of a hundred and ninety, which is
+        // noise. Whatever dominates that number, it is not the blur.
+        //
+        // The change stays, because the *visual* half is real and was checked
+        // on a render. It is simply not a saving, and a comment claiming one
+        // would be the kind of unmeasured assertion this project keeps
+        // finding and deleting.
+        blur?.setValue(VisualStyle.current.bakedGlowRadius, forKey: "inputRadius")
+        let weight = VisualStyle.current.bakedGlowWeight
         for shape in shapes {
-            shape.lineWidth = 6 * max(0.4, intensity)
+            shape.lineWidth = 6 * max(0.4, intensity) * weight
             shape.alpha = min(1, 0.85 * intensity)
             layer.addChild(shape)
         }

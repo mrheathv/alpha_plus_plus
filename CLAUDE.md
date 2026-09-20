@@ -4781,10 +4781,33 @@ is what the instrument's own limits predict. Classic costs the same at 32×32
 and 48×48 because the frame size is fixed and most of that cost is per-pixel
 — the jump at 64×64 is nodes, not shader.
 
-**Still to do, and the reason this one was first:** with real bloom in the
-frame, the baked per-texture glow can come *down*, which would make buildings
-crisper and rasterisation cheaper at the same time. That is a change to every
-building texture and wants its own render review.
+#### And the baked glow came down, which was half right
+
+With real bloom in the frame, the baked per-texture halo could come down —
+and it did: radius 7 to 4, weight to 0.7. Keeping both at full strength
+double-counts, which is how a dense block went to mush. The bake is a tight
+rim now and the frame carries the spill, which is the right division of
+labour and visibly crisper on the render.
+
+**The cost half of that argument was wrong, and only measuring it found
+out.** The prediction was that blur scales superlinearly with radius, so a
+smaller bake would fill the texture cache faster as well as look better — a
+change that pays for itself. Measured on a cold cache over every building
+variant:
+
+| style | blur radius | ms to fill |
+|---|---|---|
+| Classic | 7 | 191.9 |
+| Cinematic | 4 | **191.0** |
+
+Nine tenths of a millisecond out of a hundred and ninety. Whatever dominates
+that number, it is not the blur — most likely the shape-node construction and
+texture upload around it. The change stays because the picture is better; the
+saving does not exist, and a comment claiming one would be exactly the sort
+of unmeasured assertion this file keeps finding and deleting.
+
+Worth keeping as the general form: **"it will also be faster" is a claim, not
+a bonus.** It was cheap to check and it was false.
 
 ### G2 (done): water that moves
 

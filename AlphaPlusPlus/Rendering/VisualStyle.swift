@@ -100,6 +100,38 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// How much halo is *baked into* each building's texture.
+    ///
+    /// Until bloom existed this was the entire glow: a blurred copy of the
+    /// building rasterised once. With the frame blooming, most of that job
+    /// moved — and moved somewhere better, because the frame's version knows
+    /// about the building next door and a baked halo never could.
+    ///
+    /// Keeping both at full strength double-counts, which is how a dense
+    /// block went to mush. `cinematic` pulls the bake back to a tight rim and
+    /// lets bloom carry the spill; `classic` keeps the original numbers,
+    /// because with bloom off the bake is all there is.
+    ///
+    /// **It does not pay for itself, which was the prediction.** The reason
+    /// to expect a saving was that blur cost scales superlinearly with
+    /// radius, so a smaller bake should fill the cache faster. Measured on a
+    /// cold cache over every building variant, radius 7 takes 191.9 ms and
+    /// radius 4 takes 191.0. The change is worth making on the picture alone
+    /// — see `IsometricBuilding.glowLayer`.
+    var bakedGlowRadius: Double {
+        switch self {
+        case .classic: return 7
+        case .cinematic: return 4
+        }
+    }
+
+    var bakedGlowWeight: CGFloat {
+        switch self {
+        case .classic: return 1
+        case .cinematic: return 0.7
+        }
+    }
+
     /// Film grain, and how far the blacks are lifted toward the sunset.
     ///
     /// The cheap half of the post-process, and the half that does the most

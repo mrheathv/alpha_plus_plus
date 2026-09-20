@@ -50,6 +50,48 @@ final class RenderTimingTests: XCTestCase {
         return map
     }
 
+    /// **What the baked glow costs to rasterise.**
+    ///
+    /// G1's claim was that real bloom in the frame lets the baked per-texture
+    /// halo come *down*, making buildings crisper and rasterisation cheaper
+    /// at once — a change that looks better and costs less. The second half
+    /// of that is a claim about time, so it gets measured rather than
+    /// asserted.
+    ///
+    /// A `CIGaussianBlur` is the most expensive thing `IsoTextureCache` does
+    /// and its cost scales superlinearly with radius, so this times filling a
+    /// cold cache with every building variant at each style.
+    func testMeasureTextureBuildCost() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["PLAYTEST_FULL"] != nil,
+            "benchmark; set TEST_RUNNER_PLAYTEST_FULL=1 to run it"
+        )
+
+        print("\n=== Building textures, cold cache ===")
+        print("| style     | blur | ms to fill |")
+        print("|-----------|------|------------|")
+        for style in VisualStyle.allCases {
+            VisualStyle.current = style
+            var best = Double.infinity
+            for _ in 0 ..< 3 {
+                let cache = IsoTextureCache(projection: Isometric())
+                let started = CFAbsoluteTimeGetCurrent()
+                for zone in [ZoneType.residential, .commercial, .industrial] {
+                    for density in 1 ... zone.maxDensity {
+                        for variant in 0 ..< IsoTextureCache.variantCount {
+                            _ = cache.rendered(for: zone, density: density,
+                                               seed: IsoTextureCache.canonicalSeed(for: variant))
+                        }
+                    }
+                }
+                best = Swift.min(best, (CFAbsoluteTimeGetCurrent() - started) * 1_000)
+            }
+            print(String(format: "| %-9@ | %4.0f | %10.1f |",
+                         style.displayName as NSString, style.bakedGlowRadius, best))
+        }
+        VisualStyle.current = .cinematic
+    }
+
     func testMeasureFrameCost() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["PLAYTEST_FULL"] != nil,
