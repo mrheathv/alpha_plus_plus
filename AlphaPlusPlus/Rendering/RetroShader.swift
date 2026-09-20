@@ -37,6 +37,8 @@ enum RetroShader {
             SKUniform(name: "u_bloomStrength", float: 0),
             SKUniform(name: "u_bloomThreshold", float: 0.62),
             SKUniform(name: "u_bloomRadius", float: 0.012),
+            SKUniform(name: "u_grainStrength", float: 0),
+            SKUniform(name: "u_liftShadows", float: 0),
         ]
         applyStyle(shader)
         return shader
@@ -53,6 +55,10 @@ enum RetroShader {
             .floatValue = Float(style.bloomStrength)
         shader.uniforms.first { $0.name == "u_bloomThreshold" }?
             .floatValue = Float(style.bloomThreshold)
+        shader.uniforms.first { $0.name == "u_grainStrength" }?
+            .floatValue = Float(style.grainStrength)
+        shader.uniforms.first { $0.name == "u_liftShadows" }?
+            .floatValue = Float(style.liftShadows)
     }
 
     /// Keeps the vignette and chromatic-aberration math circular rather
@@ -136,6 +142,38 @@ enum RetroShader {
         // reads as the brightest thing in frame, not the edges of it.
         float vignette = smoothstep(0.9, 0.25, distanceFromCenter);
         color.rgb *= mix(1.0 - u_vignetteStrength, 1.0, vignette);
+
+        // **A lifted, tinted shadow — the one grade this palette wants.**
+        //
+        // Every dark pixel in this game sits at almost exactly the same
+        // near-black, because that is what the ground/light split decided
+        // years of commits ago. That is right for contrast and slightly wrong
+        // for *film*: a photographed night is never truly black, it is a
+        // shade of whatever is lighting the sky. Lifting the shadows toward
+        // the sunset's magenta costs one mix and is most of what separates
+        // "dark screen" from "shot at night".
+        //
+        // Applied after the vignette so the corners lift too — otherwise the
+        // grade would fight exactly the part of the frame it most helps.
+        float shadow = 1.0 - smoothstep(0.0, 0.35, dot(color.rgb, vec3(0.2126, 0.7152, 0.0722)));
+        color.rgb = mix(color.rgb, color.rgb + vec3(0.09, 0.02, 0.13), shadow * u_liftShadows);
+
+        // **Grain, and it goes last on purpose.** It is the top layer of a
+        // photographic frame — emulsion, or a sensor's noise floor — so
+        // anything applied after it would be grading the grain rather than
+        // the picture.
+        //
+        // Static rather than animated: this project has no per-frame uniform
+        // to drive it from here, and a *still* grain reads as film stock
+        // where a crawling one reads as video noise. The hash is the usual
+        // sin-fract trick, which is cheap and has no visible pattern at this
+        // amplitude.
+        if (u_grainStrength > 0.0) {
+            float grain = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
+            // Weighted toward the shadows, where film grain actually lives —
+            // uniform noise over a bright neon sign just looks like dirt.
+            color.rgb += (grain - 0.5) * u_grainStrength * (0.4 + 0.6 * shadow);
+        }
 
         gl_FragColor = color;
     }

@@ -4870,6 +4870,38 @@ making: at alpha 0.20 the plume read as a smudge at the zoom the game is
 actually played at. Soot against a night sky should be subtle, but not
 invisible.
 
+### G4 (done): the grade
+
+Two more terms in the post-process, both cheap now the bloom chain exists,
+and between them most of what separates "dark screen" from "shot at night".
+
+**The shadows are lifted toward the sunset.** Every dark pixel in this game
+sits at almost exactly the same near-black, because that is what the
+ground/light split decided — right for contrast, and slightly wrong for
+film. A photographed night is never truly black; it is a shade of whatever
+is lighting the sky. One `mix` weighted by how dark a pixel already is.
+
+It runs **after** the vignette on purpose. The vignette's whole job is
+darkening the corners, so grading before it would lift exactly the pixels the
+vignette is about to crush and leave the frame's edges the one place the
+grade does not reach.
+
+**Grain goes last**, because it is the top layer of a photographic frame —
+emulsion, or a sensor's noise floor — and anything applied after it would be
+grading the grain rather than the picture. Weighted toward the shadows, where
+film grain actually lives: uniform noise over a bright neon sign just looks
+like dirt. Static rather than animated, which reads as film stock where a
+crawling grain reads as video noise.
+
+Both stay small, and the tests pin the bounds rather than the numbers: past
+about 0.03 the grain stops reading as stock and starts reading as a dirty
+screen, and past about 0.5 the lift turns the ground purple rather than warm.
+
+`RetroShader` now carries seven uniforms, four of them driven by
+`VisualStyle` — so `Classic` is a genuinely ungraded, unbloomed frame and the
+switch keeps answering the only question that matters here, which is whether
+any of it is an improvement.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

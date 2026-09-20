@@ -493,6 +493,45 @@ final class VisualStyleTests: XCTestCase {
         )
     }
 
+    // MARK: - The grade
+
+    /// Every dark pixel in this game sits at nearly the same near-black,
+    /// which is right for contrast and slightly wrong for film: a
+    /// photographed night is never truly black, it is a shade of whatever
+    /// lights the sky.
+    func testClassicIsUngraded() {
+        XCTAssertEqual(VisualStyle.classic.grainStrength, 0)
+        XCTAssertEqual(VisualStyle.classic.liftShadows, 0)
+        XCTAssertGreaterThan(VisualStyle.cinematic.grainStrength, 0)
+        XCTAssertGreaterThan(VisualStyle.cinematic.liftShadows, 0)
+    }
+
+    /// Both are meant to be felt rather than seen. Grain past about 0.03
+    /// stops reading as film stock and starts reading as a dirty screen; a
+    /// lift past about 0.5 turns the ground purple rather than merely warm.
+    func testTheGradeStaysSubtle() {
+        XCTAssertLessThan(VisualStyle.cinematic.grainStrength, 0.03,
+                          "the grain is heavy enough to read as a dirty screen")
+        XCTAssertLessThan(VisualStyle.cinematic.liftShadows, 0.5,
+                          "the lift is heavy enough to turn the ground purple")
+    }
+
+    /// Four uniforms now ride on the style, and every one of them is a
+    /// control that could silently do nothing if it never reached the shader.
+    func testEveryGradeSettingReachesTheShader() {
+        for style in VisualStyle.allCases {
+            VisualStyle.current = style
+            let shader = RetroShader.make()
+            func uniform(_ name: String) -> Float? {
+                shader.uniforms.first { $0.name == name }?.floatValue
+            }
+            XCTAssertEqual(uniform("u_grainStrength"), Float(style.grainStrength),
+                           "\(style.displayName)'s grain never reaches the shader")
+            XCTAssertEqual(uniform("u_liftShadows"), Float(style.liftShadows),
+                           "\(style.displayName)'s shadow lift never reaches the shader")
+        }
+    }
+
     // MARK: - The ladder itself
 
     /// The point of the pass: pavement below buildings. Asserted on the

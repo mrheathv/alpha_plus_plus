@@ -100,6 +100,31 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// Film grain, and how far the blacks are lifted toward the sunset.
+    ///
+    /// The cheap half of the post-process, and the half that does the most
+    /// per line: every dark pixel in this game sits at nearly the same
+    /// near-black, which is right for contrast and slightly wrong for film —
+    /// a photographed night is never truly black, it is a shade of whatever
+    /// lights the sky.
+    ///
+    /// Both stay small. Grain past about 0.03 stops reading as stock and
+    /// starts reading as a dirty screen, and a lift past about 0.5 turns the
+    /// ground purple rather than merely warm.
+    var grainStrength: Double {
+        switch self {
+        case .classic: return 0
+        case .cinematic: return 0.022
+        }
+    }
+
+    var liftShadows: Double {
+        switch self {
+        case .classic: return 0
+        case .cinematic: return 0.38
+        }
+    }
+
     /// How much the water moves. `classic` is the still fill terrain
     /// shipped with, so the switch answers this too.
     var waterShimmer: Double {
