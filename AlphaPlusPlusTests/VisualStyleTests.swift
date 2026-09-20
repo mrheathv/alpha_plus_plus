@@ -120,9 +120,23 @@ final class VisualStyleTests: XCTestCase {
         let backdrop = scene.backdropNodeForTesting
         let map = Isometric().contentBounds(of: controller.map)
         XCTAssertNotNil(backdrop.texture, "there is no land outside the map at all")
-        XCTAssertGreaterThan(backdrop.size.width, map.width * 1.5,
+        // **Asked of the land, not of the sprite.** This used to measure
+        // `backdrop.size`, which was the same thing right up until the sprite
+        // became a viewport-sized window onto a much larger texture — at
+        // which point it started reporting the size of the *screen*, and this
+        // assertion failed on a change that did not move an inch of land.
+        //
+        // The property was always about how far the world reaches, so that is
+        // what it asks now. The thing moved; the yardstick was pointed at the
+        // wrong object.
+        XCTAssertGreaterThan(scene.backdropReachForTesting.width, map.width * 1.5,
                              "the surrounding land stops about where the map does, "
                              + "so panning still finds the edge of the world")
+        // And the sprite really is only showing a slice of it, which is the
+        // whole reason the post-process stopped shading the entire city.
+        XCTAssertLessThan(backdrop.size.width, scene.backdropReachForTesting.width,
+                          "the backdrop sprite still spans the whole world, so the "
+                          + "shader is being run over all of it")
         XCTAssertLessThan(backdrop.zPosition, 0,
                           "the backdrop is drawing over the city rather than behind it")
     }

@@ -1347,6 +1347,15 @@ final class GameScene: SKScene {
 
     private var sunGlowWorldBounds: CGRect = .zero
 
+    /// How far the surrounding land actually reaches, in world points.
+    ///
+    /// **Not the backdrop node's size**, which is only the slice currently on
+    /// screen — see `clipToView`. A test asking the node how big the world is
+    /// gets the size of the window instead, which is how the land-extends-past
+    /// -the-map assertion started failing on a change that did not move an
+    /// inch of land.
+    var backdropReachForTesting: CGRect { backdropWorldBounds }
+
     /// How far past the map's own edge the land carries on, in tiles.
     ///
     /// Generous enough that the camera — clamped to the map's bounds, but
