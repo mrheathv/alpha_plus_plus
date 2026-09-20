@@ -48,6 +48,33 @@ final class RetroUIContactSheetTests: XCTestCase {
             GameView(controller: controller).frame(width: 1400, height: 760))
     }
 
+    /// **The narrow window, which is where rows go wrong.**
+    ///
+    /// Every overflow this project has shipped looked fine at the width it
+    /// was rendered at: the tool row that clipped its locked tools, the
+    /// Alerts panel truncated to "Next: Police Stati…", the stat tiles that
+    /// came out "POPULA…". There was no render anywhere at a width that
+    /// squeezes, so the one thing that reliably breaks these rows was the one
+    /// thing no picture could show.
+    ///
+    /// The View picker steps its wrap down through `ViewThatFits` rather than
+    /// clipping, and the tool chips scroll rather than dropping the locked
+    /// tools off the right — both only observable here.
+    ///
+    /// 1000×700 rather than smaller, because the map carries a
+    /// `minHeight: 420` and the chrome wants about 215 on top of it — below
+    /// roughly 640 points tall the whole `VStack` overflows and clips its own
+    /// first row, which is a statement about the window's minimum size rather
+    /// than about how these rows wrap.
+    func testRenderLiveGameViewNarrow() throws {
+        var map = CityMap(width: MapSize.medium.dimension, height: MapSize.medium.dimension)
+        map.regionalEconomy = RegionalEconomy(elapsed: 800)
+        let controller = GameController(map: map)
+        controller.selectTool(.commercial)
+        try render(name: "retro-live-narrow", content:
+            GameView(controller: controller).frame(width: 1000, height: 700))
+    }
+
     /// **City Hall has no render, and it is the panel that most needs one.**
     /// Phase 4 of the cockpit found two bugs in it by rendering it — a
     /// `ScrollView` that blanked the whole body, and a native `Toggle` that

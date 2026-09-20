@@ -187,8 +187,64 @@ struct GameView: View {
         try? data.write(to: url)
     }
 
+    /// Everything you *do*, in two rows above the map.
+    ///
+    /// **Play, Speed, View and City Hall used to live in the dashboard**, in
+    /// a panel called Simulation, and that was a straight violation of the
+    /// rule this file states one comment up: verbs above the map, readouts
+    /// below it. It cost real screen. The dashboard is an `HStack` of panels,
+    /// so it is as tall as its tallest child — and that child was the View
+    /// picker, thirteen overlay chips wrapped onto three rows, which grows
+    /// every time an overlay is added. Measured at 1400×760 the chrome took
+    /// **44% of the window** and the four readout panels beside it sat in
+    /// whitespace matching a height none of them wanted.
+    ///
+    /// Moving the verbs up gives the map back about **126 points, a third
+    /// more city**, and changes what the next overlay costs: it widens a rail
+    /// that has room instead of pushing the map up.
+    ///
+    /// The View row is its own full-width line rather than sharing one.
+    /// Thirteen chips want about 1,200 points, which is most of a window —
+    /// and `ViewThatFits` steps the wrap down rather than letting it clip, so
+    /// a narrow window gets two shorter rows instead of losing the overlays
+    /// on the right. That is the same failure mode the tool row has already
+    /// hit twice: the things that vanish first are the ones furthest right,
+    /// which are the ones a player most needs to find.
     private var toolRail: some View {
-        zoningRow
+        VStack(alignment: .leading, spacing: 6) {
+            // **The rail decides the wrap, not the chip row inside it.**
+            //
+            // The first version put the run controls after the tool chips on
+            // one line with a `Spacer` between, and at 900 points the chips
+            // disappeared completely: the run group held its width, the chips
+            // were squeezed to nothing, and the chip row's own `ViewThatFits`
+            // then picked its scrolling variant — which `ImageRenderer`
+            // cannot measure, so the most important row in the UI rendered
+            // empty. That is the same failure this project already fixed once
+            // with `ViewThatFits`, re-created by putting something greedy
+            // beside it.
+            //
+            // The lesson is about nesting rather than about either control:
+            // **a `ViewThatFits` whose last candidate always fits makes every
+            // container above it think it fits too.** The scrolling row is
+            // exactly such a candidate, so the choice has to be made here,
+            // where the flat row is still the thing being measured.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: RetroMetrics.gutter) {
+                    zoningRow(chips: toolChips)
+                    runControls
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    zoningRow(chips: toolChips)
+                    runControls
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    zoningRow(chips: ScrollView(.horizontal, showsIndicators: false) { toolChips })
+                    runControls
+                }
+            }
+            viewRow
+        }
             .padding(.horizontal, RetroMetrics.gutter)
             .padding(.vertical, 8)
             // Span the window. Without this the row is only as wide as its
@@ -319,63 +375,22 @@ struct GameView: View {
     }
 
     /// Everything the city tells *you*, below the map.
+    /// The city answering back, and nothing you can press.
+    ///
+    /// **Readouts only, which is what fixed its height.** This used to open
+    /// with a Simulation panel holding Play, Speed, the View picker and City
+    /// Hall — every one of them a verb, in the strip this file reserves for
+    /// the other kind of thing. Because the row is an `HStack` of panels it
+    /// stood as tall as its tallest child, and that child was a picker that
+    /// grows by a row every time an overlay lands. The four panels that
+    /// remain want about a hundred points between them and were being
+    /// stretched to nearly three hundred.
+    ///
+    /// They are all the same shape now — a label and a number, or a label and
+    /// a bar — so the strip is as tall as a stat tile and stays that way as
+    /// the game grows. See `toolRail` for where the verbs went.
     private var dashboard: some View {
         HStack(alignment: .top, spacing: RetroMetrics.gutter) {
-            RetroPanel(title: "Simulation", accent: RetroUITheme.primaryAccent) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Button(controller.isRunning ? "Pause" : "Play") {
-                        controller.isRunning.toggle()
-                    }
-                    .buttonStyle(RetroButtonStyle(
-                        accent: controller.isRunning ? .orange : .green, isSelected: true
-                    ))
-                    // **On screen, not only in a menu.** The speed control
-                    // has existed and worked since the simulation clock did,
-                    // bound in the menu bar and nowhere else — the last of the
-                    // things this project already had to drag out of a menu
-                    // once, when tax, funding, ordinances and debt were all
-                    // menu-only and the whole economic half of the game was
-                    // invisible to anyone who did not go looking.
-                    //
-                    // Next to Play because it *is* Play: how fast is the same
-                    // question as whether.
-                    // **Both rows are labelled, and they have to be.** Adding
-                    // the speed control put two pickers next to each other
-                    // whose selected chip both read "Normal" — one meaning 1×
-                    // speed and the other meaning no overlay. The render made
-                    // that obvious instantly; unlabelled, the pair is a wall
-                    // of eleven identical buttons with the same word lit twice
-                    // in it. The overlay row had been unlabelled since it was
-                    // written and got away with it only by being alone.
-                    RetroSectionLabel(text: "Speed")
-                    RetroSegmentedPicker(
-                        options: SimulationSpeed.allCases,
-                        label: \.displayName,
-                        selection: $controller.simulationSpeed,
-                        accent: controller.isRunning ? .orange : RetroUITheme.textSecondary
-                    )
-                    RetroSectionLabel(text: "View")
-                    RetroSegmentedPicker(
-                        options: OverlayMode.allCases,
-                        label: \.displayName,
-                        selection: $controller.overlayMode
-                    )
-                    // Reachable without the menu bar. Tax, funding, ordinances
-                    // and debt were all menu-only, which made the whole
-                    // economic half of the game invisible to anyone who did
-                    // not go looking in a menu for it.
-                    Button("City Hall…") { controller.isShowingCityPanel = true }
-                        .buttonStyle(RetroButtonStyle(accent: RetroUITheme.secondaryAccent))
-                    // A keyboard control nobody is told about is a keyboard
-                    // control nobody uses. One line, under the button the
-                    // space bar duplicates, which is where a player looking
-                    // for a faster way to do this would already be looking.
-                    Text("Space to pause · WASD or arrows to pan")
-                        .font(.system(size: 9))
-                        .foregroundStyle(RetroUITheme.textSecondary)
-                }
-            }
-
             RetroPanel(title: "City", accent: RetroUITheme.primaryAccent) {
                 HStack(alignment: .top, spacing: 16) {
                     // **The date, first.** The cockpit used to say
@@ -565,7 +580,7 @@ struct GameView: View {
     /// Seventeen tools in one row had stopped fitting; see `ToolCategory`.
     /// Bulldoze sits outside the groups and never moves, because having to
     /// change category before you can undo a mistake would be miserable.
-    private var zoningRow: some View {
+    private func zoningRow(chips: some View) -> some View {
         HStack(spacing: 10) {
             chip(for: .bulldozer)
 
@@ -604,11 +619,7 @@ struct GameView: View {
             // gets both: the flat row when there is room, which is the common
             // case and the one that renders, and the scrolling row only when
             // the window is genuinely too narrow.
-            ViewThatFits(in: .horizontal) {
-                toolChips
-                ScrollView(.horizontal, showsIndicators: false) { toolChips }
-            }
-
+            chips
         }
         // Keep the picker honest when something else changes the tool — a
         // future keyboard shortcut, or restoring a save.
@@ -617,6 +628,88 @@ struct GameView: View {
                 toolCategory = category
             }
         }
+    }
+
+    /// Play, how fast, and the way in to City Hall.
+    ///
+    /// Grouped apart from the tools because they are a different kind of verb
+    /// — a tool acts on a lot, these act on the city — and kept on the same
+    /// rail because both are things you press, which is the split `toolRail`
+    /// exists to draw against the readouts below the map.
+    private var runControls: some View {
+        HStack(spacing: 10) {
+            Button(controller.isRunning ? "Pause" : "Play") {
+                controller.isRunning.toggle()
+            }
+            .buttonStyle(RetroButtonStyle(
+                accent: controller.isRunning ? .orange : .green, isSelected: true
+            ))
+
+            // **On screen, not only in a menu.** The speed control existed
+            // and worked from the day the simulation clock did, bound in the
+            // menu bar and nowhere else — the last survivor of the problem
+            // that once left tax, funding, ordinances and debt menu-only and
+            // the whole economic half of the game invisible to anyone who did
+            // not go looking.
+            //
+            // Next to Play because it *is* Play: how fast is the same
+            // question as whether.
+            RetroSegmentedPicker(
+                options: SimulationSpeed.allCases,
+                label: \.displayName,
+                selection: $controller.simulationSpeed,
+                accent: controller.isRunning ? .orange : RetroUITheme.textSecondary
+            )
+
+            Rectangle().fill(RetroUITheme.textSecondary.opacity(0.3)).frame(width: 1, height: 20)
+
+            // Reachable without the menu bar, for the same reason.
+            Button("City Hall…") { controller.isShowingCityPanel = true }
+                .buttonStyle(RetroButtonStyle(accent: RetroUITheme.secondaryAccent))
+        }
+    }
+
+    /// Which map you are looking at.
+    ///
+    /// **Labelled, and it has to be.** Putting the speed control beside this
+    /// one once produced two pickers whose selected chip both read "Normal" —
+    /// one meaning 1× speed and the other meaning no overlay. The row had
+    /// been unlabelled since it was written and got away with it only by
+    /// being alone.
+    private var viewRow: some View {
+        HStack(spacing: 10) {
+            RetroSectionLabel(text: "View")
+
+            // Widest that fits, rather than a fixed wrap. At full width the
+            // whole set is one line; narrower, it steps down to two or three
+            // shorter ones. Nothing is ever clipped, which is the property
+            // that matters — a picker missing its right-hand half looks like
+            // a picker with fewer overlays in it.
+            ViewThatFits(in: .horizontal) {
+                overlayPicker(perRow: OverlayMode.allCases.count)
+                overlayPicker(perRow: 7)
+                overlayPicker(perRow: 5)
+            }
+
+            Spacer(minLength: RetroMetrics.gutter)
+
+            // A keyboard control nobody is told about is a keyboard control
+            // nobody uses. It rides the leftover width of this row rather
+            // than costing a line of its own.
+            Text("Space to pause · WASD or arrows to pan")
+                .font(.system(size: 9))
+                .foregroundStyle(RetroUITheme.textSecondary)
+                .fixedSize()
+        }
+    }
+
+    private func overlayPicker(perRow: Int) -> some View {
+        RetroSegmentedPicker(
+            options: OverlayMode.allCases,
+            label: \.displayName,
+            selection: $controller.overlayMode,
+            perRow: perRow
+        )
     }
 
     private var toolChips: some View {

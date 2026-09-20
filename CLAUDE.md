@@ -1246,6 +1246,86 @@ The rest:
   "POPULA…", "$1,48…". A readout that hides its own number is worse than no
   readout.
 
+### Phase 6: the verbs were in the readout strip
+
+Reported from play: *"the bottom left buttons are taking up way too much
+space and making the playable screen smaller."*
+
+Measured on `retro-live` at 1400×760 before touching anything:
+
+| | height | share |
+|---|---|---|
+| tool rail | 40 pt | 5% |
+| **map** | **422 pt** | **56%** |
+| dashboard | 298 pt | 39% |
+
+So the chrome held **44% of the window**, and it was one panel's fault.
+`dashboard` is an `HStack` of panels, which makes it as tall as its tallest
+child — and that child was a Simulation panel holding Play, Speed, the View
+picker and City Hall, standing 285 points against about 100 for every other
+panel in the row. The four readouts beside it were stretched to a height none
+of them wanted and sat in whitespace.
+
+**And phase 3's own rule had already said not to do this.** `toolRail`'s doc
+comment reads *"Everything you do, above the map… they are different kinds of
+thing — one is a verb, the other is the city answering back — so they get
+different edges of the screen."* Play, Speed, View and City Hall are all
+verbs. The rule was written, and then the controls were put on the wrong side
+of it one at a time, each for a locally good reason — the speed control
+because it belongs next to Play, City Hall because it had to escape the menu
+bar, the View picker because it was there first.
+
+Moving them up gives the map back **130 points — 31% more city** — and the
+readout strip is now as tall as a stat tile, which is a height that stops
+growing:
+
+| | before | after |
+|---|---|---|
+| tool rail | 40 pt | 84 pt |
+| **map** | 422 pt | **552 pt** |
+| dashboard | 298 pt | 125 pt |
+| chrome | 44% | **27%** |
+
+**What it really changes is what the next overlay costs.** Every overlay added
+used to wrap the View picker onto another row inside a panel, which made the
+whole dashboard taller and took that height out of the map, permanently. On a
+full-width rail the same picker is one line with room to spare, and the next
+one widens a rail rather than shortening the city.
+
+#### The narrow window is where rows go wrong, and nothing rendered one
+
+Every overflow this project has shipped looked fine at the width it happened
+to be rendered at — the tool row that clipped its locked tools, the Alerts
+panel truncated to "Next: Police Stati…", the stat tiles that came out
+"POPULA…". There was no render anywhere at a squeezing width, so the one thing
+that reliably breaks these rows was the one thing no picture could show.
+`testRenderLiveGameViewNarrow` is that picture, and it failed on its first
+run — on a bug introduced twenty minutes earlier.
+
+**A `ViewThatFits` whose last candidate always fits makes every container
+above it think it fits too.** The first version put the run controls after the
+tool chips with a `Spacer` between them. At 900 points the run group held its
+width, the chips were squeezed to nothing, and the chip row's own
+`ViewThatFits` then picked its scrolling variant — which always "fits", and
+which `ImageRenderer` cannot measure, so the most important row in the UI
+rendered completely empty. That is the identical failure `ViewThatFits` was
+introduced to fix, re-created by putting something greedy beside it.
+
+The fix is that the **rail** owns the decision, with the flat chip row as the
+thing being measured: one line, then two lines, then two lines with the chips
+scrolling. Nesting a fallback inside a candidate hides the candidate.
+
+The View picker steps its own wrap down the same way — thirteen chips on one
+line, then seven, then five — rather than taking a fixed `perRow`. Nothing is
+ever clipped, which is the property that matters: a picker missing its
+right-hand half looks exactly like a picker with fewer overlays in it.
+
+One thing that render settled rather than fixed: below roughly **640 points
+tall** the whole view overflows and clips its own first row, because the map
+carries a `minHeight: 420` and the chrome wants about 215 on top of it. That
+is a statement about the window's minimum size, not about how these rows wrap,
+and it is why the narrow render is 1000×700.
+
 ## Making it a city you manage (in progress)
 
 The design playtest says the game is in good shape: a 33x population spread
