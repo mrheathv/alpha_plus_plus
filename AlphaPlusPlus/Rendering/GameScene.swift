@@ -1614,6 +1614,18 @@ final class GameScene: SKScene {
         }
     }
 
+    /// Testing accessor: put the camera over one tile, clamped the way a pan
+    /// is. Used by `CityPortraitTests` to frame a shot on the downtown rather
+    /// than on whatever happens to sit at the middle of the map.
+    func centerCameraForTesting(on position: GridPosition) {
+        cameraNode.position = projection.centerPoint(ofFootprintOrigin: position, size: 1)
+        clampCameraToMap()
+    }
+
+    /// Testing accessor: the whole map's ground diamond, for a caller working
+    /// out a zoom that fits it.
+    var contentBoundsForTesting: CGRect { projection.contentBounds(of: map) }
+
     /// Testing accessor: put the camera at `scale`, clamped the way a pinch
     /// is, so a test cannot assert against a view the game cannot reach.
     func setCameraScaleForTesting(_ scale: CGFloat) {

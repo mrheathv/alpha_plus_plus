@@ -137,6 +137,34 @@ final class CityMinterTests: XCTestCase {
             ),
 
             // Past anything MapSize offers, so the tick cost measured in
+            // **The city played well**, as against Metropolis, which is the
+            // same map played by default. Every lever this project has
+            // measured, set the way the measurement says: industry zoned
+            // apart (`DesignPlaytestTests` proves that beats a homogeneous
+            // blob on both population and treasury), a full subway network
+            // (the mode that cuts congestion by four fifths), and long
+            // enough to actually finish building.
+            //
+            // **The days are the part that matters and the part that is easy
+            // to get wrong.** One lot takes 125 days to climb from bare
+            // ground to maximum, and a whole city staggers its lots behind
+            // demand, land value and utility capacity — so Metropolis at 200
+            // days is a city still under construction, which is why it reads
+            // 3.57 mean density with 14% of its lots topped out. A settled
+            // city is not the same thing as a *finished* one.
+            Recipe(
+                name: "Apex",
+                purpose: "the same 64×64 map played the way the harness measures as best — the showcase city",
+                spec: {
+                    var spec = PlaytestHarness.CitySpec(size: large)
+                    spec.segregateIndustry = true
+                    spec.transitStations = .subway
+                    spec.drawTransitRoutes = true
+                    return spec
+                }(),
+                days: 900
+            ),
+
             // HarnessTimingTests can be felt rather than read.
             Recipe(
                 name: "Sprawl",
@@ -235,7 +263,11 @@ final class CityMinterTests: XCTestCase {
         let directory = try CitySaveFile.defaultDirectory()
         var log = "minted into \(directory.path)\n"
 
-        for recipe in recipes() {
+        // Mint one rather than all eight: a 900-day 64×64 city is minutes of
+        // simulation, and re-cutting the other seven to look at one of them
+        // is the sort of wait that stops a fixture being re-cut at all.
+        let only = ProcessInfo.processInfo.environment["MINT_ONLY"]
+        for recipe in recipes() where only == nil || recipe.name == only {
             let started = Date()
             let controller = GameController(
                 map: PlaytestHarness.buildCity(recipe.spec),

@@ -5776,6 +5776,68 @@ three physical pixels, which is exactly the mark `minimumDetailSize` refuses.
 Detail below the size it can be resolved at does not add information; it
 averages the facade toward mud.
 
+### A photograph of the running game
+
+Asked for while away from the machine: *"can you open up the game, play for a
+bit and take a screenshot — one zoomed in, one zoomed out."*
+
+**The app cannot be driven from here**, and this file already records why —
+`screencapture` fails over the remote session this project is usually driven
+from, and accessibility scripting against the menu bar fails too, which is the
+whole reason Capture Screenshot writes the PNG itself. `CityPortraitTests` is
+the honest version of the request: it opens a minted save in a real
+`GameScene` on a real `SKView` and photographs it through
+`view.texture(from:)` — the same path the in-game capture takes, shader and
+all. Real frames, not a reconstruction, and the one thing they cannot show is
+anything mid-`SKAction`, which is the standing limit the traffic render
+already records.
+
+Two things it has to do that a naive capture would not, and both were wrong
+first:
+
+- **Call `update(_:)` after moving the camera.** Culling and the
+  `IsometricBuilding.Detail` tier both live there and both read the camera, so
+  shooting straight after setting a scale gets the far textures at close
+  range — a picture of a frame the game never draws. The test asserts it
+  reached `.near` rather than trusting it.
+- **`centerCameraOnMap` sets position and says nothing about zoom.** Exactly
+  the trap `ScenePlaytest`'s filmstrip recorded: most of the frame comes back
+  empty night. The wide shot works its scale out of `contentBounds`.
+
+It frames the close shot on the **densest block** rather than the middle of
+the map, because the middle of a generated city is not necessarily anywhere.
+
+#### "Full" and "optimised" are different cities
+
+The obvious answer was `Metropolis`, the minter's "settled, fully-served
+64×64". Measured, it is **full and not optimised**: mean density 3.57 with
+**14%** of growable lots topped out. Two reasons, and the second is the
+interesting one.
+
+It is played by **default** rather than by the strategy `DesignPlaytestTests`
+measures as best, and it is minted at **200 days** — which settles a city and
+does not finish one. One lot takes 125 days to climb from bare ground to
+maximum and a whole city staggers its lots behind demand, land value and
+utility capacity, so the standing "a city settles in ~160 days" figure is
+about when growth *stops accelerating*, not when it stops.
+
+`Apex` is the same map with every measured lever set the way the measurement
+says — industry zoned apart, a full subway network — and 900 days to build:
+
+| | Metropolis | Apex |
+|---|---|---|
+| residents | 3,360 | **4,080** |
+| mean density | 3.57 | **4.38** |
+| lots at maximum | 75 of 533 (14%) | **246 of 471 (52%)** |
+| blocks alight | 1 | 0 |
+
+Worth keeping as a fixture lesson: **a settled city is not a finished one**,
+and every picture taken of a 200-day city has been a picture of scaffolding.
+
+`MINT_ONLY` mints one recipe rather than all eight, because a 900-day 64×64
+city is about a minute of Release simulation and re-cutting the other seven to
+look at one of them is the sort of wait that stops a fixture being re-cut.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
