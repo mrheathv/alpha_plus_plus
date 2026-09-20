@@ -62,11 +62,11 @@ struct ServiceFunding: Equatable, Codable, Sendable {
     /// conduit.
     var road: Double = 1.0
 
-    /// How well-funded `zone` currently is. Never optional — every
-    /// `ZoneType` has an answer, even the ones that can't be funded at all.
     /// What the city pays to run its dock and its airport.
     var ports: Double = 1.0
 
+    /// How well-funded `zone` currently is. Never optional — every
+    /// `ZoneType` has an answer, even the ones that can't be funded at all.
     func level(for zone: ZoneType) -> Double {
         switch zone {
         case .policeStation: return policeStation
@@ -119,5 +119,63 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .road, .highway: road = level
         case .empty, .residential, .commercial, .industrial, .park: break
         }
+    }
+}
+
+// MARK: - Codable
+
+extension ServiceFunding {
+    /// **Decoded leniently, so adding a dial never makes an existing city
+    /// unreadable.**
+    ///
+    /// The synthesised conformance throws on a *missing* key even where the
+    /// property has a default — the trap `CitySave` documents at length for
+    /// `CityMap`, where `pollution`, `ordinances` and `taxRate` each broke
+    /// saves and none bumped the format version.
+    ///
+    /// This type had walked into it repeatedly and silently. `school`,
+    /// `hospital`, `railStation`, `tramStop`, `road` and finally `ports` each
+    /// made every city saved before them fail to load with a raw
+    /// `DecodingError`, and nothing noticed because nothing had ever tried to
+    /// decode a save that predated a dial.
+    ///
+    /// A funding dial is *genuinely* optional — absent means "nobody set
+    /// this, use the default" — so `decodeIfPresent` is the right tool and no
+    /// format bump is needed, exactly as `CitySave` recommends for optional
+    /// fields.
+    ///
+    /// It delegates to `init()` first and then overwrites only what the file
+    /// actually carried, which is what keeps every default in **one** place:
+    /// the property declarations above. Writing `?? 1.0` thirteen times would
+    /// be a second copy of the defaults and an instruction to a future reader
+    /// to keep the two in step — the shape this project keeps having to go
+    /// back and delete.
+    ///
+    /// `ServiceFundingCodableTests` removes each key in turn, so the next
+    /// dial cannot bring this back.
+    ///
+    /// **In an extension on purpose.** Declaring any initializer in the
+    /// struct's own body suppresses the synthesised memberwise and default
+    /// initializers — including the `init()` this one delegates to, which
+    /// is what supplies the defaults. In an extension both survive.
+    init(from decoder: Decoder) throws {
+        self.init()
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        func dial(_ key: CodingKeys) throws -> Double? {
+            try values.decodeIfPresent(Double.self, forKey: key)
+        }
+        if let v = try dial(.policeStation) { policeStation = v }
+        if let v = try dial(.fireStation) { fireStation = v }
+        if let v = try dial(.publicTransit) { publicTransit = v }
+        if let v = try dial(.powerPlant) { powerPlant = v }
+        if let v = try dial(.stadium) { stadium = v }
+        if let v = try dial(.subway) { subway = v }
+        if let v = try dial(.tramStop) { tramStop = v }
+        if let v = try dial(.railStation) { railStation = v }
+        if let v = try dial(.waterTower) { waterTower = v }
+        if let v = try dial(.school) { school = v }
+        if let v = try dial(.hospital) { hospital = v }
+        if let v = try dial(.road) { road = v }
+        if let v = try dial(.ports) { ports = v }
     }
 }

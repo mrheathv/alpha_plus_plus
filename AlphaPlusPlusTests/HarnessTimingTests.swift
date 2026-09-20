@@ -58,7 +58,14 @@ final class HarnessTimingTests: XCTestCase {
         var log = "config: \(buildConfiguration())\n"
         try log.write(to: out, atomically: true, encoding: .utf8)
 
-        for size in [16, 24, MapSize.small.dimension, MapSize.medium.dimension, MapSize.large.dimension] {
+        // 96 and 128 are past anything `MapSize` offers, deliberately: the
+        // question "why is 64 the biggest map" cannot be answered by
+        // extrapolating two points, and this project's standing rule is to
+        // measure rather than reason about cost. They are not playable sizes
+        // yet; they are the evidence for whether they could be.
+        log += String(format: "Tile stride %d bytes\n", MemoryLayout<Tile>.stride)
+        for size in [16, 24, MapSize.small.dimension, MapSize.medium.dimension,
+                     MapSize.large.dimension, 96, 128] {
             let spec = PlaytestHarness.CitySpec(size: size)
             let controller = GameController(map: PlaytestHarness.buildCity(spec), rng: SeededRNG(seed: 1))
 
@@ -73,9 +80,13 @@ final class HarnessTimingTests: XCTestCase {
 
             let roads = controller.map.tiles.filter { $0.zone == .road }.count
             let lots = controller.map.tiles.filter { $0.isBuildingAnchor && $0.zone.maxDensity > 0 }.count
+            // The map's own bytes, so the "how much RAM does this need"
+            // question has a number rather than an intuition.
+            let mapBytes = MemoryLayout<Tile>.stride * size * size
             log += String(
-                format: "%d×%d: %8.1f ms/tick  1000 ticks=%7.1f s   pop %5d  roads %5d  lots %4d\n",
-                size, size, perTick * 1000, perTick * 1000, controller.population, roads, lots
+                format: "%d×%d: %8.1f ms/tick  1000 ticks=%7.1f s   pop %5d  roads %5d  lots %4d  map %6.1f MB\n",
+                size, size, perTick * 1000, perTick * 1000, controller.population, roads, lots,
+                Double(mapBytes) / 1_048_576
             )
             try log.write(to: out, atomically: true, encoding: .utf8)
         }
