@@ -13,6 +13,172 @@ import XCTest
 @MainActor
 final class CameraMotionCostTests: XCTestCase {
 
+    /// **Judder, which is a distribution rather than a mean.**
+    ///
+    /// Reported from play after the averages had already come down: still
+    /// stuttering when scrolling across the map. A steady 19 ms frame does
+    /// not stutter — it runs at a steady 52 fps. What stutters is a frame
+    /// that costs several times its neighbours, so this records *every* frame
+    /// of a pan and reports the spread.
+    ///
+    /// It also exists to check something the previous pass may have made
+    /// worse: quantising the culling to a tile turned a little work on every
+    /// frame into a lot of work on one frame in several. Lower total, burstier
+    /// delivery — and delivery is what smooth means.
+    func testScrollingDeliversFramesEvenly() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let map = try CitySaveFile.read(from: url).map
+        let controller = GameController(map: map, rng: SeededRNG(seed: 1),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        let size = CGSize(width: 1280, height: 800)
+        let scene = GameScene(controller: controller)
+        scene.size = size
+        let view = SKView(frame: NSRect(origin: .zero, size: size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        scene.refreshAll()
+        // **Paused, because this test is about the camera.**
+        //
+        // With the simulation running the answer is dominated by something
+        // else entirely: a tick lands on one frame every couple of seconds
+        // and costs 87 ms in Release — 736 in Debug — which swamps everything
+        // the camera does and would make this a test of `Traffic.computeLoad`
+        // wearing a scroll's clothes. That cost is real, reported, and
+        // measured by `testWhatATickCostsTheFrameItLandsOn`; it is not what
+        // this one is for.
+        controller.isRunning = false
+        scene.setCameraScaleForTesting(1.0)
+        scene.update(0)
+        for _ in 0 ..< 10 { _ = view.texture(from: scene) }   // warm
+
+        // A whole frame: the update *and* the draw, which is what a player
+        // waits for. Every measurement in this project until now timed one or
+        // the other.
+        var clock: TimeInterval = 0
+        var samples: [Double] = []
+        for _ in 0 ..< 150 {
+            let started = Date()
+            clock += 1 / 60
+            scene.nudgeCameraForTesting(by: CGPoint(x: 9, y: 0))
+            scene.update(clock)
+            _ = view.texture(from: scene)
+            samples.append(Date().timeIntervalSince(started) * 1000)
+        }
+        let steady = Array(samples.dropFirst(10))
+        let mean = steady.reduce(0, +) / Double(steady.count)
+        let worst = steady.max() ?? 0
+        let sorted = steady.sorted()
+        let median = sorted[sorted.count / 2]
+        let p95 = sorted[Int(Double(sorted.count) * 0.95)]
+        let overBudget = steady.filter { $0 > 16.7 }.count
+
+        print("\n=== scrolling a 64x64 city, whole frames ===")
+        print(String(format: "  median %6.2f ms   mean %6.2f ms   p95 %6.2f ms",
+                     median, mean, p95))
+        print(String(format: "  worst  %6.2f ms   (%.1fx the median)", worst,
+                     worst / max(median, 0.001)))
+        print("  over 16.7 ms: \(overBudget) of \(steady.count) frames")
+        // *Where* the spikes are decides what they are: one frame is a
+        // one-off, a regular beat is the culling's burst.
+        let spikes = samples.enumerated()
+            .filter { $0.element > median * 2 }
+            .map { "\($0.offset)@\(Int($0.element))ms" }
+        print("  spikes: \(spikes.prefix(14).joined(separator: " "))"
+              + (spikes.count > 14 ? " …\(spikes.count) total" : ""))
+
+        // **The spread is the claim, not the mean.** A frame several times its
+        // neighbours is a visible stutter however good the average is — and
+        // the median being over a 60fps budget is a separate complaint about
+        // how much there is to draw, not about smoothness.
+        XCTAssertLessThan(worst / max(median, 0.001), 3.0,
+                          "one frame of a scroll cost \(worst) ms against a median of "
+                          + "\(median) — that is judder, whatever the average says")
+    }
+
+    /// **What a simulation tick costs the frame it lands on.**
+    ///
+    /// The scroll judder turned out to be one spike at frame 120 of a 150
+    /// frame pan — 2.0 seconds in, which is exactly `SimulationSpeed.normal`'s
+    /// interval. Not the camera at all: the tick, and whatever the renderer
+    /// does about it, landing on a single frame every couple of seconds.
+    func testWhatATickCostsTheFrameItLandsOn() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let map = try CitySaveFile.read(from: url).map
+        let controller = GameController(map: map, rng: SeededRNG(seed: 1),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        let size = CGSize(width: 1280, height: 800)
+        let scene = GameScene(controller: controller)
+        scene.size = size
+        let view = SKView(frame: NSRect(origin: .zero, size: size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        scene.refreshAll()
+        // **Culling has to have run**, or every tile on the map is still
+        // attached and this measures a state the game is never in. The first
+        // version of this did exactly that and reported no improvement from a
+        // change that only helps off-screen tiles, because it had not let any
+        // tile go off screen.
+        scene.setCameraScaleForTesting(1.0)
+        scene.update(1.0 / 60)
+        _ = view.texture(from: scene)
+        var attached = 0
+        for node in scene.tileNodesForTesting.values where node.parent != nil { attached += 1 }
+        print("\n  \(attached) of \(scene.tileNodesForTesting.count) tiles on screen")
+
+        func best(_ label: String, _ body: () -> Void) -> Double {
+            var best = Double.greatestFiniteMagnitude
+            for _ in 0 ..< 3 {
+                let started = Date()
+                body()
+                best = min(best, Date().timeIntervalSince(started) * 1000)
+            }
+            print(String(format: "  %-30@ %8.1f ms", label as NSString, best))
+            return best
+        }
+
+        print("\n=== the two halves of a tick, 64x64 Debug ===")
+        let sim = best("controller.advanceSimulation()") { controller.advanceSimulation() }
+        let draw = best("scene.refreshAll()") { scene.refreshAll() }
+        print(String(format: "  together %.0f ms — %.0f dropped frames at 60fps",
+                     sim + draw, (sim + draw) / 16.7))
+    }
+
+    /// **Where a tick's 50 ms goes on the city the game ships.**
+    ///
+    /// `HarnessTimingTests` measures generated cities; this measures Apex,
+    /// which is denser than any of them and carries twenty-two subway routes —
+    /// and it is the city the stutter was reported on.
+    func testWhereATicksTimeGoes() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let map = try CitySaveFile.read(from: url).map
+
+        func best(_ label: String, _ body: () -> Void) -> Double {
+            var best = Double.greatestFiniteMagnitude
+            for _ in 0 ..< 5 {
+                let started = Date()
+                body()
+                best = min(best, Date().timeIntervalSince(started) * 1000)
+            }
+            print(String(format: "  %-34@ %7.1f ms", label as NSString, best))
+            return best
+        }
+
+        print("\n=== one tick on Apex, by component ===")
+        let distances = ZoneDistanceField.compute(for: map)
+        _ = best("ZoneDistanceField.compute") { _ = ZoneDistanceField.compute(for: map) }
+        let traffic = best("Traffic.computeLoad") { _ = Traffic.computeLoad(for: map) }
+        _ = best("Pollution.compute") { _ = Pollution.compute(for: map) }
+        _ = distances
+        let whole = best("the whole tick") {
+            var rng = SeededRNG(seed: 9)
+            _ = CitySimulator.advance(map, using: &rng)
+        }
+        print(String(format: "  traffic is %.0f%% of the tick", traffic / max(whole, 0.001) * 100))
+    }
+
     func testWhatMovingTheCameraCosts() throws {
         let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
         try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")

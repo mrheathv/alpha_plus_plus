@@ -2217,13 +2217,27 @@ final class GameScene: SKScene {
             overlayTransitCoverage = nil
         }
         syncTransitDiagram()
-        for position in tileNodes.keys {
-            refresh(position)
+        // **Only what is on screen, and the rest are owed one.**
+        //
+        // This walked every tile the map has. On a built-out 64×64 city that
+        // is 2,400 of them, each running a dozen decoration syncs, and it
+        // runs after *every simulation tick* — measured at **55 ms in
+        // Release**, which is three dropped frames a second at normal speed
+        // and was half of what play reported as stuttering while scrolling.
+        //
+        // The cache keys make an unchanged decoration cheap, but "cheap" is
+        // not "free": the key has to be built and looked up before it can say
+        // nothing happened, and two thousand tiles' worth of that is the
+        // whole cost. Tiles nobody can see do not need it now — they are
+        // marked, and redrawn by the culling as they come back into view,
+        // which is the first moment the answer could matter.
+        for (position, node) in tileNodes {
+            if node.parent != nil { refresh(position) } else { staleWhileDetached.insert(position) }
         }
-        // Everything is current, so nothing is owed a catch-up.
+        // The visible half is current, so nothing on screen is owed a
+        // catch-up; the queue only ever holds lots waiting for a tier swap.
         pendingRefresh.removeAll()
         pendingRefreshSet.removeAll()
-        staleWhileDetached.removeAll()
     }
 
     /// Draws the route diagram when one of its overlays is up, and takes it

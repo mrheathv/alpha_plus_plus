@@ -6298,6 +6298,67 @@ finishes *promptly*" — settled until the queue drains, with a bound on how man
 frames that may take. Instant was never the thing worth having; finishing
 without dropping frames is.
 
+### The scrolling stutter was never the scrolling
+
+Reported again after the camera work above: *"still stuttering when scrolling
+across the map. It's not smooth like butter how we always say."*
+
+Recording **every** frame of a 150-frame pan rather than an average found one
+spike, and only one: **frame 120, at 800 ms.** Frame 120 at one sixtieth of a
+second is 2.0 seconds, which is exactly `SimulationSpeed.normal`'s interval.
+Not the camera at all — the tick, landing on a single frame every couple of
+seconds while the view happened to be moving, which is when a dropped frame is
+most visible.
+
+**The two halves of a tick on Apex**, the densest city this project ships:
+
+| | Debug | Release |
+|---|---|---|
+| `advanceSimulation()` | 654 ms | 50.6 ms |
+| `refreshAll()` | 82 ms | 37 ms |
+| **one frame in 120** | **736 ms** | **87 ms** |
+
+44 dropped frames in Debug, 5 in Release. **Which build is being played is the
+single largest factor in how this game feels**, and `Cmd-R` gives Debug.
+
+And inside the simulation half, on this city:
+
+| | |
+|---|---|
+| `Traffic.computeLoad` | **37.3 ms** |
+| the rest of `CitySimulator.advance` | 1.4 ms |
+| `Pollution.compute` | 1.2 ms |
+| `ZoneDistanceField.compute` | 0.5 ms |
+
+Three quarters of a tick is one function, which is exactly what this file has
+said since `ZoneDistanceField` landed — *"caching them is the obvious next move
+if ticks need to get cheaper again"*. They need to get cheaper again.
+
+#### What was fixed, and what the number now is
+
+`refreshAll` walked every tile the map has, after every tick. The cache keys
+make an unchanged decoration cheap, but cheap is not free — the key still has
+to be built and looked up before it can say nothing happened, and two thousand
+tiles' worth of that *is* the cost. It refreshes the tiles on screen and marks
+the rest, which the culling redraws as they come back into view. On a 64×64
+city at rest that is 1,651 of 2,387 tiles, so the saving is proportional and
+modest; zoomed in it is most of the map.
+
+With the simulation paused — the camera alone, which is what the previous pass
+was about — a scroll now delivers **1.6× spread between its worst frame and its
+median, and no spikes at all.** That is the part that is smooth. The tick is
+not, and `testScrollingDeliversFramesEvenly` pauses the simulation deliberately
+rather than flattering itself: a benchmark that measures a scroll while
+something else dominates every reading is a test of that other thing wearing a
+scroll's clothes.
+
+#### The honest state of "smooth like butter"
+
+Steady-state scrolling is smooth. What is not smooth is that the city stops to
+think every two seconds, and the fix is the traffic cache this file has had on
+its list since the beginning — **not** a rendering problem, which is where the
+last two days of this work have been looking.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
