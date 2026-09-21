@@ -139,6 +139,15 @@ final class CityPortraitTests: XCTestCase {
         treasury $\(controller.treasury) · \(CalendarText.full(map.date))
         """)
 
+        // **How much of the picture is ground, and what is on it.** The
+        // buildings have had every pass; the surface they stand on has had
+        // none, and it is not a small part of the frame.
+        let all = map.tiles.count
+        let roads = map.tiles.filter { $0.zone == .road || $0.zone == .highway }.count
+        let bare = map.tiles.filter { $0.zone == .empty && !$0.isWater }.count
+        print(String(format: "ground: %d road + %d bare of %d tiles (%.0f%% of the map)",
+                     roads, bare, all, Double(roads + bare) * 100 / Double(all)))
+
         // **Wide.** `centerCameraOnMap` only sets the camera's *position* —
         // it says nothing about zoom, which is the trap `ScenePlaytest`'s
         // filmstrip already recorded: most of every frame came back empty
