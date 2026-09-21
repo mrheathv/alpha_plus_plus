@@ -44,3 +44,6 @@ playground.xcworkspace
 # ---- Misc tooling ----
 *.log
 .netrc
+
+# Recordings are build output, and a movie is tens of megabytes.
+build/Recordings/
