@@ -6076,6 +6076,60 @@ routed commutes, so an unticked city has empty streets by construction — a
 picture in which the failing case cannot occur, for the fifth or sixth time in
 this file. The fixture ticks now.
 
+## Phase 1: the grade, and a value that stopped being right
+
+Planned as "scale grain and chromatic aberration with the camera, the way the
+bloom's reach now is." **Neither of them turned out to be the problem**, which
+is the third time in two days that the obvious mechanism was wrong about this
+shader — so the phase opened by isolating every term at the closest camera
+rather than by editing one.
+
+With each knocked out in turn: switching off **chromatic aberration** produced a
+frame indistinguishable from the full one, and **grain** barely moved it.
+Switching off the **bloom** was the whole difference.
+
+### 21% against 4.8%
+
+That was surprising, because the bloom's *reach* had already been pinned to a
+constant 23 screen points. What had not been measured is how much of the frame
+it is reaching *from*:
+
+| camera | fraction of the frame above `bloomThreshold` |
+|---|---|
+| 0.5 (closest) | **21.4%** |
+| 1.0 (rest) | 20.4% |
+| 2.0 | 9.0% |
+| 3.0 (widest) | 4.8% |
+
+A lit window at the widest camera is three pixels, and averages with the dark
+facade around it into something under the threshold. At the closest camera it
+is forty pixels of pure lit colour, every one of them over. So the bloom's
+*input* is four and a half times larger at the zooms the game is played at —
+and bloom was reviewed on whole-city frames, which is the one view where it
+lands on a twentieth of the picture and reads as an accent rather than a veil.
+
+### And why the value had to move now rather than earlier
+
+`bloomStrength` was 0.55, and 0.55 was chosen when every pixel in the frame
+sampled the **same sixteen directions**. A bright source deposited its light in
+sixteen discrete spots; the per-pixel rotation that fixed the ghosting spreads
+that same energy over a filled area instead. Fixing the ghosting therefore
+changed how *dense* the bloom is, and the strength it had been tuned against
+stopped being the right one. The re-tune is a consequence of the fix rather
+than a separate opinion about it.
+
+**The obvious answer was to scale strength with the camera, and the renders
+said not to.** 0.28 is better at *both* ends — crisper windows up close, and
+more depth between buildings across a whole city, with the neon still
+glowing — so it is one number rather than a second curve nothing could justify.
+Worth recording because this file keeps arriving at "tuned at one zoom is tuned
+at exactly one zoom" and this is the case where the fix was *not* a curve: the
+value was simply wrong everywhere, and only looking at both ends showed it.
+
+Still a judgement rather than a measurement, and it is the kind this project
+sends to a playtest: two renders at two zooms say 0.28, and how it feels to
+play in is not something a still can answer.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

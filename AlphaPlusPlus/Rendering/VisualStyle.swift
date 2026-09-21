@@ -86,10 +86,32 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
     /// The threshold sits high on purpose: below it this stops being a bloom
     /// and becomes a blur, and a blurred city is a smeared one. Only the
     /// windows, signage, lane lines and fire are meant to cross it.
+    /// **Re-tuned after the spiral was jittered, and that is why it moved.**
+    ///
+    /// 0.55 was picked when every pixel in the frame sampled the same sixteen
+    /// directions — so a bright source deposited its light in sixteen discrete
+    /// spots rather than spreading it. Rotating the spiral per pixel turned
+    /// those copies into a continuous halo, which puts the *same* energy over
+    /// a filled area instead of a scatter, and at the old strength that reads
+    /// as a veil rather than a glow. Fixing the ghosting changed how dense the
+    /// bloom is, so the strength it was tuned at stopped being the right one.
+    ///
+    /// What made it obvious is a number rather than an opinion: **21% of the
+    /// frame is above `bloomThreshold` at the closest camera and at rest,
+    /// against 4.8% zoomed right out.** Bloom was reviewed on whole-city
+    /// frames, which is the one view where it lands on a twentieth of the
+    /// picture and reads as an accent; at the zooms the game is played at it
+    /// was scattering a fifth of the frame across everything else.
+    ///
+    /// The obvious fix was to scale this with the camera, and the renders said
+    /// not to: 0.28 is better at *both* ends — crisper windows up close, and
+    /// more depth between buildings across a whole city, with the neon still
+    /// glowing. One number, and this project does not need a second curve it
+    /// cannot justify.
     var bloomStrength: Double {
         switch self {
         case .classic: return 0
-        case .cinematic: return 0.55
+        case .cinematic: return 0.28
         }
     }
 
