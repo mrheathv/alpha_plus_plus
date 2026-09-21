@@ -6359,6 +6359,85 @@ think every two seconds, and the fix is the traffic cache this file has had on
 its list since the beginning — **not** a rendering problem, which is where the
 last two days of this work have been looking.
 
+## The tick learns to use more than one core
+
+Asked while playing: *what is the point of all these compute and GPU cores if
+a game like this has issues?* A fair question, and the answer was a
+measurement rather than a defence. This machine is an **Apple M3: 8 CPU cores
+(4 performance, 4 efficiency), 10 GPU cores, 16 GB**. The game was using about
+one core, and the GPU was not the bottleneck at all — what costs on the render
+side is the CPU walking eight thousand scene nodes to *describe* a city a
+10-core GPU could draw hundreds of times a second.
+
+### Three guesses, three measurements, and only the last guess was right
+
+Worth recording as a sequence, because the pattern is the lesson:
+
+1. **"The searches are the cost."** `Traffic.computeLoad` runs a flood fill
+   over the road network per home, which sounds like the expensive part.
+   Measured: **7.4 ms of 37.2 — 21%**.
+2. **"The sort inside the inner loop is the cost."** It called
+   `job.frontage.sortedByPosition()` per (home, job) pair — 233 homes against
+   ~200 jobs, re-sorting the same unchanging sets about forty-six thousand
+   times a tick. Hoisting it to once per job is obviously right and it bought
+   **37.2 → 34.9 ms, 6%**.
+3. **The transit journey lookup.** Measured by deleting the city's lines and
+   running the same city again: **46%**. Which is exactly what this file
+   already predicted when the transit graph landed — *"the cost is the
+   per-(home, job) journey lookup, which walks the boarding points at each
+   end"*.
+
+Three assumptions about one function, two of them wrong, all three cheap to
+check. The hoist stayed because it is free and correct; the headline was
+somewhere else.
+
+### The split that made it parallel
+
+Both expensive halves live in the same per-home loop, and that loop turned out
+to be **two different kinds of work wearing one `for`**:
+
+- Working out what every job would cost this household reads only the road
+  network, the transit graph and the job sites — all fixed for a tick. It is
+  independent per home.
+- Deciding who actually *gets* the place is not: a job has room for so many
+  people and a line has seats, so this home's outcome depends on who was
+  served first.
+
+`HomeRouting` is that seam. Phase one runs across the cores; phase two runs
+sequentially, **in exactly the order it always did**, which is what keeps the
+answer identical — `chooseJob` is seeded from the home's own position rather
+than from a shared generator, so nothing depends on which core finished first.
+
+| | before | after |
+|---|---|---|
+| `Traffic.computeLoad` | 35.7 ms | **11.0 ms** |
+| `advanceSimulation()` | 50.6 ms | **24.4 ms** |
+| the tick's whole frame | 87 ms | **61 ms** |
+
+**Written for every Mac, not for this one.** `DispatchQueue.concurrentPerform`
+adapts to the cores it finds, so the same binary uses four on an M1 Air and
+sixteen on a Max. What is hard-coded is a threshold on the *problem* —
+`parallelRoutingThreshold`, 64 homes — because handing out forty homes costs
+more in scheduling than doing them here. Scaling is not linear on Apple
+Silicon and should not be expected to be: the searches alone measured **5.3×
+on 8 cores**, which is what a four-plus-four split looks like.
+
+### The test the ordinary suite could not be
+
+`ParallelRoutingTests` forces both paths on one large city and asserts the
+`TrafficLoad` is equal, then runs the parallel path six times and asserts it
+agrees with itself.
+
+It needs to exist because **the rest of the suite cannot check this**: the
+quick playtest profile is a 24×24 city with fewer homes than the threshold, so
+every scenario test in the project takes the serial path and would pass on a
+thoroughly broken parallel one. `parallelRoutingThreshold` is not `private`
+for exactly that reason — making the hottest function in the game concurrent
+without proving the two routes agree would be the least defensible change in
+this project, and `computeLoad` has already been non-deterministic once, from
+`Set` iteration order, caught only because the harness failed its own
+reproducibility check.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -71,6 +71,25 @@ enum Traffic {
         /// candidates, because no path reaches it.
         let frontage: Set<GridPosition>
 
+        /// The same cells, in the order ties are broken in.
+        ///
+        /// **Sorted once per job rather than once per (home, job) pair**, and
+        /// it is worth saying why it needed saying. The `reach` below already
+        /// carries a comment about being computed once per job "which is what
+        /// keeps the transit half of the inner loop to a handful of array
+        /// reads" — and the *driving* half never got the same treatment. It
+        /// called `frontage.sortedByPosition()` inside the loop, so a city of
+        /// 233 homes and 200 jobs re-sorted the same unchanging sets about
+        /// forty-six thousand times a tick.
+        ///
+        /// The sort is not decoration: when two frontage cells are
+        /// equidistant, `min(by:)` keeps whichever it saw first, and `Set`
+        /// iteration order is not stable between two sets holding the same
+        /// elements — which is how `computeLoad` was once non-deterministic.
+        /// The order has to be fixed; it just does not have to be *re*-fixed
+        /// for every home in the city.
+        let sortedFrontage: [GridPosition]
+
         /// Where someone arriving by transit gets off, and how far they then
         /// walk. Computed once per job rather than once per (home, job) pair,
         /// which is what keeps the transit half of the inner loop to a
@@ -241,6 +260,102 @@ enum Traffic {
     /// to a short drive, and wins the same trip once the street jams. See
     /// `Transit` for the journey planner, and this file's top comment for the
     /// loop that creates.
+    /// Everything about one home's commute that does not depend on what any
+    /// other home chose.
+    ///
+    /// **This split is what lets the expensive part use more than one core.**
+    /// Working out what every job would cost this household reads only the
+    /// road network, the transit graph and the job sites — all fixed for the
+    /// duration of a tick — so it is independent per home. What is *not*
+    /// independent is the assignment: a job has room for a limited number of
+    /// people and a line has seats, so whether this home can take a place
+    /// depends on who was served before it.
+    ///
+    /// Splitting the loop in two along that line leaves the costly half
+    /// parallel and the sequential half cheap. It also leaves the sequential
+    /// half in exactly the order it ran in before, which is what keeps the
+    /// result identical: `chooseJob` is seeded from the home's own position
+    /// rather than from a shared generator, so nothing about the outcome
+    /// depends on which core got there first.
+    private struct HomeRouting {
+        let tile: Tile
+        /// What every job would cost this home, *before* capacity is
+        /// considered. Filtering by room has to happen during assignment,
+        /// because that is the only place the answer is known.
+        let candidates: [JobCandidate]
+        /// The search tree this home's drive was measured over, kept so the
+        /// chosen route can be walked once the job is settled.
+        let parents: [GridPosition: GridPosition]
+    }
+
+    /// Below this many homes, spreading the work costs more than it saves.
+    ///
+    /// **Gated on the size of the problem, not on the size of the machine.**
+    /// `DispatchQueue.concurrentPerform` already adapts to however many cores
+    /// it finds — this binary runs on every Apple Silicon Mac from a
+    /// four-plus-four M1 to a sixteen-core Max, and nothing here should know
+    /// which. What it does need to know is that handing out forty homes costs
+    /// more in scheduling than doing them here.
+    ///
+    /// Not `private`, so a test can force both paths on one city and compare
+    /// them. Making the hottest function in the game concurrent without
+    /// proving the two routes agree would be the least defensible change in
+    /// this project.
+    static var parallelRoutingThreshold = 64
+
+    /// Works out what each job would cost one home. Pure: it reads the world
+    /// and writes nothing, which is the whole reason it can run anywhere.
+    private static func route(
+        home tile: Tile, in map: CityMap, drivable: Set<GridPosition>,
+        coverage: TransitCoverage, network: TransitGraph, jobs: [JobSite]
+    ) -> HomeRouting? {
+        let homeCells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
+        let homeReach = coverage.reaches(from: homeCells)
+        let homeFrontage = frontage(ofFootprint: tile.position,
+                                    size: tile.zone.footprintSize, in: map, drivable: drivable)
+        guard !homeFrontage.isEmpty || !homeReach.isEmpty else {
+            return nil // no street and no line: this block generates no trips
+        }
+
+        // The *whole* reachable network from this home, not just the nearest
+        // job — the lottery needs every reachable candidate's cost to weigh
+        // against each other, which stopping early at the first job with room
+        // (the original approach) cannot provide.
+        var parents: [GridPosition: GridPosition] = [:]
+        var hops: [GridPosition: Int] = [:]
+        if !homeFrontage.isEmpty {
+            let reachable = reachableTiles(from: homeFrontage, over: drivable)
+            parents = reachable.parent
+            hops = reachable.distance
+        }
+        let delay = drivingDelay(atFrontage: homeFrontage, in: map)
+
+        var candidates: [JobCandidate] = []
+        candidates.reserveCapacity(jobs.count)
+        for (index, job) in jobs.enumerated() {
+            // A job can front more than one drivable tile; this home's
+            // distance to it is the closest of those it actually reached.
+            // `sortedFrontage` rather than the `Set`: when two frontage cells
+            // are equidistant, `min(by:)` keeps whichever it saw first, so
+            // `Set` iteration order would decide the route — and that is not
+            // stable between two `Set` instances holding the same elements.
+            // See `reachableTiles(from:over:)` for the full story.
+            let nearest = job.sortedFrontage
+                .compactMap { cell in hops[cell].map { (cell, $0) } }
+                .min { $0.1 < $1.1 }
+            let drive = nearest.map {
+                (minutes: Double($0.1) * drivingMinutesPerTile * delay + job.extraMinutes,
+                 frontageCell: $0.0)
+            }
+            let ride = network.journey(from: homeReach, to: job.reach).map {
+                TransitGraph.Journey(minutes: $0.minutes + job.extraMinutes, legs: $0.legs)
+            }
+            guard let best = [drive?.minutes, ride?.minutes].compactMap({ $0 }).min() else { continue }
+            candidates.append(JobCandidate(jobIndex: index, minutes: best, drive: drive, ride: ride))
+        }
+        return HomeRouting(tile: tile, candidates: candidates, parents: parents)
+    }
+
     static func computeLoad(for map: CityMap) -> TrafficLoad {
         let drivable = Set(map.tiles.filter { isRoadLike($0.zone) }.map(\.position))
         let coverage = Transit.coverage(for: map)
@@ -266,51 +381,42 @@ enum Traffic {
             seats[route.id] = Transit.dailyCapacity(of: route, in: map)
         }
 
-        for tile in map.tiles where tile.isBuildingAnchor && tile.zone == .residential && tile.density > 0 {
-            let homeCells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
-            let homeReach = coverage.reaches(from: homeCells)
-            let homeFrontage = frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable)
-            guard !homeFrontage.isEmpty || !homeReach.isEmpty else {
-                continue // no street and no line: this block generates no trips
-            }
-
-            // The *whole* reachable network from this home, not just the
-            // nearest job — the lottery needs every reachable candidate's
-            // cost to weigh against each other, which stopping early at the
-            // first job with room (the original approach) cannot provide.
-            var parents: [GridPosition: GridPosition] = [:]
-            var hops: [GridPosition: Int] = [:]
-            if !homeFrontage.isEmpty {
-                let reachable = reachableTiles(from: homeFrontage, over: drivable)
-                parents = reachable.parent
-                hops = reachable.distance
-            }
-            let delay = drivingDelay(atFrontage: homeFrontage, in: map)
-
-            var candidates: [JobCandidate] = []
-            for (index, job) in jobs.enumerated() where job.remainingCapacity > 0 {
-                // A job can front more than one drivable tile; this home's
-                // distance to it is the closest of those it actually reached.
-                // `sortedByPosition` rather than iterating the `Set` directly:
-                // when two frontage cells are equidistant, `min(by:)` keeps
-                // whichever it saw first, so `Set` iteration order would decide
-                // the route — and that is not stable between two `Set`
-                // instances holding the same elements. See
-                // `reachableTiles(from:over:)` for the full story.
-                let nearest = job.frontage.sortedByPosition()
-                    .compactMap { cell in hops[cell].map { (cell, $0) } }
-                    .min { $0.1 < $1.1 }
-                let drive = nearest.map {
-                    (minutes: Double($0.1) * drivingMinutesPerTile * delay + job.extraMinutes,
-                     frontageCell: $0.0)
+        // **Phase one: what every commute would cost, worked out in
+        // parallel.** Nothing here reads how much room is left anywhere, so
+        // no home's answer depends on any other home's — see `HomeRouting`.
+        let homes = map.tiles.filter {
+            $0.isBuildingAnchor && $0.zone == .residential && $0.density > 0
+        }
+        let fixedJobs = jobs   // read-only for the duration of phase one
+        var routings = [HomeRouting?](repeating: nil, count: homes.count)
+        if homes.count >= parallelRoutingThreshold {
+            routings.withUnsafeMutableBufferPointer { buffer in
+                DispatchQueue.concurrentPerform(iterations: homes.count) { index in
+                    buffer[index] = route(home: homes[index], in: map, drivable: drivable,
+                                          coverage: coverage, network: network, jobs: fixedJobs)
                 }
-                let ride = network.journey(from: homeReach, to: job.reach).map {
-                    TransitGraph.Journey(minutes: $0.minutes + job.extraMinutes, legs: $0.legs)
-                }
-                guard let best = [drive?.minutes, ride?.minutes].compactMap({ $0 }).min() else { continue }
-                candidates.append(JobCandidate(jobIndex: index, minutes: best, drive: drive, ride: ride))
             }
+        } else {
+            for index in homes.indices {
+                routings[index] = route(home: homes[index], in: map, drivable: drivable,
+                                        coverage: coverage, network: network, jobs: fixedJobs)
+            }
+        }
 
+        // **Phase two: who actually gets the place, in the order they always
+        // were.** A job has room for so many people and a line has so many
+        // seats, so this half has to stay sequential — and staying in the
+        // original order is what keeps the result bit-for-bit what it was.
+        for routing in routings {
+            guard let routing else { continue }
+            let tile = routing.tile
+            let parents = routing.parents
+            // Room is only known here, which is why the filter is here rather
+            // than in the costing. The set this leaves is exactly the set the
+            // single loop used to build.
+            let candidates = routing.candidates.filter {
+                jobs[$0.jobIndex].remainingCapacity > 0
+            }
             guard let chosen = chooseJob(from: candidates, homeSeed: tile.position) else { continue } // no reachable job has room
             // **The router already knew this and was discarding it.** Whether
             // a home found work is decided right here, on the line above, and
@@ -477,9 +583,13 @@ enum Traffic {
             // unreachable by car instead — no path reaches an empty frontage,
             // so the driving lottery skips it exactly as before.
             let cells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
+            let siteFrontage = frontage(ofFootprint: tile.position,
+                                        size: tile.zone.footprintSize,
+                                        in: map, drivable: drivable)
             sites.append(JobSite(
                 cells: cells,
-                frontage: frontage(ofFootprint: tile.position, size: tile.zone.footprintSize, in: map, drivable: drivable),
+                frontage: siteFrontage,
+                sortedFrontage: siteFrontage.sortedByPosition(),
                 reach: coverage.reaches(from: cells),
                 extraMinutes: 0,
                 isOutsideTheCity: false,
@@ -506,6 +616,7 @@ enum Traffic {
             sites.append(JobSite(
                 cells: cells,
                 frontage: [],
+                sortedFrontage: [],
                 reach: coverage.reaches(from: cells),
                 extraMinutes: Transit.outsideCommuteMinutes,
                 isOutsideTheCity: true,

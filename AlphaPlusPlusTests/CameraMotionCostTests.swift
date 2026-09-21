@@ -179,6 +179,104 @@ final class CameraMotionCostTests: XCTestCase {
         print(String(format: "  traffic is %.0f%% of the tick", traffic / max(whole, 0.001) * 100))
     }
 
+    /// **What one core is being asked to do, and how much of it is parallel.**
+    ///
+    /// Asked while playing: what is the point of all these cores if a game
+    /// like this struggles. A fair question, and the answer is a measurement
+    /// rather than an opinion — the dominant cost is a loop whose expensive
+    /// half is independent per iteration and which runs on exactly one of
+    /// eight cores.
+    func testHowMuchOfATickCouldUseMoreThanOneCore() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let map = try CitySaveFile.read(from: url).map
+
+        let homes = map.tiles.filter {
+            $0.isBuildingAnchor && $0.zone == .residential && $0.density > 0
+        }
+        let roads = map.tiles.filter { $0.zone == .road || $0.zone == .highway }.count
+        print("\n=== the shape of the work ===")
+        print("  cores available:      \(ProcessInfo.processInfo.activeProcessorCount)")
+        print("  homes to route:       \(homes.count)")
+        print("  road tiles to search: \(roads)")
+
+        func best(_ label: String, _ body: () -> Void) -> Double {
+            var best = Double.greatestFiniteMagnitude
+            for _ in 0 ..< 5 {
+                let started = Date()
+                body()
+                best = min(best, Date().timeIntervalSince(started) * 1000)
+            }
+            print(String(format: "  %-36@ %7.1f ms", label as NSString, best))
+            return best
+        }
+
+        let whole = best("Traffic.computeLoad (one core)") { _ = Traffic.computeLoad(for: map) }
+
+        // **The same city with its transit lines deleted.** Apex carries 22
+        // subway routes, and the per-(home, job) journey lookup walks the
+        // boarding points at each end — the O(homes x jobs x reach^2) term
+        // this project's own notes name as the thing to profile first. The
+        // difference between these two numbers is that term, measured rather
+        // than assumed, which is the fourth assumption about this file today
+        // that wanted checking.
+        var withoutTransit = map
+        withoutTransit.transit = TransitNetwork()
+        let noLines = best("the same city with no lines") {
+            _ = Traffic.computeLoad(for: withoutTransit)
+        }
+        print(String(format: "  the transit half is %.0f%% of it", (whole - noLines) / whole * 100))
+
+        // The same searches, run across the cores the machine has. Nothing is
+        // shared and nothing is written, so this is the honest ceiling for
+        // what parallelising the search half would buy — not a working
+        // implementation, a measurement of the headroom.
+        let drivable = Set(map.tiles.filter { $0.zone == .road || $0.zone == .highway }
+            .map(\.position))
+        let starts = homes.map { home -> Set<GridPosition> in
+            var cells: Set<GridPosition> = []
+            for cell in map.footprintCells(origin: home.position, size: home.zone.footprintSize) {
+                for n in cell.orthogonalNeighbors() where drivable.contains(n) { cells.insert(n) }
+            }
+            return cells
+        }.filter { !$0.isEmpty }
+
+        func flood(_ sources: Set<GridPosition>) -> Int {
+            var seen = sources
+            var frontier = Array(sources)
+            var reached = 0
+            while !frontier.isEmpty {
+                var next: [GridPosition] = []
+                for cell in frontier {
+                    reached += 1
+                    for n in cell.orthogonalNeighbors()
+                    where drivable.contains(n) && seen.insert(n).inserted {
+                        next.append(n)
+                    }
+                }
+                frontier = next
+            }
+            return reached
+        }
+
+        let serial = best("the searches alone, one core") {
+            var total = 0
+            for s in starts { total &+= flood(s) }
+            XCTAssertGreaterThan(total, 0)
+        }
+        let parallel = best("the searches alone, all cores") {
+            let counts = UnsafeMutableBufferPointer<Int>.allocate(capacity: starts.count)
+            defer { counts.deallocate() }
+            DispatchQueue.concurrentPerform(iterations: starts.count) { index in
+                counts[index] = flood(starts[index])
+            }
+        }
+        print(String(format: """
+          the searches are %.0f%% of the tick, and go %.1fx faster on %d cores
+        """, serial / max(whole, 0.001) * 100, serial / max(parallel, 0.001),
+        ProcessInfo.processInfo.activeProcessorCount))
+    }
+
     func testWhatMovingTheCameraCosts() throws {
         let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
         try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
