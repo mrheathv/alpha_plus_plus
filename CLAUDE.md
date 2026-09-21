@@ -5961,6 +5961,92 @@ the grade's intensity, not — which is enough to state the general form:
 **a post-process tuned at one zoom is tuned at exactly one zoom**, and this
 project has no render that looks at any other.
 
+## Phase 0 of the graphics roadmap: a camera that records
+
+The roadmap opens with a tool rather than a pass, and the reason is that
+**every judgement this project has ever made about how it looks was made on a
+still**. Four of the five graphics passes planned after it change things that
+only read in motion.
+
+`SceneRecorder` drives `GameScene.update(_:)` itself at a fixed step instead of
+letting SpriteKit run the loop, which is what makes it work with no window and
+no display — the same reason Capture Screenshot writes its own PNG rather than
+calling `screencapture`, which fails over the remote session this project is
+usually driven from. It writes **two things from one pass**: a `.mov` through
+`AVAssetWriter` for a person, and a filmstrip of sampled frames for whoever
+cannot play a movie, which is most of this project's history. Frames stream to
+the encoder as they are taken; a few seconds at 2560×1600 is gigabytes of
+`CGImage` and buffering them is not an option worth debating.
+
+### The clock cannot be jumped, only stepped
+
+`GameScene.update` clamps its own delta with `min(currentTime - last, 0.1)`, so
+handing it a timestamp a second later advances the world by **a tenth of a
+second**. That is correct for the game — it stops the city lurching after a
+stall or a drag between displays — and it is a fact any harness driving the
+clock has to respect. Two captures a second apart produced a byte-identical
+difference until the recorder supplied a real cadence, and the identical figure
+is what gave it away.
+
+### And then it measured 0.06%
+
+Over a full second of a *running* city, 0.06% of the frame changed. One tram.
+
+Road traffic, the transit-diagram vehicles, the airport's aircraft and the
+feedback flashes were all `SKAction`s, which SpriteKit runs on its own loop —
+so a tool built to judge motion could not see the main thing that moves. That
+is the recorder's first real finding rather than a limitation to work around.
+
+### Ambient traffic moved onto the per-frame driver
+
+The same three arguments `PathVehicle` already made: an action cannot be
+advanced by anything driving the scene from outside, a paused city then needs a
+separate walk to stop it, and the motion is a pure function of elapsed time
+anyway — so an action is storing a program to compute something arithmetic.
+
+**Measured before adopting, which the roadmap asked for**, because the worry
+was real in shape: `SKAction` evaluation is native and a built-out city has
+over a thousand road tiles. On the largest city in the project — **302 cars
+driven at 0.221 ms per `update()`**, in a Debug build, about 1.3% of a 60 fps
+budget. The worry was unfounded and is now a number.
+
+Motion over one second went **0.06% → 0.30%**, and the bound in
+`CityMotionTests` was raised with it rather than left as a floor nothing could
+fail.
+
+Two things fell out of it that are worth more than the tool:
+
+- **Every ambient car in the game has been drawn at the wrong opacity.** The
+  action sequence ended in `SKAction.fadeIn`, which fades to *1.0* rather than
+  back to whatever the node had — so each car jumped to full opacity after its
+  first loop and stayed there. The streaks are deliberately drawn at 0.3–0.65
+  because this file records that a saturated hue at modest alpha *tints* a lane
+  while the same hue at high alpha *bleaches* it. Traffic has been running at
+  the bleaching end since the streaks landed, which is very likely part of why
+  it still read as wrong after the streaks fixed the shape problem.
+- **A whole bug class is gone.** A car built *while* the game was paused had
+  never been through `applyAnimationPause`, so it drove off the moment it
+  appeared unless something remembered to catch it. There is no "start" to miss
+  now: nothing moves a car until a running `update` does.
+
+### Two tests that had to be restated, not relaxed
+
+`PauseStopsTheCityTests` asserted on `SKNode.isPaused`, which was never the
+property anyone wanted — it was the *mechanism* that delivered it. Both tests
+now assert on **where the car actually is** across a few frames, which survives
+this change and would have survived the previous one. Same standing rule as
+ever: when a test fails, ask whether the thing moved or the yardstick did.
+Here the thing moved, deliberately, and the yardstick had been measuring a
+proxy all along.
+
+### One fixture lesson, and it is the usual one
+
+The first motion test measured a city **with no cars in it**.
+`Traffic.carCount` returns zero for zero congestion, and congestion comes from
+routed commutes, so an unticked city has empty streets by construction — a
+picture in which the failing case cannot occur, for the fifth or sixth time in
+this file. The fixture ticks now.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -33,35 +33,71 @@ final class PauseStopsTheCityTests: XCTestCase {
         return scene
     }
 
+    private var _clock: TimeInterval = 0
+
     private func animated(in scene: GameScene, named name: String) -> [SKNode] {
         scene.tileNodesForTesting.values.flatMap { $0.children.filter { $0.name == name } }
     }
 
     // MARK: -
 
+    /// Where every ambient car currently is.
+    private func carPositions(in scene: GameScene) -> [CGPoint] {
+        animated(in: scene, named: GameScene.trafficCarNodeNameForTesting).map(\.position)
+    }
+
+    /// Steps the scene a few frames at a real cadence.
+    ///
+    /// **Stepped, not jumped**: `GameScene.update` clamps its own delta with
+    /// `min(currentTime - last, 0.1)`, so a single call a second later
+    /// advances the world by a tenth of a second. Anything driving this clock
+    /// from outside has to supply a cadence.
+    private func step(_ scene: GameScene, frames: Int) {
+        for _ in 0 ..< frames {
+            clock += 1.0 / 60
+            scene.update(clock)
+        }
+    }
+    private var clock: TimeInterval {
+        get { _clock } set { _clock = newValue }
+    }
+
     /// **The report.** Cars stop when the city does, and drive again when it
     /// resumes.
+    ///
+    /// **Restated when the traffic moved off `SKAction`.** This used to assert
+    /// on `SKNode.isPaused`, which was never the property anybody wanted — it
+    /// was the *mechanism* that delivered it, and cars are now driven per
+    /// frame from `update` instead, so they stop because nothing advances
+    /// them rather than because they were told to. Asserting on where the car
+    /// actually is survives that change and would have survived the previous
+    /// one too, which is the argument for writing it this way round.
     func testCarsStopWhenTheCityIsPaused() {
         let controller = GameController(map: busyCity(), rng: AlwaysZeroRNG(),
                                         peakPopulation: Unlocks.everythingUnlocked)
         controller.isRunning = true
         let scene = self.scene(controller)
         scene.refreshAll()
-        scene.update(0)
+        step(scene, frames: 1)
 
-        let cars = animated(in: scene, named: GameScene.trafficCarNodeNameForTesting)
-        XCTAssertFalse(cars.isEmpty, "precondition: this street draws no cars at all")
-        XCTAssertTrue(cars.allSatisfy { !$0.isPaused }, "a running city had its traffic stopped")
+        XCTAssertFalse(carPositions(in: scene).isEmpty,
+                       "precondition: this street draws no cars at all")
+
+        let running = carPositions(in: scene)
+        step(scene, frames: 30)
+        let stillRunning = carPositions(in: scene)
+        XCTAssertNotEqual(running, stillRunning, "a running city had its traffic stopped")
 
         controller.isRunning = false
-        scene.update(1)
-        XCTAssertTrue(animated(in: scene, named: GameScene.trafficCarNodeNameForTesting)
-            .allSatisfy(\.isPaused), "the traffic kept driving around a paused city")
+        step(scene, frames: 2)
+        let paused = carPositions(in: scene)
+        step(scene, frames: 30)
+        XCTAssertEqual(paused, carPositions(in: scene),
+                       "the traffic kept driving around a paused city")
 
         controller.isRunning = true
-        scene.update(2)
-        XCTAssertTrue(animated(in: scene, named: GameScene.trafficCarNodeNameForTesting)
-            .allSatisfy { !$0.isPaused }, "the traffic never started again")
+        step(scene, frames: 30)
+        XCTAssertNotEqual(paused, carPositions(in: scene), "the traffic never started again")
     }
 
     /// The same rule for anything else the simulation is driving — a flame
@@ -99,18 +135,27 @@ final class PauseStopsTheCityTests: XCTestCase {
 
     /// A tile refreshed *while* paused — which is what a placement does —
     /// must not start driving.
+    ///
+    /// This was the awkward case under the old design: a car built during a
+    /// pause had never been through `applyAnimationPause`, so it drove off the
+    /// moment it appeared unless something remembered to catch it. Driving the
+    /// cars per frame deletes the whole class — there is no "start" to miss,
+    /// because nothing moves them until a running `update` does. The test
+    /// stays because the *property* still matters and the next mechanism
+    /// might not be so forgiving.
     func testTrafficBuiltWhilePausedStartsStopped() {
         let controller = GameController(map: busyCity(), rng: AlwaysZeroRNG(),
                                         peakPopulation: Unlocks.everythingUnlocked)
         let scene = self.scene(controller)
         controller.isRunning = false
-        scene.update(1)
+        step(scene, frames: 1)
         // Now build it all, with the game stopped.
         scene.refreshAll()
 
-        let cars = animated(in: scene, named: GameScene.trafficCarNodeNameForTesting)
-        XCTAssertFalse(cars.isEmpty)
-        XCTAssertTrue(cars.allSatisfy(\.isPaused),
-                      "a car built during a pause drove off immediately")
+        let built = carPositions(in: scene)
+        XCTAssertFalse(built.isEmpty)
+        step(scene, frames: 30)
+        XCTAssertEqual(built, carPositions(in: scene),
+                       "a car built during a pause drove off immediately")
     }
 }

@@ -35,9 +35,15 @@ final class CityMotionTests: XCTestCase {
         return map
     }
 
-    private func makeScene(_ map: CityMap) -> (GameScene, SKView, GameController) {
+    private func makeScene(_ map: CityMap, ticks: Int = 12) -> (GameScene, SKView, GameController) {
         let controller = GameController(map: map, rng: SeededRNG(seed: 4),
                                         peakPopulation: Unlocks.everythingUnlocked)
+        // **Ticked, or there is no traffic to watch.** `Traffic.carCount`
+        // returns zero for zero congestion, and congestion comes from routed
+        // commutes — so an unticked city has empty streets by construction.
+        // The first version of this test missed that entirely and measured a
+        // city with no cars in it while asking whether the cars moved.
+        for _ in 0 ..< ticks { controller.advanceSimulation() }
         let scene = GameScene(controller: controller)
         scene.size = CGSize(width: 700, height: 440)
         let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
@@ -88,6 +94,8 @@ final class CityMotionTests: XCTestCase {
 
         controller.isRunning = true
         let running1 = try advance(scene, view, frames: 2)   // settle: builds the vehicles
+        print("driving: \(scene.trafficCarCountForTesting) cars, "
+              + "\(scene.pathVehicleCountForTesting) path vehicles")
         let before = scene.pathVehiclePositionsForTesting
         let running2 = try advance(scene, view, frames: 60)  // one second of real cadence
         let after = scene.pathVehiclePositionsForTesting
@@ -110,20 +118,56 @@ final class CityMotionTests: XCTestCase {
         print(String(format: "motion over one second: %.3f%% of the frame running, "
                      + "%.3f%% paused", movedWhileRunning * 100, movedWhilePaused * 100))
 
-        // **The bound is low because almost nothing in this game moves per
-        // frame**, and that is the recorder's first finding rather than a
-        // weak test. A single tram is 0.06% of the frame; road traffic, the
-        // diagram vehicles and the aircraft are all `SKAction`s, which
-        // SpriteKit runs on its own loop and which therefore do not advance
-        // here at all. When they move onto the per-frame driver this number
-        // should rise by an order of magnitude, and this bound should be
-        // raised with it rather than left as a floor nothing can fail.
-        XCTAssertGreaterThan(movedWhileRunning, 0.0002,
+        // **Raised when the traffic moved onto the per-frame driver**, which
+        // is what the earlier version of this comment asked for rather than
+        // leaving a floor nothing could fail. A tram alone was 0.06% of the
+        // frame; a tram and nine cars is 0.30%. The transit-diagram vehicles
+        // and the airport's aircraft are still `SKAction`s and still do not
+        // advance here — when they follow, this should be raised again.
+        XCTAssertGreaterThan(movedWhileRunning, 0.0015,
                              "nothing in the city was redrawn over a full second — the map has "
                              + "frozen, which is how the texture cache once broke the game")
         XCTAssertLessThan(movedWhilePaused, movedWhileRunning / 4,
                           "the city kept moving while paused — the bug where ambient traffic "
                           + "went on driving around a stopped map")
+    }
+
+    /// **What driving the cars in Swift costs**, which the roadmap said to
+    /// measure before adopting rather than after.
+    ///
+    /// The worry was real in shape: `SKAction` evaluation is native, a
+    /// built-out city has over a thousand road tiles, and replacing something
+    /// the engine does with something this file does is the kind of trade
+    /// that has to be checked. It is checked here on the largest city that
+    /// exists rather than on a fixture sized to flatter it.
+    func testDrivingTheTrafficCostsAlmostNothing() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path),
+                          "needs the Apex city — mint it with TEST_RUNNER_MINT_CITIES=1")
+        let map = try CitySaveFile.read(from: url).map
+        let (scene, _, controller) = makeScene(map, ticks: 0)
+        controller.isRunning = true
+        _ = scene.update(0)
+        scene.update(1 / 60)
+
+        let cars = scene.trafficCarCountForTesting
+        // The minimum of several batches, for the reason `RenderTimingTests`
+        // documents: every sample is the true cost plus whatever else the
+        // machine was doing, so the distribution has a floor and no ceiling.
+        var best = Double.greatestFiniteMagnitude
+        for batch in 0 ..< 5 {
+            let started = Date()
+            for frame in 0 ..< 60 {
+                scene.update(TimeInterval(batch * 60 + frame + 2) / 60)
+            }
+            best = min(best, Date().timeIntervalSince(started) / 60 * 1000)
+        }
+        print(String(format: "%d cars driven — %.3f ms per update() on a 64×64 city", cars, best))
+        XCTAssertGreaterThan(cars, 200, "the largest city in the project has almost no traffic "
+                             + "in it, so this measures nothing")
+        XCTAssertLessThan(best, 4.0,
+                          "driving the ambient traffic costs \(best) ms a frame, which is a "
+                          + "quarter of a 60fps budget — it belonged back on SKAction")
     }
 
     /// The flythrough, for looking at rather than asserting on.
@@ -159,8 +203,11 @@ final class CityMotionTests: XCTestCase {
         let recorder = SceneRecorder(scene: scene, view: view, fps: 30)
         recorder.record(seconds: 8) { _, progress, scene in
             // A slow push in from the whole city to street level, which is the
-            // move that shows the detail tier crossing and whether it pops.
-            let eased = progress * progress * (3 - 2 * progress)   // smoothstep
+            // move that shows the detail tier crossing and whether it pops —
+            // and then it *holds* for the last third, because a camera that
+            // never stops moving hides whether anything else is moving.
+            let travel = min(1, progress / 0.66)
+            let eased = travel * travel * (3 - 2 * travel)   // smoothstep
             scene.setCameraScaleForTesting(wide + (close - wide) * eased)
         }
         recorder.writeMovie(named: "\(name)-push-in")

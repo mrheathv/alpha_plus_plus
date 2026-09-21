@@ -417,8 +417,14 @@ final class GameScene: SKScene {
     ///
     /// So the rule is by name: things the simulation is driving stop, things
     /// answering the player do not.
+    ///
+    /// **Ambient cars came off this list** when they moved onto the per-frame
+    /// driver. They stop now because nothing advances them, which is strictly
+    /// better than being told to stop: a car built *while* the game is paused
+    /// used to need `applyAnimationPause` to catch it on the way out, and a
+    /// missed call left it driving. Nothing to miss now.
     private static let animatedBySimulation: Set<String> = [
-        trafficCarNodeName, transitVehicleNodeName, IsoTileRenderer.fireNodeName, rainNodeName, IsoTileRenderer.aircraftNodeName,
+        transitVehicleNodeName, IsoTileRenderer.fireNodeName, rainNodeName, IsoTileRenderer.aircraftNodeName,
         // A lot's light breathing is the city being inhabited, so it stops
         // when the city does — same side of the line as the traffic, and the
         // opposite side from a placement flash, which answers a *click* and
@@ -505,6 +511,7 @@ final class GameScene: SKScene {
             return
         }
         advancePathVehicles(by: frameDelta)
+        advanceTrafficCars(by: frameDelta)
 
         guard let lastTickTime else {
             // Just resumed (or this is the first frame ever): start the
@@ -1231,6 +1238,9 @@ final class GameScene: SKScene {
     static var simulationDrivenNodeNamesForTesting: Set<String> { animatedBySimulation }
 
     func rebuildEntireGrid() {
+        // Every tile node is about to be replaced, so every car reference in
+        // here is about to dangle.
+        trafficCars.removeAll()
         // The trams live in `tileLayer`, so they go with it — and the key has
         // to be cleared too, or `syncTramRuns` decides nothing has changed and
         // they never come back. Exactly the stale-cache shape an overlay has
@@ -2586,14 +2596,20 @@ final class GameScene: SKScene {
         // should be taken away — see `OverlayMode.showsRoadNetwork`.
         guard controller.overlayMode.showsRoadNetwork, zone == .road || zone == .highway else {
             existingCars.forEach { $0.removeFromParent() }
+            trafficCars[position] = nil
             return
         }
 
         let congestion = Traffic.congestion(at: position, in: map)
         let carCount = Traffic.carCount(forCongestion: congestion)
-        guard existingCars.count != carCount else { return }
+        // The node count is the cache key, and the driven list has to agree
+        // with it: a tile whose sprites survive keeps the entry that moves
+        // them, and one that rebuilds replaces both together.
+        guard existingCars.count != carCount || trafficCars[position] == nil else { return }
         existingCars.forEach { $0.removeFromParent() }
+        trafficCars[position] = nil
         guard carCount > 0 else { return }
+        var driven: [TrafficCar] = []
 
         let horizontal = Traffic.isHorizontallyOriented(at: position, in: map)
         // Which way most *actual* routed traffic crosses this tile, not
@@ -2684,6 +2700,7 @@ final class GameScene: SKScene {
             let start = flowsPositive ? lowEnd : highEnd
             let end = flowsPositive ? highEnd : lowEnd
             car.position = start
+            let baseAlpha = car.alpha
 
             // A car can't actually drive its full routed commute across
             // every tile along the way — that's the individual-agent
@@ -2698,11 +2715,6 @@ final class GameScene: SKScene {
             // after masks the jump behind a beat of invisibility instead
             // of showing it — the car glides away, and a fresh one glides
             // in, rather than one car visibly snapping in place.
-            let drive = SKAction.move(to: end, duration: crossingDuration)
-            let fadeOutAtEnd = SKAction.fadeOut(withDuration: 0.2)
-            let teleportToStart = SKAction.move(to: start, duration: 0)
-            let fadeInAtStart = SKAction.fadeIn(withDuration: 0.2)
-            let loop = SKAction.repeatForever(.sequence([drive, fadeOutAtEnd, teleportToStart, fadeInAtStart]))
             // Stagger each car's start so a multi-car tile doesn't drive in
             // lockstep — **and offset the whole tile by a seeded phase**, or
             // every tile staggers identically and the street comes out as an
@@ -2716,9 +2728,98 @@ final class GameScene: SKScene {
             let tilePhase = CGFloat(phaseRandom.value(in: 0 ... 1))
             let stagger = crossingDuration
                 * (Double(index) + Double(tilePhase)) / Double(carCount)
-            car.run(.sequence([.wait(forDuration: stagger), loop]))
 
             node.addChild(car)
+            driven.append(TrafficCar(sprite: car, start: start, end: end,
+                                     crossing: crossingDuration,
+                                     phase: stagger, baseAlpha: baseAlpha))
+        }
+        trafficCars[position] = driven
+    }
+
+    // MARK: - Ambient traffic, driven per frame
+
+    /// One ambient car.
+    ///
+    /// **It used to be an `SKAction` loop and is now a handful of numbers**,
+    /// for the three reasons `PathVehicle` already gives: SpriteKit runs
+    /// actions on its own loop, so nothing that drives the scene from outside
+    /// — a recording, a test, a benchmark — can advance them; a paused city
+    /// then needs the separate `animatedBySimulation` walk to stop them; and
+    /// the motion is a pure function of elapsed time anyway, so an action is
+    /// storing a program to compute something arithmetic.
+    ///
+    /// The recorder is what forced it. Over a full second of a running city
+    /// it measured **0.06% of the frame changing** — one tram — because every
+    /// vehicle on every street was frozen in a headless capture. A tool for
+    /// judging motion that cannot see the main thing that moves is not a tool.
+    private struct TrafficCar {
+        let sprite: SKSpriteNode
+        let start: CGPoint
+        let end: CGPoint
+        /// Seconds to cross its tile.
+        let crossing: TimeInterval
+        /// Where in the cycle this car starts.
+        let phase: TimeInterval
+        /// What it should be drawn at while crossing.
+        ///
+        /// **This is a bug fix, not bookkeeping.** The action sequence ended
+        /// in `SKAction.fadeIn`, which fades to *1.0* rather than back to
+        /// whatever the node had — so every ambient car in the game jumped to
+        /// full opacity after its first loop and stayed there. The streaks are
+        /// deliberately drawn at 0.3–0.65, because this file records that a
+        /// saturated hue at modest alpha tints the lane while the same hue at
+        /// high alpha bleaches whatever it crosses. Traffic has been running
+        /// at the bleaching end since the streaks landed.
+        let baseAlpha: CGFloat
+    }
+
+    /// How long a car spends invisible while it returns to the start of its
+    /// tile. A car cannot drive its whole routed commute — that is the
+    /// individual-agent rendering this project rules out — so it has to reset
+    /// somewhere, and the reset used to be a visible backward pop. Fading out
+    /// just before it and in just after hides the jump behind a beat of
+    /// invisibility: one car glides away, a fresh one glides in.
+    private static let carResetSeconds: TimeInterval = 0.2
+
+    private var trafficCars: [GridPosition: [TrafficCar]] = [:]
+    private var trafficClock: TimeInterval = 0
+
+    /// Moves every ambient car. Called from `update` on the running side of
+    /// the pause guard, which is what makes a stopped city stop its traffic
+    /// without anything having to walk the map looking for it.
+    private func advanceTrafficCars(by delta: TimeInterval) {
+        guard !trafficCars.isEmpty else { return }
+        trafficClock += delta
+        let fade = Self.carResetSeconds
+        for (position, cars) in trafficCars {
+            // Tiles outside the view are detached by the culling, and moving a
+            // sprite nobody can see is the one cost this design adds over an
+            // action. One dictionary lookup skips a whole street of them.
+            guard tileNodes[position]?.parent != nil else { continue }
+            for car in cars {
+                let cycle = car.crossing + fade * 2
+                var t = (trafficClock + car.phase).truncatingRemainder(dividingBy: cycle)
+                if t < 0 { t += cycle }
+                if t < car.crossing {
+                    let f = CGFloat(t / car.crossing)
+                    car.sprite.position = CGPoint(
+                        x: car.start.x + (car.end.x - car.start.x) * f,
+                        y: car.start.y + (car.end.y - car.start.y) * f)
+                    car.sprite.alpha = car.baseAlpha
+                } else if t < car.crossing + fade {
+                    car.sprite.position = car.end
+                    car.sprite.alpha = car.baseAlpha * CGFloat(1 - (t - car.crossing) / fade)
+                } else {
+                    car.sprite.position = car.start
+                    car.sprite.alpha = car.baseAlpha
+                        * CGFloat((t - car.crossing - fade) / fade)
+                }
+            }
         }
     }
+
+    /// How many ambient cars are being driven, for the tests about whether
+    /// the streets carry anything.
+    var trafficCarCountForTesting: Int { trafficCars.values.reduce(0) { $0 + $1.count } }
 }
