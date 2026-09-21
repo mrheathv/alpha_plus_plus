@@ -5923,6 +5923,44 @@ heavily, and measured there the test **passes on the bug it exists for** —
 reads **2.08 against 1.15**. Verified by putting the old shader line back,
 which is this project's standing rule for a test written after the fact.
 
+### "HD sprites" would have fixed nothing
+
+Reported next, once the buildings got sharp: *"now I can see some pixelation
+on the windows. Is it worth doing a pass to make HD sprites?"*
+
+No, and the measurement says so before any work starts. The same frame with
+the post-process switched off has **crisp window rectangles**; with it on they
+are soft and fringed. Whatever is softening them is added *after* the texture
+is drawn, so texture resolution cannot reach it — and the textures are
+already rasterised at 4×, which is exactly Retina times the closest camera.
+
+**The obvious mechanism was wrong, twice.** First guess was that
+`SKEffectNode` sizes its render target in scene points, so zooming in past 1.0
+would magnify the shaded image rather than re-render it — the same shape as
+the `u_bloomRadius` bug found an hour earlier. An edge-width measurement was
+too noisy to settle it and pointed the wrong way. The grain settles it
+cleanly, because it is computed once per fragment and therefore *is* a ruler:
+at screen resolution neighbouring output pixels almost never match, and a
+magnified pass would show the noise in blocks. It reads **1.7–2.9% matching
+neighbours at every zoom from 0.5 to 3.0** — no blocks. The pass runs at full
+screen resolution.
+
+So the softness is the pass's own effects: chromatic aberration fringing every
+edge, the bloom's halo over it, grain on top. `ShaderResolutionTests` keeps
+the invariant, because anything that makes the pass render coarser —
+`shouldRasterize` on the effect layer, most obviously — would soften the whole
+game with nothing else failing.
+
+**What is actually behind it is the same thing as the bloom.** Every term in
+that grade is fixed in *screen* space, while the thing being photographed
+changes size sixfold across the zoom range: a lit window is about three pixels
+at the widest camera and forty at the closest. Values that read as film
+texture over a whole city read as dirt on the glass when one window fills the
+same area. Two of these have now been found — the bloom's reach, fixed, and
+the grade's intensity, not — which is enough to state the general form:
+**a post-process tuned at one zoom is tuned at exactly one zoom**, and this
+project has no render that looks at any other.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
