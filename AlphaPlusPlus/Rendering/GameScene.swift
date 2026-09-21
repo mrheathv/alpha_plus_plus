@@ -235,12 +235,21 @@ final class GameScene: SKScene {
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
-        // Window resized: keep the map centered rather than pinned to a
-        // corner. Known trade-off now that panning exists: resizing the
-        // window recenters the camera and discards a manual pan. Leaving
-        // that as-is for now rather than adding "did the player pan on
-        // purpose?" tracking for a fairly minor annoyance.
-        centerCameraOnMap()
+        // **A resize keeps the camera where the player left it**, and only
+        // re-clamps so the map stays findable.
+        //
+        // This used to recentre, with a comment calling the lost pan "a fairly
+        // minor annoyance" because a resize meant dragging a window edge.
+        // Moving the simulation controls into the tool rail made it anything
+        // but: the rail changes height when a tool category with more chips
+        // wraps it to a second row, so **picking a different tool resized the
+        // map view and threw away where you were looking**. Reported from
+        // play within minutes.
+        //
+        // Recentring was never doing the job it claimed anyway. What keeps a
+        // map findable after a resize is the clamp, which is right here — the
+        // recentre on top of it was only discarding information.
+        clampCameraToMap()
         if let shader = retroEffectLayer.shader {
             RetroShader.updateAspect(shader, size: size)
         }
@@ -1612,9 +1621,25 @@ final class GameScene: SKScene {
     /// ends of the range move.
     private static let bloomReachInPoints: CGFloat = 23
 
+    /// What the shaded area was last measured as, and for what camera.
+    ///
+    /// **`calculateAccumulatedFrame()` walks every node under the effect
+    /// layer**, which on a built-out city is eight thousand of them — measured
+    /// at 0.35 ms, against 0.42 ms for the whole of `update()`. Calling it
+    /// every frame made one bookkeeping line five sixths of the frame's own
+    /// work. It only changes when the culling attaches or detaches something
+    /// or the camera moves, and both of those are already tracked.
+    private var bloomShadedHeight: CGFloat = 0
+    private var bloomMeasuredFor: (cull: CGRect, scale: CGFloat)?
+
     private func matchBloomReachToTheCamera() {
         guard let shader = retroEffectLayer.shader else { return }
-        let shaded = retroEffectLayer.calculateAccumulatedFrame().height
+        let key = (cull: culledFor ?? .zero, scale: cameraNode.yScale)
+        if bloomMeasuredFor?.cull != key.cull || bloomMeasuredFor?.scale != key.scale {
+            bloomMeasuredFor = key
+            bloomShadedHeight = retroEffectLayer.calculateAccumulatedFrame().height
+        }
+        let shaded = bloomShadedHeight
         guard shaded > 1 else { return }
         // A screen point is `cameraScale` world points, and the shader's
         // radius is a fraction of the target's height in world points.
@@ -1704,6 +1729,10 @@ final class GameScene: SKScene {
     func setCameraScaleForTesting(_ scale: CGFloat) {
         cameraNode.setScale(min(max(scale, minimumZoomScale), maximumZoomScale))
     }
+
+    /// The renderer, so a benchmark can ask its texture cache how much it is
+    /// holding. Testing accessor.
+    var tileRendererForTesting: IsoTileRenderer { tileRenderer }
 
     /// Which detail tier the scene is currently drawing. Testing accessor.
     var buildingDetailForTesting: IsometricBuilding.Detail { drawnForDetail }

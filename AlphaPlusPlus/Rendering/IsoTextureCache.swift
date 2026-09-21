@@ -51,30 +51,67 @@ final class IsoTextureCache {
     /// the city reads as *drawings* rather than objects the closer you get,
     /// reported from play exactly that way.
     ///
-    /// **Four, because it turned out to be nearly free.** The estimate that
-    /// set this work going was that a built-out city held ~19 MB of texture
-    /// and that four would therefore cost 300 — the supposed ceiling that made
-    /// oversampling a mitigation rather than a fix. Measured, a 40×40 city
-    /// holds **1.6 MB** at one pixel per point: ninety-three textures of about
-    /// 65 points square, not the 200×250 that guess assumed. So four costs
-    /// **25 MB**, which is nothing, and the ceiling was imaginary.
+    /// **Two. Four was measured and it was not affordable.**
     ///
-    /// Four is also exactly what the range needs: a Retina display is 2×, and
+    /// The arithmetic for four is still right — a Retina display is 2× and
     /// `GameScene.minimumZoomScale` is 0.5, so the closest view asks for four
-    /// texture pixels per point. At rest it asks for two.
+    /// texture pixels per point — and it is still not worth what it costs.
+    /// Measured back to back in one process on a built-out 64×64 city at
+    /// 1280×800:
     ///
-    /// What it does cost is cold-cache time — filling every building variant
-    /// goes from about 190 ms to 650. That is paid once, lazily, as buildings
-    /// first appear, so it lands as a hitch when a large saved city is opened.
-    /// Warming the cache off the main thread, or behind the title screen,
-    /// would remove it and has not been done.
+    /// | oversample | ms/frame | texture |
+    /// |---|---|---|
+    /// | 4× | 49.4 | 215 MB |
+    /// | 2× | **19.3** | **54 MB** |
+    /// | 1× | 16.4 | 14 MB |
     ///
-    /// **The render harness cannot show the difference between two and four.**
-    /// It captures at one pixel per point, so its only magnification is the
-    /// camera's, and two already covers that. Four is justified by the
-    /// arithmetic above and by a real display — not by any picture in this
-    /// repository, which is worth knowing before someone "simplifies" it back.
-    static let oversample: CGFloat = 4
+    /// **Four triples the cost of drawing a frame**, and it was reported from
+    /// play as the game running really slow within a day of landing.
+    ///
+    /// ### Two wrong numbers, both mine
+    ///
+    /// This started at 2, went to 4 on the strength of a memory estimate, and
+    /// has come back. The estimate that sent it up said a built-out city held
+    /// ~19 MB at 1× so four would cost 300 — call that the ceiling. Then a
+    /// measurement "corrected" it to 1.6 MB at 1×, making four look like 25 MB
+    /// and the ceiling imaginary.
+    ///
+    /// **That correction was the wrong number.** It was taken on a *40×40*
+    /// city and counted only the building entries, while the ground diamonds,
+    /// lane lines, conduits, badges and vehicle sprites in this same cache
+    /// oversample too — and the near-detail tier doubles what a close camera
+    /// keeps resident. On the city the game actually ships fixtures for, four
+    /// is **215 MB**: the original instinct was closer to right than the
+    /// correction that overruled it.
+    ///
+    /// The lesson is not about textures. A measurement taken on a smaller
+    /// fixture, over a subset of the thing being measured, is not a
+    /// correction — it is a second guess wearing a number's clothes, and it
+    /// is more dangerous than the guess it replaced because it arrives with
+    /// authority.
+    ///
+    /// ### What two gives up, and what covers it
+    ///
+    /// Two is exactly Retina at the *resting* camera, which is where the game
+    /// is played; the closest camera is magnified beyond it again. What makes
+    /// that survivable is the thing built since — `IsometricBuilding.Detail`
+    /// puts real marks back at close zoom, and marks beat pixels. Sharpening
+    /// a picture cannot add what was never in it, and that was always the
+    /// larger half of the complaint.
+    static var oversample: CGFloat = 2
+
+    /// Whether cached textures carry mipmaps.
+    ///
+    /// **They have to, now that `oversample` is 4.** Every building sprite is
+    /// drawn at its world size from a texture with four times that resolution
+    /// in each axis, so one screen pixel covers sixteen texels. Without
+    /// mipmaps the GPU samples that full-resolution texture anyway — which is
+    /// both cache-hostile, because consecutive pixels land four texels apart
+    /// rather than adjacent, and aliased, because sixteen texels get
+    /// represented by one or four of them rather than averaged.
+    ///
+    /// It is a `var` for the same reason as `oversample`.
+    static var usesMipmaps = true
 
     static let variantCount = 32
 
@@ -216,6 +253,7 @@ final class IsoTextureCache {
         guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: pixels)) else {
             return nil
         }
+        texture.usesMipmaps = Self.usesMipmaps
 
         // The sprite still draws at the building's world size — only the
         // texture behind it has more pixels.
@@ -324,6 +362,7 @@ final class IsoTextureCache {
         guard let texture = renderView.texture(from: scene, crop: CGRect(origin: .zero, size: pixels)) else {
             return nil
         }
+        texture.usesMipmaps = Self.usesMipmaps
         let result = Rendered(texture: texture,
                               offset: CGPoint(x: frame.midX, y: frame.midY),
                               size: frame.size)

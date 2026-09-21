@@ -231,13 +231,32 @@ enum Soundtrack {
                     let time = Double(offset) / Synth.sampleRate
                     let level = envelope.level(at: time, heldFor: held)
                     guard level > 0 else { continue }
-                    // A held bass keeps its filter low and slow: it is a
-                    // floor, not a figure.
-                    let target = isHeld ? 180 + 700 * level : 180 + 2_400 * level * level
-                    smoothedCutoff += (target - smoothedCutoff) * (isHeld ? 0.0004 : 0.0016)
-                    let raw = Synth.saw(phase: phase, increment: increment)
-                    let shaped = filter.process(raw, cutoff: smoothedCutoff, resonance: 0.62)
-                    let sample = shaped * level * 0.42
+                    let sample: Double
+                    if isHeld {
+                        // **A held note is a different instrument, not a
+                        // longer one.** Reported from listening: "the bass
+                        // in Small Hours sounds like a rattling sound." A
+                        // saw at 41–55 Hz *is* a rattle on a laptop — the
+                        // driver cannot make the fundamental, so what
+                        // arrives is the harmonic series buzzing at the
+                        // note's own rate, and a resonant filter piles that
+                        // up around 200 Hz. So: a sine on the root for the
+                        // weight, and the saw an octave up through a
+                        // gentle, non-resonant filter to carry the pitch
+                        // where a small speaker can actually play it.
+                        let target = 220 + 500 * level
+                        smoothedCutoff += (target - smoothedCutoff) * 0.0004
+                        let fundamental = Synth.sine(phase: phase)
+                        let upper = Synth.saw(phase: (phase * 2).truncatingRemainder(dividingBy: 1), increment: increment * 2)
+                        let shaped = filter.process(upper, cutoff: smoothedCutoff, resonance: 0.12)
+                        sample = (fundamental * 0.5 + shaped * 0.4) * level * 0.5
+                    } else {
+                        let target = 180 + 2_400 * level * level
+                        smoothedCutoff += (target - smoothedCutoff) * 0.0016
+                        let raw = Synth.saw(phase: phase, increment: increment)
+                        let shaped = filter.process(raw, cutoff: smoothedCutoff, resonance: 0.62)
+                        sample = shaped * level * 0.42
+                    }
                     bus.left[index] += sample
                     bus.right[index] += sample
                     phase += increment

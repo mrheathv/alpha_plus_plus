@@ -215,12 +215,19 @@ enum MusicLibrary {
         name: "neon-grid",
         intent: "Building. The one that plays while you are laying roads and zoning.",
         beatsPerMinute: 112,
-        bars: 8,
+        // Sixteen bars, reported from listening: at eight the loop came
+        // round every seventeen seconds, and this is the track that plays
+        // *most*. The second half is the same four chords with the sevenths
+        // added and the turnaround changed, so it lifts rather than repeats
+        // and the seam is half a minute away instead of a quarter.
+        bars: 16,
         progression: [
             [57, 60, 64], [50, 53, 57], [55, 59, 62], [53, 57, 60],
             [57, 60, 64], [50, 53, 57], [55, 59, 62], [52, 55, 59],
+            [57, 60, 64, 67], [50, 53, 57, 60], [55, 59, 62, 65], [53, 57, 60, 64],
+            [57, 60, 64, 67], [50, 53, 57, 60], [53, 57, 60, 64], [52, 56, 59, 62],
         ],
-        bassRoots: [33, 38, 31, 29, 33, 38, 31, 28],
+        bassRoots: [33, 38, 31, 29, 33, 38, 31, 28, 33, 38, 31, 29, 33, 38, 29, 28],
         melody: [],
         arpeggio: .init(shape: [0, 1, 2, 1], octave: 2, level: 0.14),
         drums: .driving,

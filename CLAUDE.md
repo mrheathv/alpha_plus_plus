@@ -6130,6 +6130,96 @@ Still a judgement rather than a measurement, and it is the kind this project
 sends to a playtest: two renders at two zooms say 0.28, and how it feels to
 play in is not something a still can answer.
 
+## Two bugs a play session found in a day's work
+
+Reported together: *"the game is running really slow now, also when you select
+a new thing to build it takes you back to the center of the map."*
+
+### Picking a tool threw away where you were looking
+
+`didChangeSize` recentred the camera, with a comment calling the lost pan "a
+fairly minor annoyance" — fair when a resize meant dragging a window edge.
+Moving the simulation controls into the tool rail made it anything but: the
+rail **changes height** when a category with more chips wraps it to a second
+row, so picking a different tool resized the map view and discarded the pan.
+
+Recentring was never doing the job it claimed. What keeps a map findable after
+a resize is `clampCameraToMap`, which was already being called; the recentre on
+top of it was only destroying information. A resize now keeps the camera where
+the player left it.
+
+Worth keeping as the shape: **a trade-off is only as small as the thing that
+triggers it.** Nothing about that comment was wrong when it was written — what
+changed was how often the condition fired.
+
+### And oversampling at 4 was the slowness
+
+Measured back to back **in one process**, which is the only honest way to
+compare on this machine: it throttles under a long test run, so two readings an
+hour apart say more about its temperature than about any change. A built-out
+64×64 city at 1280×800:
+
+| oversample | mipmaps | ms/frame | texture |
+|---|---|---|---|
+| 4× | yes | 49.4 | 215 MB |
+| 4× | no | 52.3 | 215 MB |
+| **2×** | yes | **19.3** | **54 MB** |
+| 1× | no | 16.4 | 14 MB |
+
+**Four triples the cost of drawing a frame.** It is back to two.
+
+Textures also carry **mipmaps** now, which they never did. At 4× a screen pixel
+covers sixteen texels, and without mipmaps the GPU samples the full-resolution
+texture anyway — cache-hostile, because consecutive pixels land four texels
+apart, and aliased, because sixteen texels get represented by one of them. The
+speed it buys is small (52.3 → 49.4); the aliasing it removes when zoomed out
+is the real reason to keep it.
+
+#### Two wrong numbers, both mine, and the second was worse
+
+This started at 2, went to 4 on a memory estimate, and has come back. The
+estimate said a built-out city held ~19 MB at 1×, so four would be 300 — a
+ceiling. A measurement then "corrected" that to 1.6 MB at 1×, making four look
+like 25 MB and the ceiling imaginary.
+
+**The correction was the wrong number.** It was taken on a *40×40* city and
+counted only the building entries — while the ground diamonds, lane lines,
+conduits, badges and vehicle sprites in the same cache oversample too, and the
+near-detail tier doubles what a close camera keeps resident. On a 64×64 city
+four is **215 MB**. The original instinct was closer to right than the
+correction that overruled it.
+
+The lesson generalises past textures: **a measurement taken on a smaller
+fixture, over a subset of the thing being measured, is not a correction.** It
+is a second guess wearing a number's clothes, and it is more dangerous than the
+guess it replaced because it arrives with authority. `OversampleCostTests`
+measures the whole cache on the largest city that exists, in one process.
+
+#### What two gives up
+
+Two is exactly Retina at the *resting* camera, which is where the game is
+played; the closest camera is magnified past it again. What makes that
+survivable is `IsometricBuilding.Detail`, built since — it puts real marks back
+at close zoom, and **marks beat pixels**. Sharpening a picture cannot add what
+was never in it, which was always the larger half of the original complaint.
+
+### One shader line that was not the problem, kept anyway
+
+The bloom's spiral applies its per-pixel rotation with an angle-addition
+identity now rather than rotating inside the loop, because
+`cos(angle * float(i))` is a loop constant the compiler can fold while
+`cos(angle * float(i) + spin)` cannot. It was expected to be most of the
+regression and measured as almost none of it — the loop evidently was not being
+unrolled either way. Two transcendentals per pixel instead of thirty-two is
+worth keeping regardless, and the expectation is recorded as wrong.
+
+`matchBloomReachToTheCamera` also stopped calling
+`calculateAccumulatedFrame()` every frame. That walks every node under the
+effect layer — eight thousand on a built-out city, measured at **0.35 ms
+against 0.42 ms for the whole of `update()`** — and it only changes when the
+culling attaches something or the camera moves, both of which were already
+tracked.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
