@@ -400,17 +400,19 @@ struct IsoTileRenderer {
         // departures it would be a lump for half of every cycle, and half of
         // every screenshot.
         sprite.alpha = 0
-        // A take-off run, not a shuttle: it accelerates away, and the next one
-        // begins at the threshold rather than the same aircraft reversing back
-        // down the runway like a tram.
-        sprite.run(.repeatForever(.sequence([
-            .wait(forDuration: 2.5),
-            .group([.move(to: end, duration: 2.2),
-                    .sequence([.fadeIn(withDuration: 0.3),
-                               .wait(forDuration: 1.4),
-                               .fadeOut(withDuration: 0.5)])]),
-            .move(to: start, duration: 0),
-        ])))
+        // **The runway's ends ride on the sprite, and `GameScene` flies it.**
+        //
+        // A take-off run is a pure function of elapsed time, so it is driven
+        // per frame like everything else that moves — see
+        // `GameScene.advanceAircraft`. What has to cross the gap is the
+        // geometry, and it crosses *as data* rather than being recomputed at
+        // the other end: this file already warns that a second implementation
+        // of the projection lines up until the day it does not.
+        //
+        // `userData` is where this project already hangs per-node facts that
+        // belong to the node rather than to a type — the decoration cache
+        // keys work the same way.
+        sprite.userData = ["x0": start.x, "y0": start.y, "x1": end.x, "y1": end.y]
         node.addChild(sprite)
     }
 

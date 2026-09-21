@@ -424,7 +424,7 @@ final class GameScene: SKScene {
     /// used to need `applyAnimationPause` to catch it on the way out, and a
     /// missed call left it driving. Nothing to miss now.
     private static let animatedBySimulation: Set<String> = [
-        transitVehicleNodeName, IsoTileRenderer.fireNodeName, rainNodeName, IsoTileRenderer.aircraftNodeName,
+        IsoTileRenderer.fireNodeName, rainNodeName,
         // A lot's light breathing is the city being inhabited, so it stops
         // when the city does — same side of the line as the traffic, and the
         // opposite side from a placement flash, which answers a *click* and
@@ -512,6 +512,8 @@ final class GameScene: SKScene {
         }
         advancePathVehicles(by: frameDelta)
         advanceTrafficCars(by: frameDelta)
+        advanceDiagramVehicles(by: frameDelta)
+        advanceAircraft(by: frameDelta)
 
         guard let lastTickTime else {
             // Just resumed (or this is the first frame ever): start the
@@ -1074,6 +1076,7 @@ final class GameScene: SKScene {
             tileLayer.addChild(node)
             tileNodes[tile.position] = node
             syncTrafficAnimation(at: tile.position)
+            syncAircraftAnimation(at: tile.position)
             syncLaneLine(at: tile.position)
         }
     }
@@ -1224,9 +1227,16 @@ final class GameScene: SKScene {
         transitDiagramNode.children.filter { $0.name == Self.transitVehicleNodeName }.count
     }
 
-    var transitVehiclesArePausedForTesting: Bool {
-        let vehicles = transitDiagramNode.children.filter { $0.name == Self.transitVehicleNodeName }
-        return !vehicles.isEmpty && vehicles.allSatisfy(\.isPaused)
+    /// Where the vehicles running the route diagram currently are.
+    ///
+    /// **This used to report `isPaused`**, which was the mechanism rather than
+    /// the property — and it stopped being true the moment these moved onto
+    /// the per-frame driver, where a vehicle holds still because nothing
+    /// advances it. Positions survive both designs.
+    var transitVehiclePositionsForTesting: [CGPoint] {
+        transitDiagramNode.children
+            .filter { $0.name == Self.transitVehicleNodeName }
+            .map(\.position)
     }
 
     /// The placement cursor, for the tests about what it says.
@@ -1234,13 +1244,15 @@ final class GameScene: SKScene {
     var tileLayerChildCountForTesting: Int { tileLayer.children.count }
 
     static var trafficCarNodeNameForTesting: String { trafficCarNodeName }
+    static var transitVehicleNodeNameForTesting: String { transitVehicleNodeName }
 
     static var simulationDrivenNodeNamesForTesting: Set<String> { animatedBySimulation }
 
     func rebuildEntireGrid() {
-        // Every tile node is about to be replaced, so every car reference in
+        // Every tile node is about to be replaced, so every reference in
         // here is about to dangle.
         trafficCars.removeAll()
+        aircraft.removeAll()
         // The trams live in `tileLayer`, so they go with it — and the key has
         // to be cleared too, or `syncTramRuns` decides nothing has changed and
         // they never come back. Exactly the stale-cache shape an overlay has
@@ -1905,8 +1917,11 @@ final class GameScene: SKScene {
             )
         }
         syncTrafficAnimation(at: anchor)
+        syncAircraftAnimation(at: anchor)
         // Last, so anything just rebuilt inherits the pause state rather than
-        // starting to drive around a stopped city.
+        // starting to drive around a stopped city. The list is down to the
+        // fire and the rain — every vehicle in the game is driven per frame
+        // now, and stops because nothing advances it.
         applyAnimationPause(to: node)
     }
 
@@ -2042,6 +2057,9 @@ final class GameScene: SKScene {
 
     private func syncTransitDiagram() {
         transitDiagramNode.removeAllChildren()
+        // The sprites just went; the list that drives them has to go with
+        // them, or it holds references to nodes no longer in the scene.
+        diagramVehicles.removeAll()
         // **`routeMode`, not a second switch.** This was a `case .bus` /
         // `case .subway` with a `default: return`, written when those were
         // the only two lines — so tram and rail routes were never drawn in
@@ -2111,15 +2129,153 @@ final class GameScene: SKScene {
             // above the city. Brief in play, and wrong every time a route is
             // drawn or the view is switched.
             vehicle.position = points[0]
-            vehicle.run(.repeatForever(.sequence([
-                .follow(path, asOffset: false, orientToPath: true, duration: duration),
-                // Back the other way rather than snapping to the start: a
-                // line is a there-and-back service, not a loop.
-                .follow(back, asOffset: false, orientToPath: true, duration: duration),
-            ])))
-            vehicle.isPaused = !controller.isRunning
             transitDiagramNode.addChild(vehicle)
+            diagramVehicles.append(DiagramVehicle(sprite: vehicle, points: points,
+                                                  duration: duration))
         }
+    }
+
+    // MARK: - The last two animations driven per frame
+
+    /// A vehicle running a route diagram.
+    ///
+    /// It was `SKAction.follow` there and back, which is the right tool right
+    /// up until something outside SpriteKit needs to advance it — a
+    /// recording, a benchmark, a test asking whether anything moved. The whole
+    /// motion is a fraction along a polyline, so it is arithmetic wearing an
+    /// action's clothes.
+    private struct DiagramVehicle {
+        let sprite: SKSpriteNode
+        let points: [CGPoint]
+        /// Cumulative length at each point, so the walk is a search rather
+        /// than a re-measure of the whole line every frame.
+        let lengths: [CGFloat]
+        /// Seconds for one pass. A line is a there-and-back service rather
+        /// than a loop, so a full cycle is twice this.
+        let duration: TimeInterval
+
+        init(sprite: SKSpriteNode, points: [CGPoint], duration: TimeInterval) {
+            self.sprite = sprite
+            self.points = points
+            self.duration = duration
+            var running: CGFloat = 0
+            var lengths: [CGFloat] = [0]
+            for (a, b) in zip(points, points.dropFirst()) {
+                running += hypot(b.x - a.x, b.y - a.y)
+                lengths.append(running)
+            }
+            self.lengths = lengths
+        }
+    }
+
+    /// An aircraft on its take-off run.
+    ///
+    /// **Invisible except while moving**, which is the whole basis for drawing
+    /// it at all: parked at the threshold it is a grey lump on the apron, and
+    /// that is exactly why the static aircraft was cut from
+    /// `ServiceMassing.airport`.
+    private struct Aircraft {
+        let sprite: SKSpriteNode
+        let start: CGPoint
+        let end: CGPoint
+        /// Where in the cycle this one is, so two airports do not launch in
+        /// lockstep. Seeded from the lot, like everything else here.
+        let phase: TimeInterval
+    }
+
+    private var diagramVehicles: [DiagramVehicle] = []
+    private var aircraft: [GridPosition: Aircraft] = [:]
+
+    /// Seconds an aircraft waits at the threshold, then rolls.
+    private static let aircraftWait: TimeInterval = 2.5
+    private static let aircraftRoll: TimeInterval = 2.2
+
+    /// Where a fraction along a polyline lands, and which way it is heading.
+    private static func walk(_ points: [CGPoint], _ lengths: [CGFloat],
+                             fraction: CGFloat) -> (point: CGPoint, angle: CGFloat) {
+        guard points.count > 1, let total = lengths.last, total > 0 else {
+            return (points.first ?? .zero, 0)
+        }
+        let target = min(max(fraction, 0), 1) * total
+        var index = 1
+        while index < lengths.count - 1, lengths[index] < target { index += 1 }
+        let a = points[index - 1], b = points[index]
+        let span = lengths[index] - lengths[index - 1]
+        let f = span > 0 ? (target - lengths[index - 1]) / span : 0
+        return (CGPoint(x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f),
+                atan2(b.y - a.y, b.x - a.x))
+    }
+
+    private func advanceDiagramVehicles(by delta: TimeInterval) {
+        guard !diagramVehicles.isEmpty else { return }
+        diagramClock += delta
+        for vehicle in diagramVehicles {
+            let cycle = vehicle.duration * 2
+            let t = diagramClock.truncatingRemainder(dividingBy: cycle)
+            // Out, then back the other way rather than snapping to the start:
+            // a line is a there-and-back service, not a loop.
+            let outbound = t < vehicle.duration
+            let f = outbound
+                ? CGFloat(t / vehicle.duration)
+                : CGFloat(1 - (t - vehicle.duration) / vehicle.duration)
+            let (point, angle) = Self.walk(vehicle.points, vehicle.lengths, fraction: f)
+            vehicle.sprite.position = point
+            // Facing the way it is travelling, which is what `orientToPath`
+            // was doing — and on the way back that is the other way round.
+            vehicle.sprite.zRotation = outbound ? angle : angle + .pi
+        }
+    }
+
+    private func advanceAircraft(by delta: TimeInterval) {
+        guard !aircraft.isEmpty else { return }
+        aircraftClock += delta
+        let wait = Self.aircraftWait, roll = Self.aircraftRoll
+        for craft in aircraft.values {
+            let t = (aircraftClock + craft.phase).truncatingRemainder(dividingBy: wait + roll)
+            guard t >= wait else {
+                craft.sprite.position = craft.start
+                craft.sprite.alpha = 0
+                continue
+            }
+            let elapsed = t - wait
+            let f = CGFloat(elapsed / roll)
+            craft.sprite.position = CGPoint(
+                x: craft.start.x + (craft.end.x - craft.start.x) * f,
+                y: craft.start.y + (craft.end.y - craft.start.y) * f)
+            // Fades up as it accelerates away and out as it goes, so the
+            // reset to the threshold happens behind a beat of invisibility
+            // rather than as a visible snap back down the runway.
+            craft.sprite.alpha = elapsed < 0.3 ? CGFloat(elapsed / 0.3)
+                : elapsed < 1.7 ? 1
+                : max(0, CGFloat(1 - (elapsed - 1.7) / 0.5))
+        }
+    }
+
+    /// Picks up the aircraft `IsoTileRenderer` just built, with the runway
+    /// ends it recorded on the sprite.
+    private func syncAircraftAnimation(at position: GridPosition) {
+        guard let node = tileNodes[position],
+              let sprite = node.childNode(withName: IsoTileRenderer.aircraftNodeName)
+                as? SKSpriteNode,
+              let data = sprite.userData,
+              let x0 = data["x0"] as? CGFloat, let y0 = data["y0"] as? CGFloat,
+              let x1 = data["x1"] as? CGFloat, let y1 = data["y1"] as? CGFloat
+        else {
+            aircraft[position] = nil
+            return
+        }
+        var random = BuildingRandom(seed: position, salt: 733)
+        aircraft[position] = Aircraft(sprite: sprite,
+                                      start: CGPoint(x: x0, y: y0),
+                                      end: CGPoint(x: x1, y: y1),
+                                      phase: random.value(in: 0 ... (Self.aircraftWait
+                                                                     + Self.aircraftRoll)))
+    }
+
+    /// How many vehicles are being driven per frame, for the tests about
+    /// whether any of this moves.
+    var drivenAnimationCountForTesting: (cars: Int, diagram: Int, aircraft: Int) {
+        (trafficCarCountForTesting, diagramVehicles.count, aircraft.count)
     }
 
     // MARK: - Weather
@@ -2784,6 +2940,8 @@ final class GameScene: SKScene {
 
     private var trafficCars: [GridPosition: [TrafficCar]] = [:]
     private var trafficClock: TimeInterval = 0
+    private var diagramClock: TimeInterval = 0
+    private var aircraftClock: TimeInterval = 0
 
     /// Moves every ambient car. Called from `update` on the running side of
     /// the pause guard, which is what makes a stopped city stop its traffic

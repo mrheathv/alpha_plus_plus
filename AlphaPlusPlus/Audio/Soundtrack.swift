@@ -32,20 +32,58 @@ enum Soundtrack {
 
     // MARK: - The mix
 
+    /// Every voice on its own, after its effects and the sidechain, before
+    /// the sum. The mix engineer's solo button: when a band of the finished
+    /// mix is wrong, this is what says which instrument put it there.
+    struct Stems {
+        var bass: Bus, pad: Bus, lead: Bus, arp: Bus, kicks: Bus, hats: Bus, snares: Bus
+        var frames: Int { bass.left.count }
+
+        var named: [(name: String, bus: Bus)] {
+            [("bass", bass), ("pad", pad), ("lead", lead), ("arp", arp),
+             ("kicks", kicks), ("hats", hats), ("snares", snares)]
+        }
+    }
+
     static func render(_ track: Track) -> Buffer {
+        let stems = renderStems(track)
+        let frames = stems.frames
+        var left = [Float](repeating: 0, count: frames)
+        var right = [Float](repeating: 0, count: frames)
+        var blockLeft = Synth.DCBlocker(), blockRight = Synth.DCBlocker()
+        for index in 0 ..< frames {
+            let l = stems.bass.left[index] * track.bassLevel + stems.pad.left[index] * track.padLevel
+                + stems.lead.left[index] * track.leadLevel + stems.arp.left[index]
+                + (stems.kicks.left[index] + stems.hats.left[index] + stems.snares.left[index]) * track.drumLevel
+            let r = stems.bass.right[index] * track.bassLevel + stems.pad.right[index] * track.padLevel
+                + stems.lead.right[index] * track.leadLevel + stems.arp.right[index]
+                + (stems.kicks.right[index] + stems.hats.right[index] + stems.snares.right[index]) * track.drumLevel
+            // **Soft clip rather than hard.** I cannot hear distortion, so the
+            // mix must not be able to produce any: `tanh` squashes peaks
+            // smoothly instead of shearing them flat, and the tests assert the
+            // result never reaches full scale. Hard clipping is the one sound
+            // failure that would be obvious to a listener and invisible here.
+            left[index] = Float(tanh(blockLeft.process(l) * 0.8))
+            right[index] = Float(tanh(blockRight.process(r) * 0.8))
+        }
+        return Buffer(left: left, right: right)
+    }
+
+    static func renderStems(_ track: Track) -> Stems {
         let frames = Int(track.duration * Synth.sampleRate)
         var bass = Bus(frames: frames)
         var pad = Bus(frames: frames)
         var lead = Bus(frames: frames)
         var arp = Bus(frames: frames)
-        var drums = Bus(frames: frames)
+        var kicks = Bus(frames: frames)
+        var hats = Bus(frames: frames)
         var snares = Bus(frames: frames)
 
         renderBass(track, into: &bass)
         renderPad(track, into: &pad)
         renderLead(track, into: &lead)
         renderArpeggio(track, into: &arp)
-        let kicks = renderDrums(track, into: &drums, snareBus: &snares)
+        let kickFrames = renderDrums(track, into: &kicks, hatBus: &hats, snareBus: &snares)
 
         // **A dotted-eighth echo** — the delay setting this genre is built on.
         // It lands between the beats rather than on them, so a lead answers
@@ -63,32 +101,14 @@ enum Soundtrack {
         // most of what makes this music move rather than merely play, and the
         // score already knows where every kick is, so there is nothing to
         // detect.
-        let duck = Synth.duckEnvelope(frames: frames, kicks: kicks)
+        let duck = Synth.duckEnvelope(frames: frames, kicks: kickFrames)
         apply(duck, to: &bass)
         apply(duck, to: &pad)
         apply(duck, to: &lead)
         apply(duck, to: &arp)
         apply(duck, to: &snares)
 
-        var left = [Float](repeating: 0, count: frames)
-        var right = [Float](repeating: 0, count: frames)
-        var blockLeft = Synth.DCBlocker(), blockRight = Synth.DCBlocker()
-        for index in 0 ..< frames {
-            let l = bass.left[index] * track.bassLevel + pad.left[index] * track.padLevel
-                + lead.left[index] * track.leadLevel + arp.left[index]
-                + (drums.left[index] + snares.left[index]) * track.drumLevel
-            let r = bass.right[index] * track.bassLevel + pad.right[index] * track.padLevel
-                + lead.right[index] * track.leadLevel + arp.right[index]
-                + (drums.right[index] + snares.right[index]) * track.drumLevel
-            // **Soft clip rather than hard.** I cannot hear distortion, so the
-            // mix must not be able to produce any: `tanh` squashes peaks
-            // smoothly instead of shearing them flat, and the tests assert the
-            // result never reaches full scale. Hard clipping is the one sound
-            // failure that would be obvious to a listener and invisible here.
-            left[index] = Float(tanh(blockLeft.process(l) * 0.8))
-            right[index] = Float(tanh(blockRight.process(r) * 0.8))
-        }
-        return Buffer(left: left, right: right)
+        return Stems(bass: bass, pad: pad, lead: lead, arp: arp, kicks: kicks, hats: hats, snares: snares)
     }
 
     private static func frame(_ track: Track, bar: Int, beat: Double) -> Int {
@@ -149,17 +169,37 @@ enum Soundtrack {
 
     // MARK: - Voices
 
-    /// Driving eighths on the root through a filter that opens per note. The
-    /// filter movement is the part that matters — held static this is a buzz
-    /// that happens to change pitch.
+    /// One bass note, as the pattern hands them out.
+    private struct BassNote {
+        let beat: Double
+        let note: Int
+        let lengthInBeats: Double
+    }
+
+    /// What `Track.BassPattern` means in notes, one bar's worth.
+    private static func bassNotes(for pattern: Track.BassPattern, root: Int) -> [BassNote] {
+        switch pattern {
+        case .drivingEighths:
+            // An octave jump on the last eighth, which is what stops a
+            // root-note pattern reading as a drone.
+            return (0 ..< 8).map { BassNote(beat: Double($0) * 0.5, note: $0 == 7 ? root + 12 : root, lengthInBeats: 0.5) }
+        case .octaves:
+            return (0 ..< 8).map { BassNote(beat: Double($0) * 0.5, note: $0 % 2 == 1 ? root + 12 : root, lengthInBeats: 0.5) }
+        case .sixteenths:
+            return (0 ..< 16).map { BassNote(beat: Double($0) * 0.25, note: $0 % 4 == 3 ? root + 12 : root, lengthInBeats: 0.25) }
+        case .held:
+            return [BassNote(beat: 0, note: root, lengthInBeats: 4)]
+        }
+    }
+
+    /// The root through a filter that opens per note. The filter movement is
+    /// the part that matters — held static this is a buzz that happens to
+    /// change pitch.
     private static func renderBass(_ track: Track, into bus: inout Bus) {
-        for bar in 0 ..< track.bars {
+        for bar in track.bassEntersAtBar ..< track.bars {
             let root = track.bassRoots[bar % track.bassRoots.count]
-            for eighth in 0 ..< 8 {
-                // An octave jump on the last eighth, which is what stops a
-                // root-note pattern reading as a drone.
-                let note = eighth == 7 ? root + 12 : root
-                let frequency = Synth.frequency(ofNote: note)
+            for bassNote in bassNotes(for: track.bassPattern, root: root) {
+                let frequency = Synth.frequency(ofNote: bassNote.note)
 
                 // **The attack has to be long relative to the note's own
                 // period, or it clicks.** This was a flat 4 ms, and Small
@@ -170,12 +210,14 @@ enum Soundtrack {
                 // bass is a little clicky".
                 //
                 // Roughly one period, floored so the faster tracks keep their
-                // punch: 41 Hz gets 24 ms, 110 Hz gets 9 ms.
-                let attack = max(0.006, 1.0 / frequency)
-                let envelope = Synth.Envelope(attack: attack, decay: 0.09,
-                                              sustain: 0.55, release: 0.06)
-                let start = frame(track, bar: bar, beat: Double(eighth) * 0.5)
-                let held = 0.5 * track.secondsPerBeat * 0.9
+                // punch: 41 Hz gets 24 ms, 110 Hz gets 9 ms. A held note
+                // swells in over far longer, because it has no beat to hit.
+                let held = bassNote.lengthInBeats * track.secondsPerBeat * (track.bassPattern == .held ? 0.97 : 0.9)
+                let isHeld = track.bassPattern == .held
+                let attack = isHeld ? 0.12 : max(0.006, 1.0 / frequency)
+                let envelope = Synth.Envelope(attack: attack, decay: isHeld ? 0.5 : 0.09,
+                                              sustain: isHeld ? 0.8 : 0.55, release: isHeld ? 0.2 : 0.06)
+                let start = frame(track, bar: bar, beat: bassNote.beat)
                 var phase = 0.0
                 var filter = Synth.LowPass()
                 // The filter gets its own, slower movement. Swept straight off
@@ -189,8 +231,10 @@ enum Soundtrack {
                     let time = Double(offset) / Synth.sampleRate
                     let level = envelope.level(at: time, heldFor: held)
                     guard level > 0 else { continue }
-                    let target = 180 + 2_400 * level * level
-                    smoothedCutoff += (target - smoothedCutoff) * 0.0016
+                    // A held bass keeps its filter low and slow: it is a
+                    // floor, not a figure.
+                    let target = isHeld ? 180 + 700 * level : 180 + 2_400 * level * level
+                    smoothedCutoff += (target - smoothedCutoff) * (isHeld ? 0.0004 : 0.0016)
                     let raw = Synth.saw(phase: phase, increment: increment)
                     let shaped = filter.process(raw, cutoff: smoothedCutoff, resonance: 0.62)
                     let sample = shaped * level * 0.42
@@ -211,6 +255,7 @@ enum Soundtrack {
     /// tone, two are a texture.
     private static func renderPad(_ track: Track, into bus: inout Bus) {
         let envelope = Synth.Envelope(attack: 0.35, decay: 0.4, sustain: 0.6, release: 0.5)
+        let sweepFrames = Double(track.beatsPerBar * 4) * track.secondsPerBeat * Synth.sampleRate
         for bar in 0 ..< track.bars {
             let chord = track.progression[bar % track.progression.count]
             let start = frame(track, bar: bar, beat: 0)
@@ -229,7 +274,12 @@ enum Soundtrack {
                         let level = envelope.level(at: time, heldFor: held)
                         guard level > 0 else { continue }
                         let raw = Synth.saw(phase: phase, increment: increment)
-                        let sample = filter.process(raw, cutoff: 1_500, resonance: 0.2) * level * 0.075
+                        // **The filter drifts on a four-bar cycle**, computed
+                        // from the track's own clock rather than the note's,
+                        // so every voice of every chord is on the same sweep
+                        // and a chord change does not restart it.
+                        let cutoff = track.padCutoff * (1 + 0.5 * track.padSweep * sin(2 * .pi * Double(index) / sweepFrames))
+                        let sample = filter.process(raw, cutoff: cutoff, resonance: 0.2) * level * 0.12
                         // The detuned copies sit on opposite sides, which is
                         // what makes the pad wide rather than merely thick.
                         bus.left[index] += sample * (side == 0 ? 1.3 : 0.7)
@@ -272,9 +322,11 @@ enum Soundtrack {
     /// that has no melody, so the arrangement has a pulse without a hook.
     private static func renderArpeggio(_ track: Track, into bus: inout Bus) {
         guard let arpeggio = track.arpeggio else { return }
-        let envelope = Synth.Envelope(attack: 0.002, decay: 0.07, sustain: 0.0, release: 0.03)
+        let envelope = arpeggio.timbre == .pluck
+            ? Synth.Envelope(attack: 0.002, decay: 0.16, sustain: 0.0, release: 0.05)
+            : Synth.Envelope(attack: 0.002, decay: 0.07, sustain: 0.0, release: 0.03)
         var step = 0
-        for bar in 0 ..< track.bars {
+        for bar in track.arpeggioEntersAtBar ..< track.bars {
             let chord = track.progression[bar % track.progression.count]
             for sixteenth in 0 ..< (track.beatsPerBar * 4) {
                 let tone = arpeggio.shape[step % arpeggio.shape.count]
@@ -291,9 +343,22 @@ enum Soundtrack {
                     let time = Double(offset) / Synth.sampleRate
                     let level = envelope.level(at: time, heldFor: held)
                     guard level > 0 else { continue }
-                    let raw = Synth.square(phase: phase, increment: increment, width: 0.5)
-                    let sample = filter.process(raw, cutoff: 2_600, resonance: 0.35)
-                        * level * arpeggio.level
+                    let sample: Double
+                    switch arpeggio.timbre {
+                    case .square:
+                        let raw = Synth.square(phase: phase, increment: increment, width: 0.5)
+                        sample = filter.process(raw, cutoff: 2_600, resonance: 0.35) * level * arpeggio.level * 1.5
+                    case .saw:
+                        let raw = Synth.saw(phase: phase, increment: increment)
+                        sample = filter.process(raw, cutoff: 3_400, resonance: 0.3) * level * arpeggio.level * 1.5
+                    case .pluck:
+                        // A sine with a little second harmonic, and the
+                        // harmonic dies first — which is what a plucked
+                        // string does, and why it reads as one rather than
+                        // as a test tone.
+                        let raw = Synth.sine(phase: phase) + 0.35 * level * Synth.sine(phase: (phase * 2).truncatingRemainder(dividingBy: 1))
+                        sample = raw * level * arpeggio.level * 2.4
+                    }
                     // Alternating sides, which is the other half of why an arp
                     // reads as movement rather than as a fast note.
                     bus.left[index] += sample * (step % 2 == 0 ? 1.25 : 0.75)
@@ -308,23 +373,25 @@ enum Soundtrack {
     /// - Returns: where every kick lands, which the sidechain needs. The score
     ///   already knows, so there is nothing to detect.
     private static func renderDrums(_ track: Track, into bus: inout Bus,
-                                    snareBus: inout Bus) -> [Int] {
+                                    hatBus: inout Bus, snareBus: inout Bus) -> [Int] {
         guard track.drums != .none else { return [] }
         var kicks: [Int] = []
-        for bar in 0 ..< track.bars {
+        for bar in track.drumsEnterAtBar ..< track.bars {
             for beat in 0 ..< track.beatsPerBar {
                 let position = frame(track, bar: bar, beat: Double(beat))
-                if beat == 0 || beat == 2 {
+                if track.drums == .driving || beat == 0 || beat == 2 {
                     kick(at: position, into: &bus)
                     kicks.append(position)
                 }
-                if track.drums == .full, beat == 1 || beat == 3 {
+                if track.drums == .full || track.drums == .driving, beat == 1 || beat == 3 {
                     snare(at: position, into: &snareBus, seed: UInt64(bar * 4 + beat))
                 }
                 for eighth in 0 ..< 2 {
                     let at = frame(track, bar: bar, beat: Double(beat) + Double(eighth) * 0.5)
-                    hat(at: at, open: eighth == 1 && beat == 3,
-                        into: &bus, seed: UInt64(bar * 8 + beat * 2 + eighth))
+                    // The off-beat hat is quieter. Eight identical hats a bar
+                    // is a metronome; accented on the beat they are a pattern.
+                    hat(at: at, open: eighth == 1 && beat == 3, accent: eighth == 0 ? 1 : 0.6,
+                        into: &hatBus, seed: UInt64(bar * 8 + beat * 2 + eighth))
                 }
             }
         }
@@ -339,10 +406,16 @@ enum Soundtrack {
             let index = start + offset
             guard index < bus.left.count else { break }
             let time = Double(offset) / Synth.sampleRate
-            let sample = Synth.sine(phase: phase) * exp(-time * 9.5) * 0.9
+            // 0.7 rather than 0.9. Soloed, the kick peaked at +2.5 dBFS and
+            // sat 10 dB above the pad — a drum machine with a synth behind
+            // it, and every peak of it squashed by the master's soft clip.
+            let sample = Synth.sine(phase: phase) * exp(-time * 9.5) * 0.7
             bus.left[index] += sample
             bus.right[index] += sample
-            phase += (48 + 110 * exp(-time * 38)) / Synth.sampleRate
+            // Settles at 56 Hz rather than 48. A laptop cannot make 48 Hz,
+            // and a kick that lands there is felt on a subwoofer and heard as
+            // a click on everything else.
+            phase += (56 + 110 * exp(-time * 38)) / Synth.sampleRate
             if phase >= 1 { phase -= 1 }
         }
     }
@@ -359,7 +432,7 @@ enum Soundtrack {
             let amplitude = exp(-time * 22)
             let body = Synth.sine(phase: phase) * 0.35
             let crack = filter.process(noise.next(), cutoff: 7_500, resonance: 0.1)
-            let sample = (body + crack) * amplitude * 0.5
+            let sample = (body + crack) * amplitude * 0.75
             bus.left[index] += sample * 1.05
             bus.right[index] += sample * 0.95
             phase += increment
@@ -367,8 +440,11 @@ enum Soundtrack {
         }
     }
 
-    private static func hat(at start: Int, open: Bool, into bus: inout Bus, seed: UInt64) {
-        let decay = open ? 9.0 : 55.0
+    private static func hat(at start: Int, open: Bool, accent: Double, into bus: inout Bus, seed: UInt64) {
+        // A closed hat rings for a few tens of milliseconds, not nine: at
+        // the old 55/s it was gone in a sixth of an eighth note and averaged
+        // to almost nothing over the bar, however loud its first sample.
+        let decay = open ? 7.0 : 30.0
         var noise = Synth.Noise(seed: 0x4A7 &+ seed)
         var filter = Synth.LowPass()
         for offset in 0 ..< Int((open ? 0.3 : 0.07) * Synth.sampleRate) {
@@ -378,7 +454,10 @@ enum Soundtrack {
             // High-passed by subtracting the low-passed part: a hat is what is
             // left of noise once the bottom is gone.
             let low = filter.process(noise.next(), cutoff: 6_000, resonance: 0.05)
-            let sample = (noise.next() - low) * exp(-time * decay) * 0.16
+            // 0.3 rather than 0.16. At the old level the hats were −20 dB
+            // below everything else in the air band, which is to say the
+            // mix had no top end at all; measured, not guessed.
+            let sample = (noise.next() - low) * exp(-time * decay) * 0.3 * accent
             bus.left[index] += sample * 0.9
             bus.right[index] += sample * 1.1
         }

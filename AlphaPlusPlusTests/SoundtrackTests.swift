@@ -116,20 +116,70 @@ final class SoundtrackTests: XCTestCase {
             }
             return total
         }
-        let air = lowEnergy(AudioProfile.macBookAir.apply(to: mix))
-        let pro = lowEnergy(AudioProfile.macBookPro.apply(to: mix))
+        let air = lowEnergy(AudioProfile.compactLaptop.apply(to: mix))
+        let pro = lowEnergy(AudioProfile.fullRange.apply(to: mix))
         XCTAssertLessThan(air, pro * 0.6,
                           "the MacBook Air profile leaves as much sub-bass as the Pro one — "
                           + "its high-pass is doing nothing")
     }
 
-    /// Detection falls back to the safe profile rather than guessing, because
-    /// `hw.model` says `Mac15,13` and not "MacBook Air" — any mapping is a
-    /// table that is silently wrong until somebody adds a row.
-    func testAnUnknownMachineGetsTheSafeProfile() {
-        XCTAssertEqual(AudioProfile.detected(model: "Mac15,13"), .generic)
-        XCTAssertEqual(AudioProfile.detected(model: "Macmini9,1"), .generic)
-        XCTAssertEqual(AudioProfile.detected(model: "MacBookPro18,3"), .macBookPro)
+    /// **The machine this project is developed on gets its own profile.**
+    /// `hw.model` here is `Mac15,13` — a 15″ M3 MacBook Air — and the first
+    /// version of detection returned `generic` for it, with a test pinning
+    /// that as correct, because Apple Silicon identifiers no longer carry the
+    /// product name. A speaker profile that never fires on the speakers it
+    /// was written for is not a feature.
+    func testAppleSiliconMacsAreRecognisedFromTheirIdentifiers() {
+        XCTAssertEqual(AudioProfile.detected(model: "Mac15,13", route: .builtInSpeakers), .laptop)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac15,12", route: .builtInSpeakers), .compactLaptop)
+        XCTAssertEqual(AudioProfile.detected(model: "MacBookAir10,1", route: .builtInSpeakers), .compactLaptop)
+        XCTAssertEqual(AudioProfile.detected(model: "MacBookPro18,3", route: .builtInSpeakers), .fullRange)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac16,1", route: .builtInSpeakers), .fullRange)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac16,2", route: .builtInSpeakers), .fullRange)
+        // The 13″ Pro has no woofers; it is an Air-class speaker in a Pro.
+        XCTAssertEqual(AudioProfile.detected(model: "Mac14,7", route: .builtInSpeakers), .laptop)
+    }
+
+    /// **The route wins over the model.** A MacBook Air on studio monitors
+    /// should not get the small-speaker mix, and an unknown Mac wearing
+    /// headphones does not need to be identified at all.
+    func testWhereTheSoundIsGoingOutranksWhatTheMacWasBuiltWith() {
+        XCTAssertEqual(AudioProfile.detected(model: "Mac15,12", route: .headphoneJack), .headphones)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac15,12", route: .bluetooth), .headphones)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac15,12", route: .external), .generic)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac99,1", route: .headphoneJack), .headphones)
+    }
+
+    /// A desktop's own speaker is a beeper, so a Mac mini or Studio gets the
+    /// safe profile whenever the route is anything but that beeper — which
+    /// is essentially always — and a machine nobody has written a row for
+    /// gets the safe profile too, rather than a confident wrong one.
+    func testDesktopsAndUnknownMachinesGetTheSafeProfile() {
+        XCTAssertEqual(AudioProfile.detected(model: "Macmini9,1", route: .external), .generic)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac16,9", route: .unknown), .generic)
+        XCTAssertEqual(AudioProfile.detected(model: "Macmini9,1", route: .builtInSpeakers), .monoSpeaker)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac16,9", route: .builtInSpeakers), .monoSpeaker)
+        XCTAssertEqual(AudioProfile.detected(model: "Mac99,1", route: .builtInSpeakers), .generic)
+        XCTAssertEqual(AudioProfile.detected(model: "", route: .unknown), .generic)
+    }
+
+    /// **The mono profile really is mono.** On a single driver, side content
+    /// cancels rather than spreads, so the one thing this profile must do is
+    /// hand the speaker identical channels.
+    func testTheBuiltInSpeakerProfileSumsToMono() {
+        let mix = Soundtrack.render(MusicLibrary.neonGrid)
+        let shaped = AudioProfile.monoSpeaker.apply(to: mix)
+        var difference: Float = 0
+        for index in 0 ..< shaped.frames { difference = max(difference, abs(shaped.left[index] - shaped.right[index])) }
+        XCTAssertLessThan(difference, 1e-4, "the built-in speaker profile still carries a stereo difference")
+    }
+
+    /// The live query has to answer *something* on the machine running the
+    /// suite, and never crash; what it answers depends on what is plugged in.
+    func testTheLiveRouteQueryAnswers() {
+        let route = AudioRoute.current()
+        print("🔊 output route on this machine: \(route), model \(AudioProfile.currentModel()) → \(AudioProfile.detected().name)")
+        XCTAssertNotEqual(route, .unknown, "CoreAudio could not say where the default output goes")
     }
 
     // MARK: - The mix

@@ -28,7 +28,7 @@ final class SoundtrackRenderTests: XCTestCase {
         // because a WAV auditioned on a MacBook Air should be the mix a
         // MacBook Air would actually play.
         let profile = AudioProfile.detected()
-        print("🔊 \(profile.name) — \(profile.summary)  (\(AudioProfile.currentModel()))")
+        print("🔊 \(profile.name) — \(profile.summary)  (\(AudioProfile.currentModel()), \(AudioRoute.current()))")
 
         for track in MusicLibrary.all {
             let data = Self.wav(profile.apply(to: Soundtrack.render(track)))

@@ -294,6 +294,13 @@ extension TransitOverlayTests {
     /// A bus still running its route around a stopped city is the same bug as
     /// the cars that used to keep driving — one layer up, on a node the
     /// per-tile pause walk cannot reach.
+    ///
+    /// **Restated on position when the diagram vehicles moved off
+    /// `SKAction`.** It asserted `isPaused`, which was the mechanism that
+    /// delivered stillness rather than stillness itself; a vehicle driven per
+    /// frame holds still because nothing advances it, and has no flag set.
+    /// Asking where it is survives both designs — and is the third test in
+    /// this migration to have been measuring a proxy.
     func testTheVehicleStopsWhenTheCityDoes() {
         let controller = GameController(map: lineCity(mode: .bus), rng: SeededRNG(seed: 2),
                                         peakPopulation: Unlocks.everythingUnlocked)
@@ -305,7 +312,17 @@ extension TransitOverlayTests {
         view.presentScene(scene)
         scene.rebuildEntireGrid()
         scene.refreshAll()
-        XCTAssertTrue(scene.transitVehiclesArePausedForTesting,
-                      "a bus is still running its line around a stopped city")
+
+        let parked = scene.transitVehiclePositionsForTesting
+        XCTAssertFalse(parked.isEmpty, "precondition: this line has no bus on it")
+        // Stepped at a real cadence, because `update` clamps its own delta.
+        for frame in 1 ... 120 { scene.update(TimeInterval(frame) / 60) }
+        XCTAssertEqual(parked, scene.transitVehiclePositionsForTesting,
+                       "a bus is still running its line around a stopped city")
+
+        controller.isRunning = true
+        for frame in 121 ... 240 { scene.update(TimeInterval(frame) / 60) }
+        XCTAssertNotEqual(parked, scene.transitVehiclePositionsForTesting,
+                          "the bus never started again once the city resumed")
     }
 }

@@ -6029,15 +6029,44 @@ Two things fell out of it that are worth more than the tool:
   appeared unless something remembered to catch it. There is no "start" to miss
   now: nothing moves a car until a running `update` does.
 
-### Two tests that had to be restated, not relaxed
+### And then the other two families
 
-`PauseStopsTheCityTests` asserted on `SKNode.isPaused`, which was never the
-property anyone wanted — it was the *mechanism* that delivered it. Both tests
-now assert on **where the car actually is** across a few frames, which survives
-this change and would have survived the previous one. Same standing rule as
-ever: when a test fails, ask whether the thing moved or the yardstick did.
-Here the thing moved, deliberately, and the yardstick had been measuring a
-proxy all along.
+The diagram vehicles and the airport's aircraft followed, on the same argument
+and with the same shape of fix: both motions are pure functions of elapsed
+time, so an action was storing a program to compute arithmetic.
+
+- **A route vehicle** was `SKAction.follow` out and back with `orientToPath`.
+  It is a fraction along a polyline now, with the cumulative lengths kept per
+  vehicle so a frame is a search rather than a re-measure of the whole line.
+- **The aircraft** lives in `IsoTileRenderer` but is flown by `GameScene`, and
+  what crosses that gap is the **geometry as data**: the renderer records the
+  runway's two ends on the sprite's `userData` rather than letting the scene
+  recompute them. This file already warns that a second implementation of the
+  projection lines up until the day it does not, and `userData` is where this
+  project already hangs per-node facts — the decoration cache keys work the
+  same way.
+
+**`animatedBySimulation` is down to the fire and the rain.** Every vehicle in
+the game now stops because nothing advances it, which is strictly better than
+being told to stop: there is no newly-built node for the pause walk to miss.
+
+One fixture trap worth recording, because it is the same one twice in a day:
+no single view carries all three. Ambient cars are drawn only where the road
+network is shown, and a route diagram only in its own line's view — so a test
+asking for both at once measures a city with no cars in it, exactly as the
+first motion test did by not ticking. `CityMotionTests` visits two views.
+
+### Three tests that had to be restated, not relaxed
+
+Two in `PauseStopsTheCityTests` and one in `TransitOverlayTests` asserted on
+`SKNode.isPaused`, which was never the property anyone wanted — it was the
+*mechanism* that delivered it. All three now assert on **where the vehicle
+actually is** across a few frames, which survives this change and would have
+survived the previous one. Same standing rule as ever: when a test fails, ask
+whether the thing moved or the yardstick did. Here the thing moved,
+deliberately, and three separate yardsticks turned out to have been measuring
+a proxy the whole time — which is itself the argument for asserting on
+observable state rather than on the flag that happens to produce it.
 
 ### One fixture lesson, and it is the usual one
 

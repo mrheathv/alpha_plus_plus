@@ -38,20 +38,29 @@ struct AudioProfile: Equatable {
 
     // MARK: - The presets
 
-    /// Six drivers and two force-cancelling woofers. The best speakers Apple
-    /// puts in anything, and the one profile whose job is mostly to get out of
-    /// the way.
-    static let macBookPro = AudioProfile(
-        name: "MacBook Pro",
-        summary: "Full range. Nothing added.",
+    /// Six drivers and two force-cancelling woofers — the 14″ and 16″
+    /// MacBook Pro, and the iMac. The best speakers Apple puts in anything,
+    /// and the one profile whose job is mostly to get out of the way.
+    static let fullRange = AudioProfile(
+        name: "Full range",
+        summary: "MacBook Pro 14″/16″, iMac. Nothing added.",
         highPass: 32, compression: 0.08, width: 1.0
     )
 
+    /// A laptop with real woofers but not the Pro's: the 15″ MacBook Air, and
+    /// the 13″ MacBook Pro before it was discontinued. Reaches down to about
+    /// fifty hertz, then gives up.
+    static let laptop = AudioProfile(
+        name: "Laptop",
+        summary: "MacBook Air 15″, MacBook Pro 13″. A little sub-bass removed, lightly levelled.",
+        highPass: 50, compression: 0.2, width: 1.15
+    )
+
     /// Four small drivers, very little below a hundred hertz, and two of them
-    /// about six inches apart.
-    static let macBookAir = AudioProfile(
-        name: "MacBook Air",
-        summary: "Sub-bass removed, levelled, image widened.",
+    /// about six inches apart — the 13″ MacBook Air.
+    static let compactLaptop = AudioProfile(
+        name: "Compact laptop",
+        summary: "MacBook Air 13″. Sub-bass removed, levelled, image widened.",
         // 70 rather than 95. The higher cutoff was chosen on the assumption
         // that a harmonic exciter would put the missing note back; with that
         // cut (see the note below), taking less away is the better trade —
@@ -60,50 +69,74 @@ struct AudioProfile: Equatable {
         highPass: 70, compression: 0.35, width: 1.3
     )
 
+    /// **The Mac mini's and Mac Studio's own speaker.** A real output device
+    /// — the default one until something is plugged in — and a single small
+    /// mono driver. Two things follow, and both are the opposite of the
+    /// laptop profiles:
+    ///
+    /// - **Collapse the image, do not widen it.** Both channels sum into one
+    ///   cone, so side content does not spread, it *cancels*: the pad's
+    ///   detuned pair, panned apart on purpose, would come out thinner than
+    ///   a single saw. Width zero sums it to mono before it gets there.
+    /// - **Cut higher than an Air.** A driver this size makes nothing worth
+    ///   having under about 120 Hz, and the headroom is better spent on the
+    ///   octave above.
+    static let monoSpeaker = AudioProfile(
+        name: "Built-in speaker",
+        summary: "Mac mini, Mac Studio. Summed to mono, bass removed, heavily levelled.",
+        highPass: 120, compression: 0.5, width: 0.0
+    )
+
     /// Headphones have the range and already over-separate the image, so the
     /// only thing worth doing is *not* widening it further.
     static let headphones = AudioProfile(
         name: "Headphones",
-        summary: "Full range, image pulled in slightly.",
+        summary: "Wired or Bluetooth. Full range, image pulled in slightly.",
         highPass: 24, compression: 0.05, width: 0.85
     )
 
-    /// Anything we cannot identify — a Mac mini, a Studio, an external
-    /// interface. Deliberately middle-of-the-road: it has to be acceptable on
-    /// a cheap monitor speaker *and* not obviously wrong on good monitors,
-    /// which means it is optimal for neither.
+    /// Anything we cannot identify — a monitor's speakers over HDMI, a USB
+    /// interface, an unfamiliar Mac. Deliberately middle-of-the-road: it has
+    /// to be acceptable on a cheap monitor speaker *and* not obviously wrong
+    /// on good monitors, which means it is optimal for neither.
     static let generic = AudioProfile(
         name: "Generic",
         summary: "A safe middle, for speakers we cannot identify.",
         highPass: 55, compression: 0.2, width: 1.05
     )
 
-    static let all = [generic, macBookAir, macBookPro, headphones]
+    static let all = [generic, monoSpeaker, compactLaptop, laptop, fullRange, headphones]
 
     // MARK: - Choosing one
 
-    /// A best-effort guess, and it is worth being honest that it is a guess.
+    /// **Two questions, not one.** Which speakers this Mac was built with is
+    /// only half of it; the other half is whether the sound is going to them
+    /// at all. A MacBook Air driving studio monitors over USB should get the
+    /// monitors' profile, not the Air's, and the model alone cannot say.
     ///
-    /// Two things make automatic selection unreliable, and both argue for the
-    /// player being able to override it:
-    ///
-    /// - **The model does not tell you where the sound is going.** Someone on
-    ///   a MacBook Air with studio monitors plugged in would get the
-    ///   small-speaker profile, which is the wrong answer applied confidently.
-    ///   Reading the current output route is the real fix.
-    /// - **Model identifiers age badly.** `hw.model` reports `Mac15,13`, not
-    ///   "MacBook Air", so any mapping is a table that needs a new row for
-    ///   every machine Apple ships and is silently wrong until someone adds
-    ///   one.
-    ///
-    /// So this returns `generic` when it is unsure, which is the honest
-    /// default, and the setting exists because the guess will sometimes be
-    /// wrong.
-    static func detected(model: String = currentModel()) -> AudioProfile {
-        let lowercased = model.lowercased()
-        if lowercased.contains("macbookpro") { return .macBookPro }
-        if lowercased.contains("macbookair") { return .macBookAir }
-        return .generic
+    /// Still a guess, and the setting exists because the guess will sometimes
+    /// be wrong — a Bluetooth device might be a speaker rather than
+    /// headphones, and a USB device might be anything at all. When unsure it
+    /// returns `generic`, which is the honest default.
+    static func detected(model: String = currentModel(),
+                         route: OutputRoute = AudioRoute.current()) -> AudioProfile {
+        switch route {
+        case .headphoneJack, .bluetooth:
+            return .headphones
+        case .external, .airPlay:
+            return .generic
+        case .builtInSpeakers, .unknown:
+            switch MacSpeakers.inModel(model) {
+            case .fullRange: return .fullRange
+            case .laptop: return .laptop
+            case .compactLaptop: return .compactLaptop
+            // A desktop's own speaker is only the answer when the sound is
+            // definitely going there; with the route unknown the odds are on
+            // whatever is plugged in.
+            case .beeper: return route == .builtInSpeakers ? .monoSpeaker : .generic
+            case .unknown: return .generic
+            }
+        }
     }
 
     static func currentModel() -> String {

@@ -132,6 +132,78 @@ final class CityMotionTests: XCTestCase {
                           + "went on driving around a stopped map")
     }
 
+    /// **Everything that moves is now driven per frame, and this proves it
+    /// one at a time.**
+    ///
+    /// The recorder's finding was that almost nothing advanced in a headless
+    /// capture, because SpriteKit runs `SKAction`s on its own loop. Three
+    /// families had to move: the ambient cars, the vehicles running a route
+    /// diagram, and the airport's aircraft. Each is asserted on its own here
+    /// rather than through one "did the frame change" number, because that
+    /// number passes as soon as *any* of them works.
+    func testEveryKindOfVehicleAdvancesWithoutSpriteKitsLoop() throws {
+        var map = CityMap(width: 26, height: 20)
+        for x in 1 ..< 25 { map[GridPosition(x: x, y: 8)].zone = .road }
+        for x in stride(from: 2, to: 22, by: 4) {
+            map.placeBuilding(zone: .commercial, origin: GridPosition(x: x, y: 6))
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: 9))
+            for cell in map.footprintCells(origin: GridPosition(x: x, y: 6), size: 2)
+                + map.footprintCells(origin: GridPosition(x: x, y: 9), size: 2) {
+                map[cell].density = 4
+            }
+        }
+        for x in [3, 12, 21] { map.placeBuilding(zone: .publicTransit, origin: GridPosition(x: x, y: 8)) }
+        _ = map.transit.add(mode: .bus, stops: [
+            GridPosition(x: 3, y: 8), GridPosition(x: 12, y: 8), GridPosition(x: 21, y: 8),
+        ])
+        map.placeBuilding(zone: .airport, origin: GridPosition(x: 4, y: 14))
+
+        let (scene, view, controller) = makeScene(map)
+        controller.isRunning = true
+
+        func positions(_ name: String) -> [CGPoint] {
+            var found: [CGPoint] = []
+            scene.enumerateChildNodes(withName: "//\(name)") { node, _ in
+                found.append(node.position)
+            }
+            return found
+        }
+
+        // **Two views, because no single one carries all three.** Ambient
+        // cars are drawn only where the road network is shown, and the route
+        // diagram only in its own line's view — a schematic run between
+        // stations would be a lie about where a bus goes if it were drawn
+        // over Normal. The first version of this test asked for both at once
+        // and measured a city with no cars in it.
+        _ = try advance(scene, view, frames: 2)
+        var counts = scene.drivenAnimationCountForTesting
+        XCTAssertGreaterThan(counts.cars, 0, "no ambient traffic in Normal view")
+        XCTAssertEqual(counts.aircraft, 1, "no aircraft in the fixture")
+        let cars = positions(GameScene.trafficCarNodeNameForTesting)
+        let plane = positions(IsoTileRenderer.aircraftNodeName)
+
+        // Long enough to clear the aircraft's 2.5-second wait at the
+        // threshold, which is most of its cycle: it is parked and invisible
+        // for more than half of every take-off, deliberately.
+        _ = try advance(scene, view, frames: 240)
+        XCTAssertNotEqual(cars, positions(GameScene.trafficCarNodeNameForTesting),
+                          "the ambient traffic did not advance")
+        XCTAssertNotEqual(plane, positions(IsoTileRenderer.aircraftNodeName),
+                          "the aircraft never left the threshold")
+
+        controller.overlayMode = .bus
+        scene.refreshAll()
+        _ = try advance(scene, view, frames: 2)
+        counts = scene.drivenAnimationCountForTesting
+        print("driven per frame — cars \(cars.count) (Normal), diagram \(counts.diagram), "
+              + "aircraft \(counts.aircraft)")
+        XCTAssertGreaterThan(counts.diagram, 0, "no vehicle running the route diagram")
+        let diagram = positions(GameScene.transitVehicleNodeNameForTesting)
+        _ = try advance(scene, view, frames: 120)
+        XCTAssertNotEqual(diagram, positions(GameScene.transitVehicleNodeNameForTesting),
+                          "the vehicle running the route diagram did not advance")
+    }
+
     /// **What driving the cars in Swift costs**, which the roadmap said to
     /// measure before adopting rather than after.
     ///
