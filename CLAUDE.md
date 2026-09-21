@@ -6220,6 +6220,84 @@ against 0.42 ms for the whole of `update()`** — and it only changes when the
 culling attaches something or the camera moves, both of which were already
 tracked.
 
+## "It glitches between the zoom and scroll"
+
+Reported from play, and a far more useful sentence than "it is slow": a hitch
+*while the camera moves* is a different fault from a low frame rate, and it
+points at work that only happens when the view changes. **Nothing in this
+project had ever measured that** — every render timing here was taken on a
+stationary camera.
+
+`CameraMotionCostTests` measures it, and `update()` alone came back:
+
+| | ms/frame | |
+|---|---|---|
+| camera still | 0.067 | |
+| panning | 0.544 | 8× still |
+| zooming | 1.350 | 20× still |
+
+### Four things, and the last one was the actual glitch
+
+- **The culling re-culled on every frame of a pan**, because it compared the
+  exact visible rect and any sub-point movement failed the guard. Snapped to a
+  tile now, which costs nothing against a twelve-tile margin.
+- **The bloom's shaded area was re-measured on every frame of a zoom.**
+  `calculateAccumulatedFrame()` walks every node under the effect layer —
+  eight thousand of them. Re-measured on a 2% change of scale now, which moves
+  a 23-point reach by less than half a point.
+- **The culling walked a dictionary and re-projected every tile.** A tile's
+  projected position never changes; it is a flat array now. (Honestly: this
+  one measured as *no* improvement. Kept because it is plainly better, and
+  recorded as an expectation that was wrong.)
+- **Every tile coming back into view was refreshed**, which was added with the
+  detail tier and is the one that mattered. A pinch sweeps thousands of tiles
+  in and out; refreshing each was **1.0 ms of a 1.45 ms zooming frame**.
+  Everything else that changes a tile already visits the detached ones — a
+  tick, an overlay change and `refreshAll` all walk `tileNodes` regardless of
+  attachment, and a placement goes through `rebuildRegion`. The *only* thing
+  that skips them is the detail-tier swap, so that is the only thing that has
+  to leave a note: `staleWhileDetached`.
+
+Panning 0.544 → 0.194 ms; zooming 1.350 → 0.769 ms.
+
+### But a hitch is one frame, not an average
+
+None of that was the reported symptom, and the averages above could never have
+found it. Timing the *individual* frames of a pinch did:
+
+**49 ms on the frame at camera 0.712** — the detail threshold. Three dropped
+frames, every time the player crosses it.
+
+It is the texture cache filling on demand. A building's texture is rasterised
+the first time it is asked for, and a tier swap asks for every visible lot at
+once, on the frame the camera moved. `pendingRefresh` spreads that over frames
+at four lots each, which costs nothing anybody can see — a lot is redrawn a few
+frames later than it might have been — against a stall long enough to feel, as
+it was described, like the machine had run out of memory.
+
+**Worst frame of a zoom sweep: 49.4 ms → 4.8 ms**, and the test asserts on the
+maximum rather than the mean, because the maximum is the thing a player feels.
+
+### And the benchmark measured itself
+
+The first run of this reported **768 ms** for that frame. It was real, and it
+was the benchmark's own fault: the phase-by-phase breakdown drives the camera
+while running only one phase at a time, which leaves the scene owing a large
+catch-up that the next measurement then paid for. Measured first, on a scene
+nothing else has poked, the same frame costs five milliseconds.
+
+**A benchmark that disturbs the thing it measures is measuring itself** — and
+it is a close cousin of the yardstick that reimplements its subject, which this
+file already records four times over.
+
+### One test restated
+
+`CloseZoomDetailTests` asserted the tier swap happened on the next `update`.
+It happens over a few frames now, deliberately, so the property became "it
+finishes *promptly*" — settled until the queue drains, with a bound on how many
+frames that may take. Instant was never the thing worth having; finishing
+without dropping frames is.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

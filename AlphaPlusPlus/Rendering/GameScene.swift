@@ -511,6 +511,7 @@ final class GameScene: SKScene {
         cullTilesOutsideTheView()
         matchBuildingDetailToTheCamera()
         matchBloomReachToTheCamera()
+        drainPendingRefreshes()
 
         guard controller.isRunning else {
             // Paused: forget when we last ticked, so resuming waits a full
@@ -1088,6 +1089,10 @@ final class GameScene: SKScene {
             syncAircraftAnimation(at: tile.position)
             syncLaneLine(at: tile.position)
         }
+        // The only place the set of tiles changes, so the only place the
+        // culling's flat copy of it has to be rebuilt.
+        rebuildCullOrder()
+        culledFor = nil
     }
 
     /// Tear down and rebuild every tile sprite from scratch. `refreshAll()`
@@ -1259,9 +1264,13 @@ final class GameScene: SKScene {
 
     func rebuildEntireGrid() {
         // Every tile node is about to be replaced, so every reference in
-        // here is about to dangle.
+        // here is about to dangle — and the shaded area is about to change.
         trafficCars.removeAll()
         aircraft.removeAll()
+        bloomMeasuredForScale = 0
+        staleWhileDetached.removeAll()
+        pendingRefresh.removeAll()
+        pendingRefreshSet.removeAll()
         // The trams live in `tileLayer`, so they go with it — and the key has
         // to be cleared too, or `syncTramRuns` decides nothing has changed and
         // they never come back. Exactly the stale-cache shape an overlay has
@@ -1354,6 +1363,12 @@ final class GameScene: SKScene {
                 refresh(cell)
             }
         }
+        // A placement changes which cells are anchors, so the culling's flat
+        // copy has to follow — and `culledFor` is cleared so the next frame
+        // re-examines everything rather than trusting a rect measured against
+        // the tile set that just changed.
+        rebuildCullOrder()
+        culledFor = nil
     }
 
     /// Point the camera at the middle of the map. The camera's position is
@@ -1575,22 +1590,62 @@ final class GameScene: SKScene {
         // reaching into it. Cheaper to keep a border of them than to work out
         // how tall each one is.
         let margin = projection.tileHeight * 12
-        let wanted = visible.insetBy(dx: -margin, dy: -margin)
+        // **Quantised, so a smooth pan does not re-cull every frame.**
+        //
+        // This compared the exact rect, so any sub-point camera movement
+        // failed the guard and walked all four thousand tiles — every frame,
+        // for as long as the player held a key or a drag. Reported from play
+        // as the game glitching "between the zoom and scroll", which is
+        // exactly the shape of work that only happens while the view moves.
+        //
+        // Rounding to half a tile costs nothing, because the margin is twelve
+        // tiles deep: a tile can only be wrongly attached or detached for the
+        // few frames it takes the camera to cross half a tile, and it is
+        // twelve tiles from being visible either way.
+        // A whole tile rather than half: a pinch changes the rect's *size*
+        // every frame, so a fine step re-culls almost as often as no step at
+        // all, and the twelve-tile margin absorbs far more slop than this.
+        let step = projection.tileHeight
+        func snap(_ value: CGFloat) -> CGFloat { (value / step).rounded() * step }
+        let wanted = CGRect(x: snap(visible.minX - margin), y: snap(visible.minY - margin),
+                            width: snap(visible.width + margin * 2),
+                            height: snap(visible.height + margin * 2))
         guard wanted != culledFor else { return }
         culledFor = wanted
 
-        for (position, node) in tileNodes {
-            let point = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
-            let inside = wanted.contains(point)
+        // **Walked as a flat array of pre-projected points.**
+        //
+        // This iterated `tileNodes` — a dictionary of four thousand entries —
+        // and re-projected every one of them, on every frame the view
+        // changed. None of that varies: a tile's projected position is fixed
+        // for the life of the grid. Measured at 0.86 ms of a 1.33 ms zooming
+        // frame, against 0.07 ms standing still.
+        for entry in cullOrder {
+            let node = entry.node
+            let inside = wanted.contains(entry.point)
             if inside, node.parent == nil {
                 tileLayer.addChild(node)
-                // **A tile coming back has to be asked whether it is still
-                // current**, because things change while it is detached — and
-                // the detail tier is the one that changes *because* it is
-                // detached, since a tier swap only redraws what is on screen.
-                // The cache keys make this a handful of dictionary lookups
-                // when nothing has moved, which is the common case by far.
-                refresh(position)
+                // **Only the tiles that actually went stale**, and the set is
+                // known exactly.
+                //
+                // This refreshed unconditionally, on the reasoning that a
+                // tile coming back might have missed something. True, and
+                // expensive in the one case that matters: a pinch sweeps
+                // thousands of tiles in and out, and refreshing each was
+                // measured at **1.0 ms of a 1.45 ms zooming frame** — the
+                // glitch reported from play as happening "between the zoom
+                // and scroll".
+                //
+                // Everything else that changes a tile already visits the
+                // detached ones: a tick, an overlay change and `refreshAll`
+                // walk `tileNodes` whether a node is attached or not, and a
+                // placement goes through `rebuildRegion`. The *only* thing
+                // that skips them is the detail-tier swap, which deliberately
+                // redraws just what is on screen — so that is the only thing
+                // that has to leave a note.
+                if staleWhileDetached.remove(entry.position) != nil {
+                    enqueueRefresh(entry.position)
+                }
             } else if !inside, node.parent != nil {
                 node.removeFromParent()
             }
@@ -1599,6 +1654,69 @@ final class GameScene: SKScene {
 
     /// The view the tiles were last culled for.
     private var culledFor: CGRect?
+
+    /// Every tile node with its projected position, in a flat array.
+    ///
+    /// The culling runs over this rather than over `tileNodes`, because a
+    /// tile's projected position never changes and dictionary iteration is
+    /// the slowest way to visit four thousand of anything. Rebuilt with the
+    /// grid, which is the only thing that changes which tiles exist.
+    private var cullOrder: [(position: GridPosition, point: CGPoint, node: SKNode)] = []
+
+    /// Tiles that were off screen when the detail tier changed, and so are
+    /// still drawn at the old one. Refreshed as they come back into view.
+    private var staleWhileDetached: Set<GridPosition> = []
+
+    /// Tiles waiting to be redrawn, a few per frame.
+    ///
+    /// **A hitch is not a high average; it is one frame that takes far too
+    /// long**, and no mean over a sweep can see it. Timing the individual
+    /// frames of a pinch found two: **752 ms** on the first large camera move
+    /// and **49 ms** exactly at the detail threshold — three dropped frames
+    /// every time the player crosses it, which is what was reported as the
+    /// game glitching between the zoom and the scroll.
+    ///
+    /// Both are the texture cache filling on demand. A building's texture is
+    /// rasterised the first time it is asked for, so a band of lots scrolling
+    /// in or a tier swap asks for dozens at once, on the frame the camera
+    /// moved. Spreading that over frames costs nothing anybody can see: a lot
+    /// is redrawn a few frames later than it might have been, against a stall
+    /// long enough to feel like the machine ran out of memory.
+    private var pendingRefresh: [GridPosition] = []
+    private var pendingRefreshSet: Set<GridPosition> = []
+
+    /// How many lots may be redrawn on one frame.
+    ///
+    /// Four, because a cold building texture costs roughly two and a half
+    /// milliseconds to rasterise and four of them is most of a frame's
+    /// budget — past this the queue stops being a queue and becomes the stall
+    /// it was added to break up.
+    private static let refreshBudgetPerFrame = 4
+
+    private func enqueueRefresh(_ position: GridPosition) {
+        guard pendingRefreshSet.insert(position).inserted else { return }
+        pendingRefresh.append(position)
+    }
+
+    private func drainPendingRefreshes() {
+        guard !pendingRefresh.isEmpty else { return }
+        for _ in 0 ..< min(Self.refreshBudgetPerFrame, pendingRefresh.count) {
+            let position = pendingRefresh.removeFirst()
+            pendingRefreshSet.remove(position)
+            // It may have been detached again while it waited.
+            guard tileNodes[position]?.parent != nil else { continue }
+            refresh(position)
+        }
+    }
+
+    /// How many lots are still waiting, for the test that the queue drains.
+    var pendingRefreshCountForTesting: Int { pendingRefresh.count }
+
+    private func rebuildCullOrder() {
+        cullOrder = tileNodes.map {
+            ($0.key, projection.project(CGFloat($0.key.x), CGFloat($0.key.y), 0), $0.value)
+        }
+    }
 
     // MARK: - Bloom
 
@@ -1630,13 +1748,23 @@ final class GameScene: SKScene {
     /// work. It only changes when the culling attaches or detaches something
     /// or the camera moves, and both of those are already tracked.
     private var bloomShadedHeight: CGFloat = 0
-    private var bloomMeasuredFor: (cull: CGRect, scale: CGFloat)?
+    private var bloomMeasuredForScale: CGFloat = 0
 
     private func matchBloomReachToTheCamera() {
         guard let shader = retroEffectLayer.shader else { return }
-        let key = (cull: culledFor ?? .zero, scale: cameraNode.yScale)
-        if bloomMeasuredFor?.cull != key.cull || bloomMeasuredFor?.scale != key.scale {
-            bloomMeasuredFor = key
+        // **Re-measured on a *coarse* change of zoom, not on every frame.**
+        //
+        // `calculateAccumulatedFrame()` walks every node under the effect
+        // layer — eight thousand on a built-out city, 0.35 ms against 0.42 ms
+        // for the whole of `update()`. Keying it on the exact camera scale
+        // meant a pinch recomputed it every frame, which is half of what made
+        // zooming twenty times more expensive than standing still.
+        //
+        // A 2% step is far below what a bloom radius can show: the reach is
+        // 23 points, so a step moves it by less than half a point.
+        let scale = cameraNode.yScale
+        if bloomMeasuredForScale == 0 || abs(scale / bloomMeasuredForScale - 1) > 0.02 {
+            bloomMeasuredForScale = scale
             bloomShadedHeight = retroEffectLayer.calculateAccumulatedFrame().height
         }
         let shaded = bloomShadedHeight
@@ -1707,8 +1835,9 @@ final class GameScene: SKScene {
         // instant the player zooms in. The rest are redrawn by
         // `cullTilesOutsideTheView` as they come back into view, a band at a
         // time, which is also when their tier can first be seen.
-        for position in tileNodes.keys where tileNodes[position]?.parent != nil {
-            refresh(position)
+        for (position, node) in tileNodes {
+            if node.parent != nil { enqueueRefresh(position) }
+            else { staleWhileDetached.insert(position) }
         }
     }
 
@@ -1718,6 +1847,27 @@ final class GameScene: SKScene {
     func centerCameraForTesting(on position: GridPosition) {
         cameraNode.position = projection.centerPoint(ofFootprintOrigin: position, size: 1)
         clampCameraToMap()
+    }
+
+    /// Testing accessors: the individual per-frame phases, so a benchmark can
+    /// say *which* of them a moving camera is paying for rather than that one
+    /// of them is.
+    func runCullingForTesting() { cullTilesOutsideTheView() }
+    func runBackdropClipForTesting() { showVisibleSliceOfBackground() }
+    func runBloomReachForTesting() { matchBloomReachToTheCamera() }
+    func runDetailTierForTesting() { matchBuildingDetailToTheCamera() }
+
+    /// Testing accessor: drag the camera, the way a pan does.
+    func nudgeCameraForTesting(by delta: CGPoint) {
+        cameraNode.position = CGPoint(x: cameraNode.position.x + delta.x,
+                                      y: cameraNode.position.y + delta.y)
+        clampCameraToMap()
+    }
+
+    /// Testing accessor: scale and recentre in one call.
+    func setCameraForTesting(scale: CGFloat) {
+        setCameraScaleForTesting(scale)
+        centerCameraOnMap()
     }
 
     /// Testing accessor: the whole map's ground diamond, for a caller working
@@ -2070,6 +2220,10 @@ final class GameScene: SKScene {
         for position in tileNodes.keys {
             refresh(position)
         }
+        // Everything is current, so nothing is owed a catch-up.
+        pendingRefresh.removeAll()
+        pendingRefreshSet.removeAll()
+        staleWhileDetached.removeAll()
     }
 
     /// Draws the route diagram when one of its overlays is up, and takes it

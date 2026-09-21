@@ -182,16 +182,49 @@ final class CloseZoomDetailTests: XCTestCase {
             return (building as? SKSpriteNode)?.texture
         }
 
+        // **The swap is spread over frames now, and the test says how many.**
+        //
+        // A tier change used to redraw every visible lot on the frame the
+        // camera crossed the threshold, which measured as a 49 ms hitch —
+        // three dropped frames, felt in play as the game glitching during a
+        // zoom. The lots queue instead, a few per frame. So the property is
+        // no longer "it happened instantly" but "it happened *promptly*", and
+        // a bound is what makes that a claim rather than a shrug.
+        var clock: TimeInterval = 0
+        /// Runs frames until the queue is empty, and says how many it took.
+        /// A bound rather than a fixed count, because how long the queue is
+        /// depends on how many lots the fixture has — and what the test wants
+        /// to pin is that it *ends*, promptly, not that it ends in exactly
+        /// thirty frames of some particular city.
+        @discardableResult
+        func settle(within frames: Int = 90) -> Int {
+            for spent in 0 ..< frames {
+                clock += 1.0 / 60
+                scene.update(clock)
+                if scene.pendingRefreshCountForTesting == 0 { return spent + 1 }
+            }
+            return frames
+        }
+
         scene.setCameraScaleForTesting(1.0)
-        scene.update(0)
+        settle()
         XCTAssertEqual(scene.buildingDetailForTesting, .standard)
         let far = towerTexture()
         XCTAssertNotNil(far, "the tower drew no sprite to compare")
 
         scene.setCameraScaleForTesting(0.5)
-        scene.update(1)
+        clock += 1.0 / 60
+        scene.update(clock)
         XCTAssertEqual(scene.buildingDetailForTesting, .near,
                        "zooming to the closest camera did not reach the near tier")
+        let framesToSwap = settle()
+        print("the detail swap finished in \(framesToSwap) frames")
+        XCTAssertEqual(scene.pendingRefreshCountForTesting, 0,
+                       "a second and a half of frames did not finish redrawing the lots")
+        // Prompt, not instant. Ninety frames would be a second and a half of
+        // visibly mixed detail; this should be a fraction of that.
+        XCTAssertLessThan(framesToSwap, 60,
+                          "the detail swap took \(framesToSwap) frames to finish")
         let near = towerTexture()
         XCTAssertNotNil(near)
         XCTAssertNotEqual(far, near,
@@ -200,7 +233,7 @@ final class CloseZoomDetailTests: XCTestCase {
         // And back again, so the far view is not left paying for marks it
         // cannot resolve.
         scene.setCameraScaleForTesting(1.4)
-        scene.update(2)
+        settle()
         XCTAssertEqual(scene.buildingDetailForTesting, .standard)
         XCTAssertEqual(towerTexture(), far, "coming back out did not restore the far texture")
     }
