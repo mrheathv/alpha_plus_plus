@@ -308,9 +308,15 @@ enum Traffic {
 
     /// Works out what each job would cost one home. Pure: it reads the world
     /// and writes nothing, which is the whole reason it can run anywhere.
+    /// - Parameter arrivals: each job's end of the transit journey, collapsed
+    ///   once by the caller. It does not vary with the home, and pairing the
+    ///   boarding points at both ends *inside* this loop is what made the
+    ///   journey lookup 46% of `computeLoad`. Same move `sortedFrontage`
+    ///   makes for the drive.
     private static func route(
         home tile: Tile, in map: CityMap, drivable: Set<GridPosition>,
-        coverage: TransitCoverage, network: TransitGraph, jobs: [JobSite]
+        coverage: TransitCoverage, network: TransitGraph, jobs: [JobSite],
+        arrivals: [TransitGraph.Arrivals?]
     ) -> HomeRouting? {
         let homeCells = map.footprintCells(origin: tile.position, size: tile.zone.footprintSize)
         let homeReach = coverage.reaches(from: homeCells)
@@ -350,9 +356,9 @@ enum Traffic {
                 (minutes: Double($0.1) * drivingMinutesPerTile * delay + job.extraMinutes,
                  frontageCell: $0.0)
             }
-            let ride = network.journey(from: homeReach, to: job.reach).map {
-                TransitGraph.Journey(minutes: $0.minutes + job.extraMinutes, legs: $0.legs)
-            }
+            let ride = arrivals[index]
+                .flatMap { network.ride(from: homeReach, to: $0) }
+                .map { (minutes: $0.minutes + job.extraMinutes, start: $0.start, end: $0.end) }
             guard let best = [drive?.minutes, ride?.minutes].compactMap({ $0 }).min() else { continue }
             candidates.append(JobCandidate(jobIndex: index, minutes: best, drive: drive, ride: ride))
         }
@@ -391,18 +397,23 @@ enum Traffic {
             $0.isBuildingAnchor && $0.zone == .residential && $0.density > 0
         }
         let fixedJobs = jobs   // read-only for the duration of phase one
+        // Collapsed once per job rather than once per (home, job) pair. See
+        // `TransitGraph.Arrivals` for what that is worth and why it is safe.
+        let arrivals = fixedJobs.map { network.arrivals(to: $0.reach) }
         var routings = [HomeRouting?](repeating: nil, count: homes.count)
         if homes.count >= parallelRoutingThreshold {
             routings.withUnsafeMutableBufferPointer { buffer in
                 DispatchQueue.concurrentPerform(iterations: homes.count) { index in
                     buffer[index] = route(home: homes[index], in: map, drivable: drivable,
-                                          coverage: coverage, network: network, jobs: fixedJobs)
+                                          coverage: coverage, network: network, jobs: fixedJobs,
+                                          arrivals: arrivals)
                 }
             }
         } else {
             for index in homes.indices {
                 routings[index] = route(home: homes[index], in: map, drivable: drivable,
-                                        coverage: coverage, network: network, jobs: fixedJobs)
+                                        coverage: coverage, network: network, jobs: fixedJobs,
+                                        arrivals: arrivals)
             }
         }
 
@@ -429,11 +440,21 @@ enum Traffic {
             // residential lot that no overlay shows and no other field
             // implies.
             load.recordEmployed(tile.position)
+
+            // **The legs, built here and nowhere else.** Working out which
+            // lines a trip boards walks the predecessor chain and allocates,
+            // and phase one asked for a journey once per (home, job) pair —
+            // 48,000 times a tick on a built-out city, for an answer only the
+            // winner ever needed. One home, one call.
+            let ride = chosen.ridesTransit
+                ? chosen.ride.map { network.journey(minutes: $0.minutes,
+                                                    from: $0.start, to: $0.end) }
+                : nil
             load.recordCommute(
                 TrafficLoad.Commute(
                     minutes: chosen.minutes,
-                    boarding: chosen.ridesTransit ? chosen.ride?.legs.first : nil,
-                    transfers: chosen.ridesTransit ? (chosen.ride?.transfers ?? 0) : 0
+                    boarding: ride?.legs.first,
+                    transfers: ride?.transfers ?? 0
                 ),
                 at: tile.position
             )
@@ -444,10 +465,9 @@ enum Traffic {
             // neighbourhood of hundreds reads as broken. Same conversion
             // `GameController.population` uses, so the two agree.
             let riders = tile.density * ZoneType.residential.populationPerDensityLevel
-            let ridesWithRoom = chosen.ridesTransit
-                && (chosen.ride?.legs.allSatisfy { seats[$0, default: 0] > 0 } ?? false)
+            let ridesWithRoom = ride?.legs.allSatisfy { seats[$0, default: 0] > 0 } ?? false
 
-            if ridesWithRoom, let ride = chosen.ride {
+            if ridesWithRoom, let ride {
                 // **Every leg counts a boarding.** A trip that changes from a
                 // bus to a subway puts a rider on both lines, which is what a
                 // per-line ridership figure means everywhere outside this game
@@ -510,8 +530,11 @@ enum Traffic {
         /// the trip ends.
         let drive: (minutes: Double, frontageCell: GridPosition)?
 
-        /// Riding it, if the network reaches.
-        let ride: TransitGraph.Journey?
+        /// Riding it, if the network reaches: how long, and the two nodes it
+        /// runs between. **Not which lines it boards** — see
+        /// `TransitGraph.ride(from:to:)` for why that is deferred to the one
+        /// job this home actually takes.
+        let ride: (minutes: Double, start: Int, end: Int)?
 
         /// Which one actually happens. **Driving takes an exact tie**,
         /// because a journey that is no faster is not worth a walk and a

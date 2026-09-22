@@ -62,6 +62,13 @@ final class CityPortraitTests: XCTestCase {
         // Frames, not one: the scene builds its traffic and its weather on
         // `update`, and the detail tier and the culling both decide there.
         for step in 0 ..< 4 { scene.update(TimeInterval(step) / 60) }
+        // **And one throwaway capture**, because the first `texture(from:)`
+        // after a scene is built comes back different from the second with
+        // nothing changed in between. `GradeAcrossZoomTests` measures that
+        // drift at **0.024** mean brightness at the closest camera — larger
+        // than the entire film-grain term — which is enough to matter in a
+        // picture anybody is going to look at and draw conclusions from.
+        _ = view.texture(from: scene, crop: CGRect(origin: .zero, size: scene.size))
         let texture = try XCTUnwrap(
             view.texture(from: scene, crop: CGRect(origin: .zero, size: scene.size)),
             "the scene rendered nothing"

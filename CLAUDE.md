@@ -3383,11 +3383,12 @@ against a `SimulationSpeed.fast` interval of 0.75 s, which is 4.5% of the
 budget, so it is a number to watch rather than a problem.
 
 The graph itself is not where that goes: it is built once per tick over tens of
-nodes. The cost is the per-(home, job) journey lookup, which walks the
-boarding points at each end — the `O(homes × jobs × reach²)` term. It is the
-thing to profile first if a fourth mode multiplies the number of stations,
-and the obvious fix is to collapse each job's boarding points into one
-cost-per-node array ahead of the loop rather than pairing them per home.
+nodes. The cost is the per-(home, job) journey lookup.
+
+**Both halves of that sentence were later measured, and the second half named
+the wrong term.** See "Where the transit half of a tick actually was" below —
+it was not the `reach²` pairing, it was `legs` allocating arrays for an answer
+the job lottery discarded.
 
 #### One yardstick that had to move
 
@@ -7101,6 +7102,107 @@ the one the decision was taken on rather than something desaturated by hand
 afterwards. Hue is the channel this game has most of and leans on hardest, and
 it will happily hide a facade carrying no information at all, which is exactly
 what it was doing.
+
+## The grade across the zoom range: the defect was not there
+
+This file recorded, from looking at a crop, that *"a post-process tuned at one
+zoom is tuned at exactly one zoom"* — the bloom's reach had drifted 2.3× and
+was fixed, and the grade's intensity was named as the same problem and left.
+`GradeAcrossZoomTests` measures it. **It is not the same problem, and it is
+mostly not a problem.**
+
+| zoom | local contrast | grain | grain share | aberration | ab. share |
+|---|---|---|---|---|---|
+| 0.5 | 0.0191 | 0.0028 | 0.146 | 0.0088 | 0.464 |
+| 0.7 | 0.0269 | 0.0028 | 0.104 | 0.0114 | 0.425 |
+| 1.0 | 0.0373 | 0.0030 | **0.080** | 0.0143 | 0.384 |
+| 2.0 | 0.0285 | 0.0041 | 0.144 | 0.0080 | 0.279 |
+| 3.0 | 0.0193 | 0.0045 | **0.234** | 0.0040 | 0.208 |
+
+**Grain's amplitude is flat** — 0.0028 to 0.0045 across a sixfold change of
+magnification, which is correct: it is computed per screen pixel and cannot
+know how far away the subject is. What varies is the picture under it, and the
+prediction had the direction backwards. Grain's share of the frame's own local
+contrast is *lowest* at the resting camera and highest with the whole city in
+view, where most of the screen is unbuilt land — not, as the note claimed,
+"dirt on the glass when one window fills the same area".
+
+So nothing was changed. The test stays as the standing guard that grain's
+amplitude does not start tracking the camera — the same claim
+`BloomTests.testTheBloomReachesTheSameDistanceAtEveryZoom` makes about the
+bloom's reach, which *did* drift before anybody measured it. It deliberately
+does not bound the *share*, which is a property of how built-out the fixture
+is rather than of the shader.
+
+### And the first capture of any scene is not the frame the game draws
+
+The real bug this pass found, and it invalidates more than it fixes. The first
+`texture(from:)` after a scene is built comes back **different from the
+second, with nothing changed in between** — measured at **0.024** mean
+brightness at the closest camera, which is larger than the entire film-grain
+term being measured.
+
+It presented as an eightfold grain spike at camera 0.5 that **moved to camera
+3.0 when the sweep was reversed**. That is the benchmark measuring itself, and
+this file already records the shape: the phase-isolated frame timing that
+reported 768 ms for a five-millisecond frame because it left the scene owing
+catch-up. Two guesses were spent on mechanisms first — the shadow-weighted
+grain, then the detail tier — and both were wrong; what settled it was asking
+whether two *identical* captures were even equal.
+
+`CityPortraitTests` takes a throwaway capture now. Every render in this project
+that photographs a scene it has just built was reading a frame the game never
+draws.
+
+## Where the transit half of a tick actually was
+
+`Traffic.computeLoad` is three quarters of a simulation step. This file said
+the remaining cost was the per-(home, job) journey lookup pairing the boarding
+points at both ends — `O(homes × jobs × reach²)` — and named collapsing that
+pairing as the fix.
+
+**Measured on Apex, in one process, before and after: 10.9 ms → 11.0 ms. The
+collapse bought nothing.**
+
+The 46% the claim rested on came from deleting a city's lines and re-running,
+which removes the coverage stamp and the whole all-pairs graph along with the
+pairing, and so attributes all three to it. Enumerating instead:
+
+| | |
+|---|---|
+| `computeLoad` on Apex | 11.0 ms |
+| the same city with every line deleted | 4.7 ms |
+| `Transit.coverage` | 1.13 ms |
+| `Transit.graph` (88 nodes) | 0.69 ms |
+| **unaccounted for** | **4.4 ms** |
+| boarding points per home | mean **3.40**, max 6 |
+
+A `reach` of 3.4 makes `reach²` a dozen steps; collapsing it saved a dozen of
+nothing. The 4.4 ms was in a loop whose only remaining work was **allocating
+arrays nobody read**: `TransitGraph.legs` walks the predecessor chain and
+builds two arrays to say which lines a trip boards, and `computeLoad` asked
+for that once per (home, job) pair — about 48,000 times a tick — for an answer
+the job lottery reads the `minutes` off and discards. The legs are wanted
+exactly once per home, for the job that actually wins.
+
+| | before | after |
+|---|---|---|
+| `Traffic.computeLoad` | 11.0 ms | **7.5 ms** |
+| transit's share of routing | 57% | 38% |
+
+Bit-for-bit identical output, which is the only acceptable result here:
+`computeLoad` has been non-deterministic once already, from `Set` iteration
+order breaking route ties, and this change reorders exactly the loop that
+breaks them. `JourneyLookupCostTests` pins it on Apex rather than on a
+hand-built fixture, for the reason that bug needed — ties only happen on a map
+complex enough to produce them — and checks the serial and parallel paths
+against each other as well.
+
+The collapse stayed even though it measured as nothing, because it is the
+shape the lookup should have and it costs nothing to keep. It is recorded here
+as a claim that measured false, which is what this file asks for: **"it will
+also be faster" is a claim, not a bonus** — for the second time, and this time
+the claim was in this file.
 
 ## Looking at the art without playing to it
 

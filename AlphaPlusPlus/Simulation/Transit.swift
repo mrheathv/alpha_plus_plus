@@ -641,34 +641,128 @@ struct TransitGraph {
 
     var isEmpty: Bool { cost.isEmpty }
 
-    /// The fastest way to get from one building to another by transit, or
-    /// `nil` if there is none.
+    /// **One destination, collapsed into a cost per node.**
     ///
-    /// The walk at each end and the wait to board are added here rather than
-    /// baked into the table, because they are properties of the traveller's
-    /// position rather than of the network.
-    func journey(from origin: [TransitCoverage.Reach], to destination: [TransitCoverage.Reach]) -> Journey? {
-        guard !cost.isEmpty, !origin.isEmpty, !destination.isEmpty else { return nil }
-        var bestMinutes = Self.unreachable
-        var bestPair: (Int, Int)?
-        for start in origin {
-            let boarding = Double(start.walk) * Transit.walkMinutesPerTile
-                + coverage.node(start.node).mode.boardingWaitMinutes
-            for end in destination {
-                let ride = cost[start.node][end.node]
+    /// For every node on the network: how long it takes to board there and
+    /// arrive at this destination, and which of the destination's own boarding
+    /// points that lands on.
+    ///
+    /// A job's end of a journey does not depend on the home, so it is worked
+    /// out once per job rather than once per (home, job) pair: the per-pair
+    /// step drops from `O(reach²)` to `O(reach)`. The same move
+    /// `JobSite.sortedFrontage` already makes one level up.
+    ///
+    /// **And on its own it bought nothing, measured.** 10.9 ms before, 11.0
+    /// after, on Apex. The prediction was that this was the expensive half —
+    /// CLAUDE.md said so, on the strength of deleting a city's lines and
+    /// re-running, which removes the coverage stamp and the whole graph along
+    /// with the pairing and so attributes all three to it. Enumerating instead
+    /// found a home reaches a **mean of 3.4** boarding points, so `reach²` was
+    /// never more than a dozen steps and collapsing it saved a dozen of
+    /// nothing. The cost was `legs` — see `ride(from:to:)`.
+    ///
+    /// It stays because it is the shape the lookup should have and it is free,
+    /// not because it made anything faster: the condition CLAUDE.md predicted
+    /// it for is a fourth mode multiplying the number of stations, which is
+    /// when `reach` stops being three. Recorded as a claim that measured
+    /// false, which this file asks for — *"it will also be faster" is a claim,
+    /// not a bonus.*
+    struct Arrivals {
+        /// Indexed by node: minutes from boarding there to arriving, walk at
+        /// the far end included. `unreachable` where there is no way through.
+        fileprivate var minutes: [Double]
+        /// Indexed by node: which of the destination's boarding points the
+        /// best route lands on, or -1.
+        fileprivate var via: [Int]
+    }
+
+    /// Collapses one destination. See `Arrivals`.
+    func arrivals(to destination: [TransitCoverage.Reach]) -> Arrivals? {
+        guard !cost.isEmpty, !destination.isEmpty else { return nil }
+        var minutes = [Double](repeating: Self.unreachable, count: cost.count)
+        var via = [Int](repeating: -1, count: cost.count)
+        // Destination-major, so an exact tie resolves to the earliest boarding
+        // point in the destination's own order — which is what the pairwise
+        // version did when it scanned `end` as its inner loop, and preserving
+        // it is what keeps two equally-good lines from swapping between ticks.
+        for end in destination {
+            let walk = Double(end.walk) * Transit.walkMinutesPerTile
+            for node in cost.indices {
+                let ride = cost[node][end.node]
                 guard ride < Self.unreachable else { continue }
-                let total = boarding + ride + Double(end.walk) * Transit.walkMinutesPerTile
-                // Strictly less, and the arrays are in node order, so an
-                // exact tie always resolves to the lower-numbered pair rather
-                // than to whichever the iteration reached first.
-                if total < bestMinutes {
-                    bestMinutes = total
-                    bestPair = (start.node, end.node)
+                let total = ride + walk
+                if total < minutes[node] {
+                    minutes[node] = total
+                    via[node] = end.node
                 }
             }
         }
+        return Arrivals(minutes: minutes, via: via)
+    }
+
+    /// **How long the ride takes, and which pair of nodes it used — and
+    /// nothing else.**
+    ///
+    /// This is the one the hot loop calls, and what it deliberately does *not*
+    /// do is work out which lines the trip boards. Building that walks the
+    /// predecessor chain and allocates two arrays, and `Traffic.computeLoad`
+    /// asks for a journey once per (home, job) pair — about **48,000 times a
+    /// tick** on a built-out city, for an answer the job lottery reads the
+    /// `minutes` off and throws the rest away. The legs are wanted exactly
+    /// once per home, for the job that actually wins.
+    ///
+    /// **This is where the time was.** Measured on Apex: `computeLoad` 11.0 ms
+    /// → **7.5 ms**, and transit's share of routing 57% → 38%, with the
+    /// answer bit-for-bit identical. It was found by subtraction rather than
+    /// by reasoning — 6.2 ms attributable to transit, of which the coverage
+    /// stamp is 1.1 and the all-pairs graph 0.7, leaving 4.4 unaccounted for
+    /// in a loop whose only remaining work was allocating arrays nobody read.
+    ///
+    /// The walk at this end and the wait to board are added here rather than
+    /// baked into the table, because they are properties of the traveller's
+    /// position rather than of the network.
+    func ride(from origin: [TransitCoverage.Reach],
+              to destination: Arrivals) -> (minutes: Double, start: Int, end: Int)? {
+        guard !cost.isEmpty, !origin.isEmpty else { return nil }
+        var bestMinutes = Self.unreachable
+        var bestPair: (Int, Int)?
+        for start in origin {
+            guard destination.via[start.node] >= 0 else { continue }
+            let boarding = Double(start.walk) * Transit.walkMinutesPerTile
+                + coverage.node(start.node).mode.boardingWaitMinutes
+            let total = boarding + destination.minutes[start.node]
+            // Strictly less, and the arrays are in node order, so an exact tie
+            // always resolves to the lower-numbered pair rather than to
+            // whichever the iteration reached first.
+            if total < bestMinutes {
+                bestMinutes = total
+                bestPair = (start.node, destination.via[start.node])
+            }
+        }
         guard let (start, end) = bestPair else { return nil }
-        return Journey(minutes: bestMinutes, legs: legs(from: start, to: end))
+        return (bestMinutes, start, end)
+    }
+
+    /// The lines a ride between two nodes boards. Built once, for the trip
+    /// that was actually assigned. See `ride(from:to:)`.
+    func journey(minutes: Double, from start: Int, to end: Int) -> Journey {
+        Journey(minutes: minutes, legs: legs(from: start, to: end))
+    }
+
+    /// The fastest way from one building to a destination already collapsed by
+    /// `arrivals(to:)`, legs and all.
+    func journey(from origin: [TransitCoverage.Reach], to destination: Arrivals) -> Journey? {
+        guard let best = ride(from: origin, to: destination) else { return nil }
+        return journey(minutes: best.minutes, from: best.start, to: best.end)
+    }
+
+    /// The pairwise form, kept because it states the same thing in one place
+    /// and is what `TransitGraphTests` compares the collapsed version against.
+    /// Every hot caller goes through `arrivals(to:)` instead.
+    func journey(from origin: [TransitCoverage.Reach],
+                 to destination: [TransitCoverage.Reach]) -> Journey? {
+        guard let arrivals = arrivals(to: destination) else { return nil }
+        return journey(from: origin, to: arrivals)
     }
 
     /// Which lines a journey actually boards, read back from the search.
