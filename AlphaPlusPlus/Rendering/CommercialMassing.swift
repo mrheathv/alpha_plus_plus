@@ -22,6 +22,10 @@ enum CommercialMassing {
     static func make(tier: Int, seed: GridPosition, footprint: CGFloat = 2) -> BuildingMassing {
         var random = BuildingRandom(seed: seed, salt: 200 + tier)
         var massing = BuildingMassing()
+        if ZoneMassing.isLandmark(tier: tier, seed: seed) {
+            spire(seed: seed, footprint: footprint, into: &massing, random: &random)
+            return massing
+        }
         let form: Form = tier >= 2 ? .podiumTower : random.pick([.strip, .cornerUnit, .podiumTower])
 
         switch form {
@@ -138,6 +142,78 @@ enum CommercialMassing {
             glazingBands(on: tower, into: &massing, random: &random)
         }
         crown(on: tower, tier: tier, seed: seed, into: &massing, random: &random)
+    }
+
+    /// **The spire: commerce's landmark, and the tallest thing in the game.**
+    ///
+    /// An ordinary tier-3 tower stands three to four and a half tile units.
+    /// This one reaches six to eight, and it gets there by being *thin* rather
+    /// than by being a bigger box — a shaft a third of its lot across, which
+    /// is a proportion nothing else here has. That is what makes it read as a
+    /// landmark from across the map rather than as a lucky roll on the height
+    /// range: at the zoom this game is played at you cannot compare two
+    /// heights side by side, but you can see at a glance that one silhouette
+    /// is a different *shape*.
+    ///
+    /// It keeps commerce's own vocabulary throughout — a glazed podium with a
+    /// shopfront, continuous bands wrapping the corner, a lit crown — because
+    /// a landmark that stopped looking like its zone would be a fourth zone.
+    /// What it adds is the one mark reserved for it: a mast standing clear of
+    /// the crown, lit at the tip.
+    private static func spire(
+        seed: GridPosition,
+        footprint: CGFloat,
+        into massing: inout BuildingMassing,
+        random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.06
+        let podium = Box(x: margin, y: margin, z: 0,
+                         width: footprint - margin * 2, depth: footprint - margin * 2,
+                         height: CGFloat(random.value(in: 0.42 ... 0.6)))
+        massing.add(.box(podium))
+        shopfront(on: podium, share: 0.18 ... 0.66, into: &massing)
+
+        // The shaft. Inset hard — this is the whole mark.
+        var inset = margin + CGFloat(random.value(in: 0.55 ... 0.72))
+        var z = podium.height
+        var shaft = Box(x: inset, y: inset, z: z,
+                        width: footprint - inset * 2, depth: footprint - inset * 2,
+                        height: CGFloat(random.value(in: 3.6 ... 4.8)))
+        massing.add(.box(shaft))
+        glazingBands(on: shaft, into: &massing, random: &random)
+        bladeSign(on: shaft, color: NeonStyle.signColor(for: seed), footprint: footprint,
+                  into: &massing, random: &random)
+
+        // Two or three short steps, each narrower than the last: the crowned
+        // setback, which is what turns a post into a spire.
+        for step in 0 ..< random.int(in: 2 ... 3) {
+            z = shaft.z + shaft.height
+            inset += CGFloat(random.value(in: 0.05 ... 0.09))
+            guard footprint - inset * 2 > 0.16 else { break }
+            shaft = Box(x: inset, y: inset, z: z,
+                        width: footprint - inset * 2, depth: footprint - inset * 2,
+                        height: CGFloat(random.value(in: 0.3 ... 0.5)))
+            massing.add(.box(shaft))
+            if step == 0 { glazingBands(on: shaft, into: &massing, random: &random) }
+        }
+
+        let top = shaft.z + shaft.height
+        // A lit collar under the mast, which is what stops the mast reading as
+        // a hair sticking out of a box — the same argument the balcony won
+        // over a railing: the shape has to carry the mark.
+        massing.add(.box(Box(x: shaft.x - 0.05, y: shaft.y - 0.05, z: top,
+                             width: shaft.width + 0.1, depth: shaft.depth + 0.1, height: 0.1)),
+                    .lit(NeonStyle.signColor(for: seed, salt: 5)))
+        let mastHeight = CGFloat(random.value(in: 0.9 ... 1.4))
+        massing.add(.cylinder(Cylinder(
+            x: shaft.x + shaft.width / 2, y: shaft.y + shaft.depth / 2, z: top + 0.1,
+            radius: 0.035, height: mastHeight, sides: 8
+        )))
+        // The tip. One lit volume, deliberately the highest thing in the city.
+        massing.add(.cylinder(Cylinder(
+            x: shaft.x + shaft.width / 2, y: shaft.y + shaft.depth / 2,
+            z: top + 0.1 + mastHeight, radius: 0.07, height: 0.12, sides: 8
+        )), .lit(NeonStyle.litAccent))
     }
 
     // MARK: - Parts

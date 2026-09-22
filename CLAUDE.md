@@ -6905,6 +6905,113 @@ xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
 open ./build/ContactSheet/enclosure.png
 ```
 
+## Phase 4: landmarks, so a skyline is about something
+
+Every building in this game is one idiom — dark faces, a neon edge, lit
+rectangles — so a density-5 tower was a taller density-3 tower and a built-out
+downtown was a bar chart. `ZoneMassing.isLandmark(tier:seed:)` is the exception
+each zone gets to make about itself, drawn for about **one top-tier lot in
+twelve**.
+
+**It is a property of the variant, not of the lot**, and that falls out of the
+cache rather than being arranged: `IsoTextureCache` quantises a lot's seed to
+one of thirty-two looks, so the roll happens against a canonical seed and three
+of the thirty-two come back true. A lot that is a landmark is one on every
+launch and every tick, for the same reason a lot's building does not reshuffle.
+
+**Rolled on its own stream, with its own salt.** The obvious place is a first
+roll inside each `make`, and that would shift every subsequent draw and
+silently redesign every ordinary building in the game — a change to
+nine-tenths of the city smuggled inside a feature about one-twelfth of it. A
+separate stream leaves everything that is not a landmark byte-identical, which
+is also what makes the contact sheet readable afterwards: the only cells that
+moved are the new ones.
+
+### One form per zone, from that zone's own vocabulary
+
+A landmark that stopped looking like its zone would be a fourth zone. Each of
+these keeps its own marks and adds the one thing reserved for it:
+
+| | form | tops out at | ordinary |
+|---|---|---|---|
+| commercial | **spire** — a shaft a third of its lot across, a crowned setback, a lit collar and a mast | 6.6 | 4.8 |
+| residential | **point block** — a wide two-storey podium under one slim shaft, balconies wrapping it all the way up | 4.5 | 2.9 |
+| industrial | **the works** — an ordinary hall with one stack three times the usual, on a plinth | 4.6 | 2.7 |
+
+**The silhouette is the point, not the height**, and that is why the commercial
+one is *thin*. At the zoom this game is played at you cannot compare two
+heights side by side, but you can see at a glance that one shape is
+proportioned unlike everything around it. `testALandmarkStandsClearOfItsZones‑
+OrdinaryTopTier` states it as a comparison against the zone's own tallest
+ordinary variant rather than as a number, so it survives a retune of either.
+
+**Industry deliberately does not grow a tower.** Its vocabulary is *wide and
+low* on purpose — the opposite ladder — and a tall industrial building stops
+reading as industry and starts reading as a badly-coloured office. A works that
+dominates a view does it with one enormous stack, which is infrastructure
+rather than floor space.
+
+And the stack had to be **slender**. The first version went to nearly double an
+ordinary chimney's radius, on the reasoning that a landmark should be bigger,
+and the render was unambiguous: a fat post is not a chimney. What makes a stack
+a stack is the ratio — this one is barely wider than the two slim ones on an
+ordinary works and three times as tall.
+
+### The two 3×3 civics were shorter than a block of flats
+
+Measured before touching them: the stadium topped out at **1.8** tile units and
+the power plant at **1.9**, against ordinary housing at 2.9 and an ordinary
+office at 4.8. So the most expensive buildings in the game, covering nine lots
+of ground each, stood shorter than the flats across the road. **Covering more
+ground is not dominating**, and that is the clearest case in the project of a
+mark not doing the job it was paid for.
+
+- The **power plant**'s cooling towers roughly doubled, and a stack stands
+  beside them — deliberately the same slender-and-very-tall language the
+  industrial landmark uses, because a player reading a skyline should not have
+  to learn two vocabularies for one idea. It reaches 5.0.
+- The **stadium** keeps a narrow eave over its stands and puts the height into
+  its floodlight masts, reaching 4.3.
+
+`testTheBigCivicsStandTallerThanOrdinaryHousing` states both against housing
+rather than against a number.
+
+### Three things the renders and the standing tests caught
+
+- **The sheet drew six ordinary buildings and nothing failed.** Asking the
+  cache for a landmark's *canonical seed* draws something else entirely,
+  because `rendered` quantises whatever seed it is handed and
+  `canonicalSeed(for:)` is not a fixed point of `variant(for:)`. The fix is to
+  walk **positions**, quantise each exactly as the cache will, and keep the
+  first whose variant is the kind wanted — which is also the only honest
+  instrument, since it is what the game does.
+- **The stadium roofed over its own lit pitch.** At an overhang of 0.3 on
+  stands raised to 1.9 it came back a solid block, and the lit field is the one
+  mark that makes a stadium findable while scanning a city. Same failure as the
+  airport's apron — *a volume that spans the lot paints over everything
+  standing in it* — and the same answer: the identity mark wins and the bulk
+  moves somewhere that costs nothing, which here is the masts.
+- **The enlarged floodlight head overhung the lot**, caught immediately by
+  `testMassingStaysInsideItsFootprint`. The old head cleared its corner by a
+  hundredth of a tile, which is the kind of margin that is not a decision; the
+  masts are inset by the head's own half-width now.
+
+### Looking at them
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/LandmarkTests
+
+open ./build/ContactSheet/landmarks.png
+```
+
+Each zone's landmark beside an ordinary top-tier building of the same zone, at
+one scale, over one ground line, with the two civics on the end. **The
+comparison has to be in one frame** — a landmark is defined entirely by
+contrast with what stands around it, so a sheet of landmarks on their own would
+be six nice buildings and no evidence.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

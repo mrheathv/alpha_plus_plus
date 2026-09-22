@@ -960,6 +960,20 @@ enum ServiceMassing {
     /// draws. Three stacked cylinders — wide base, narrow waist, flared crown —
     /// give the same read at this size for a third of the geometry, which is
     /// the same trade `Cylinder`'s ten sides make.
+    ///
+    /// **And it has to dominate, which it did not.** Measured before touching
+    /// it: the towers topped out at 1.9 tile units, against an ordinary
+    /// tier-3 block of flats at 2.9 and a tier-3 office at 4.8. So the
+    /// single most industrial thing a player can build — nine lots of ground,
+    /// the most expensive building in the game — stood shorter than the
+    /// housing around it, and read as a *bigger service building* rather than
+    /// as something a view is about. Covering more ground is not dominating.
+    ///
+    /// The towers are roughly twice as tall now, and a stack stands beside
+    /// them, which is the other half of what a power station's silhouette
+    /// actually is. It deliberately borrows `IndustrialMassing`'s landmark
+    /// language — slender, very tall, on a plinth — because a player reading a
+    /// skyline should not have to learn two vocabularies for the same idea.
     private static func powerPlant(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {
@@ -975,28 +989,56 @@ enum ServiceMassing {
 
         let towers = random.int(in: 1 ... 2)
         for index in 0 ..< towers {
-            let radius = CGFloat(random.value(in: 0.42 ... 0.56))
+            let radius = CGFloat(random.value(in: 0.44 ... 0.58))
             let x = towers == 1
                 ? footprint / 2
-                : footprint * (index == 0 ? 0.3 : 0.7)
+                : footprint * (index == 0 ? 0.28 : 0.72)
             let y = footprint * 0.26
-            let height = CGFloat(random.value(in: 1.3 ... 1.9))
+            let height = CGFloat(random.value(in: 2.8 ... 3.6))
             massing.add(.cylinder(Cylinder(x: x, y: y, z: 0, radius: radius, height: height * 0.45)))
             massing.add(.cylinder(Cylinder(x: x, y: y, z: height * 0.45,
                                            radius: radius * 0.72, height: height * 0.35)))
             massing.add(.cylinder(Cylinder(x: x, y: y, z: height * 0.8,
                                            radius: radius * 0.88, height: height * 0.2)))
         }
+
+        // The stack. Set behind the hall, up-screen, so it does not paint over
+        // the towers it stands among — a volume that spans a lot has no useful
+        // depth key, which this file already records against the airport's
+        // apron.
+        let stackRadius = CGFloat(random.value(in: 0.13 ... 0.16))
+        let stackX = footprint * (towers == 1 ? 0.78 : 0.5)
+        let plinth = Box(x: stackX - stackRadius * 1.9, y: footprint * 0.86 - stackRadius * 1.9,
+                         z: 0, width: stackRadius * 3.8, depth: stackRadius * 3.8,
+                         height: CGFloat(random.value(in: 0.26 ... 0.36)))
+        massing.add(.box(plinth))
+        massing.add(.cylinder(Cylinder(
+            x: stackX, y: footprint * 0.86, z: plinth.height,
+            radius: stackRadius, height: CGFloat(random.value(in: 4.2 ... 5.2))
+        )))
     }
 
     /// A bowl: four stands around a lit field, with floodlights at the corners.
+    ///
+    /// **A stadium dominates by mass and light rather than by height**, which
+    /// is what makes it a different answer from the power plant beside it in
+    /// this file — and the first version did neither. It topped out at 1.8
+    /// tile units, shorter than the flats across the road, so nine lots of
+    /// ground bought a low ring nobody could pick out.
+    ///
+    /// Three changes, and the roof is the one that matters: a cantilevered
+    /// canopy projecting *inward* over the stands is the silhouette every
+    /// stadium in the world has and nothing else in this game does. Taller
+    /// stands under it, and floodlight masts that clear the roof by half
+    /// again, so the four lit heads sit above everything around them — which
+    /// is what a floodlit ground looks like from across a city at night.
     private static func stadium(
         _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
     ) {
         let margin: CGFloat = 0.12
         let outer = footprint - margin * 2
         let stand = CGFloat(random.value(in: 0.5 ... 0.66))
-        let height = CGFloat(random.value(in: 0.8 ... 1.1))
+        let height = CGFloat(random.value(in: 1.1 ... 1.4))
 
         // Four stands forming a ring, rather than one block with a hole: a
         // hole is not something a box can have.
@@ -1013,13 +1055,48 @@ enum ServiceMassing {
                              width: outer - stand * 2, depth: outer - stand * 2, height: 0.06)),
                     .lit(NeonStyle.litAccent))
 
+        // The canopy: a thin ring standing on the stands and reaching a little
+        // way in over them. Four slabs rather than one, for the reason the
+        // stands are four — a box cannot have a hole in it.
+        //
+        // **A narrow eave, and the first version was a roof.** At an overhang
+        // of 0.3 on stands raised to 1.9 the render came back a solid block:
+        // the canopy had closed over the pitch, and the lit field is the one
+        // mark that makes a stadium findable while scanning a city. That is
+        // the airport's apron again — *a volume that spans the lot paints over
+        // everything standing in it* — and the answer is the same as it was
+        // for the runway: the identity mark wins, and the bulk goes somewhere
+        // it does not cost anything. Here that is the masts.
+        let overhang = CGFloat(random.value(in: 0.08 ... 0.14))
+        let roof: CGFloat = 0.12
+        let canopy = stand + overhang
+        for (x, y, w, d) in [
+            (margin, margin, outer, canopy),
+            (margin, footprint - margin - canopy, outer, canopy),
+            (margin, margin + canopy, canopy, outer - canopy * 2),
+            (footprint - margin - canopy, margin + canopy, canopy, outer - canopy * 2),
+        ] where w > 0 && d > 0 {
+            massing.add(.box(Box(x: x, y: y, z: height, width: w, depth: d, height: roof)))
+        }
+
+        // **Inset by the head's own half-width**, which
+        // `testMassingStaysInsideItsFootprint` caught the moment the head was
+        // enlarged: a mast standing exactly on the lot's corner hangs whatever
+        // sits on top of it over the neighbour. The old head was small enough
+        // to get away with it by a hundredth of a tile, which is the kind of
+        // margin that is not a decision.
+        let headHalf: CGFloat = 0.17
         for corner in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
-            let x = margin + CGFloat(corner.0) * outer
-            let y = margin + CGFloat(corner.1) * outer
-            massing.add(.cylinder(Cylinder(x: x, y: y, z: height, radius: 0.06,
-                                           height: CGFloat(random.value(in: 0.5 ... 0.72)))))
-            massing.add(.box(Box(x: x - 0.11, y: y - 0.11, z: height + 0.5,
-                                 width: 0.22, depth: 0.22, height: 0.1)),
+            let x = margin + headHalf + CGFloat(corner.0) * (outer - headHalf * 2)
+            let y = margin + headHalf + CGFloat(corner.1) * (outer - headHalf * 2)
+            let mast = CGFloat(random.value(in: 2.2 ... 2.8))
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: height + roof, radius: 0.06,
+                                           height: mast)))
+            // The lit head, sized to be seen from across the map rather than
+            // to be in proportion: this is the mark the whole building is
+            // recognised by when it is twenty points across.
+            massing.add(.box(Box(x: x - headHalf, y: y - headHalf, z: height + roof + mast,
+                                 width: headHalf * 2, depth: headHalf * 2, height: 0.16)),
                         .lit(NeonStyle.litAccent))
         }
     }

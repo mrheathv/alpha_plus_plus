@@ -27,6 +27,11 @@ enum ResidentialMassing {
         var random = BuildingRandom(seed: seed, salt: 100 + tier)
         var massing = BuildingMassing()
 
+        if ZoneMassing.isLandmark(tier: tier, seed: seed) {
+            pointBlock(tier: tier, seed: seed, footprint: footprint,
+                       into: &massing, random: &random)
+            return massing
+        }
         if tier == 1, random.chance(0.5) {
             houseRow(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
         } else {
@@ -136,6 +141,65 @@ enum ResidentialMassing {
 
         crown(atTop: z, inset: inset, footprint: footprint, tier: tier, into: &massing, random: &random)
         if let ground { entrance(on: ground, into: &massing, random: &random) }
+    }
+
+    /// **The point block: housing's landmark.**
+    ///
+    /// An ordinary tier-3 block stands about two and a half tile units and
+    /// steps *inward* as it rises, which is a pyramid — a shape that reads as
+    /// mass rather than as height. This one puts a wide two-storey podium on
+    /// the ground and stands one slim shaft on it, four to five units tall.
+    ///
+    /// **The silhouette is the point, not the height.** A tower block is a
+    /// real and specific thing — the slab on a plinth that every post-war city
+    /// has a few of — and it is unmistakable at any zoom because the base and
+    /// the shaft are such different widths. Commerce's landmark is a *spire*,
+    /// tapering to a mast; this one is deliberately blunt, and the two do not
+    /// get confused across a map.
+    ///
+    /// It carries housing's own marks the whole way up: punched window grids
+    /// rather than continuous bands, balconies wrapping the corner every few
+    /// storeys, and rooftop machinery where commerce puts a lit crown.
+    private static func pointBlock(
+        tier: Int,
+        seed: GridPosition,
+        footprint: CGFloat,
+        into massing: inout BuildingMassing,
+        random: inout BuildingRandom
+    ) {
+        // The podium: wide, low, and the thing the shaft gets its scale from.
+        let margin = CGFloat(random.value(in: 0.06 ... 0.12))
+        let podium = Box(x: margin, y: margin, z: 0,
+                         width: footprint - margin * 2, depth: footprint - margin * 2,
+                         height: CGFloat(random.value(in: 0.5 ... 0.7)))
+        massing.add(.box(podium))
+        windows(on: podium, rows: 2, columns: max(1, Int((podium.width / 0.55).rounded())),
+                chance: 0.7, salt: 0, into: &massing, random: &random)
+        entrance(on: podium, into: &massing, random: &random)
+
+        // The shaft. Half the lot across, which against the podium's full
+        // width is what carries the reading.
+        let inset = margin + CGFloat(random.value(in: 0.42 ... 0.58))
+        let height = CGFloat(random.value(in: 3.4 ... 4.4))
+        let shaft = Box(x: inset, y: inset, z: podium.height,
+                        width: footprint - inset * 2, depth: footprint - inset * 2,
+                        height: height)
+        massing.add(.box(shaft))
+        let rows = max(4, Int((height / 0.36).rounded()))
+        windows(on: shaft, rows: rows, columns: max(1, Int((shaft.width / 0.5).rounded())),
+                chance: 0.66, salt: 3, into: &massing, random: &random)
+
+        // Balconies every few storeys. The one residential mark that reads
+        // from its silhouette alone, and on a shaft this tall there is room
+        // for several without them becoming a stripe pattern.
+        var fraction = CGFloat(random.value(in: 0.18 ... 0.3))
+        while fraction < 0.9 {
+            balcony(on: shaft, at: fraction, into: &massing)
+            fraction += CGFloat(random.value(in: 0.2 ... 0.3))
+        }
+
+        crown(atTop: shaft.z + shaft.height, inset: inset, footprint: footprint,
+              tier: tier, into: &massing, random: &random)
     }
 
     // MARK: - Parts

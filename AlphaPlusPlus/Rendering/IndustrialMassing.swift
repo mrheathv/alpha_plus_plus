@@ -26,6 +26,11 @@ enum IndustrialMassing {
         var random = BuildingRandom(seed: seed, salt: tier)
         var massing = BuildingMassing()
 
+        if ZoneMassing.isLandmark(tier: tier, seed: seed) {
+            works(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
+            return massing
+        }
+
         let margin: CGFloat = 0.09
         let hasTanks = tier >= 2 && random.chance(tier >= 3 ? 0.85 : 0.45)
         let tankRadius = CGFloat(random.value(in: 0.24 ... 0.32))
@@ -88,6 +93,71 @@ enum IndustrialMassing {
             ))
         }
         return massing
+    }
+
+    /// **The works: industry's landmark, and the one that must not grow a
+    /// tower.**
+    ///
+    /// The other two zones answer this by standing up — a spire, a point
+    /// block. Industry cannot, and that is not a gap: this file's vocabulary
+    /// is deliberately *wide and low*, the opposite ladder, and a tall
+    /// industrial building would stop reading as industry and start reading as
+    /// a badly-coloured office. A factory that dominates a view in real life
+    /// does it with **one enormous stack**, which is infrastructure rather
+    /// than floor space.
+    ///
+    /// So this is an ordinary hall with a chimney three times the usual — four
+    /// to five tile units, against the 1.0 to 1.6 a tier-3 works gets — set on
+    /// the ground beside the hall rather than on its roof, so its whole length
+    /// is in the silhouette. Flanked by a pair of tanks, because a stack on
+    /// its own reads as a mast and a stack beside drums reads as a plant.
+    private static func works(
+        tier: Int,
+        seed: GridPosition,
+        footprint: CGFloat,
+        into massing: inout BuildingMassing,
+        random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.09
+        // **Slender, and the first version was not.** It went to nearly double
+        // an ordinary chimney's radius on the reasoning that a landmark should
+        // be bigger, and the render was unambiguous: a fat post stops reading
+        // as a chimney at all and starts reading as a badly-lit tower. What
+        // makes a stack a stack is the *ratio* — this one is barely wider than
+        // the two slim ones on an ordinary works and three times as tall.
+        let stackRadius = CGFloat(random.value(in: 0.13 ... 0.16))
+        // The hall gives up the width the stack and its drums stand in.
+        let reserved = stackRadius * 2 + 0.34
+        let hall = Box(x: margin, y: margin, z: 0,
+                       width: footprint - margin * 2 - reserved, depth: footprint - margin * 2,
+                       height: CGFloat(random.value(in: 0.7 ... 0.9)) + CGFloat(tier) * 0.1)
+        massing.add(.box(hall))
+        facade(on: hall, tier: tier, seed: seed, into: &massing, random: &random)
+        roof(on: hall, tier: tier, into: &massing, random: &random)
+
+        let stackX = hall.x + hall.width + 0.2 + stackRadius
+        // A squat plinth, wide enough to read as one, so the stack meets the
+        // ground as a structure does rather than as a pole pushed into it.
+        let plinth = Box(x: stackX - stackRadius * 1.9, y: footprint / 2 - stackRadius * 1.9,
+                         z: 0, width: stackRadius * 3.8, depth: stackRadius * 3.8,
+                         height: CGFloat(random.value(in: 0.24 ... 0.34)))
+        massing.add(.box(plinth))
+        massing.add(.cylinder(Cylinder(
+            x: stackX, y: footprint / 2, z: plinth.height,
+            radius: stackRadius, height: CGFloat(random.value(in: 4.2 ... 5.2))
+        )))
+
+        // Drums beside the hall, where an ordinary works puts them, rather
+        // than flanking the stack — the render showed them disappearing
+        // behind it, and a landmark whose supporting marks are hidden is one
+        // mark on an otherwise emptied lot.
+        let drumRadius = CGFloat(random.value(in: 0.2 ... 0.26))
+        for index in 0 ..< 2 {
+            let y = footprint / 2 + (index == 0 ? -1 : 1) * drumRadius * 1.2
+            guard y > margin + drumRadius, y < footprint - margin - drumRadius else { continue }
+            tank(at: CGPoint(x: stackX - stackRadius - 0.1 - drumRadius, y: y),
+                 radius: drumRadius, into: &massing, random: &random)
+        }
     }
 
     // MARK: - Parts
