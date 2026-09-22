@@ -347,10 +347,20 @@ enum MusicLibrary {
         drumLevel: 0.75
     )
 
-    /// It is raining. Over whatever else is happening.
-    static let rainfall = Track(
-        name: "rainfall",
-        intent: "Weather. Plays while it rains, whichever state the city is in.",
+    /// The city is stopped, and the player is thinking.
+    ///
+    /// **Written for rain and renamed once rain turned out not to work.**
+    /// `MusicDirector` records the measurement: the weather clock's longest
+    /// spell is ten days, twenty seconds of play, which is shorter than one
+    /// loop of this. A track nothing can trigger is not a track, so it went
+    /// to the one state that lasts exactly as long as somebody wants it to.
+    ///
+    /// It suits the job better than the one it was written for. No drums, a
+    /// held bass and chords that drift rather than move — a city holding
+    /// still is what this already sounded like.
+    static let standby = Track(
+        name: "standby",
+        intent: "Paused. The city holding still while the player decides what to do to it.",
         beatsPerMinute: 72,
         bars: 8,
         // D minor with add-nines, one flat away from the rest of the library.
@@ -363,12 +373,13 @@ enum MusicLibrary {
         ],
         bassRoots: [38, 34, 29, 36, 38, 34, 29, 36],
         melody: [],
-        // The plucked arpeggio is the rain: a six-note shape over a four-note
+        // The plucked arpeggio was written as rain and still reads as it: a
+        // six-note shape over a four-note
         // chord, so it takes twelve steps to come back round and never lands
         // on the beat the same way twice.
         arpeggio: .init(shape: [0, 3, 2, 3, 1, 3], octave: 2, level: 0.09, timbre: .pluck),
-        // No drums at all. This is the one track that is mostly weather, and
-        // a kick under it would turn rain into a beat.
+        // No drums at all — the only track in the library with none. A kick
+        // under a stopped city would be a pulse on something with no pulse.
         drums: .none,
         bassPattern: .held,
         padCutoff: 2_000,
@@ -408,6 +419,6 @@ enum MusicLibrary {
     )
 
     /// What plays under a city, in no particular order.
-    static let gameplay = [firstLight, neonGrid, smallHours, overdrive, vacancy, rainfall]
+    static let gameplay = [firstLight, neonGrid, smallHours, overdrive, vacancy, standby]
     static let all = [theme] + gameplay
 }
