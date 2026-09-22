@@ -2202,12 +2202,40 @@ final class GameScene: SKScene {
                                 occludedBy: occlusion(at: anchor))
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor,
-                                     keepingRoads: paint.showsRoads)
+                                     keepingRoads: paint.showsRoads,
+                                     keepingUtilityBadges: paint.showsUtilityBadges)
                 // The Traffic view is a heatmap *of the streets*, so the
                 // streets stay drawn — and a road laid while it is up appears
                 // straight away rather than looking like a click that did
                 // nothing.
                 if paint.showsRoads { syncLaneLine(at: anchor) }
+
+                // **The badge comes back in the utility views, and it is an
+                // accessibility fix rather than a tidy-up.**
+                //
+                // It used to be suppressed here, on the reasoning that "the
+                // Water/Power overlays already have their own, bigger signal
+                // for this — the whole lot's colour — so a badge on top would
+                // be redundant." `ColourAccessibilityTests` measured that
+                // claim and it is false for Power: supplied amber and
+                // wanting red are 0.516 apart to an unimpaired eye and
+                // **0.060 apart under deuteranopia**. They are the same
+                // colour, and the colour was the only thing saying which was
+                // which.
+                //
+                // Searching for a third hue found none — only near-white
+                // clears water's blue, power's amber and the unlit tone for
+                // every deficiency, because this palette already spans what a
+                // dichromat can see. So the answer is the one this file
+                // predicted: a second channel. The drop and the bolt are
+                // glyphs, and a glyph does not care what anybody's cones do.
+                if paint.showsUtilityBadges {
+                    tileRenderer.syncUtilityWarning(
+                        on: node, tile: tile,
+                        hasWaterSupply: Water.hasSupply(at: anchor, in: map),
+                        hasPowerSupply: PowerGrid.hasSupply(at: anchor, in: map)
+                    )
+                }
             }
             // The buried layers stay here: they are drawn *on top of* the
             // overlay rather than being part of it, and they read `hasPipe` /

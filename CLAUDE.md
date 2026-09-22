@@ -7204,6 +7204,105 @@ as a claim that measured false, which is what this file asks for: **"it will
 also be faster" is a claim, not a bonus** — for the second time, and this time
 the claim was in this file.
 
+## Shipping: the product gap, and the first thing measured in it
+
+An assessment of how far this is from a Steam release found the simulation
+essentially done and the product around it about a third built. The full
+write-up is the "The Product Gap" artifact; the short version is that the
+remaining work is audio, settings, onboarding, goals, brand and platform
+integration, and **none of it is simulation work**.
+
+Two findings from that pass belong here because they are facts about the
+repository rather than opinions about the plan:
+
+- **The game is silent, and the soundtrack is finished.** `Audio/` holds a
+  band-limited synthesiser, a score, a mixer and tests that catch clipping,
+  silence, DC offset and wrong pitch, and it renders a playable WAV. `App/`,
+  `Rendering/` and `Simulation/` reference **none of it**. The music has never
+  played.
+- **No picture anywhere shows the chrome over the city.** `ImageRenderer`
+  cannot draw the hosted `SKView`, so the live-view render draws the map as a
+  placeholder rectangle; every city render is taken with no cockpit. Whether
+  the inspector covers something important, or the tool rail stays readable
+  over a bright district, is unanswerable from anything in this repository —
+  and the last five passes made the city considerably brighter underneath a UI
+  tuned against the old one.
+
+### Colour vision: the one meaning that was carried by hue alone
+
+This project has twice written down that **a mark whose only channel is hue
+vanishes on anything sharing the hue** — once when an ember-coloured fire
+turned out to be invisible on an already-orange factory, and once when a
+utility badge told water from power by hue alone. Colour vision deficiency is
+that rule applied to the player rather than to the background, and the utility
+overlay already recorded the suspicion: *"water's blue-against-red is
+unmistakable, power's amber-against-red less so. If it bites, the answer is a
+second channel rather than a third hue."*
+
+`ColourAccessibilityTests` measures it — every pair of colours in the game that
+means two different things, put through the Brettel/Viénot matrices. **One pair
+collapses, and it is exactly the suspected one:**
+
+| view | meanings | normal | deuter | protan | tritan |
+|---|---|---|---|---|---|
+| Water | supplied / wants water | 1.082 | 0.808 | 0.668 | 1.031 |
+| **Power** | **supplied / wants power** | **0.516** | **0.060** | **0.112** | 0.203 |
+| Zones | commercial / industrial | 0.460 | 0.409 | 0.430 | 0.334 |
+
+To a deuteranope a powered building and one screaming for power are **the same
+colour**, and the colour was the only thing saying which was which. Everything
+else clears comfortably — including zone identity, which is helped by the
+massing port giving each zone a silhouette vocabulary that survives greyscale.
+
+**And there is no third hue.** A search over the colour cube for an alarm that
+separates from water's blue, power's amber *and* the unlit tone under all three
+deficiencies returns only near-white: this palette already spans what a
+dichromat can see. That is the measurement that makes the second channel the
+answer rather than a preference.
+
+So the drop-and-bolt badge is drawn in the Water and Power overlays now. It was
+suppressed there on the reasoning that "the overlays already have their own,
+bigger signal for this — the whole lot's colour — so a badge on top would be
+redundant", and that reasoning has now been measured and is false for Power. A
+glyph does not care what anybody's cones do.
+
+**The guard is two-sided**, and deliberately not "no two colours may be close":
+the rule is that a pair of meanings may share a colour *only if something else
+tells them apart*. `testTheOnlyMeaningsSharingAColourAreTheOnesCarryingAGlyph`
+pins the exact set, so a new collapse fails it and fixing this one in colour
+also fails it, asking for the list to be rewritten rather than quietly widened.
+A colour comparison cannot see a glyph, so the other half is asserted on a real
+scene.
+
+One fixture lesson, and it is the oldest one here: the first version of that
+scene test gave the *served* block no water, so it wore a badge anyway — for the
+drop rather than the bolt — and the test failed on a working fix. The badge
+reports whichever utility is missing, so a fixture missing a second one cannot
+say anything about the first.
+
+#### And `ScenePlaytest` caught the fix, which is what it is for
+
+Sixteen failures, all of them "the picture stopped agreeing with the city"
+under a utility view. `applyOverlay` removes every node in
+`overlayDisturbedNodes` and the badge is one of them — but it does **not**
+clear that node's cache key. So the badge survived the first build, was
+removed on the next refresh, and then skipped as up-to-date forever. A freshly
+built scene had it and an incrementally-updated one did not, which is exactly
+the disagreement `SceneAgreement` exists to find and precisely the stale-key
+shape this file already records for overlays.
+
+The fix uses the seam that was already there. `OverlayMode.showsRoadNetwork`
+exists because the Traffic view is a heatmap *of the streets* and has to keep
+them; `showsUtilityBadges` is the same idea, and it rides on `OverlayPaint` for
+the same recorded reason — the last time a decision like this lived at each
+call site, three heatmaps silently painted nothing while the render reported
+they were fine.
+
+One difference worth keeping. `showsRoads` is set inside the case that wants
+it, and got away with that because exactly one view does. A **second** such
+flag set the same way is the shape that goes stale, so `paint` now sets it once
+from the mode and the per-case builder became `basePaint`.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

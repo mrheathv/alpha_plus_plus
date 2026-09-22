@@ -606,6 +606,11 @@ struct IsoTileRenderer {
         /// the render cheerfully reported they were fine.
         var showsRoads = false
 
+        /// Whether a building that wants a utility keeps its warning badge —
+        /// see `OverlayMode.showsUtilityBadges`. On the paint for the same
+        /// reason `showsRoads` is.
+        var showsUtilityBadges = false
+
         init(buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil) {
             self.buildings = buildings
             self.color = color
@@ -630,6 +635,22 @@ struct IsoTileRenderer {
     /// one — the normal view rebuilds its decorations rather than replacing
     /// them, so it has no paint to describe.
     static func paint(
+        for mode: OverlayMode, at position: GridPosition, in map: CityMap,
+        using distances: ZoneDistanceField?, transit: TransitCoverage? = nil
+    ) -> OverlayPaint? {
+        // **The badge flag is set here, once, from the mode** — rather than in
+        // whichever cases below happen to want it. `showsRoads` is set inside
+        // a case and got away with it because exactly one view needs it; a
+        // second such flag set the same way is the shape that goes stale, and
+        // this file already records three heatmaps silently painting nothing
+        // because one decision lived in two places.
+        guard var paint = basePaint(for: mode, at: position, in: map,
+                                    using: distances, transit: transit) else { return nil }
+        paint.showsUtilityBadges = mode.showsUtilityBadges
+        return paint
+    }
+
+    private static func basePaint(
         for mode: OverlayMode,
         at position: GridPosition,
         in map: CityMap,
@@ -838,11 +859,12 @@ struct IsoTileRenderer {
     /// anything.
     func applyOverlay(
         on node: SKNode, buildings: OverlayBuildings, color: SKColor, buildingColor: SKColor? = nil,
-        keepingRoads: Bool = false
+        keepingRoads: Bool = false, keepingUtilityBadges: Bool = false
     ) {
         for name in Self.overlayDisturbedNodes
         where name != Self.buildingNodeName && name != Self.glowNodeName
-            && !(keepingRoads && name == Self.laneNodeName) {
+            && !(keepingRoads && name == Self.laneNodeName)
+            && !(keepingUtilityBadges && name == Self.warningNodeName) {
             node.childNode(withName: name)?.removeFromParent()
         }
 
@@ -971,6 +993,10 @@ struct IsoTileRenderer {
     // MARK: - Markers
 
     private static let warningNodeName = "isoWarning"
+
+    /// For the accessibility test, which has to check the glyph a colour
+    /// comparison cannot see.
+    static var warningNodeNameForTesting: String { warningNodeName }
     private static let damageNodeName = "isoDamage"
     /// Not private, for the same reason `buildingNodeName` is not: a test has
     /// to be able to ask whether a lot is showing a scaffold.

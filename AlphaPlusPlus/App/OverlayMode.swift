@@ -92,6 +92,26 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     /// picture and the city on top is clutter. Traffic is the exception: the
     /// thing being measured is the streets, and a congestion map you cannot
     /// see the streets in measures nothing you can act on.
+    /// Whether a building that wants a utility and has not got it keeps its
+    /// warning badge.
+    ///
+    /// **Only the two utility views, and it is an accessibility rule rather
+    /// than a preference.** `ColourAccessibilityTests` measures every pair of
+    /// colours in this game that means two different things: supplied amber
+    /// and wanting red sit 0.516 apart to an unimpaired eye and **0.060
+    /// apart under deuteranopia**. They are the same colour, and in the Power
+    /// view the colour was the only thing saying which was which. A search
+    /// for a third hue found none — only near-white clears water's blue,
+    /// power's amber and the unlit tone for every deficiency — so the answer
+    /// is the second channel this file predicted, and a glyph is one.
+    ///
+    /// Every other view leaves the badge off: a heatmap's subject is the
+    /// data, and a drop over every unwatered block on the pollution map is
+    /// the clutter the overlay exists to remove.
+    var showsUtilityBadges: Bool {
+        self == .water || self == .power
+    }
+
     var showsRoadNetwork: Bool {
         self == .none || self == .traffic
     }
