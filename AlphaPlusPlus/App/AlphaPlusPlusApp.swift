@@ -81,17 +81,14 @@ struct AlphaPlusPlusApp: App {
 
                 Divider()
 
-                // The one art decision that cannot be settled by looking at a
-                // render: how a look *feels* while you are playing in it. See
-                // `VisualStyle`.
-                Picker("Visuals", selection: Binding(
-                    get: { document.controller.visualStyle },
-                    set: { document.controller.visualStyle = $0 }
-                )) {
-                    ForEach(VisualStyle.allCases) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
+                // **The Visuals picker moved into Settings**, and this is the
+                // menu route to it rather than a second copy of the control.
+                // The picker was here because there was nowhere else for it;
+                // now there is, and a setting reachable two ways is fine
+                // while a *control* existing twice is the thing this project
+                // keeps having to go back and delete.
+                Button("Settings…") { document.controller.isShowingSettingsPanel = true }
+                    .keyboardShortcut(",", modifiers: .command)
 
                 Divider()
 

@@ -33,6 +33,12 @@ import SpriteKit
 /// feature that follows; this holds two sets of **numbers**, which is cheap,
 /// and is expected to collapse to one once the question is answered.
 enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
+
+    /// Whether ambient motion is suppressed. See
+    /// `GameController.reduceMotion`, which owns it — this is the copy the
+    /// renderer's free functions read, and nothing else assigns it.
+    nonisolated(unsafe) static var reduceMotion = false
+
     /// What the game looked like before the value pass.
     case classic
     /// Graded: the pavement recedes and the buildings carry the light.
@@ -44,6 +50,18 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .classic: return "Classic"
         case .cinematic: return "Cinematic"
+        }
+    }
+
+    /// One line saying what the choice actually does, because a picker with
+    /// two invented words on it is not a choice anybody can make.
+    var summary: String {
+        switch self {
+        case .classic:
+            return "Flat, unbloomed and ungraded — every light drawn at full strength."
+        case .cinematic:
+            return "Bloom in the frame, the blacks lifted toward the sunset, and film grain "
+                + "on top. The pavement recedes and the buildings carry the light."
         }
     }
 

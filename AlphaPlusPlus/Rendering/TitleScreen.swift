@@ -28,6 +28,18 @@ struct TitleScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RetroUITheme.background)
+        // **The sheet has to be attached here too.** `GameView` presents it
+        // for the cockpit's button, and the title screen is a different view
+        // entirely — so without this the button sets a flag nobody reads and
+        // is exactly the dead control this project keeps writing down.
+        .sheet(isPresented: Binding(
+            get: { document.controller.isShowingSettingsPanel },
+            set: { document.controller.isShowingSettingsPanel = $0 }
+        )) {
+            SettingsPanel(controller: document.controller) {
+                document.controller.isShowingSettingsPanel = false
+            }
+        }
     }
 
     // MARK: - The poster
@@ -189,6 +201,8 @@ struct TitleScreen: View {
             }
             .buttonStyle(RetroButtonStyle(accent: RetroUITheme.primaryAccent))
 
+            Button("Settings…") { document.controller.isShowingSettingsPanel = true }
+                .buttonStyle(RetroButtonStyle(accent: RetroUITheme.textSecondary))
             Button("Open City…") {
                 document.open()
                 start()

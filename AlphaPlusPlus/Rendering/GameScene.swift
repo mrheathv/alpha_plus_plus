@@ -2701,7 +2701,10 @@ final class GameScene: SKScene {
         // an area several times the screen and the first render came back with
         // about four visible drops. The view is simply the scene's size.
         let view = size
-        guard rainfall > 0, VisualStyle.current.wetReflection > 0 else {
+        // Reduced motion takes the falling drops and leaves the wet street:
+        // one of those is movement and the other is a surface.
+        guard rainfall > 0, !VisualStyle.reduceMotion,
+              VisualStyle.current.wetReflection > 0 else {
             rainNode?.removeFromParent()
             rainNode = nil
             return wetnessChanged

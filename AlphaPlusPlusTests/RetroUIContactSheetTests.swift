@@ -83,6 +83,29 @@ final class RetroUIContactSheetTests: XCTestCase {
     /// columns, and phase 6 just added three funding rows to it. A layout that
     /// splits by hand and grows by hand is exactly the layout that quietly
     /// stops fitting.
+    /// **A panel without a render ships bugs**, and this project has the
+    /// receipts: City Hall shipped two — a `ScrollView` that blanked the whole
+    /// body, and a native `Toggle` that was the one control whose state was
+    /// the point and the one control nobody could see — during the pass when
+    /// it had no picture. `NewCityPanel` was given one from the start and it
+    /// earned itself twice in the first minute.
+    ///
+    /// Both states of the motion toggle, because a chip that looks identical
+    /// selected and unselected is exactly the failure the ordinance chips
+    /// replaced a `Toggle` to avoid.
+    func testRenderSettingsPanel() throws {
+        let off = GameController()
+        try render(name: "retro-settings", content:
+            SettingsPanel(controller: off, dismiss: {}))
+
+        let on = GameController()
+        on.reduceMotion = true
+        on.visualStyle = .classic
+        defer { on.reduceMotion = false; on.visualStyle = .cinematic }
+        try render(name: "retro-settings-reduced", content:
+            SettingsPanel(controller: on, dismiss: {}))
+    }
+
     func testRenderCityPanel() throws {
         let controller = GameController()
         controller.setFundingLevel(0.5, for: .road)

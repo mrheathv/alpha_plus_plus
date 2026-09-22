@@ -131,6 +131,9 @@ struct GameView: View {
         .sheet(isPresented: $controller.isShowingNewCityPanel) {
             NewCityPanel(controller: controller) { controller.isShowingNewCityPanel = false }
         }
+        .sheet(isPresented: $controller.isShowingSettingsPanel) {
+            SettingsPanel(controller: controller) { controller.isShowingSettingsPanel = false }
+        }
         .sheet(isPresented: $controller.isShowingCityPanel) {
             CityPanel(controller: controller) { controller.isShowingCityPanel = false }
         }
@@ -666,6 +669,9 @@ struct GameView: View {
             // Reachable without the menu bar, for the same reason.
             Button("City Hall…") { controller.isShowingCityPanel = true }
                 .buttonStyle(RetroButtonStyle(accent: RetroUITheme.secondaryAccent))
+
+            Button("Settings…") { controller.isShowingSettingsPanel = true }
+                .buttonStyle(RetroButtonStyle(accent: RetroUITheme.textSecondary))
         }
     }
 

@@ -331,7 +331,7 @@ struct IsoTileRenderer {
     /// watched: a map of lights visibly throbbing is a screensaver, not a
     /// city.
     private func breathe(_ light: SKSpriteNode, tile: Tile) {
-        guard tile.zone.maxDensity > 0 else { return }
+        guard tile.zone.maxDensity > 0, !VisualStyle.reduceMotion else { return }
         var random = BuildingRandom(seed: tile.position, salt: 91)
         let isSign = tile.zone == .commercial
         let period = Double(random.value(in: isSign ? 1.1 ... 1.9 : 2.6 ... 4.2))
@@ -357,6 +357,7 @@ struct IsoTileRenderer {
     /// visibly is one.
     private func syncSmoke(on node: SKNode, tile: Tile) {
         let show = tile.zone == .industrial && tile.density > 0 && !tile.isBurning
+            && !VisualStyle.reduceMotion
         let key = show ? "\(tile.density)" : "none"
         guard !isUpToDate(node, Self.smokeNodeName, key) else { return }
         markUpToDate(node, Self.smokeNodeName, key)

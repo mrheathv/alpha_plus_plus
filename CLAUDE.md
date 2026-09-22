@@ -7303,6 +7303,47 @@ it, and got away with that because exactly one view does. A **second** such
 flag set the same way is the shape that goes stale, so `paint` now sets it once
 from the mode and the per-case builder became `basePaint`.
 
+### Settings, and one control deliberately absent
+
+There was no settings panel at all. The single thing a player could change
+about how the game looks lived in a menu, and nothing about motion or the
+keyboard was reachable or even written down on screen.
+
+`SettingsPanel` holds three things, reachable three ways — the title screen,
+`⌘,` in the menu, and a button on the tool rail — because a player looks for
+settings before they have a city about as often as after.
+
+- **Visuals.** The Classic/Cinematic picker moved here out of the menu. Moved
+  rather than duplicated: a setting reachable two ways is fine, a *control*
+  existing twice is the thing this project keeps going back to delete. Each
+  option now carries a line saying what it does, because a picker with two
+  invented words on it is not a choice anybody can make.
+- **Reduce motion.** Ambient motion off, information-carrying motion left
+  alone — the rain, the factory smoke and the slow swell in a building's
+  contact light stop; traffic, the vehicles on a line, an engine running to a
+  fire and the flame itself do not. The line is what a mark is *for*, not how
+  much it moves, and a setting that quietly stopped telling a player where the
+  fire is would be a worse accessibility failure than the one it fixes.
+- **The keyboard**, read off `KeyboardControls.reference` rather than retyped
+  in the view — the same reason the toolbar renders `ToolCategory.entries`.
+
+**And no volume control**, which is the deliberate part. There is no audio in
+the app yet, and a slider that moved nothing would be precisely the failure
+this file records twice — `SKAction.colorize` on a plain node, and an overlay
+tint cast to a type the ground had stopped being. Both compiled. Both did
+nothing. Neither failed a test, because what was asserted was that the call had
+been made. The volume arrives with the sound, in one change, or not at all.
+
+`SettingsTests` asserts the *result* rather than the call: a fixture with a
+smoking factory and a pulsing light, and the marks counted before and after.
+It also pins that the controller's copy and the renderer's static move
+together and that setting a value it already has does not redraw the city.
+
+`reduceMotion` reuses `restyleRequests`, which purges every cached texture to
+change three node-level animations. Knowingly heavier than needed: it is a rare
+action, and given the two failures above, guaranteed-correct beat proportionate.
+
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

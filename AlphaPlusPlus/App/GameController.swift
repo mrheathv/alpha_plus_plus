@@ -117,6 +117,12 @@ final class GameController: ObservableObject {
     /// screen), so the sheet needs one owner.
     @Published var isShowingNewCityPanel = false
 
+    /// Whether the settings panel is open. Same reasoning again, and this one
+    /// has three ways in: the title screen, the Simulation menu and the tool
+    /// rail — a player looks for settings before they have a city as often as
+    /// after.
+    @Published var isShowingSettingsPanel = false
+
     /// Is there a city here already, or just the empty map every launch
     /// starts on?
     ///
@@ -275,6 +281,33 @@ final class GameController: ObservableObject {
         didSet {
             guard visualStyle != oldValue else { return }
             VisualStyle.current = visualStyle
+            restyleRequests += 1
+        }
+    }
+
+    /// **Ambient motion off, information-carrying motion left alone.**
+    ///
+    /// The line is what a mark is *for*, not how much it moves. Rain, factory
+    /// smoke and the slow swell in a building's contact light are atmosphere:
+    /// they say nothing a player acts on, and they are the ones that make a
+    /// screen tiring to sit in front of. Traffic, the vehicles on a line, an
+    /// engine running to a fire and the flame itself all stay, because every
+    /// one of them is the simulation reporting something — and a setting that
+    /// quietly stopped telling a player where the fire is would be a worse
+    /// accessibility failure than the one it set out to fix.
+    ///
+    /// Mirrored into a static for the same reason `visualStyle` is: SwiftUI
+    /// binds to the property, the renderer's free functions read the static,
+    /// and this setter is the only writer of both.
+    @Published var reduceMotion: Bool = VisualStyle.reduceMotion {
+        didSet {
+            guard reduceMotion != oldValue else { return }
+            VisualStyle.reduceMotion = reduceMotion
+            // Heavier than it needs to be — this purges every cached texture
+            // to change three node-level animations — and taken deliberately.
+            // It is a rare action, and this project has twice shipped a
+            // control that compiled and changed nothing on screen. Guaranteed
+            // correct beats proportionate here.
             restyleRequests += 1
         }
     }
