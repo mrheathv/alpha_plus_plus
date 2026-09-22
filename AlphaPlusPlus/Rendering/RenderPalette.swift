@@ -81,6 +81,20 @@ enum RenderPalette {
     /// asphalt, not the orange target the first additive pass produced.
     static let streetLampPool = SKColor(srgbRed: 0.035, green: 0.019, blue: 0.006, alpha: 1.0)
 
+    /// Unbuilt ground is not one colour. These are the two directions it
+    /// varies in — a little dust catching what light there is, and a little
+    /// scrub swallowing it.
+    ///
+    /// Both are tiny on purpose. This is the surface that tiles the map, so
+    /// whatever is drawn on it is drawn forty times at once in the same
+    /// frame; anything strong enough to identify as a mark becomes a pattern
+    /// rather than a texture. `IsoTextureCache.addScrub` says the rest.
+    static let scrubPale = SKColor(srgbRed: 0.016, green: 0.008, blue: 0.020, alpha: 1.0)
+
+    /// Alpha-blended rather than added, so it takes light away where the pale
+    /// patches put it back.
+    static let scrubDark = SKColor(srgbRed: 0.055, green: 0.018, blue: 0.125, alpha: 0.22)
+
     /// The line where the footway meets the carriageway.
     ///
     /// Only the inner edge gets one. The outer edge is where the lot begins,

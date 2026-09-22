@@ -6726,6 +6726,68 @@ this surface now pass through several blend modes into one rasterised sprite,
 which is more ways for a colour to silently not arrive, not fewer, and this
 project has shipped that failure twice.
 
+### Bare land, and the one surface whose failure mode is repetition
+
+The last item in the phase, and the only one where a single tile cannot be
+judged. Every other mark on the ground is a fact about *this* tile — a kerb is
+about its neighbours, a lamp is about its footway — so it is reviewed one tile
+at a time. Bare land is the field: there is exactly one `.empty` ground
+texture, so whatever is drawn on it is drawn **identically on every unbuilt
+tile in the city**, and a mark that reads beautifully alone becomes a regular
+grid of itself the moment there are forty of them.
+
+So `testRenderBareLand` writes `bare-land.png` — a 6×6 block at the resting
+camera, deliberately not one tile and deliberately not magnified, because the
+question is whether the field has texture or whether it has a pattern.
+
+It answered on the first look, and the answer was not what the phase had set
+out to fix: **the tile outline was the loudest mark on the surface.** A field
+of them came back as graph paper, and no amount of texture inside a tile was
+going to help while a pale line was drawn round every one.
+
+Two corrections, and the first one is the transferable part:
+
+- **Dimming the line does not work; removing it does.** The obvious fix was to
+  draw bare land's edge fainter, and it left the grid intact — because the
+  line is drawn from `RenderPalette.ground` and the fill from the zone, so a
+  dimmer line is still a *different colour* from what it encloses. Forty of
+  them are still a grid, just a quieter one. Stroking in the fill colour
+  removes the mark rather than turning it down, and widens each tile into its
+  own 0.02 inset, which narrows the dark seam between neighbours to well under
+  a point. Unbuilt ground is not parcelled anyway: the grid a player needs is
+  the placement cursor's, and a zoned lot already draws a surveyed outline of
+  its own.
+- **Bare land picks a look from its own position.** Eight variants, mixed
+  through the same `variant(for:)` that stops neighbouring lots marching
+  through the building variants in step. Only `.empty` does this — handing a
+  lot eight identical grounds is exactly the churn `syncGround`'s comment
+  already records, and the key has to describe the picture.
+
+The marks themselves are five soft patches of lighter and darker earth, and
+they are **large and almost valueless**, which is the opposite of the instinct.
+Fine detail on a surface the eye is shown forty copies of at once is the moiré
+quilt the backdrop already ran into. Two further corrections came off the
+render:
+
+- **Square patches read as a chequer** — forty little diamonds all the same
+  shape, which is a pattern wearing texture's clothes. Sizing each axis on its
+  own roll is the whole fix.
+- **A single quad has a hard border**, and a hard border turns a patch of
+  ground into a drawn mark. Each patch is four nested quads, the same way the
+  lamp's pool is eight — a shape node has no falloff, so the only way to get
+  one is to stack.
+
+Patches stay inside the diamond, which costs the field a little and is not
+negotiable: one overhanging the edge would grow the node's accumulated frame,
+and a sprite's size comes from that — the bug the pavement shipped, where a
+kerbed tile rendered 64 points wide against an uninterrupted one's 62.8.
+
+Still zero shape nodes in the scene, which is the property the whole approach
+rests on. Bare land is the most numerous tile on an unbuilt map, so a mark that
+cost it a node would be the single most expensive thing on screen — eight
+textures instead, against 353 tiles on Apex and a few thousand on a map nobody
+has built on yet.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

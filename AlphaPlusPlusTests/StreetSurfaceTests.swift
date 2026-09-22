@@ -238,4 +238,75 @@ final class StreetSurfaceTests: XCTestCase {
         print("wrote \(url.path) — \(subjects.map(\.0).joined(separator: ", ")), "
               + "at rest and at 4×")
     }
+
+    /// **Bare land, photographed as a field rather than as a tile.**
+    ///
+    /// The last surface in the game with no pass on it, and the one whose
+    /// failure mode nothing else here can show. Every other mark on the ground
+    /// is judged one tile at a time, because a kerb is a fact about *this*
+    /// tile. Bare land is the opposite: there is exactly one `.empty` texture
+    /// for the whole map, so anything drawn on it is drawn identically on
+    /// every unbuilt tile in the city — and a mark that reads beautifully
+    /// alone becomes a regular grid of itself the moment there are forty of
+    /// them.
+    ///
+    /// That is the quilt the backdrop already ran into, recorded as *"at the
+    /// zoom a player plans at, a margin of one-tile diamonds collapses into a
+    /// moiré quilt that fights the city"*. So this render lays a block of
+    /// tiles rather than one, and the question it asks is whether the field
+    /// has texture or whether it has a pattern.
+    func testRenderBareLand() throws {
+        let projection = Isometric(tileWidth: 64)
+        let renderer = IsoTileRenderer(projection: projection)
+        let view = SKView()
+        let span = 6
+
+        let field = SKNode()
+        for x in 0 ..< span {
+            for y in 0 ..< span {
+                let position = GridPosition(x: x, y: y)
+                let node = renderer.makeNode(for: Tile(position: position, zone: .empty,
+                                                       density: 0))
+                field.addChild(node)
+            }
+        }
+        // **Still no shape nodes**, which is the property the whole approach
+        // rests on: bare land is the most numerous tile on an unbuilt map, so
+        // a mark that cost it a node would be the single most expensive thing
+        // in the scene. Eight textures against 353 tiles on Apex, and against
+        // a few thousand on a map nobody has built on yet.
+        var shapes = 0
+        field.enumerateChildNodes(withName: "//*") { node, _ in
+            if node is SKShapeNode { shapes += 1 }
+        }
+        XCTAssertEqual(shapes, 0, "scrub arrived as shape nodes, which do not batch")
+
+        // Framed at the resting camera, because a field is a thing you look
+        // at while planning rather than while standing in it.
+        let frame = field.calculateAccumulatedFrame()
+        let size = CGSize(width: ceil(frame.width) + 24, height: ceil(frame.height) + 24)
+        field.position = CGPoint(x: -frame.minX + 12, y: -frame.minY + 12)
+
+        let scene = SKScene(size: size)
+        scene.backgroundColor = SKColor(white: 0.02, alpha: 1)
+        scene.addChild(field)
+        view.frame = NSRect(origin: .zero, size: size)
+        view.presentScene(scene)
+        let shot = try XCTUnwrap(view.texture(from: scene,
+                                              crop: CGRect(origin: .zero, size: size)))
+
+        let directory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/ContactSheet")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("bare-land.png")
+        let image = NSImage(cgImage: shot.cgImage(), size: size)
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else {
+            return XCTFail("could not encode the field")
+        }
+        try png.write(to: url)
+        print("wrote \(url.path) — \(span)×\(span) unbuilt tiles at the resting camera")
+    }
 }

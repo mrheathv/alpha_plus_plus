@@ -138,14 +138,22 @@ struct IsoTileRenderer {
         // than the picture depends on is not a harmless safety margin: it is
         // churn, and it makes the key lie about what it represents.
         let mask = Traffic.isRoadLike(tile.zone) ? roadNeighbours : 0
-        let key = "\(tile.zone.rawValue)|\(tile.density)|\(tile.isWater)|\(mask)"
+        // Unbuilt land picks one of several looks from its own position, so a
+        // field of it is not one texture repeated. Nothing else does — see
+        // `IsoTextureCache.ground` — so nothing else needs its position here,
+        // and putting it in every tile's key anyway is exactly the churn the
+        // comment above is about.
+        let scatter = tile.zone == .empty && !tile.isWater
+            ? "|\(IsoTextureCache.variant(for: tile.position) % IsoTextureCache.bareLandVariants)"
+            : ""
+        let key = "\(tile.zone.rawValue)|\(tile.density)|\(tile.isWater)|\(mask)\(scatter)"
         guard !isUpToDate(node, Self.groundNodeName, key) else { return }
         markUpToDate(node, Self.groundNodeName, key)
         node.childNode(withName: Self.groundNodeName)?.removeFromParent()
 
         guard let rendered = textures.ground(
             for: tile.zone, density: tile.density, footprint: tile.zone.footprintSize,
-            isWater: tile.isWater, kerbMask: mask
+            isWater: tile.isWater, kerbMask: mask, seed: tile.position
         ) else { return }
         let ground = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         ground.name = Self.groundNodeName

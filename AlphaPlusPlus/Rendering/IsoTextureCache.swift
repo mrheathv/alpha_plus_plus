@@ -375,7 +375,7 @@ final class IsoTextureCache {
     ///   road, in the same four bits `lane` uses (east 1, west 2, north 4,
     ///   south 8). Ignored by everything that is not a street.
     func ground(for zone: ZoneType, density: Int, footprint: Int, isWater: Bool = false,
-                kerbMask: Int = 0) -> Rendered? {
+                kerbMask: Int = 0, seed: GridPosition = GridPosition(x: 0, y: 0)) -> Rendered? {
         let tier = RenderPalette.growthTier(for: density)
         // A road standing on water is a bridge, which is neither of the two
         // surfaces: a narrower deck with the river showing either side of it.
@@ -395,8 +395,17 @@ final class IsoTextureCache {
         // the trick that made the neon street grid free per tile, pointed at
         // the surface under it.
         let streetMask = isStreet(zone) && !isBridge ? kerbMask : 0
+        // **Unbuilt land is the one surface that needs more than one
+        // picture.** Everything else the ground draws is covered by what
+        // stands on it or bounded by a street; bare land is the *field*, and
+        // a field made of one texture is a repeating pattern by construction.
+        // So it takes a look mixed from its own position, the same way a lot
+        // picks its building — and nothing else does, because handing a lot
+        // eight identical grounds is the churn `syncGround` already records.
+        let scatter = zone == .empty && !isWater
+            ? Self.variant(for: seed) % Self.bareLandVariants : 0
         return rendered(Key(kind: .ground, zone: zone, tier: variant,
-                            variant: streetMask, footprint: footprint)) {
+                            variant: streetMask &+ scatter &* 16, footprint: footprint)) {
             let node = SKNode()
             if isWater {
                 // The river runs under the deck, so it is drawn first and at
@@ -419,15 +428,35 @@ final class IsoTextureCache {
                 x: 0, y: 0, size: CGFloat(footprint), inset: isBridge ? 0.17 : Self.groundInset
             ))
             surface.fillColor = RenderPalette.color(for: zone, density: density)
+            // **Bare land gets no edge at all**, and the render is what
+            // asked for it. A tile outline is a small mark on a lot, where a
+            // building and its light pool sit on top of it — and on 353
+            // contiguous unbuilt tiles it is the *only* mark, so a field of
+            // them came back as graph paper. Unbuilt ground is not parcelled:
+            // the grid a player needs is the placement cursor's, and a zoned
+            // lot already draws a surveyed outline of its own.
+            //
+            // Merely dimming it was tried first and is the wrong instrument.
+            // The line is drawn from `ground` and the fill from the zone, so
+            // a dimmer line is still a *different colour* from what it
+            // encloses, and a field of forty of them is still a grid — just
+            // a quieter one. Stroking in the fill removes the mark rather
+            // than turning it down, and widens the tile into its own inset,
+            // which narrows the dark seam between neighbours to well under a
+            // point.
             surface.strokeColor = isBridge
                 ? RenderPalette.bridgeDeck
-                : (RenderPalette.ground.blended(withFraction: 0.28, of: .white) ?? .clear)
+                : (zone == .empty
+                   ? surface.fillColor
+                   : (RenderPalette.ground.blended(withFraction: 0.28, of: .white) ?? .clear))
             surface.lineWidth = isBridge ? 1.4 : 0.7
             node.addChild(surface)
 
             if isStreet(zone), !isBridge {
                 addPavement(to: node, mask: kerbMask, footprint: footprint)
                 addStreetLamps(to: node, mask: kerbMask, footprint: footprint)
+            } else if zone == .empty, !isWater {
+                addScrub(to: node, scatter: scatter, footprint: footprint)
             }
             return node
         }
@@ -580,6 +609,83 @@ final class IsoTextureCache {
     /// linearly with distance from the middle and the sum is a linear ramp.
     private static let lampPoolFalloff: [CGFloat] =
         (0 ..< 8).map { 1.0 - CGFloat($0) * 0.115 }
+
+    /// How many looks unbuilt land gets. Small, because each is a whole
+    /// texture and the marks on them are deliberately too soft to identify —
+    /// what breaks a field's repetition is that *neighbours differ*, not that
+    /// any one of them is memorable. Eight is enough that a run of tiles in
+    /// any direction does not come back to the same picture inside a screen.
+    static let bareLandVariants = 8
+
+    /// Scrub on unbuilt ground: a few soft patches of lighter and darker
+    /// earth, laid out differently in each variant.
+    ///
+    /// **The marks have to be large and the values small**, which is the
+    /// opposite of the instinct. Fine detail here is the moiré quilt the
+    /// backdrop already ran into — *"at the zoom a player plans at, a margin
+    /// of one-tile diamonds collapses into a quilt that fights the city"* —
+    /// and a field is exactly where that bites, because the eye is being
+    /// shown forty copies at once. So: patches a third of a tile across, a
+    /// few per cent off the ground they sit on, and no edges anywhere.
+    ///
+    /// **Kept inside the tile**, which costs the field a little and is not
+    /// negotiable: a patch overhanging the diamond would grow the node's
+    /// accumulated frame, and a sprite's size comes from that — the same bug
+    /// the pavement shipped, where a kerbed tile rendered 64 points wide
+    /// against an uninterrupted one's 62.8.
+    private func addScrub(to node: SKNode, scatter: Int, footprint: Int) {
+        // A fixed formula on the variant, not real randomness, for the reason
+        // `BuildingRandom` documents: a tile must look the same on every
+        // launch, and `hashValue` is randomised per process.
+        var state = UInt64(scatter &* 2_654_435_761 &+ 0x2545_F491)
+        func next() -> CGFloat {
+            state ^= state << 13; state ^= state >> 7; state ^= state << 17
+            return CGFloat(state % 10_000) / 10_000
+        }
+        let span = CGFloat(footprint)
+        for index in 0 ..< Self.scrubPatchesPerTile {
+            // **Sized independently in each axis.** Square patches came back
+            // as a chequer — forty little diamonds all the same shape, which
+            // is a pattern wearing texture's clothes. Two rolls instead of
+            // one is the whole fix.
+            let width = (0.18 + next() * 0.26) * span
+            let height = (0.18 + next() * 0.26) * span
+            // Inset by the patch's own size so it cannot reach the diamond's
+            // edge however the roll lands.
+            let x = Self.groundInset + next() * (span - Self.groundInset * 2 - width)
+            let y = Self.groundInset + next() * (span - Self.groundInset * 2 - height)
+            let pale = index % 2 == 0
+
+            // **Nested, for the same reason the lamp's pool is.** A shape
+            // node has no falloff, so a single quad arrives with a hard
+            // border — and a hard border is what turns a patch of ground into
+            // a drawn mark. Four steps is enough here because the values are
+            // already almost nothing.
+            for step in Self.scrubFalloff {
+                let w = width * step, h = height * step
+                let patch = SKShapeNode(path: projection.path([
+                    Point3(x: x + (width - w) / 2, y: y + (height - h) / 2, z: 0),
+                    Point3(x: x + (width + w) / 2, y: y + (height - h) / 2, z: 0),
+                    Point3(x: x + (width + w) / 2, y: y + (height + h) / 2, z: 0),
+                    Point3(x: x + (width - w) / 2, y: y + (height + h) / 2, z: 0),
+                ]))
+                // Alternating lighter and darker, because one direction alone
+                // reads as a stain rather than as ground that is not uniform.
+                patch.fillColor = pale ? RenderPalette.scrubPale : RenderPalette.scrubDark
+                patch.strokeColor = .clear
+                patch.blendMode = pale ? .add : .alpha
+                node.addChild(patch)
+            }
+        }
+    }
+
+    /// The nested sizes a patch is built from, as fractions of its extent.
+    private static let scrubFalloff: [CGFloat] = [1.0, 0.76, 0.52, 0.28]
+
+    /// How many patches one tile carries. Enough to break the flat fill, few
+    /// enough that they do not merge into a second uniform surface a shade
+    /// away from the first.
+    private static let scrubPatchesPerTile = 5
 
     /// How far into the tile the pavement reaches, as a fraction of it.
     ///
