@@ -6608,6 +6608,124 @@ has exactly one answer on both sides of the simulation/rendering split, which
 is the same reason `CityHazards.isExposed` and `CitySimulator.needsWater` are
 called by the renderer rather than restated in it.
 
+### A picture of the ground, at last
+
+Every render in this project photographs a *building*. The surface one stands
+on has never been in front of a camera, which is how it went eleven phases as
+a flat diamond. `StreetSurfaceTests.testRenderTheStreetSurface` writes
+`street-surface.png`: the six shapes a grid produces — crossroads, T, corner,
+straight run, dead end, island — in two columns.
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/StreetSurfaceTests
+
+open ./build/ContactSheet/street-surface.png
+```
+
+The two columns answer different questions and both are needed. The left is a
+tile at its resting size, which is the only place `minimumDetailSize`'s rule
+can be applied. The right is 4×, the closest the camera gets on a Retina
+display, and what it is for is telling **"this mark is too small" apart from
+"this mark is not being drawn at all"** — which the left column cannot do, and
+which is the first question a missing mark raises.
+
+It draws through `IsoTileRenderer.makeNode` *and then calls `syncLaneLine`*,
+because `update` does not: the lane needs the map to know its connections and
+the renderer only has a tile. The neon runs straight over the middle of every
+mark on this surface, so the first version of this sheet — without it — was a
+picture of a frame the game never draws. It found that immediately.
+
+### Stop lines were built, measured, and cut
+
+The mark a crossroads wants is a bar across the mouth of each arm, and it was
+built: four strokes straight into the ground texture, no node cost. The render
+showed a grey **rectangle** sitting around the neon with a small cross at each
+corner. Not four marks. One frame.
+
+The cause is arithmetic rather than taste, which is why it is worth keeping. A
+bar spanning the carriageway reaches 0.32 of a tile either side of centre, so
+its ends sit at 0.18 from the edge — *inside* where the perpendicular bars sit,
+at 0.26. Every corner is a crossing. And backing them off does not help,
+because the bar and the gap between bars are the same 64 points fighting over
+each other:
+
+| bar spans | bar | corner gap |
+|---|---|---|
+| 0.64 tile | 22.9 pt | −2.9 pt (they cross) |
+| 0.48 tile | 17.2 pt | 0.0 pt (they touch) |
+| 0.32 tile | 11.4 pt | 2.9 pt |
+| 0.18 tile | 6.4 pt | 5.4 pt |
+
+**No row clears `NeonStyle.minimumDetailSize` in both columns.** That is the
+rule in its original form — cut a mark that cannot be drawn big enough, do not
+shrink it — reached by measuring rather than by looking, because here the two
+failures look alike: a ring and four specks are both "the junction has
+something grey on it".
+
+The one placement with room is hard against the tile's edge, and a grid kills
+that: every road tile in a built-out city is a junction, so two facing bars
+would land either side of every seam and the street would read as a ladder.
+Same answer the airport's static aircraft got, and the same reason each time.
+
+What still tells a junction apart is the pavement underneath: a crossroads is
+the one street tile with **no footway at all**, so it reads visibly wider than
+everything around it.
+
+### Street lamps: the light, not the lamp
+
+The first piece of street furniture, and it rides the mask that is already in
+the key — so it costs **nothing**. A lamp belongs on a footway, a footway
+exists exactly where the street does not carry on, and that is what the mask
+says: a crossroads gets none, a straight run two, a dead end three. The variety
+is a consequence of the street's own shape rather than a roll, no new texture
+dimension, no node on any tile, and a lamp cannot end up standing in a
+carriageway.
+
+**There is no lamp drawn — only its light.** The first version stood a mast up
+with a lit head on it, which is the obvious drawing and is two marks this scale
+cannot hold: a column 13 points tall and one wide is a hairline, and a head
+three points across is under the floor outright. Rendered, they were a row of
+antennae floating above the road, detached from it because a lamp at the tile's
+up-screen edge rises further up-screen still. Cut, like the aviation beacon
+before it.
+
+What survives is a warm wash on the pavement, and getting it to read took three
+corrections the render made one at a time:
+
+- **Shaped along the footway, not as a disc on it.** A round pool centred on a
+  footway 0.09 of a tile wide has to be under 0.09 in radius to stay on the
+  tile — six points, invisible — and at any useful size it hangs over the lot
+  boundary, where it reads as a separate slab of ground rather than as light on
+  this one. Bounded in both directions instead. Which is the truer drawing
+  anyway: a lamp does not put a circle on the pavement, it washes the length of
+  footway it stands over and spills past the kerb.
+- **Added, not painted over.** Alpha-blended onto a near-black ground a warm
+  colour does not read as warm at all — it averages toward the ground and
+  arrives as grey haze, a translucent panel lying on the road. Exactly the
+  correction the traffic streaks needed one pass earlier: *a trace that cannot
+  be brighter than what it lies on is paint.*
+- **Eight nested quads, not three.** A shape node has no falloff, so a pool is
+  built by stacking; three steps rendered as concentric rectangles, a target
+  painted on the road. The count is what decides whether a stack reads as a
+  gradient or as bands, and it is free here because all of it is rasterised
+  once per mask and arrives in the scene inside one sprite.
+
+Sodium, against a city lit in magenta and cyan, so a street reads as a
+different kind of light from the buildings either side of it rather than as
+more of the same — and kept low in value, because the ladder puts
+infrastructure in the tier that recedes. The first additive pass was three
+times too bright and made the pavement the warmest thing in frame, which is the
+complaint this file already records against the old lane lines.
+
+`testTheLampLightsTheFootwayAndNotTheCarriageway` asserts the **colour
+arrives** rather than that the call was made — footway +0.055 warmth against
+the carriageway's −0.063, measured off the rendered texture. Two marks added to
+this surface now pass through several blend modes into one rasterised sprite,
+which is more ways for a colour to silently not arrive, not fewer, and this
+project has shipped that failure twice.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -59,6 +59,28 @@ enum RenderPalette {
     /// it, and not enough to compete with anything that is lit.
     static let pavement = SKColor(srgbRed: 0.098, green: 0.063, blue: 0.180, alpha: 1.0)
 
+    /// What a street lamp puts on the footway under it.
+    ///
+    /// Sodium, against a city lit in magenta and cyan, so the street reads as
+    /// a different kind of light from the buildings either side of it rather
+    /// than as more of the same. Kept low in value on purpose: a lamp is
+    /// infrastructure, and the value ladder puts infrastructure in the tier
+    /// that recedes. The first pass had it at alpha 0.30 and the render was
+    /// unambiguous — a warm slab, the brightest ground in frame, which is the
+    /// exact complaint this file already records against the old lane lines.
+    ///
+    /// **Added rather than painted over**, and it took a render to see why.
+    /// Alpha-blended onto a near-black ground a warm colour does not read as
+    /// warm at all: it averages toward the ground and arrives as grey haze,
+    /// which is a translucent panel lying on the road rather than light
+    /// falling on it. The same correction the traffic streaks needed one pass
+    /// earlier — *a trace that cannot be brighter than what it lies on is
+    /// paint.* So this is what **one layer** of a lamp's pool adds, and it is
+    /// tiny on purpose: eight of them stack toward the middle, so the number
+    /// that matters is eight times this one — a warm wash a shade above the
+    /// asphalt, not the orange target the first additive pass produced.
+    static let streetLampPool = SKColor(srgbRed: 0.035, green: 0.019, blue: 0.006, alpha: 1.0)
+
     /// The line where the footway meets the carriageway.
     ///
     /// Only the inner edge gets one. The outer edge is where the lot begins,

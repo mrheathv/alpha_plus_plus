@@ -427,12 +427,159 @@ final class IsoTextureCache {
 
             if isStreet(zone), !isBridge {
                 addPavement(to: node, mask: kerbMask, footprint: footprint)
+                addStreetLamps(to: node, mask: kerbMask, footprint: footprint)
             }
             return node
         }
     }
 
     private func isStreet(_ zone: ZoneType) -> Bool { zone == .road || zone == .highway }
+
+    /// **A junction has no room to be marked, and the arithmetic is why.**
+    ///
+    /// The mark a crossroads wants is a stop line across the mouth of each
+    /// arm, and it was built: four bars in a paler grey than the kerb, drawn
+    /// straight into this texture at no node cost. `street-surface.png` shows
+    /// what arrived — a grey rectangle sitting around the neon, with a small
+    /// cross at each of its four corners. Not four marks. One frame.
+    ///
+    /// The cause is that a tile is only so wide. A bar spanning the
+    /// carriageway reaches 0.32 of a tile either side of the centre, so its
+    /// ends sit 0.18 from the tile's edge — *inside* where the perpendicular
+    /// bars sit, at 0.26. Every corner is a crossing, and the four bars close
+    /// into a ring. Backing them off does not help, because the bar and the
+    /// gap between bars are the same 64 points fighting over each other:
+    ///
+    /// | bar spans | bar | corner gap |
+    /// |---|---|---|
+    /// | 0.64 tile | 22.9 pt | −2.9 pt (they cross) |
+    /// | 0.48 tile | 17.2 pt | 0.0 pt (they touch) |
+    /// | 0.32 tile | 11.4 pt | 2.9 pt |
+    /// | 0.18 tile | 6.4 pt | 5.4 pt |
+    ///
+    /// There is no row where both columns clear `NeonStyle.minimumDetailSize`.
+    /// Which is that rule in its original form — **cut a mark that cannot be
+    /// drawn big enough, do not shrink it** — reached by measuring rather than
+    /// by looking, because here the two failures look alike: a ring and four
+    /// specks are both "the junction has something grey on it".
+    ///
+    /// The one placement with room is hard against the tile's edge, and a grid
+    /// kills it: every road tile in a built-out city is a junction, so two
+    /// facing bars would land either side of every seam and the street would
+    /// read as a ladder. Same answer the airport's static aircraft got, and
+    /// the same reason — the mark is fine, the size it has to live at is not.
+    ///
+    /// What still distinguishes a junction is the pavement below: a crossroads
+    /// is the one street tile with no footway at all, so it is visibly wider
+    /// than everything around it.
+
+    /// A lamp on every footway, which is the first thing this game has ever
+    /// stood up off the ground plane without it being a building.
+    ///
+    /// **It rides the mask that is already in the key, so it costs nothing.**
+    /// A lamp belongs on a footway, a footway exists exactly where the street
+    /// does not carry on, and that is what `kerbMask` says — so a crossroads
+    /// gets none, a straight run gets two, a dead end gets three, and the
+    /// variety is a consequence of the street's own shape rather than a roll.
+    /// No new texture dimension, no node on any tile, and a lamp cannot end up
+    /// standing in a carriageway.
+    ///
+    /// **There is no lamp — only its light, and that is the whole finding.**
+    /// The first version stood a mast up with a lit head on it, which is the
+    /// obvious drawing and is two marks this scale cannot hold: a column 13
+    /// points tall and one point wide is a hairline, and a head three points
+    /// across is under `NeonStyle.minimumDetailSize` outright. Rendered, they
+    /// read as a row of antennae floating above the road, detached from it
+    /// because a lamp at the tile's up-screen edge rises further up-screen
+    /// still. Cut, the same way the aviation beacon and the airport's static
+    /// aircraft were cut, and for the same reason each time.
+    ///
+    /// What is left is the mark that survives: a warm disc on the pavement,
+    /// twenty-eight points across, legible at every zoom the camera has. That
+    /// is this art direction's own rule applied to street furniture — *colour
+    /// comes from the light a thing throws, not from drawing the thing* — and
+    /// it is exactly the trade the contact light under a building already
+    /// makes, where a bright mark at the feet does the work a shadow would do
+    /// on a ground that had any value left to take away.
+    ///
+    /// Warm, against a city lit in magenta and cyan. The street is the one
+    /// surface in this game with no light of its own beyond the lane's neon,
+    /// and a second hue at ground level is what separates "the road" from
+    /// "the glowing line down the middle of the road".
+    private func addStreetLamps(to node: SKNode, mask: Int, footprint: Int) {
+        let inset = Self.groundInset
+        let lo = inset, hi = CGFloat(footprint) - inset
+        let mid = CGFloat(footprint) / 2
+        let reach = Self.lampPoolReach, half = Self.lampPoolHalfLength
+        // **Shaped along the footway, not as a disc on it**, and the render
+        // is what decided that. A round pool centred on a footway 0.09 of a
+        // tile wide has to be under 0.09 in radius to stay on the tile, which
+        // is six points and invisible — and at any useful size it hangs over
+        // the lot boundary, where it reads as a separate slab of ground
+        // rather than as light on this one. Bounded in both directions
+        // instead: long down the street, reaching in across the kerb, and
+        // always inside the tile it belongs to.
+        //
+        // Which is also the truer drawing. A lamp does not put a circle on
+        // the pavement; it washes the length of footway it stands over and
+        // spills onto the carriageway.
+        let pools: [(bit: Int, from: CGPoint, to: CGPoint)] = [
+            (1, CGPoint(x: hi - reach, y: mid - half), CGPoint(x: hi, y: mid + half)),
+            (2, CGPoint(x: lo, y: mid - half), CGPoint(x: lo + reach, y: mid + half)),
+            (4, CGPoint(x: mid - half, y: hi - reach), CGPoint(x: mid + half, y: hi)),
+            (8, CGPoint(x: mid - half, y: lo), CGPoint(x: mid + half, y: lo + reach)),
+        ]
+        for pool in pools where mask & pool.bit == 0 {
+            let centre = CGPoint(x: (pool.from.x + pool.to.x) / 2,
+                                 y: (pool.from.y + pool.to.y) / 2)
+            // Nested quads rather than one, which is how a shape node gets a
+            // falloff at all: each adds the same small amount of light and
+            // they stack toward the middle, so the pool is brightest under
+            // the lamp and fades to nothing at its edge. A single quad has a
+            // hard border, and a hard border is what makes a mark read as a
+            // panel instead of as light.
+            //
+            // Eight steps, not three. Three was tried and the render showed
+            // concentric rectangles — a target painted on the road. The count
+            // is what decides whether a stack of quads reads as a gradient or
+            // as bands, and it is free here because all of it is rasterised
+            // once per mask and arrives in the scene as part of one sprite.
+            for step in Self.lampPoolFalloff {
+                let light = SKShapeNode(path: projection.path([
+                    Point3(x: centre.x + (pool.from.x - centre.x) * step,
+                           y: centre.y + (pool.from.y - centre.y) * step, z: 0),
+                    Point3(x: centre.x + (pool.to.x - centre.x) * step,
+                           y: centre.y + (pool.from.y - centre.y) * step, z: 0),
+                    Point3(x: centre.x + (pool.to.x - centre.x) * step,
+                           y: centre.y + (pool.to.y - centre.y) * step, z: 0),
+                    Point3(x: centre.x + (pool.from.x - centre.x) * step,
+                           y: centre.y + (pool.to.y - centre.y) * step, z: 0),
+                ]))
+                light.fillColor = RenderPalette.streetLampPool
+                light.strokeColor = .clear
+                light.blendMode = .add
+                node.addChild(light)
+            }
+        }
+    }
+
+    /// How far a lamp's light reaches in from the lot boundary, in tile
+    /// units — the footway plus a little of the carriageway beyond the kerb,
+    /// because a lamp that stopped at the kerb would read as paving rather
+    /// than as light.
+    private static let lampPoolReach: CGFloat = 0.34
+
+    /// How far it runs *along* the street, either side of the tile's middle.
+    /// Short of the tile's full length deliberately: the dark either end is
+    /// what stops a run of lit tiles reading as one continuous glowing band
+    /// and keeps each lamp a lamp.
+    private static let lampPoolHalfLength: CGFloat = 0.3
+
+    /// The nested sizes the pool is built from, as fractions of its full
+    /// extent. Evenly spaced, so the number of layers covering a point falls
+    /// linearly with distance from the middle and the sum is a linear ramp.
+    private static let lampPoolFalloff: [CGFloat] =
+        (0 ..< 8).map { 1.0 - CGFloat($0) * 0.115 }
 
     /// How far into the tile the pavement reaches, as a fraction of it.
     ///
