@@ -443,8 +443,16 @@ final class GameController: ObservableObject {
         treasury -= placementCost(of: selectedTool, at: position)
         map.placeBuilding(zone: selectedTool, origin: position)
         // A tower or a plant changes what is supplied the instant it lands,
-        // not on the next tick.
-        recomputeUtilitySupply()
+        // not on the next tick — and nothing else does. `place` refuses over
+        // occupied land (see `placementRefusal`), so no building is cleared
+        // here and the demand side cannot move either.
+        if selectedTool.feedsAUtilityNetwork { recomputeUtilitySupply() }
+        // **Rails are not supply.** They follow the *streets*, so any
+        // placement can move them — and gating them behind the utility
+        // condition above is exactly the bug `TramTests` caught: bulldozing a
+        // street left its rails floating. Cheap, unlike the flood fills: one
+        // search per segment of each tram line, and most cities have none.
+        recomputeTramTracks()
         return .placed
     }
 
@@ -458,8 +466,16 @@ final class GameController: ObservableObject {
     /// happens to be.
     func bulldoze(at position: GridPosition) {
         guard map.contains(position) else { return }
-        clearBuilding(at: map[position].buildingOrigin)
-        recomputeUtilitySupply()
+        let origin = map[position].buildingOrigin
+        // Clearing *can* move supply two ways: the building might be a source,
+        // and it might have been drawing on the network — losing demand can
+        // bring an overloaded grid back under its ceiling.
+        let cleared = map[origin]
+        let matters = cleared.zone.feedsAUtilityNetwork || cleared.density > 0
+            || cleared.hasPipe || cleared.hasPowerLine
+        clearBuilding(at: origin)
+        if matters { recomputeUtilitySupply() }
+        recomputeTramTracks()
     }
 
     /// Clears every cell of the building anchored at `origin` back to
@@ -640,7 +656,8 @@ final class GameController: ObservableObject {
     /// `PlacementOutcome` as-is: a pipe has no footprint to not fit and no
     /// existing building to auto-replace, so no new case is needed.
     @discardableResult
-    func layPipe(at position: GridPosition) -> PlacementOutcome {
+    func layPipe(at position: GridPosition,
+                recomputingSupply: Bool = true) -> PlacementOutcome {
         guard map.contains(position) else { return .unchanged }
         // A main crosses water *under a bridge*, never through open river.
         // The same simplification `Infrastructure` already makes in the other
@@ -652,7 +669,12 @@ final class GameController: ObservableObject {
         guard treasury >= Self.pipePlacementCost else { return .insufficientFunds }
         treasury -= Self.pipePlacementCost
         map[position].hasPipe = true
-        recomputeUtilitySupply()
+        // **Not on every tile of a drag.** Laying a conduit genuinely does
+        // change what the network reaches, so this is not the unconditional
+        // recompute `place` had — but a stroke lays several tiles per mouse
+        // event, and two whole-map flood fills per tile is 8.6 ms each. The
+        // caller says when the stroke is finished.
+        if recomputingSupply { recomputeUtilitySupply() }
         return .placed
     }
 
@@ -676,14 +698,20 @@ final class GameController: ObservableObject {
     /// Lay a power line at `position` — the exact same contract
     /// `layPipe(at:)` has, one paragraph up, for the parallel layer.
     @discardableResult
-    func layPowerLine(at position: GridPosition) -> PlacementOutcome {
+    func layPowerLine(at position: GridPosition,
+                recomputingSupply: Bool = true) -> PlacementOutcome {
         guard map.contains(position) else { return .unchanged }
         guard !map[position].isWater || map[position].zone.canBridge else { return .blocked }
         guard !map[position].hasPowerLine else { return .unchanged }
         guard treasury >= Self.powerLinePlacementCost else { return .insufficientFunds }
         treasury -= Self.powerLinePlacementCost
         map[position].hasPowerLine = true
-        recomputeUtilitySupply()
+        // **Not on every tile of a drag.** Laying a conduit genuinely does
+        // change what the network reaches, so this is not the unconditional
+        // recompute `place` had — but a stroke lays several tiles per mouse
+        // event, and two whole-map flood fills per tile is 8.6 ms each. The
+        // caller says when the stroke is finished.
+        if recomputingSupply { recomputeUtilitySupply() }
         return .placed
     }
 
@@ -949,10 +977,18 @@ final class GameController: ObservableObject {
     /// connected calls this: laying or removing a pipe or line, placing or
     /// bulldozing a utility building, and changing funding, which buys
     /// capacity.
+    /// **The expensive half**: two whole-map flood fills, measured at 8.6 ms
+    /// together on a built-out 64×64 city. Only a source, a conduit or a
+    /// change in demand moves it — see `ZoneType.feedsAUtilityNetwork` — so
+    /// call it when one of those happened rather than after every placement.
+    ///
+    /// It no longer recomputes the tram tracks as a side effect. They are not
+    /// supply, they follow the streets, and folding them in here meant every
+    /// caller had to choose between recomputing rails it did not need or
+    /// skipping supply it did.
     func recomputeUtilitySupply() {
         map.waterSupply = Water.computeSupply(for: map)
         map.powerSupply = computePowerSupply()
-        recomputeTramTracks()
     }
 
     /// Where the rails are, which changes when a tram line does and when the

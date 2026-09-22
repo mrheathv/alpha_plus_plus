@@ -6485,6 +6485,63 @@ for it.** A quantisation invented at the comparison site is a second opinion
 about what counts as a change, and it will disagree with the first one
 eventually.
 
+## Placing a zone re-flooded the whole city's plumbing
+
+Reported from play: *"especially when trying to place zones, you have to wait
+for the game to catch up."* A placement does not tick the simulation, so this
+was a third path — and it had never been measured on a built-out city.
+
+Measured, in Release: **mean 10.99 ms per placed tile, worst 34.15 ms**, with
+three frames of twenty-seven over budget. And the breakdown named it at once:
+
+| | |
+|---|---|
+| `recomputeUtilitySupply` | **8.58 ms** |
+| the scene's refresh and its neighbours | 0.09 ms |
+
+`GameController.place` called it after **every** placement, and the comment
+directly above that call already named the real condition — *"a tower or a
+plant changes what is supplied the instant it lands"* — while the code checked
+nothing. So dragging out a road re-flooded the water and power networks once
+per tile.
+
+`ZoneType.feedsAUtilityNetwork` is that condition written down. Nothing else
+can move supply on this path: `place` refuses over occupied land, so no
+building is cleared and the demand side cannot move either. **Placement: 10.99
+→ 1.65 ms, worst 34.15 → 6.05, and none of twenty-seven frames over budget.**
+
+Laying pipe is the sibling case and genuinely *does* change supply — but not
+once per tile of a drag, which lays several per mouse event. The recompute is
+coalesced to one per stroke.
+
+### Three guesses before the measurement, all wrong
+
+Worth recording because the sequence is by now a habit worth naming. The
+suspects were `rebuildCullOrder` and `culledFor = nil`, both added to
+`rebuildRegion` the day before — exactly the kind of thing that *should* be
+the cause. Removing both changed the number by 0.1 ms. And for a 1×1 tool
+`rebuildRegion` is never called at all, which reading the code would have
+said before any of it.
+
+### And two bugs on the way out, both caught by the suite
+
+- **`recomputeUtilitySupply` was doing something that is not supply.** It also
+  recomputed the tram tracks, so gating it on a utility condition left rails
+  floating over bulldozed streets — `TramTests` caught that in one run. Rails
+  follow the *streets*, so they are recomputed on any placement; they are
+  cheap, and folding them into the expensive call meant every caller had to
+  choose between recomputing rails it did not need and skipping supply it did.
+- **Conduits were drawn against last moment's supply.** A run is drawn lit or
+  unlit depending on whether it reaches a source, which is precisely what the
+  recompute decides — so deferring the recompute while still drawing inside
+  the loop painted every tile against the supply from before the run existed.
+  `ScenePlaytest` caught it as the picture disagreeing with the city right
+  after plumbing. The stroke now lays, recomputes, then draws.
+
+Both are the same shape, and it is the shape this file keeps returning to:
+**a function that does two things gets called for one of them**, and the other
+goes wrong quietly.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

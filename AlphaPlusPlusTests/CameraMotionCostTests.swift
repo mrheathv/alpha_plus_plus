@@ -316,6 +316,98 @@ final class CameraMotionCostTests: XCTestCase {
         }
     }
 
+    /// **What placing a zone costs**, which is a different path from a tick
+    /// and had never been measured on a built-out city.
+    ///
+    /// Reported from play: lag when placing zones, and having to wait for the
+    /// game to catch up. A placement does not tick the simulation — it goes
+    /// through `rebuildRegion`, which is supposed to be a bounded nine-by-nine
+    /// window and was measured at 4.9 ms when it was written.
+    func testWhatPlacingAZoneCosts() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let save = try CitySaveFile.read(from: url)
+        let controller = GameController(map: save.map, rng: SeededRNG(seed: 1),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        // Restored rather than constructed, so the treasury comes with it —
+        // a broke city refuses placements, and this would measure a red flash
+        // rather than a rebuild.
+        try controller.restore(from: save)
+        let size = CGSize(width: 1280, height: 800)
+        let scene = GameScene(controller: controller)
+        scene.size = size
+        let view = SKView(frame: NSRect(origin: .zero, size: size))
+        view.presentScene(scene)
+        scene.rebuildEntireGrid()
+        scene.refreshAll()
+        scene.setCameraScaleForTesting(1.0)
+        scene.update(1.0 / 60)
+
+        // **A road, because Apex has no room for anything bigger.** It is
+        // built out by construction — zero free 2x2 lots — and a 1x1 tool on
+        // the free cells exercises the same path a zone does:
+        // `GameController.place`, then `GameScene.rebuildRegion`.
+        controller.selectTool(.road)
+        // **Cells that are actually free**, and checked afterwards. The first
+        // version picked a stride across a built-out city, every placement was
+        // refused, and it reported 0.00 ms — a benchmark measuring a refusal.
+        // Residential is 2x2, so a scattered free *cell* is not a free
+        // *lot* — the second version of this fixture found 195 single cells
+        // and still placed nothing.
+        let map0 = controller.map
+        let free = map0.tiles
+            .filter { $0.zone == .empty && !$0.isWater }
+            .map(\.position)
+            .filter { $0.x > 2 && $0.y > 2 && $0.x < 60 && $0.y < 60 }
+        if let first = free.first {
+            print("\n  refusal at \(first): "
+                  + String(describing: controller.placementRefusal(of: .road, at: first)))
+        }
+        print("  \(free.count) free cells to lay road on")
+        XCTAssertGreaterThan(free.count, 20, "nowhere to place: this measures nothing")
+
+        // What a placement is made of, before timing the whole thing.
+        func best(_ label: String, _ body: () -> Void) {
+            var best = Double.greatestFiniteMagnitude
+            for _ in 0 ..< 5 {
+                let started = Date()
+                body()
+                best = min(best, Date().timeIntervalSince(started) * 1000)
+            }
+            print(String(format: "  %-34@ %7.2f ms", label as NSString, best))
+        }
+        let m = controller.map
+        print("  — the pieces of one placement —")
+        best("Water.computeSupply") { _ = Water.computeSupply(for: m) }
+        best("Transit.tramTracks") { _ = Transit.tramTracks(in: m) }
+        best("controller.recomputeUtilitySupply") { controller.recomputeUtilitySupply() }
+        if let spot = free.first {
+            best("scene.refresh + neighbours") {
+                scene.refreshForTesting(at: spot)
+            }
+        }
+
+        var samples: [Double] = []
+        var clock: TimeInterval = 1
+        var placed = 0
+        for position in free.prefix(30) {
+            let before = controller.map[position].zone
+            let started = Date()
+            scene.place(at: position)
+            clock += 1.0 / 60
+            scene.update(clock)
+            samples.append(Date().timeIntervalSince(started) * 1000)
+            if controller.map[position].zone != before { placed += 1 }
+        }
+        XCTAssertGreaterThan(placed, 20, "only \(placed) of 30 placements landed")
+        let steady = Array(samples.dropFirst(3))
+        let mean = steady.reduce(0, +) / Double(steady.count)
+        let worst = steady.max() ?? 0
+        print("\n=== placing a zone on a built-out 64x64 city ===")
+        print(String(format: "  mean %6.2f ms   worst %6.2f ms   over 16.7ms: %d of %d",
+                     mean, worst, steady.filter { $0 > 16.7 }.count, steady.count))
+    }
+
     func testWhatMovingTheCameraCosts() throws {
         let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
         try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")

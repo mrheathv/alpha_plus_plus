@@ -304,6 +304,27 @@ extension ZoneType {
         }
     }
 
+    /// Does placing or clearing this change what the utility networks reach?
+    ///
+    /// **Only a source does.** Water supply is computed from the towers and
+    /// pumps, power from the generators and plants, plus the conduits between
+    /// them — which are laid by their own tools, not by this one. A road, a
+    /// zone or a police station moves none of it.
+    ///
+    /// This exists because `GameController.place` recomputed supply after
+    /// *every* placement, and the comment above that call already named the
+    /// condition — "a tower or a plant changes what is supplied the instant
+    /// it lands" — while the code checked nothing. Two whole-map flood fills,
+    /// measured at **8.6 ms of an 11 ms placement**, ran for every road tile
+    /// a player dragged out. Reported from play as having to wait for the
+    /// game to catch up while placing zones.
+    var feedsAUtilityNetwork: Bool {
+        switch self {
+        case .waterTower, .waterPump, .generator, .powerPlant: return true
+        default: return false
+        }
+    }
+
     /// How many cells on a side this zone occupies: a footprintSize-N zone
     /// covers an N×N block anchored at wherever it was placed (see
     /// `Tile.buildingOrigin`). Infrastructure that connects to a network

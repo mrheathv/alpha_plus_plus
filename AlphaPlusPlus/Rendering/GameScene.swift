@@ -664,14 +664,29 @@ final class GameScene: SKScene {
         // pipes live here instead of as another toolbar button. The Power
         // overlay is the exact same idea for `Tile.hasPowerLine`.
         if controller.overlayMode == .water {
+            // **Supply is recomputed once for the stroke, not once a tile.**
+            // A drag lays several tiles per mouse event, and each recompute
+            // is two whole-map flood fills — 8.6 ms apiece on a built-out
+            // city, which is most of what "you have to wait for the game to
+            // catch up" was.
+            //
+            // **And the conduits are drawn after it, not during.** A run is
+            // drawn lit or unlit depending on whether it reaches a source,
+            // which is exactly the thing the recompute decides — so drawing
+            // inside the loop paints every tile against the supply from
+            // before the run existed. `ScenePlaytest` caught that as the
+            // picture disagreeing with the city right after plumbing.
+            var laid: [GridPosition] = []
             for step in stroke(from: lastPaintPosition, to: position) {
-                let outcome = controller.layPipe(at: step)
-                refreshConduitNeighbours(of: step)
+                let outcome = controller.layPipe(at: step, recomputingSupply: false)
+                if outcome == .placed { laid.append(step) }
                 if outcome == .insufficientFunds {
                     flashInsufficientFunds(at: step)
                     break // same tile-price-doesn't-change-mid-stroke reasoning as below
                 }
             }
+            if !laid.isEmpty { controller.recomputeUtilitySupply() }
+            for step in laid { refreshConduitNeighbours(of: step) }
             lastPaintPosition = position
             return
         }
@@ -694,14 +709,29 @@ final class GameScene: SKScene {
             return
         }
         if controller.overlayMode == .power {
+            // **Supply is recomputed once for the stroke, not once a tile.**
+            // A drag lays several tiles per mouse event, and each recompute
+            // is two whole-map flood fills — 8.6 ms apiece on a built-out
+            // city, which is most of what "you have to wait for the game to
+            // catch up" was.
+            //
+            // **And the conduits are drawn after it, not during.** A run is
+            // drawn lit or unlit depending on whether it reaches a source,
+            // which is exactly the thing the recompute decides — so drawing
+            // inside the loop paints every tile against the supply from
+            // before the run existed. `ScenePlaytest` caught that as the
+            // picture disagreeing with the city right after plumbing.
+            var laid: [GridPosition] = []
             for step in stroke(from: lastPaintPosition, to: position) {
-                let outcome = controller.layPowerLine(at: step)
-                refreshConduitNeighbours(of: step)
+                let outcome = controller.layPowerLine(at: step, recomputingSupply: false)
+                if outcome == .placed { laid.append(step) }
                 if outcome == .insufficientFunds {
                     flashInsufficientFunds(at: step)
                     break
                 }
             }
+            if !laid.isEmpty { controller.recomputeUtilitySupply() }
+            for step in laid { refreshConduitNeighbours(of: step) }
             lastPaintPosition = position
             return
         }
@@ -1946,6 +1976,14 @@ final class GameScene: SKScene {
     func centerCameraForTesting(on position: GridPosition) {
         cameraNode.position = projection.centerPoint(ofFootprintOrigin: position, size: 1)
         clampCameraToMap()
+    }
+
+    /// Testing accessor: one tile's refresh, with the neighbour marks a
+    /// placement also triggers.
+    func refreshForTesting(at position: GridPosition) {
+        refresh(position)
+        refreshRoadNeighbors(of: position)
+        refreshReflectionNeighbours(of: position)
     }
 
     /// Testing accessors: the individual per-frame phases, so a benchmark can
