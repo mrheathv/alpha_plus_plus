@@ -371,7 +371,11 @@ final class IsoTextureCache {
     }
 
     /// The lot a building stands on.
-    func ground(for zone: ZoneType, density: Int, footprint: Int, isWater: Bool = false) -> Rendered? {
+    /// - Parameter kerbMask: which sides of this tile carry on into more
+    ///   road, in the same four bits `lane` uses (east 1, west 2, north 4,
+    ///   south 8). Ignored by everything that is not a street.
+    func ground(for zone: ZoneType, density: Int, footprint: Int, isWater: Bool = false,
+                kerbMask: Int = 0) -> Rendered? {
         let tier = RenderPalette.growthTier(for: density)
         // A road standing on water is a bridge, which is neither of the two
         // surfaces: a narrower deck with the river showing either side of it.
@@ -379,7 +383,20 @@ final class IsoTextureCache {
         // Keyed apart from every zone rather than sharing `.empty`'s texture:
         // water is a different surface, not bare ground with a tint.
         let variant = isBridge ? 8 : (isWater ? 9 : tier)
-        return rendered(Key(kind: .ground, zone: zone, tier: variant, footprint: footprint)) {
+        // **A street's ground is keyed on its neighbours too.** Where the road
+        // stops, the tile grows a pavement — so a kerb is a statement about
+        // what is *beside* this tile, exactly as a lane line is, and it is
+        // drawn from the same sixteen-value mask.
+        //
+        // In the texture rather than as a layer over it, which is the whole
+        // point: sixteen masks against two street zones is thirty-two more
+        // entries in a cache that already holds a hundred, against **one more
+        // node on every road tile in the city** if it were a sprite. That is
+        // the trick that made the neon street grid free per tile, pointed at
+        // the surface under it.
+        let streetMask = isStreet(zone) && !isBridge ? kerbMask : 0
+        return rendered(Key(kind: .ground, zone: zone, tier: variant,
+                            variant: streetMask, footprint: footprint)) {
             let node = SKNode()
             if isWater {
                 // The river runs under the deck, so it is drawn first and at
@@ -399,7 +416,7 @@ final class IsoTextureCache {
             // this road is carried rather than laid, and it costs nothing but
             // a number. A parapet edge reads as the rail along it.
             let surface = SKShapeNode(path: projection.tileDiamond(
-                x: 0, y: 0, size: CGFloat(footprint), inset: isBridge ? 0.17 : 0.02
+                x: 0, y: 0, size: CGFloat(footprint), inset: isBridge ? 0.17 : Self.groundInset
             ))
             surface.fillColor = RenderPalette.color(for: zone, density: density)
             surface.strokeColor = isBridge
@@ -407,7 +424,81 @@ final class IsoTextureCache {
                 : (RenderPalette.ground.blended(withFraction: 0.28, of: .white) ?? .clear)
             surface.lineWidth = isBridge ? 1.4 : 0.7
             node.addChild(surface)
+
+            if isStreet(zone), !isBridge {
+                addPavement(to: node, mask: kerbMask, footprint: footprint)
+            }
             return node
+        }
+    }
+
+    private func isStreet(_ zone: ZoneType) -> Bool { zone == .road || zone == .highway }
+
+    /// How far into the tile the pavement reaches, as a fraction of it.
+    ///
+    /// A carriageway is most of a street and a footway is the rest, so this
+    /// is small — and it still has to survive being looked at from across the
+    /// map. At a 64-point tile this is about six points, which is under
+    /// `NeonStyle.minimumDetailSize`'s floor for a *mark* and fine for an
+    /// *edge*: the rule is about things that have to be recognised, and a
+    /// band along a boundary is recognised by where it is.
+    private static let pavementWidth: CGFloat = 0.18
+
+    /// How far a tile's drawn surface sits inside its own cell. Shared, so
+    /// anything added to the ground lines up with what is already there.
+    private static let groundInset: CGFloat = 0.02
+
+    /// The footway along every side of a street that does not carry on into
+    /// more street, with a kerb line where it meets the carriageway.
+    ///
+    /// Drawn per side rather than as one inset diamond, because a crossroads
+    /// has no pavement at all and a dead end has three — an inset ring would
+    /// put a kerb across the middle of every junction.
+    private func addPavement(to node: SKNode, mask: Int, footprint: Int) {
+        // **Inset exactly as the carriageway is**, and the test that caught
+        // this is worth keeping in mind for anything else added to a cached
+        // tile. A sprite's size comes from its node's accumulated frame, so a
+        // pavement reaching the tile's true edge made a kerbed tile render
+        // 64 points wide against an uninterrupted one's 62.8 — every street
+        // with a kerb would have sat a fraction out of line with the lots
+        // beside it, which is the kind of drift that reads as "the art is
+        // slightly wrong" and never as a bug.
+        let inset = Self.groundInset
+        let lo = inset, hi = CGFloat(footprint) - inset
+        let w = Self.pavementWidth
+        // Each side, as the two corners it runs between in tile units.
+        let sides: [(bit: Int, a: CGPoint, b: CGPoint, inward: CGPoint)] = [
+            (1, CGPoint(x: hi, y: lo), CGPoint(x: hi, y: hi), CGPoint(x: -w, y: 0)),
+            (2, CGPoint(x: lo, y: lo), CGPoint(x: lo, y: hi), CGPoint(x: w, y: 0)),
+            (4, CGPoint(x: lo, y: hi), CGPoint(x: hi, y: hi), CGPoint(x: 0, y: -w)),
+            (8, CGPoint(x: lo, y: lo), CGPoint(x: hi, y: lo), CGPoint(x: 0, y: w)),
+        ]
+        for side in sides where mask & side.bit == 0 {
+            let path = CGMutablePath()
+            let corners = [
+                side.a,
+                side.b,
+                CGPoint(x: side.b.x + side.inward.x, y: side.b.y + side.inward.y),
+                CGPoint(x: side.a.x + side.inward.x, y: side.a.y + side.inward.y),
+            ].map { projection.project($0.x, $0.y, 0) }
+            path.addLines(between: corners)
+            path.closeSubpath()
+
+            let footway = SKShapeNode(path: path)
+            footway.fillColor = RenderPalette.pavement
+            footway.strokeColor = .clear
+            node.addChild(footway)
+
+            // The kerb: the inner edge only, which is the one a street has.
+            // The outer edge is where the lot begins and already reads as a
+            // boundary because the surfaces differ.
+            let kerb = CGMutablePath()
+            kerb.move(to: corners[2])
+            kerb.addLine(to: corners[3])
+            let edge = SKShapeNode(path: kerb)
+            edge.strokeColor = RenderPalette.kerb
+            edge.lineWidth = 1
+            node.addChild(edge)
         }
     }
 

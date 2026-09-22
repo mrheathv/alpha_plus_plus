@@ -188,7 +188,10 @@ enum Traffic {
     /// `isHorizontallyOriented(at:in:)` (deciding what counts as a "road
     /// neighbor" for orienting the ambient traffic animation) — one
     /// definition of "road-like," not three that could drift apart.
-    private static func isRoadLike(_ zone: ZoneType) -> Bool {
+    /// Not `private`: the renderer asks the same question, because a kerb is
+    /// drawn where a street stops and "is this a street" must have exactly one
+    /// answer on both sides of the simulation/rendering split.
+    static func isRoadLike(_ zone: ZoneType) -> Bool {
         zone == .road || zone == .highway
     }
 

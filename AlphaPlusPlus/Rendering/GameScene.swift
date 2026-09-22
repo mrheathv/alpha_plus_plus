@@ -1113,7 +1113,7 @@ final class GameScene: SKScene {
     /// `CityHazards`), so it never needs a sprite of its own to represent.
     private func buildTileNodes() {
         for tile in map.tiles where tile.isBuildingAnchor {
-            let node = tileRenderer.makeNode(for: tile)
+            let node = tileRenderer.makeNode(for: tile, roadNeighbours: roadNeighbourMask(at: tile.position))
             tileLayer.addChild(node)
             tileNodes[tile.position] = node
             syncTrafficAnimation(at: tile.position)
@@ -1376,7 +1376,7 @@ final class GameScene: SKScene {
             for dx in -radius ... radius {
                 let cell = GridPosition(x: position.x + dx, y: position.y + dy)
                 guard map.contains(cell), map[cell].isBuildingAnchor else { continue }
-                let node = tileRenderer.makeNode(for: map[cell])
+                let node = tileRenderer.makeNode(for: map[cell], roadNeighbours: roadNeighbourMask(at: cell))
                 tileLayer.addChild(node)
                 tileNodes[cell] = node
                 // **A full refresh, not two hand-picked decorations.** This
@@ -2153,7 +2153,8 @@ final class GameScene: SKScene {
         switch controller.overlayMode {
         case .none:
             tileRenderer.restoreFromOverlay(on: node)
-            tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position))
+            tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position),
+                                roadNeighbours: roadNeighbourMask(at: tile.position))
             tileRenderer.syncConduits(on: node, isPipe: true, segments: [])
             tileRenderer.syncConduits(on: node, isPipe: false, segments: [])
             tileRenderer.syncTramTrack(on: node, present: false, mask: 0)
@@ -2191,7 +2192,8 @@ final class GameScene: SKScene {
                 // on the *view* changing rather than on every tile of every
                 // tick: an unchanged lot costs a dictionary lookup, and a
                 // changed one rebuilds exactly once.
-                tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position))
+                tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position),
+                                roadNeighbours: roadNeighbourMask(at: tile.position))
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor,
                                      keepingRoads: paint.showsRoads)
@@ -2284,6 +2286,14 @@ final class GameScene: SKScene {
     /// own doc comment for why that connectivity answer has to be computed
     /// here, with the full `map`, and passed down rather than computed
     /// inside `IsoTileRenderer` itself.
+    /// Which sides of `position` carry on into more street, in the four bits
+    /// the lane line already uses. A kerb is drawn where a street *stops*, so
+    /// the ground needs the same answer the lane does.
+    private func roadNeighbourMask(at position: GridPosition) -> Int {
+        let c = Traffic.roadConnections(at: position, in: map)
+        return (c.east ? 1 : 0) | (c.west ? 2 : 0) | (c.north ? 4 : 0) | (c.south ? 8 : 0)
+    }
+
     private func syncLaneLine(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let zone = map[position].zone

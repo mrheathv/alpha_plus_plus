@@ -42,6 +42,30 @@ enum RenderPalette {
     /// reads as a surface sitting in the night rather than a hole in it.
     static let ground = SKColor(srgbRed: 0.078, green: 0.043, blue: 0.157, alpha: 1.0)
 
+    /// The footway along a street's edge, where it does not carry on into
+    /// more street.
+    ///
+    /// **Between asphalt and bare land, and closer to asphalt.** This is the
+    /// first mark ever added to the ground plane, which is 42% of a frame and
+    /// had never had a pass — and the value ladder is the constraint that
+    /// makes it delicate. Asphalt is deliberately the *darkest* surface in
+    /// the game, because what makes a road visible is the lane line glowing on
+    /// top of it and that needs the darkest possible bed. A pavement bright
+    /// enough to notice on its own would undo exactly the fix that made the
+    /// street grid recede.
+    ///
+    /// So it is a step up from asphalt and still under bare ground: enough
+    /// that a street has an *edge* rather than bleeding into the lot beside
+    /// it, and not enough to compete with anything that is lit.
+    static let pavement = SKColor(srgbRed: 0.098, green: 0.063, blue: 0.180, alpha: 1.0)
+
+    /// The line where the footway meets the carriageway.
+    ///
+    /// Only the inner edge gets one. The outer edge is where the lot begins,
+    /// and that boundary already reads because the two surfaces differ — a
+    /// second line there would draw a box around every street tile.
+    static let kerb = SKColor(srgbRed: 0.22, green: 0.17, blue: 0.32, alpha: 0.9)
+
     /// The land *outside* the map: the surface it is made of, and the grid
     /// ruled across it.
     ///

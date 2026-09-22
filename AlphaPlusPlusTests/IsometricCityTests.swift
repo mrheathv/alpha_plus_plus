@@ -31,6 +31,19 @@ final class IsometricCityTests: XCTestCase {
         Isometric(tileWidth: tileWidth, heightUnit: 32 * tileWidth / 64)
     }
 
+    /// Which sides of a tile carry on into more street.
+    ///
+    /// **The render has to ask this itself**, because it calls
+    /// `IsoTileRenderer` directly rather than through a `GameScene` — the
+    /// same blind spot that once left the backdrop, the utility badge and the
+    /// traffic invisible here. A kerb is drawn where a street stops, so a
+    /// render that did not pass the mask would show a city with no pavements
+    /// in it and report that everything was fine.
+    static func roadMask(at position: GridPosition, in map: CityMap) -> Int {
+        let c = Traffic.roadConnections(at: position, in: map)
+        return (c.east ? 1 : 0) | (c.west ? 2 : 0) | (c.north ? 4 : 0) | (c.south ? 8 : 0)
+    }
+
     // MARK: - The city
 
     /// A hand-built city: roads on a grid, 2×2 lots of every zone and tier
@@ -1027,7 +1040,14 @@ final class IsometricCityTests: XCTestCase {
         let transitCoverage = Transit.coverage(for: map)
         for position in Self.positions(of: map) where map[position].isBuildingAnchor {
             let tile = map[position]
-            let node = renderer.makeNode(for: tile)
+            // **The mask has to be passed here**, because this render calls
+            // `IsoTileRenderer` directly rather than through a `GameScene` —
+            // the same blind spot that left the backdrop, the utility badge
+            // and the traffic invisible in this file. A kerb is drawn where a
+            // street *stops*, so without it the city renders with no
+            // pavements at all and reports that everything is fine.
+            let node = renderer.makeNode(
+                for: tile, roadNeighbours: Self.roadMask(at: position, in: map))
             if tile.zone == ZoneType.road || tile.zone == ZoneType.highway {
                 renderer.syncLaneLine(on: node, zone: tile.zone,
                                       connections: Traffic.roadConnections(at: position, in: map))

@@ -81,13 +81,13 @@ struct IsoTileRenderer {
     /// parent's children: `GameScene.rebuildRegion` adds and removes nodes in a
     /// small window without touching the rest, and re-sorting a whole tile
     /// layer per placement would undo the saving that exists for.
-    func makeNode(for tile: Tile) -> SKNode {
+    func makeNode(for tile: Tile, roadNeighbours: Int = 0b1111) -> SKNode {
         let footprint = tile.zone.footprintSize
         let node = SKNode()
         node.name = Self.nodeName(for: tile.position)
         node.position = projection.project(CGFloat(tile.position.x), CGFloat(tile.position.y), 0)
         node.zPosition = Isometric.depth(of: tile.position, footprint: footprint)
-        update(node, for: tile)
+        update(node, for: tile, roadNeighbours: roadNeighbours)
         return node
     }
 
@@ -98,8 +98,15 @@ struct IsoTileRenderer {
     ///   which the *caller* works out because it needs the map and this does
     ///   not. See `GameScene.reflection(at:)` for why a reflection belongs to
     ///   the ground it lands on rather than the building that casts it.
-    func update(_ node: SKNode, for tile: Tile, reflecting: Reflected? = nil) {
-        syncGround(on: node, tile: tile)
+    /// - Parameter roadNeighbours: which sides of this tile carry on into more
+    ///   street, as the four bits `syncLaneLine` already builds. A kerb is a
+    ///   statement about neighbours, like a lane line, so the ground needs the
+    ///   same answer the lane does. Defaults to "surrounded", which draws no
+    ///   pavement — the right answer for everything that is not a street and
+    ///   for a caller that has not been taught about them.
+    func update(_ node: SKNode, for tile: Tile, reflecting: Reflected? = nil,
+                roadNeighbours: Int = 0b1111) {
+        syncGround(on: node, tile: tile, roadNeighbours: roadNeighbours)
         syncGroundGlow(on: node, tile: tile)
         syncContactLight(on: node, tile: tile)
         syncSmoke(on: node, tile: tile)
@@ -116,15 +123,29 @@ struct IsoTileRenderer {
     /// The lot itself: one diamond covering the whole footprint, not one per
     /// cell. A 2×2 building stands on a single 2×2 diamond, so its ground has
     /// no seams running through it.
-    private func syncGround(on node: SKNode, tile: Tile) {
-        let key = "\(tile.zone.rawValue)|\(tile.density)|\(tile.isWater)"
+    private func syncGround(on node: SKNode, tile: Tile, roadNeighbours: Int = 0b1111) {
+        // **The mask is in the key only for the tiles that draw it.**
+        //
+        // A street whose neighbour is bulldozed grows a kerb where the
+        // junction was, so a key blind to the mask would leave the old
+        // surface in place. But bare land and lots ignore the mask entirely —
+        // and keying them on it anyway meant every tile beside a new road
+        // rebuilt its ground to produce a byte-identical texture, and
+        // reported itself stale while doing it. `ScenePlaytest` caught that
+        // as a row of empty tiles disagreeing after a cross street went in.
+        //
+        // A cache key has to describe *what was drawn*. Putting more in it
+        // than the picture depends on is not a harmless safety margin: it is
+        // churn, and it makes the key lie about what it represents.
+        let mask = Traffic.isRoadLike(tile.zone) ? roadNeighbours : 0
+        let key = "\(tile.zone.rawValue)|\(tile.density)|\(tile.isWater)|\(mask)"
         guard !isUpToDate(node, Self.groundNodeName, key) else { return }
         markUpToDate(node, Self.groundNodeName, key)
         node.childNode(withName: Self.groundNodeName)?.removeFromParent()
 
         guard let rendered = textures.ground(
             for: tile.zone, density: tile.density, footprint: tile.zone.footprintSize,
-            isWater: tile.isWater
+            isWater: tile.isWater, kerbMask: mask
         ) else { return }
         let ground = SKSpriteNode(texture: rendered.texture, size: rendered.size)
         ground.name = Self.groundNodeName

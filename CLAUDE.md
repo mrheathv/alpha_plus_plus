@@ -6542,6 +6542,72 @@ Both are the same shape, and it is the shape this file keeps returning to:
 **a function that does two things gets called for one of them**, and the other
 goes wrong quietly.
 
+## Phase 2: the ground gets its first mark
+
+42% of a frame is road or bare land — measured, 1,387 + 353 tiles of 4,096 on
+Apex — and until now every one of them was a flat diamond with a lane line on
+top. Every other surface in this game has had passes; this one had never had
+one. Kerbs and pavements are the first.
+
+**A kerb is a statement about neighbours**, exactly as a lane line is: a
+street grows a footway on each side that does *not* carry on into more street.
+So it is drawn from the same sixteen-value connection mask, and the mask goes
+into the *ground's* texture key rather than onto a sprite of its own.
+
+That distinction is the whole reason this phase is affordable. Sixteen masks
+against two street zones is a few dozen more entries in a cache that already
+holds a hundred. A sprite would have been **one more node on every road tile
+in the city**, and a built-out map has 1,387 of them — against a standing
+budget of about 3.6 nodes per lot. `StreetSurfaceTests` pins that: a kerbed
+street and an uninterrupted one carry the same number of children, and none of
+them is an `SKShapeNode`.
+
+Drawn per side rather than as one inset ring, because a crossroads has no
+pavement at all and a dead end has three — a ring would put a kerb across the
+middle of every junction.
+
+### The colour is the constrained part
+
+Asphalt is deliberately the **darkest** surface in the game: what makes a road
+visible is the lane line glowing on top of it, and that needs the darkest
+possible bed. A pavement bright enough to notice on its own would undo exactly
+the fix that made the street grid recede. `RenderPalette.pavement` is a step
+up from asphalt and still under bare ground — enough that a street has an
+*edge* rather than bleeding into the lot beside it, and not enough to compete
+with anything lit. Only the inner edge gets a kerb line; the outer edge is
+where the lot begins and already reads, and a second line there would draw a
+box around every street tile.
+
+### Three things the tests caught, and the third is a rule
+
+- **The pavement changed the tile's size.** A sprite's size comes from its
+  node's accumulated frame, and the carriageway is inset 0.02 while the
+  pavement reached the tile's true edge — so a kerbed tile rendered 64 points
+  wide against an uninterrupted one's 62.8. Every street with a kerb would
+  have sat a fraction out of line with the lots beside it, which reads as "the
+  art is slightly wrong" and never as a bug. `groundInset` is shared now.
+- **The city render drew no kerbs at all**, because it calls `IsoTileRenderer`
+  directly rather than through a `GameScene` and so never passed a mask. Same
+  blind spot that once left the backdrop, the utility badge and the traffic
+  invisible in that render — **three for three, now four.** The tool for
+  reviewing cities has to be told about anything the scene knows and the
+  renderer does not.
+- **The key described more than the picture.** Putting the mask in every
+  tile's ground key — including the bare land and lots that ignore it — meant
+  every tile beside a new road rebuilt its ground to produce a byte-identical
+  texture, *and reported itself stale while doing it*. `ScenePlaytest` caught
+  it as a row of empty tiles disagreeing after a cross street went in.
+
+  Worth stating plainly, because it is the opposite of the failure this file
+  usually records: **a cache key has to describe what was drawn.** Too little
+  in it leaves a stale picture; too much is not a harmless safety margin — it
+  is churn, and it makes the key lie about what it represents.
+
+`Traffic.isRoadLike` stopped being `private` for this. "Is this a street" now
+has exactly one answer on both sides of the simulation/rendering split, which
+is the same reason `CityHazards.isExposed` and `CitySimulator.needsWater` are
+called by the renderer rather than restated in it.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
