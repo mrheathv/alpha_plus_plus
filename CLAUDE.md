@@ -6438,6 +6438,53 @@ this project, and `computeLoad` has already been non-deterministic once, from
 `Set` iteration order, caught only because the harness failed its own
 reproducibility check.
 
+### And the redraw stopped repainting a city to change sixty lots
+
+The other half of the tick. `refreshAll` ran after every one, walking every
+visible tile — **37 ms in Release**, landing on the same frame as the
+simulation.
+
+Measured first, because change detection is only worth its risk if the change
+is small. On Apex, per tick:
+
+| | |
+|---|---|
+| tiles whose `Tile` changed | **~60 of 4,096** |
+| tiles whose congestion crossed a step | ~30 |
+
+So the old behaviour repainted 1,651 lots to catch about ninety. It now
+redraws what moved, plus the neighbours that describe it — a road's lane line,
+a conduit's run and a wet reflection are all statements about *neighbours*, so
+a changed tile drags its surroundings in. That expansion is why it redraws 278
+rather than 90, and it is deliberately generous: being wrong costs a stale map,
+and being generous costs a few hundred microseconds.
+
+**The tick's whole frame: 87 ms → 32 ms**, across this and the parallel router.
+
+#### `ScenePlaytest` earned its keep twice in ten minutes
+
+Change detection is the most dangerous kind of cache, because getting it wrong
+does not fail — it leaves a map quietly out of date. This is the exact shape
+`SceneAgreement` was built for, and it caught both mistakes immediately, by
+name and by tile.
+
+- **Reflections.** When the street turns wet, every reflection in the city
+  changes meaning at once — and a reflection belongs to the *ground* it lands
+  on, whose own tile has not moved. Nothing watching tiles can see it coming.
+  `syncWeather` reports whether the wetness turned now, and a turn falls back
+  to redrawing everything.
+- **Traffic.** The first version bucketed congestion into twentieths and
+  compared those. `Traffic.carCount` puts a car on *any* congestion above
+  zero, and 0.0 and 0.04 are the same twentieth — so a street going from empty
+  to busy was invisible to the diff, and six tiles of road expected a car and
+  drew none.
+
+The second is the more general lesson and this file has arrived at it from
+other directions: **compare the value the renderer actually reads, not a proxy
+for it.** A quantisation invented at the comparison site is a second opinion
+about what counts as a change, and it will disagree with the first one
+eventually.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

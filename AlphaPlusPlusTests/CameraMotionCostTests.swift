@@ -140,7 +140,13 @@ final class CameraMotionCostTests: XCTestCase {
 
         print("\n=== the two halves of a tick, 64x64 Debug ===")
         let sim = best("controller.advanceSimulation()") { controller.advanceSimulation() }
-        let draw = best("scene.refreshAll()") { scene.refreshAll() }
+        // The whole tick as the game runs it, which is the number that lands
+        // on a frame — `refreshAll` is what it *used* to do, kept alongside so
+        // the saving is visible rather than asserted.
+        let draw = best("the tick's redraw") { scene.runSimulationTick() }
+        _ = best("scene.refreshAll() (what it replaced)") { scene.refreshAll() }
+        print("  redrew \(scene.lastTickRedrewForTesting) lots of "
+              + "\(scene.tileNodesForTesting.count)")
         print(String(format: "  together %.0f ms — %.0f dropped frames at 60fps",
                      sim + draw, (sim + draw) / 16.7))
     }
@@ -275,6 +281,39 @@ final class CameraMotionCostTests: XCTestCase {
           the searches are %.0f%% of the tick, and go %.1fx faster on %d cores
         """, serial / max(whole, 0.001) * 100, serial / max(parallel, 0.001),
         ProcessInfo.processInfo.activeProcessorCount))
+    }
+
+    /// **How much of the map actually changes in a tick.**
+    ///
+    /// The renderer refreshes every visible tile after every tick, at 37 ms.
+    /// That is only worth replacing with change-detection if the change is
+    /// small — and change-detection is the most dangerous kind of cache,
+    /// because getting it wrong shows as a map that is quietly out of date
+    /// rather than as anything failing.
+    func testHowMuchOfTheMapATickChanges() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let controller = GameController(map: try CitySaveFile.read(from: url).map,
+                                        rng: SeededRNG(seed: 1),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        print("\n=== what a tick actually changes ===")
+        for tick in 1 ... 5 {
+            let before = controller.map
+            controller.advanceSimulation()
+            let after = controller.map
+            var tiles = 0, congestion = 0
+            for index in before.tiles.indices {
+                if before.tiles[index] != after.tiles[index] { tiles += 1 }
+                let position = before.tiles[index].position
+                let a = Traffic.congestion(at: position, in: before)
+                let b = Traffic.congestion(at: position, in: after)
+                // Quantised the way the renderer reads it — a lane's dimming
+                // and a tile's car count are steps, not a continuum.
+                if Int(a * 20) != Int(b * 20) { congestion += 1 }
+            }
+            print(String(format: "  tick %d: %4d tiles changed, %4d congestion steps moved, of %d",
+                         tick, tiles, congestion, before.tiles.count))
+        }
     }
 
     func testWhatMovingTheCameraCosts() throws {

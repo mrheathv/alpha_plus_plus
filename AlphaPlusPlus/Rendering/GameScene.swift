@@ -542,8 +542,9 @@ final class GameScene: SKScene {
     /// both the automatic clock above and `GameView`'s manual "Advance"
     /// button funnel through, so the two can never show a tick differently.
     func runSimulationTick() {
+        let before = controller.map
         controller.advanceSimulation()
-        refreshAll()
+        refreshTilesChanged(from: before)
         for strike in controller.lastHazardStrikes {
             flashHazard(at: strike.position, service: strike.coveringService)
         }
@@ -1663,6 +1664,104 @@ final class GameScene: SKScene {
     /// grid, which is the only thing that changes which tiles exist.
     private var cullOrder: [(position: GridPosition, point: CGPoint, node: SKNode)] = []
 
+    /// Redraws only the lots a tick actually moved.
+    ///
+    /// **A tick changes about 1.5% of the map**, measured on the densest city
+    /// this project ships: roughly sixty tiles of four thousand, plus thirty
+    /// whose congestion crossed a step the renderer can see. Redrawing every
+    /// visible lot to catch them cost **37 ms in Release**, landing on one
+    /// frame every couple of seconds, and was half of what play reported as
+    /// stuttering.
+    ///
+    /// **Change detection is the most dangerous kind of cache**, because
+    /// getting it wrong does not fail — it leaves a map quietly out of date,
+    /// which is the exact shape of bug `ScenePlaytest` was built to catch and
+    /// has caught four times. Two things make it safe enough to do here.
+    ///
+    /// The first is that a mark is not always about its own tile. A road's
+    /// lane line, a conduit's run and a wet reflection are all statements
+    /// about *neighbours*, so a changed tile drags its neighbours in with it —
+    /// the same expansion `refreshRoadNeighbors`, `refreshConduitNeighbours`
+    /// and `refreshReflectionNeighbours` already make one at a time.
+    ///
+    /// The second is that `SceneAgreement` compares the live scene against a
+    /// freshly built one after every action in a playtest session, including
+    /// a tick — so anything this misses shows up there as a cache key that
+    /// disagrees, rather than as a stale map nobody notices.
+    private func refreshTilesChanged(from before: CityMap) {
+        let after = controller.map
+        guard before.width == after.width, before.height == after.height else {
+            refreshAll()   // the map itself changed shape; nothing is comparable
+            return
+        }
+
+        var touched: Set<GridPosition> = []
+        for index in after.tiles.indices {
+            let position = after.tiles[index].position
+            var moved = before.tiles[index] != after.tiles[index]
+            if !moved {
+                // **Congestion is not on the tile**, and it decides how many
+                // cars cross it — so a street can change appearance with
+                // every field of its `Tile` untouched.
+                //
+                // Compared through `carCount`, which is *the function the
+                // renderer keys on*, rather than through a quantisation
+                // invented here. The first version bucketed the raw figure
+                // into twentieths and missed a street going from no traffic
+                // to a little: `carCount` puts a car on any congestion above
+                // zero, and 0.0 and 0.04 are the same twentieth. Caught by
+                // `ScenePlaytest` as six tiles of a road expecting a car and
+                // drawing none.
+                //
+                // The general form, and this file has it elsewhere: **compare
+                // the value the renderer reads, not a proxy for it.**
+                let was = Traffic.carCount(
+                    forCongestion: Traffic.congestion(at: position, in: before))
+                let now = Traffic.carCount(
+                    forCongestion: Traffic.congestion(at: position, in: after))
+                moved = was != now
+            }
+            guard moved else { continue }
+            touched.insert(position)
+            // Marks that describe a neighbour rather than this tile.
+            for neighbour in position.orthogonalNeighbors() where after.contains(neighbour) {
+                touched.insert(neighbour)
+            }
+            // A reflection lands on the ground *down-screen* of what casts it.
+            for ahead in [GridPosition(x: position.x + 1, y: position.y),
+                          GridPosition(x: position.x, y: position.y + 1)]
+            where after.contains(ahead) {
+                touched.insert(ahead)
+            }
+        }
+
+        syncOverlayGeneration()
+        syncPathVehicles()
+        syncTransitDiagram()
+
+        // **When the street turns wet, every reflection in the city changes
+        // meaning at once** — and a reflection belongs to the ground it lands
+        // on, whose own tile has not moved, so the diff above cannot see it.
+        // `ScenePlaytest` caught this on the first run, which is exactly why
+        // change detection is safe enough to attempt here at all.
+        guard !syncWeather() else {
+            refreshAll()
+            return
+        }
+
+        lastTickRedrewForTesting = touched.count
+        for position in touched {
+            // A cell the player touched may be covered by a building whose
+            // anchor is elsewhere; `refresh` resolves that itself.
+            if tileNodes[position]?.parent != nil { refresh(position) }
+            else if tileNodes[position] != nil { staleWhileDetached.insert(position) }
+            else { refresh(position) }
+        }
+    }
+
+    /// How many lots the last tick redrew, for the test that it is few.
+    private(set) var lastTickRedrewForTesting = 0
+
     /// Tiles that were off screen when the detail tier changed, and so are
     /// still drawn at the old one. Refreshed as they come back into view.
     private var staleWhileDetached: Set<GridPosition> = []
@@ -2491,10 +2590,16 @@ final class GameScene: SKScene {
     /// camera and costs one node; wetness is a texture-key on every lot, so
     /// it changes far less often — `Weather.wetness` is quantised into steps
     /// precisely so this does not rebuild the city every tick.
-    private func syncWeather() {
+    /// - Returns: whether the street's wetness changed. Every tile that could
+    ///   carry a reflection has to be redrawn when it does — a reflection
+    ///   belongs to the *ground* it lands on, and that ground's own data has
+    ///   not moved, so nothing watching the tiles can see it coming.
+    @discardableResult
+    private func syncWeather() -> Bool {
         let day = map.elapsedDays
         let rainfall = CGFloat(Weather.rainfall(onDay: day))
         let wet = CGFloat(Weather.wetness(onDay: day))
+        let wetnessChanged = wet != wetnessDrawn
 
         if wet != wetnessDrawn {
             wetnessDrawn = wet
@@ -2517,7 +2622,7 @@ final class GameScene: SKScene {
         guard rainfall > 0, VisualStyle.current.wetReflection > 0 else {
             rainNode?.removeFromParent()
             rainNode = nil
-            return
+            return wetnessChanged
         }
         if rainNode == nil {
             let node = Emitters.rain(size: view, intensity: rainfall)
@@ -2538,6 +2643,7 @@ final class GameScene: SKScene {
         rainNode?.position = CGPoint(x: 0, y: view.height * 0.75)
         rainNode?.particlePositionRange = CGVector(dx: view.width * 1.4, dy: 0)
         rainNode?.particleSpeed = view.height * 1.5
+        return wetnessChanged
     }
 
     /// What the wet ground at `position` throws back.
