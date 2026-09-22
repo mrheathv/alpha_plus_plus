@@ -7215,11 +7215,20 @@ integration, and **none of it is simulation work**.
 Two findings from that pass belong here because they are facts about the
 repository rather than opinions about the plan:
 
-- **The game is silent, and the soundtrack is finished.** `Audio/` holds a
-  band-limited synthesiser, a score, a mixer and tests that catch clipping,
-  silence, DC offset and wrong pitch, and it renders a playable WAV. `App/`,
-  `Rendering/` and `Simulation/` reference **none of it**. The music has never
-  played.
+- **The game is silent, and the soundtrack keeps getting more finished.**
+  `Audio/` now holds a band-limited synthesiser, a score, a mixer, a
+  **`MusicDirector`** that decides which track a city has earned, and a
+  **`SoundtrackPlayer`** that renders a track into an `AVAudioPCMBuffer` and
+  hands it to an `AVAudioPlayerNode` — every piece of the chain, each one
+  tested. `App/`, `Rendering/` and `Simulation/` reference **none of it**, and
+  nothing constructs a player. The music has still never played.
+
+  Worth stating as the shape rather than the status, because the status keeps
+  moving: **the whole module is complete and unreachable.** What is missing is
+  not a component, it is the half-dozen lines that own a player, watch
+  `GameController` and pass the director's answer to it. A module nobody calls
+  is the same defect as a control that does nothing, one level up — and this
+  file records that defect twice already.
 - **No picture anywhere shows the chrome over the city.** `ImageRenderer`
   cannot draw the hosted `SKView`, so the live-view render draws the map as a
   placeholder rectangle; every city render is taken with no cockpit. Whether
