@@ -36,7 +36,15 @@ final class SoundtrackPlayer {
     /// headphones changes the profile and must not cost a re-render of
     /// everything.
     private var mixes: [String: Soundtrack.Buffer] = [:]
-    private var rendering: Set<String> = []
+    /// Waiting to be rendered, in the order they will be. **Ordered rather
+    /// than a set**, because which one is next is the whole point: rendering
+    /// is serial (seven at once would take every core to produce six tracks
+    /// nobody is waiting for), so a cue that arrives while the queue is full
+    /// would otherwise wait behind the entire library. Measured in Debug
+    /// that is 46 seconds against a 40-second guaranteed dwell — the player
+    /// could never catch up with the director. A wanted track jumps.
+    private var pending: [Track] = []
+    private var isRendering = false
     private let renderQueue = DispatchQueue(label: "alphaplusplus.music.render", qos: .utility)
 
     // MARK: - The graph
@@ -131,7 +139,9 @@ final class SoundtrackPlayer {
     func play(_ wanted: MusicDirector.Cue) {
         guard wanted != cue else { return }
         guard let buffer = buffer(for: wanted.track) else {
-            requestRender(of: wanted.track)
+            // Wanted now, so it goes to the front of whatever the warm-up
+            // queued behind it.
+            requestRender(of: wanted.track, wantedNow: true)
             return
         }
 
@@ -250,20 +260,36 @@ final class SoundtrackPlayer {
         return Self.pcmBuffer(profile.apply(to: mix))
     }
 
-    private func requestRender(of track: Track) {
-        guard mixes[track.name] == nil, !rendering.contains(track.name) else { return }
-        rendering.insert(track.name)
+    private func requestRender(of track: Track, wantedNow: Bool = false) {
+        guard mixes[track.name] == nil else { return }
+        if let already = pending.firstIndex(where: { $0.name == track.name }) {
+            guard wantedNow, already > 0 else { return }
+            pending.remove(at: already)
+            pending.insert(track, at: 0)
+            return
+        }
+        if wantedNow { pending.insert(track, at: 0) } else { pending.append(track) }
+        pump()
+    }
+
+    /// One render at a time, next one when it finishes.
+    private func pump() {
+        guard !isRendering, let next = pending.first else { return }
+        isRendering = true
         renderQueue.async {
-            let mix = Soundtrack.render(track)
+            let mix = Soundtrack.render(next)
             Task { @MainActor in
-                self.mixes[track.name] = mix
-                self.rendering.remove(track.name)
+                self.mixes[next.name] = mix
+                self.pending.removeAll { $0.name == next.name }
+                self.isRendering = false
+                self.pump()
             }
         }
     }
 
-    /// Render everything, in the background, in the order a session will
-    /// want it. Called once at launch so a cue change lands on a cache hit.
+    /// Render everything, in the background, in the order given — so the
+    /// caller puts the cue it wants first. Called once at launch so a change
+    /// lands on a cache hit rather than on a wait.
     func warmUp(_ cues: [MusicDirector.Cue] = MusicDirector.Cue.allCases) {
         for cue in cues { requestRender(of: cue.track) }
     }

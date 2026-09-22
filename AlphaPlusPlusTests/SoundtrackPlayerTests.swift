@@ -190,6 +190,67 @@ final class SoundtrackPlayerTests: XCTestCase {
         XCTAssertTrue(player.isReady(.building), "the raw mix was thrown away with the profile")
     }
 
+    /// **A wanted track jumps the warm-up queue.** Rendering is serial, and
+    /// the library takes 46 seconds in Debug — longer than the 40 seconds a
+    /// cue is guaranteed to hold. So a change that arrives while the warm-up
+    /// is still working has to go to the front, or the player could never
+    /// catch up with the director on a slow machine.
+    func testAWantedTrackIsRenderedBeforeTheRestOfTheWarmUp() async throws {
+        let player = SoundtrackPlayer()
+        // Everything queued, none of it rendered.
+        player.warmUp()
+        XCTAssertFalse(player.isReady(.pressure))
+
+        // Ask for one from the back of that queue.
+        player.play(.pressure)
+
+        // One render, not seven: it must arrive well inside the time the
+        // whole library would take.
+        let deadline = Date().addingTimeInterval(MusicDirector.minimumDwell)
+        while !player.isReady(.pressure), Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertTrue(player.isReady(.pressure),
+                      "a wanted track waited behind the rest of the warm-up")
+    }
+
+    /// **What warming up costs**, which is the number the whole cache design
+    /// rests on. If a track rendered in milliseconds there would be no need
+    /// for a background queue at all; if the whole library cost a minute,
+    /// rendering everything at launch would be wrong even in the background.
+    ///
+    /// Reported rather than asserted tightly, the way `HarnessTimingTests`
+    /// reports a tick: a number in a build log is what makes a regression
+    /// visible before it is a stutter.
+    func testMeasureWhatRenderingTheLibraryCosts() {
+        var total = 0.0
+        for cue in MusicDirector.Cue.allCases {
+            let track = cue.track
+            let started = Date()
+            _ = Soundtrack.render(track)
+            let seconds = Date().timeIntervalSince(started)
+            total += seconds
+            print(String(format: "🎚 %-12@ %5.1fs of music rendered in %5.2fs  (%.1fx real time)",
+                         track.name as NSString, track.duration, seconds, track.duration / seconds))
+        }
+        print(String(format: "🎚 whole library: %.1fs in this configuration", total))
+
+        // The bound is loose and is about the *shape* of the answer: if a
+        // single track ever costs more than the dwell a cue is guaranteed,
+        // a change could ask for a track and still be waiting when the next
+        // change arrives, and the player would sit on one piece forever.
+        let worst = MusicDirector.Cue.allCases
+            .map { track -> Double in
+                let started = Date()
+                _ = Soundtrack.render(track.track)
+                return Date().timeIntervalSince(started)
+            }
+            .max() ?? 0
+        XCTAssertLessThan(worst, MusicDirector.minimumDwell,
+                          "a track takes longer to render than a cue is guaranteed to hold, "
+                          + "so the player could never catch up with the director")
+    }
+
     /// The engine has to survive there being no output device, because a game
     /// that will not launch without speakers is worse than a silent one.
     func testAPlayerThatCannotOpenADeviceIsSilentRatherThanFatal() {
