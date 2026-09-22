@@ -94,6 +94,7 @@ enum CommercialMassing {
             ? Box(x: offset, y: margin, z: base.height, width: size, depth: base.depth, height: CGFloat(random.value(in: 0.7 ... 1.1)))
             : Box(x: margin, y: offset, z: base.height, width: base.width, depth: size, height: CGFloat(random.value(in: 0.7 ... 1.1)))
         massing.add(.box(tower))
+        NeonStyle.clad(tower, as: cladding(for: seed), into: &massing, random: &random)
         glazingBands(on: tower, into: &massing, random: &random)
         bladeSign(on: tower, color: NeonStyle.signColor(for: seed), footprint: footprint,
                   into: &massing, random: &random)
@@ -125,6 +126,7 @@ enum CommercialMassing {
         var tower = Box(x: inset, y: inset, z: z,
                         width: footprint - inset * 2, depth: footprint - inset * 2, height: height)
         massing.add(.box(tower))
+        NeonStyle.clad(tower, as: cladding(for: seed), into: &massing, random: &random)
         glazingBands(on: tower, into: &massing, random: &random)
         bladeSign(on: tower, color: NeonStyle.signColor(for: seed), footprint: footprint,
                   into: &massing, random: &random)
@@ -139,8 +141,10 @@ enum CommercialMassing {
             tower = Box(x: inset, y: inset, z: z,
                         width: footprint - inset * 2, depth: footprint - inset * 2, height: height)
             massing.add(.box(tower))
+            NeonStyle.clad(tower, as: cladding(for: seed), into: &massing, random: &random)
             glazingBands(on: tower, into: &massing, random: &random)
         }
+        NeonStyle.rooftopPlant(on: tower, into: &massing, random: &random)
         crown(on: tower, tier: tier, seed: seed, into: &massing, random: &random)
     }
 
@@ -180,6 +184,7 @@ enum CommercialMassing {
                         width: footprint - inset * 2, depth: footprint - inset * 2,
                         height: CGFloat(random.value(in: 3.6 ... 4.8)))
         massing.add(.box(shaft))
+        NeonStyle.clad(shaft, as: cladding(for: seed), into: &massing, random: &random)
         glazingBands(on: shaft, into: &massing, random: &random)
         bladeSign(on: shaft, color: NeonStyle.signColor(for: seed), footprint: footprint,
                   into: &massing, random: &random)
@@ -226,6 +231,20 @@ enum CommercialMassing {
                                         v0: share.lowerBound, v1: share.upperBound,
                                         color: NeonStyle.litAccent))
         }
+    }
+
+    /// **Glass, or a frame with glass in it.**
+    ///
+    /// Commerce's identity is the continuous band, and that stays whichever
+    /// material this is — what changes is whether the bands run uninterrupted
+    /// from corner to corner or are broken by piers standing the height of the
+    /// building. Two towers side by side now read as two buildings rather than
+    /// as one drawing at two widths, which is the whole of what the greyscale
+    /// check found missing.
+    ///
+    /// Drawn *before* the glazing, so the bands sit on top of the frame.
+    private static func cladding(for seed: GridPosition) -> NeonStyle.Cladding {
+        NeonStyle.cladding(for: seed, options: [.curtainWall, .curtainWall, .piers], salt: 2)
     }
 
     /// Unbroken horizontal ribbons running the full width of both walls and

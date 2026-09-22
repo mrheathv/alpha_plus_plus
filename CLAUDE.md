@@ -7012,6 +7012,96 @@ comparison has to be in one frame** — a landmark is defined entirely by
 contrast with what stands around it, so a sheet of landmarks on their own would
 be six nice buildings and no evidence.
 
+## Phase 5: more than one material, trimmed by measuring first
+
+The plan's last phase was "glass curtain wall against punched masonry against
+panel", and **its own acceptance test said most of it was already done**. The
+check is whether the zones tell apart with hue stripped out, and a greyscale
+crop of Apex passes it plainly: commerce's continuous bands against housing's
+punched grid is a distinction that survives desaturation, which was the whole
+point of the massing port.
+
+So the phase was cut to what greyscale *actually* exposed, which was a
+different thing:
+
+- **Every surface in the city is the same two values.** One near-black face,
+  one white window, on every building. Within a zone, every tower was the same
+  tower — the variety was all in the outline and none of it in the surface.
+- **The roofs are large and empty.** In this projection a roof is the biggest
+  single face a 2×2 building shows, and most of them said nothing.
+
+Worth recording as the general form: **a plan's verification step can retire
+half the plan.** Running phase 5's own check before starting it is what turned
+a large art pass into two narrow ones.
+
+### Two materials per zone, and no more
+
+`NeonStyle.Cladding` is the shared vocabulary, so a wall is drawn the same way
+whichever generator asks for it — the same reason `NeonStyle`'s primitives are
+shared at all. Commerce picks between a **curtain wall** and a **piered frame**;
+housing between plain masonry and **precast panel**, with its slab lines
+showing.
+
+Deliberately not the same pair. Piers on a punched grid would read as a glazing
+frame, which is the one thing housing's facade is defined against; bands on
+commerce would compete with the glazing bands that *are* commerce's mark.
+Industry gets neither, for the reason this file already records: its vocabulary
+is big blocks of light, and dividing its lit bays would undo a decision made
+on purpose.
+
+**Clad before the windows.** Panels sort with the volume they sit on and ties
+break on insertion order, so cladding added first draws under the glazing —
+the way round a building is built, and the way round that keeps the lit marks
+on top where the value ladder wants them.
+
+### A `Panel`'s `v` range is a proportion, and that is a trap
+
+The slab bands were asked for as 7% of the box height. A residential volume is
+nine-tenths of a tile tall, so they arrived **two screen points thick** —
+invisible, on every variant, with nothing failing. The same number means a
+different mark on every box it is applied to.
+
+Thickness is converted from world units once, inside `clad`. Same lesson as the
+near-detail mullion, whose pane count comes from a panel's *projected width*
+rather than from its width in tile units — and the same shape as every
+`minimumDetailSize` finding in this file, arrived at from a new direction:
+here the mark was not too small because someone chose a small number, it was
+too small because the number was relative to something short.
+
+### Rooftop plant, in the outer band
+
+`IndustrialMassing` worked this out when it landed — *"a flat roof is the quiet
+option, not a blank one"* — and its halls got rooftop plant. Commerce and
+housing never did: their roofs carried a crown in the middle and nothing else.
+
+One to three boxes in the roof's **outer band**, never the middle, because the
+crown is the centre feature and keeping them apart is what stops a stair head
+and a lit band arriving at the same spot with tied sort keys — which is how a
+hospital's cross once collapsed into a single bar. Sized against
+`minimumDetailSize` rather than against the roof: a third of a tile is ten
+screen points at the resting camera, and four smaller ones would be speckle.
+
+Everything here is inside the texture, so it costs **no nodes at all** — the
+property the whole cache exists for, and the reason this pass could afford to
+add marks to every building in the game.
+
+### Looking at it
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/WallMaterialTests
+
+open ./build/ContactSheet/wall-materials.png
+```
+
+Eight consecutive *variants* per zone — the looks the cache actually draws
+from — **with the colour removed by the test itself**, so the sheet written is
+the one the decision was taken on rather than something desaturated by hand
+afterwards. Hue is the channel this game has most of and leans on hardest, and
+it will happily hide a facade carrying no information at all, which is exactly
+what it was doing.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -116,6 +116,7 @@ enum ResidentialMassing {
         var inset = CGFloat(random.value(in: 0.1 ... 0.2))
         var z: CGFloat = 0
         var ground: Box?
+        var top: Box?
 
         for index in 0 ..< volumeCount {
             let remaining = totalHeight - z
@@ -124,7 +125,9 @@ enum ResidentialMassing {
             let box = Box(x: inset, y: inset, z: z,
                           width: footprint - inset * 2, depth: footprint - inset * 2, height: height)
             massing.add(.box(box))
+            NeonStyle.clad(box, as: cladding(for: seed), into: &massing, random: &random)
             if ground == nil { ground = box }
+            top = box
 
             let rows = max(1, Int((height / 0.36).rounded()))
             let columns = max(1, Int((box.width / 0.55).rounded()))
@@ -139,6 +142,7 @@ enum ResidentialMassing {
             inset += CGFloat(random.value(in: 0.1 ... 0.2))
         }
 
+        if let top { NeonStyle.rooftopPlant(on: top, into: &massing, random: &random) }
         crown(atTop: z, inset: inset, footprint: footprint, tier: tier, into: &massing, random: &random)
         if let ground { entrance(on: ground, into: &massing, random: &random) }
     }
@@ -185,6 +189,7 @@ enum ResidentialMassing {
                         width: footprint - inset * 2, depth: footprint - inset * 2,
                         height: height)
         massing.add(.box(shaft))
+        NeonStyle.clad(shaft, as: cladding(for: seed), into: &massing, random: &random)
         let rows = max(4, Int((height / 0.36).rounded()))
         windows(on: shaft, rows: rows, columns: max(1, Int((shaft.width / 0.5).rounded())),
                 chance: 0.66, salt: 3, into: &massing, random: &random)
@@ -198,6 +203,7 @@ enum ResidentialMassing {
             fraction += CGFloat(random.value(in: 0.2 ... 0.3))
         }
 
+        NeonStyle.rooftopPlant(on: shaft, into: &massing, random: &random)
         crown(atTop: shaft.z + shaft.height, inset: inset, footprint: footprint,
               tier: tier, into: &massing, random: &random)
     }
@@ -224,6 +230,22 @@ enum ResidentialMassing {
     /// Small separate windows, some lit and some dark — the opposite of
     /// commerce's continuous glazing bands. A wall of separate lights reads as
     /// many homes.
+    /// **Masonry, or precast panel.**
+    ///
+    /// Housing's identity is the punched grid of separate little windows, and
+    /// that stays either way. What changes is whether the wall between them is
+    /// blank — brick, render, anything laid in small pieces — or shows the
+    /// floor slabs as horizontal bands, which is what a panel-built block
+    /// looks like and what most of the towers this game is drawing would
+    /// actually be.
+    ///
+    /// Deliberately *not* commerce's option: piers on a punched grid would
+    /// read as a glazing frame, which is the one thing housing's facade is
+    /// defined against.
+    private static func cladding(for seed: GridPosition) -> NeonStyle.Cladding {
+        NeonStyle.cladding(for: seed, options: [.curtainWall, .panel], salt: 1)
+    }
+
     private static func windows(
         on box: Box,
         rows: Int,
