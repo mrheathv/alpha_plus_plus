@@ -12,6 +12,8 @@ struct IsoTileRenderer {
     let projection: Isometric
     let textures: IsoTextureCache
 
+    var textureCountForTesting: Int { textures.count }
+
     /// How much detail buildings are drawn with — set by `GameScene` off the
     /// camera, since how close the player is standing is a fact about the
     /// view rather than about any tile.
@@ -104,17 +106,73 @@ struct IsoTileRenderer {
     ///   same answer the lane does. Defaults to "surrounded", which draws no
     ///   pavement — the right answer for everything that is not a street and
     ///   for a caller that has not been taught about them.
+    /// - Parameter occludedBy: how much of this lot's sky its neighbours take,
+    ///   0 for a building standing on its own and 1 for one walled in on every
+    ///   side by towers. Worked out by the caller for the same reason the
+    ///   reflection is — it needs the map, and this does not.
     func update(_ node: SKNode, for tile: Tile, reflecting: Reflected? = nil,
-                roadNeighbours: Int = 0b1111) {
+                roadNeighbours: Int = 0b1111, occludedBy occlusion: Double = 0) {
+        let shade = Self.occlusionStep(occlusion)
         syncGround(on: node, tile: tile, roadNeighbours: roadNeighbours)
-        syncGroundGlow(on: node, tile: tile)
-        syncContactLight(on: node, tile: tile)
+        syncGroundGlow(on: node, tile: tile, shade: shade)
+        syncContactLight(on: node, tile: tile, shade: shade)
         syncSmoke(on: node, tile: tile)
         syncZoneMarker(on: node, tile: tile)
         syncReflection(on: node, tile: tile, reflecting: reflecting)
-        syncBuilding(on: node, tile: tile)
+        syncBuilding(on: node, tile: tile, shade: shade)
         syncAircraft(on: node, tile: tile)
     }
+
+    /// **Occlusion, quantised before it is ever used.**
+    ///
+    /// Every mark it touches is cached on a key, and enclosure is a continuous
+    /// number that a neighbour three lots away growing a storey can nudge by a
+    /// thousandth. A raw key would miss on every tile every tick and rebuild
+    /// the whole city once a second — precisely the churn this file records as
+    /// "why the map blinked", and the same reason road wear is quantised into
+    /// five steps before it reaches a lane line's key.
+    ///
+    /// Six steps, which is more gradation than the eye finds in how dark a
+    /// pool of light is.
+    ///
+    /// **Cut at `fullyEnclosed` rather than at 1**, and that number came from
+    /// measuring rather than from reasoning. `GameScene.occlusion` returns an
+    /// honest physical fraction — what share of a lot's perimeter is blocked —
+    /// and on Apex, the largest and densest city this project ships, **it
+    /// never once exceeds 0.5**. It cannot: every lot in a city with streets
+    /// fronts onto one, and a street is open sky. Scaled against 1 the top
+    /// three sixths of this range were dead weight and a whole built-out
+    /// downtown resolved into three shades.
+    ///
+    /// So the fraction stays true and the *scale* is calibrated to the range
+    /// the game can actually produce. Anything past it — a lot walled in on
+    /// every side, which only a hand-built fixture manages — simply sits at
+    /// the bottom.
+    static func occlusionStep(_ occlusion: Double) -> Int {
+        Swift.max(0, Swift.min(5, Int(occlusion / fullyEnclosed * 5.999)))
+    }
+
+    /// The enclosure a real city tops out at. See `occlusionStep`.
+    static let fullyEnclosed = 0.5
+
+    /// How much of a lot's own light its neighbours take at full enclosure.
+    ///
+    /// **It subtracts light rather than adding dark**, which is the rule this
+    /// renderer already had to find once: on a ground that is near-black by
+    /// design there is nothing left to take away, so contact at the foot of a
+    /// building is drawn as a *bright* mark. Occlusion is that argument run
+    /// backwards — a lot hemmed in on every side has less light reaching the
+    /// ground, and the way to say so is to turn down the light that is there.
+    ///
+    /// Which is also why it lands hardest on the pools and barely at all on
+    /// the building: darkening a whole silhouette uniformly would flatten a
+    /// tower rather than seat it, and the crevices between buildings are where
+    /// real density actually reads as dark.
+    static let occlusionDimsGroundLight = 0.72
+
+    /// And how much of the building's own silhouette goes with it. Small on
+    /// purpose — see above.
+    static let occlusionDimsBuilding = 0.22
 
     static func nodeName(for position: GridPosition) -> String { "iso-\(position.x)-\(position.y)" }
 
@@ -178,9 +236,9 @@ struct IsoTileRenderer {
     /// same additive trick the top-down renderer uses, and the thing that
     /// carries zone identity when the camera is far enough out that the
     /// silhouette has stopped resolving.
-    private func syncGroundGlow(on node: SKNode, tile: Tile) {
+    private func syncGroundGlow(on node: SKNode, tile: Tile, shade: Int = 0) {
         let tier = RenderPalette.growthTier(for: tile.density)
-        let key = "\(tile.zone.rawValue)|\(tier)"
+        let key = "\(tile.zone.rawValue)|\(tier)|\(shade)"
         guard !isUpToDate(node, Self.glowNodeName, key) else { return }
         markUpToDate(node, Self.glowNodeName, key)
         node.childNode(withName: Self.glowNodeName)?.removeFromParent()
@@ -192,7 +250,8 @@ struct IsoTileRenderer {
         glow.color = ZoneMassing.accent(for: tile.zone, density: tile.density)
         glow.colorBlendFactor = 1
         glow.blendMode = .add
-        glow.alpha = tile.zone.maxDensity > 0 ? 0.13 + 0.05 * CGFloat(tier) : 0.28
+        glow.alpha = (tile.zone.maxDensity > 0 ? 0.13 + 0.05 * CGFloat(tier) : 0.28)
+            * Self.lightLeftAfter(shade)
         let size = CGFloat(tile.zone.footprintSize)
         glow.size = CGSize(width: projection.tileWidth * size * 1.7,
                            height: projection.tileHeight * size * 1.7)
@@ -221,9 +280,9 @@ struct IsoTileRenderer {
     /// building costs a node and no new draw call. It is a sprite rather than
     /// part of the building's own texture because that texture is shared by
     /// every lot drawing this variant, and the spill belongs to the lot.
-    private func syncContactLight(on node: SKNode, tile: Tile) {
+    private func syncContactLight(on node: SKNode, tile: Tile, shade: Int = 0) {
         let tier = RenderPalette.growthTier(for: tile.density)
-        let key = "\(tile.zone.rawValue)|\(tier)"
+        let key = "\(tile.zone.rawValue)|\(tier)|\(shade)"
         guard !isUpToDate(node, Self.contactNodeName, key) else { return }
         markUpToDate(node, Self.contactNodeName, key)
         node.childNode(withName: Self.contactNodeName)?.removeFromParent()
@@ -235,7 +294,8 @@ struct IsoTileRenderer {
         contact.color = ZoneMassing.accent(for: tile.zone, density: tile.density)
         contact.colorBlendFactor = 1
         contact.blendMode = .add
-        contact.alpha = tile.zone.maxDensity > 0 ? 0.20 + 0.07 * CGFloat(tier) : 0.30
+        contact.alpha = (tile.zone.maxDensity > 0 ? 0.20 + 0.07 * CGFloat(tier) : 0.30)
+            * Self.lightLeftAfter(shade)
         let size = CGFloat(tile.zone.footprintSize)
         // Barely wider than the lot. The whole point is that it does *not*
         // spill across the block the way the pool above it does.
@@ -445,14 +505,14 @@ struct IsoTileRenderer {
         node.addChild(sprite)
     }
 
-    private func syncBuilding(on node: SKNode, tile: Tile) {
+    private func syncBuilding(on node: SKNode, tile: Tile, shade: Int = 0) {
         // The detail tier is in the key because it is part of what was drawn.
         // Leave it out and crossing the zoom threshold would change what the
         // cache hands back while every tile still reported itself up to date
         // — the map would go on showing the tier it was built at, which is
         // exactly how an overlay once kept painting the view the player had
         // just left.
-        let key = "\(tile.zone.rawValue)|\(tile.density)|\(detail)"
+        let key = "\(tile.zone.rawValue)|\(tile.density)|\(detail)|\(shade)"
         guard !isUpToDate(node, Self.buildingNodeName, key) else { return }
         markUpToDate(node, Self.buildingNodeName, key)
         node.childNode(withName: Self.buildingNodeName)?.removeFromParent()
@@ -462,7 +522,23 @@ struct IsoTileRenderer {
         ) else { return }
         sprite.name = Self.buildingNodeName
         sprite.zPosition = 0.3
+        // **The tint is on the sprite, not in the texture**, which is what
+        // makes this affordable at all: one cached variant still serves every
+        // lot that draws it, and a lot whose neighbour grew re-tints without
+        // rasterising anything. Putting enclosure in the cache key instead
+        // would multiply the whole catalogue by six to draw the same building
+        // six shades of itself.
+        let shadow = Double(shade) / 5 * Self.occlusionDimsBuilding
+        if shadow > 0 {
+            sprite.color = .black
+            sprite.colorBlendFactor = CGFloat(shadow)
+        }
         node.addChild(sprite)
+    }
+
+    /// The fraction of a lot's own light that survives being enclosed.
+    private static func lightLeftAfter(_ shade: Int) -> CGFloat {
+        CGFloat(1 - Double(shade) / 5 * occlusionDimsGroundLight)
     }
 
     // MARK: - Overlays

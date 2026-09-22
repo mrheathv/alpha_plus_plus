@@ -6788,6 +6788,123 @@ cost it a node would be the single most expensive thing on screen — eight
 textures instead, against 353 tiles on Apex and a few thousand on a map nobody
 has built on yet.
 
+## Phase 3: density reads as darkness
+
+Every building in this game is rasterised **alone** — that is the whole point
+of `IsoTextureCache` — so a tower wedged into a packed block has always been
+lit *identically* to one standing by itself in a field. The frame's bloom adds
+light and nothing in this renderer has ever taken any away, which is why a
+dense district reads as a lot of bright things near each other rather than as
+somewhere dense. Real density reads partly as darkness in the crevices.
+
+`GameScene.occlusion(at:)` is one number per lot: what share of its perimeter
+its neighbours block, weighted by their own tier so a ring of houses barely
+registers and a ring of towers is a canyon. A road or bare ground is open sky
+and counts as nothing — which is what makes a corner lot brighter than one
+mid-block, and that gradient *across* a block is the whole reading. A flat tint
+over a whole downtown would say nothing about density.
+
+### It subtracts light rather than adding dark
+
+Which is this renderer's own rule, found once already and run backwards here.
+Phase 4 of the visual overhaul recorded that **on a ground this near-black
+there is nothing left to take away**, which is why contact at a building's foot
+is drawn as a *bright* mark rather than as a shadow. So occlusion turns down
+the light that is there: an enclosed lot's contact light and ground pool are
+dimmed by up to 72%, and its silhouette by only 22%.
+
+That split is deliberate. Darkening a whole building uniformly flattens a tower
+rather than seating it, and the crevices between buildings are where density
+actually reads as dark. It also folds the plan's separate "ground shadow from a
+tall neighbour up-screen" into the same mechanism — a shadow needs light to
+remove, and the pools are the only light the ground has.
+
+**The tint is on the sprite, not in the texture**, which is what makes it
+affordable: one cached variant still serves every lot that draws it, and a lot
+whose neighbour grew re-tints without rasterising anything. Measured by
+bulldozing a neighbour and watching the cache — **22 textures → 22**, with the
+subject's shade going 0.22 → 0.
+
+### The scale was calibrated against a layout the game cannot build
+
+The first version scaled enclosure over 0…1 and the fixture — four towers
+pressed against all four sides of a 2×2 — duly read 1.0. Measured on **Apex**,
+the largest and densest city this project ships, the distribution was
+
+```
+step 0…5:   25%  44%  30%   0%   0%   0%
+```
+
+**The top half of the scale was dead weight**, and a whole built-out downtown
+resolved into three shades. It cannot reach further: every lot in a city with
+streets fronts onto one, and a street is open sky, so enclosure never exceeds
+0.5. The fraction stays an honest physical number and the *scale* is cut at
+`IsoTileRenderer.fullyEnclosed` instead:
+
+```
+step 0…5:   11%  15%  23%  21%  17%  13%
+```
+
+A real gradient across a real city. `testReportTheSpreadOfEnclosureOnABuiltOutCity`
+prints that line into the build log and asserts it two-sidedly — collapse into
+one bucket means a uniform tint, and everything in bucket zero means the
+mechanic is not running.
+
+Worth keeping as the shape: **a scale is a claim about the range its subject
+occupies**, and the fixture that saturates it may be a configuration nothing in
+the game can produce.
+
+### Orthogonal neighbours only, and that is a correctness decision
+
+Enclosure is a statement about neighbours, exactly like a lane line's mask, so
+every lot it describes has to be redrawn when one of them changes — and
+`refreshTilesChanged` expands a changed tile to its **orthogonal** neighbours.
+Reading diagonals here would make a lot's appearance depend on tiles the diff
+never brings in, and it would fail the way every stale-key bug in this file
+fails: quietly, with the map showing less than it knows. `ScenePlaytest` would
+catch it; better not to write it.
+
+Quantised into six steps before it reaches any cache key, for the reason road
+wear is: a neighbour three lots away growing a storey nudges it by a
+thousandth, and a raw key would miss on every tile every tick and rebuild the
+whole city once a second.
+
+### And two yardsticks that measured the fixture
+
+Both were mine, both failed on a working mechanic, and both are the same
+mistake this file keeps recording:
+
+- **Comparing textures across two scenes.** Each `GameScene` owns its own
+  `IsoTextureCache`, so two of them hand back two distinct objects with
+  identical content. Restated as a count, changed *within one city*.
+- **Comparing texture counts across two cities.** The packed fixture holds five
+  towers against the open one's one, so of course it had more textures. The
+  property is what happens when a lot's enclosure changes, not what happens
+  when a city gains four buildings.
+
+### The render, and the fixture trap for the third time
+
+`testRenderEnclosureAgainstOpenGround` writes `enclosure.png`: one city holding
+a packed block *and* lone towers on open ground, in one frame. It has to be one
+frame — every render in this project has shown that a mark judged on its own
+flatters itself — and a number can say the middle of a block is more enclosed
+than its corner while saying nothing about whether that reads as depth or as a
+stain.
+
+Its first run was **a picture of badges**: an unserved city wears a drop and a
+bolt over every roof. Exactly what the rain render recorded, and laying pipe is
+not enough on its own either — funding buys *capacity*, so eighteen lots at
+density 5 need more than one tower or the city sits in an outage that looks
+identical to having no mains at all.
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/OcclusionTests
+
+open ./build/ContactSheet/enclosure.png
+```
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

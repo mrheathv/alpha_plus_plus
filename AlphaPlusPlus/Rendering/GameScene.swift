@@ -1154,6 +1154,10 @@ final class GameScene: SKScene {
     /// so the mutable bookkeeping itself stays private.
     var tileNodesForTesting: [GridPosition: SKNode] { tileNodes }
 
+    /// How many distinct textures this scene's cache holds. The guard on
+    /// anything that might quietly become part of a cache key.
+    var textureCountForTesting: Int { tileRenderer.textureCountForTesting }
+
     /// A PNG of the city as it stands.
     ///
     /// **Captured from the live view rather than an offscreen one**, and that
@@ -2154,7 +2158,8 @@ final class GameScene: SKScene {
         case .none:
             tileRenderer.restoreFromOverlay(on: node)
             tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position),
-                                roadNeighbours: roadNeighbourMask(at: tile.position))
+                                roadNeighbours: roadNeighbourMask(at: tile.position),
+                                occludedBy: occlusion(at: anchor))
             tileRenderer.syncConduits(on: node, isPipe: true, segments: [])
             tileRenderer.syncConduits(on: node, isPipe: false, segments: [])
             tileRenderer.syncTramTrack(on: node, present: false, mask: 0)
@@ -2193,7 +2198,8 @@ final class GameScene: SKScene {
                 // tick: an unchanged lot costs a dictionary lookup, and a
                 // changed one rebuilds exactly once.
                 tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position),
-                                roadNeighbours: roadNeighbourMask(at: tile.position))
+                                roadNeighbours: roadNeighbourMask(at: tile.position),
+                                occludedBy: occlusion(at: anchor))
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor,
                                      keepingRoads: paint.showsRoads)
@@ -2732,6 +2738,67 @@ final class GameScene: SKScene {
             return .init(zone: building.zone, density: building.density, seed: anchor)
         }
         return nil
+    }
+
+    /// **How much of this lot's sky its neighbours take.**
+    ///
+    /// Every building in this game is rasterised alone — that is the whole
+    /// point of `IsoTextureCache` — so a tower wedged into a packed block has
+    /// always been lit *identically* to one standing by itself in a field. The
+    /// frame's bloom adds light and nothing in this renderer has ever taken
+    /// any away, which is why a dense district reads as a lot of bright things
+    /// near each other rather than as somewhere dense. Real density reads
+    /// partly as darkness in the crevices.
+    ///
+    /// **Orthogonal neighbours of the footprint, and no diagonals**, which is
+    /// a correctness decision rather than a modelling one. This is a statement
+    /// about neighbours, exactly like a lane line's mask, so every lot it
+    /// describes has to be redrawn when one of them changes — and
+    /// `refreshTilesChanged` expands a changed tile to its *orthogonal*
+    /// neighbours. Reading diagonals here would make a lot's appearance depend
+    /// on tiles the diff never brings in, and it would go wrong the way every
+    /// stale-key bug in this file goes wrong: quietly, with the map simply
+    /// showing less than it knows. `ScenePlaytest` would catch it; better not
+    /// to write it.
+    ///
+    /// Weighted by the neighbour's own tier, so a ring of houses barely
+    /// registers and a ring of towers is a canyon. A road or bare ground is
+    /// open sky and counts as nothing, which is what makes a corner lot
+    /// brighter than one mid-block — and that is the gradient across a block
+    /// that carries the reading, rather than the whole downtown going dim.
+    func occlusion(at anchor: GridPosition) -> Double {
+        let here = map[anchor]
+        guard here.zone != .empty, !Traffic.isRoadLike(here.zone) else { return 0 }
+        let span = here.zone.footprintSize
+
+        // Membership tested arithmetically rather than against
+        // `footprintCells`, which allocates: this runs four times per cell of
+        // every visible lot on every refresh, and a 64×64 city refreshes
+        // sixteen hundred of them.
+        func inside(_ p: GridPosition) -> Bool {
+            p.x >= anchor.x && p.x < anchor.x + span && p.y >= anchor.y && p.y < anchor.y + span
+        }
+
+        var blocked = 0.0, sides = 0.0
+        for cell in map.footprintCells(origin: anchor, size: span) {
+            for neighbour in cell.orthogonalNeighbors() {
+                // A cell of this same building is not a neighbour of it.
+                guard !inside(neighbour) else { continue }
+                sides += 1
+                guard map.contains(neighbour) else { continue }   // the map's edge is open sky
+                let building = map[map[neighbour].buildingOrigin]
+                guard building.zone != .empty, !Traffic.isRoadLike(building.zone),
+                      !building.isWater
+                else { continue }
+                // A service has no density and is drawn low, so it counts as
+                // one storey rather than as nothing.
+                let tier = building.zone.maxDensity > 0
+                    ? RenderPalette.growthTier(for: building.density)
+                    : 1
+                blocked += Double(tier) / 3
+            }
+        }
+        return sides > 0 ? Swift.min(1, blocked / sides) : 0
     }
 
     private static let rainNodeName = "rain"
