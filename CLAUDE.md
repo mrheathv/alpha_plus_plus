@@ -8583,6 +8583,37 @@ The last items from the reference images.
   and never below 1.
 - Apex at the resting camera: 8.13 ms, 2,128 lights.
 
+### Building detail, P0: the baseline
+
+The plan for adding detail by camera distance is the "Building Detail Plan"
+artifact (https://claude.ai/artifact/EPbNaykqUmDHj3agmjCdjk). The split: the
+visuals session owns the closer camera, P1 (a detail tier per part) and P6
+(shader detail); the buildings session owns P0, P2–P5 and P7. All of it is
+Metal only.
+
+P0 is `DetailBaselineTests` (an extension of `MetalLookTests`, Full plan):
+
+- **A showcase city**: six skyscraper forms per zone, two variants of every
+  lower zone and level, and the five icons, placed on lots whose position
+  gives the wanted variant. Every tile is plumbed and wired, so no close-up
+  is a picture of a utility badge. Towers take lots at the back and
+  everything else at the front, since a tower in front hid the house the
+  close-up was meant to show.
+- **Four sheets** (`detail-p0-overview`, `-skyline`, `-lowrise`, `-icons`):
+  the showcase at the widest and resting cameras in colour and greyscale,
+  then every building at the near and closest cameras.
+- **`Camera.scale` is points per output pixel**, so the game's cameras are
+  1.5 (widest, 43 px a tile), 0.5 (resting, 128), 0.3 (near, 213) and 0.1
+  (closest, 640). Close-ups aim at a building's *body*, ignoring needles and
+  masts, and allow for Metal's downtown height stretch, or they frame sky.
+- **Triangles per building** (`detail-p0-triangles.txt`): the heaviest,
+  level-6 housing at the near tier, is 784; most buildings are 100–450.
+  Against a GPU that draws millions, there is plenty of room to add
+  geometry.
+- **What the close-ups show**: facades are flat lit rectangles with no depth,
+  roofs are empty planes with at most a box or two, and the suburb's ground
+  is bare between the palms. That is the list P3–P5 exist to answer.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
