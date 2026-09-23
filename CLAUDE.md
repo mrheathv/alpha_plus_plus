@@ -8103,6 +8103,26 @@ covers it, and a new variant or level generates its massing on that frame;
 in SpriteKit, a cache miss rasterises a texture on that frame; and in both,
 the growth lands on the same frame as the tick.
 
+**Measured (2026-09-23): the hitch was the Debug build.** `RedrawHitchTests`
+(opt-in) times a day's tick and the Metal catch-up separately. On the
+player's 48×48 city a day costs 71 ms of tick in Debug against 1.4 ms in
+Release; on a large city about 450 ms against 29 ms. The redraw is the
+smaller part (Release: 0.6 ms on the player's city, up to 12 ms on a large
+growing one). Two further fixes remain for large cities: run the tick off
+the main thread, and rebuild chunks off it or spread over frames. Also,
+`ENABLE_CODE_COVERAGE` defaults to YES, which instruments even a Release
+build; pass `ENABLE_CODE_COVERAGE=NO` for a build meant to be played.
+
+**Also agreed: the utility glow in Metal.** Reported from play: *"I miss how
+in the old SpriteKit version we could see the glow of the buildings for power
+and water. Now they just light up or they don't."* SpriteKit's Water and
+Power views gave each supplied building a pool of the utility's colour
+spilling past its lot, so a served district glowed as one field, and the
+ground carried three states (a source's radius halo, a brighter pipe field,
+dark). `MetalOverlay` kept the decision but not the pools: a wash on the
+building and a flat ground tint. The Metal version can make the pools real
+light that falls on neighbouring walls and street.
+
 ### Retrowave step 1 (done): the sky and the sun
 
 The sky is a pass of its own behind everything, in the same sunset gradient
