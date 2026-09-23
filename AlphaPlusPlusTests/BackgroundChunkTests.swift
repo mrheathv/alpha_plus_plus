@@ -169,6 +169,125 @@ final class BackgroundChunkTests: XCTestCase {
                        "an older background result overwrote the edit")
     }
 
+    /// **M7: a view computed in the background lands exactly where a
+    /// synchronous one would**, through switching views, a day's growth, and
+    /// putting the view away.
+    func testAViewLandsWhereASynchronousOneWould() async throws {
+        let controller = growingCity()
+        let background = try XCTUnwrap(MetalCityRenderer())
+        background.rebuildsInBackground = true
+        let foreground = try XCTUnwrap(MetalCityRenderer())
+        background.update(controller.map, revision: nil)
+        foreground.update(controller.map, revision: nil)
+        func compare(_ step: String) async throws {
+            try await settle(background)
+            XCTAssertEqual(background.overlay.mode, foreground.overlay.mode, "\(step): the view")
+            XCTAssertFalse(step.hasPrefix("water") && foreground.overlay.tiles.isEmpty, "\(step): nothing painted")
+            XCTAssertEqual(background.overlay.tiles, foreground.overlay.tiles, "\(step): the ground")
+            XCTAssertEqual(background.overlay.tint, foreground.overlay.tint, "\(step): the building washes")
+            XCTAssertEqual(background.overlay.schematic, foreground.overlay.schematic, "\(step): the networks")
+            XCTAssertEqual(background.overlay.billboards, foreground.overlay.billboards, "\(step): the badges")
+        }
+        for mode in [OverlayMode.water, .landValue, .power] {
+            background.overlayMode = mode
+            foreground.overlayMode = mode
+            background.update(controller.map, revision: nil)
+            foreground.update(controller.map, revision: nil)
+            try await compare("\(mode)")
+            grow(controller)
+            background.update(controller.map, revision: nil)
+            foreground.update(controller.map, revision: nil)
+            try await compare("\(mode) after a day")
+        }
+        background.overlayMode = .none
+        foreground.overlayMode = .none
+        background.update(controller.map, revision: nil)
+        foreground.update(controller.map, revision: nil)
+        try await compare("back to Normal")
+    }
+
+    /// Two views asked for in quick succession: only the second lands, however
+    /// the background jobs finish.
+    func testOnlyTheNewestViewLands() async throws {
+        let controller = growingCity()
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        renderer.rebuildsInBackground = true
+        renderer.update(controller.map, revision: nil)
+        // Water first because it is the slower of the two to compute, so its
+        // stale result tends to arrive last, which is the case worth testing.
+        renderer.overlayMode = .water
+        renderer.update(controller.map, revision: nil)
+        renderer.overlayMode = .landValue
+        renderer.update(controller.map, revision: nil)
+        try await settle(renderer)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(renderer.overlay.mode, .landValue, "an older view landed over the newer one")
+    }
+
+    /// **The point of M7**: a click with a view up on the densest city. The
+    /// view used to be rebuilt on the frame of the click, 8–14 ms.
+    func testAClickInAViewSparesTheMainThread() async throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let controller = GameController(map: try CitySaveFile.read(from: url).map, rng: SeededRNG(seed: 1),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        let background = try XCTUnwrap(MetalCityRenderer())
+        background.rebuildsInBackground = true
+        let foreground = try XCTUnwrap(MetalCityRenderer())
+        for renderer in [background, foreground] {
+            renderer.overlayMode = .water
+            renderer.update(controller.map, revision: nil)
+        }
+        try await settle(background)
+        func ms(_ work: () -> Void) -> Double {
+            let start = DispatchTime.now().uptimeNanoseconds
+            work()
+            return Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
+        }
+        let targets = controller.map.tiles.filter { $0.isBuildingAnchor && $0.zone == .residential }.prefix(6)
+        var onMain: [Double] = [], synchronous: [Double] = []
+        for tile in targets {
+            controller.bulldoze(at: tile.position)
+            onMain.append(ms { background.update(controller.map, revision: nil) })
+            synchronous.append(ms { foreground.update(controller.map, revision: nil) })
+            try await settle(background)
+        }
+        let worstBackground = onMain.max() ?? 0, worstSynchronous = synchronous.max() ?? 0
+        print(String(format: "a click in the Water view on Apex: background worst %.2f ms, synchronous worst %.2f ms",
+                     worstBackground, worstSynchronous))
+        XCTAssertLessThan(worstBackground, worstSynchronous / 2, "the view was still rebuilt on the click's frame")
+    }
+
+    /// **M7: the detail tier swaps off the main thread**, and lands exactly
+    /// where a synchronous swap would, zooming in to street level and back
+    /// out again. The frame that crosses the threshold only sends the work
+    /// away.
+    func testATierSwapLandsWhereASynchronousOneWould() async throws {
+        let controller = growingCity()
+        let background = try XCTUnwrap(MetalCityRenderer())
+        background.rebuildsInBackground = true
+        let foreground = try XCTUnwrap(MetalCityRenderer())
+        background.update(controller.map, revision: nil)
+        foreground.update(controller.map, revision: nil)
+        let bounds = Isometric().contentBounds(of: controller.map)
+        func camera(_ scale: CGFloat) -> MetalCityRenderer.Camera {
+            .init(centre: CGPoint(x: bounds.midX, y: bounds.midY), scale: scale,
+                  size: CGSize(width: 2880, height: 1800))
+        }
+        var worst = 0.0
+        for (name, scale, tier) in [("street", 0.1, DetailTier.street), ("resting", 0.5, .standard)] {
+            let start = DispatchTime.now().uptimeNanoseconds
+            background.settleDetail(for: camera(scale), budget: 4)
+            worst = max(worst, Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6)
+            XCTAssertEqual(background.detailTier, tier)
+            try await settle(background)
+            foreground.settleDetail(for: camera(scale), budget: nil)
+            XCTAssertEqual(background.chunksForTesting(), foreground.chunksForTesting(),
+                           "\(name): the background swap differs from a synchronous one")
+        }
+        print(String(format: "tier swap on the main thread, worst: %.2f ms", worst))
+    }
+
     /// A player's own click is drawn at once, not a frame later: an edit that
     /// changes a chunk or two is rebuilt on the spot even in the background
     /// mode.

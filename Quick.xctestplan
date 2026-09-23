@@ -25,6 +25,7 @@
         "MilestoneTests/testAServicedCityClimbsAndAnUnplumbedOneStalls()",
         "CameraMotionCostTests",
         "BackgroundChunkTests/testTheMainThreadIsSparedTheRebuild()",
+        "BackgroundChunkTests/testAClickInAViewSparesTheMainThread()",
         "OversampleCostTests",
         "RenderTimingTests",
         "FrameCostDiagnosticTests",

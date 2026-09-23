@@ -653,7 +653,7 @@ final class MetalCityRenderer {
 
     /// Whether a background rebuild is still on its way, for the test that
     /// waits for one to land.
-    var isRebuildingInBackground: Bool { !inFlight.isEmpty || !pendingHeights.isEmpty }
+    var isRebuildingInBackground: Bool { !inFlight.isEmpty || !pendingHeights.isEmpty || layerInFlight }
     /// Chunks sent to the background and not yet landed.
     var chunksRebuildingInBackground: Int { inFlight.count }
     /// Which chunks are on their way back from the background, for tests.
@@ -780,12 +780,49 @@ final class MetalCityRenderer {
         // can change what a view says — a pipe laid while paused, a building
         // finishing a storey.
         overlay.height = { [unowned self] in self.readyHeight(zone: $0, density: $1, at: $2) }
-        overlay.update(map, mode: overlayMode)
-        overlayTint = makeTint(width: map.width, height: map.height)
-        // Uploaded here, once per change of the map, rather than every frame:
-        // a view is one instance per tile, and copying a whole map's worth to
-        // the GPU 120 times a second to draw something that changes once a
-        // day was the largest per-frame cost that grew with the city.
+        if rebuildsInBackground, overlayMode != .none {
+            // **M7: a view's layer off the main thread.** The per-tile
+            // decision is 8–14 ms on Apex and runs on every change of the map
+            // while a view is up, so every click in a view hitched. The marks
+            // stay here, being cheap and needing the heights; the layer is
+            // computed in the background and swapped in when it lands, the
+            // old one staying on screen a frame or two meanwhile.
+            overlay.updateMarks(map, mode: overlayMode)
+            requestLayer(for: map, mode: overlayMode)
+        } else {
+            layerGeneration += 1  // anything still on its way is older
+            layerInFlight = false
+            overlay.update(map, mode: overlayMode)
+            overlayTint = makeTint(width: map.width, height: map.height)
+        }
+        uploadOverlay()
+    }
+
+    /// Asks the background queue for a view's layer. Only the newest request
+    /// lands: a view changed again, or put away, meanwhile makes it stale.
+    private func requestLayer(for map: CityMap, mode: OverlayMode) {
+        layerGeneration += 1
+        layerInFlight = true
+        let generation = layerGeneration, colours = overlay.colours
+        rebuildQueue.async { [weak self] in
+            let layer = MetalOverlay.layer(for: map, mode: mode, colours: colours)
+            DispatchQueue.main.async {
+                guard let self, generation == self.layerGeneration else { return }
+                self.layerInFlight = false
+                self.overlay.apply(layer)
+                self.overlayTint = self.makeTint(width: map.width, height: map.height)
+                self.uploadOverlay()
+            }
+        }
+    }
+    private var layerGeneration = 0
+    private var layerInFlight = false
+
+    /// Uploaded once per change of the view, rather than every frame: a view
+    /// is one instance per tile, and copying a whole map's worth to the GPU
+    /// 120 times a second to draw something that changes once a day was the
+    /// largest per-frame cost that grew with the city.
+    private func uploadOverlay() {
         func upload(_ floats: [Float]) -> MTLBuffer? {
             floats.isEmpty ? nil : device.makeBuffer(bytes: floats, length: floats.count * 4)
         }
@@ -834,6 +871,28 @@ final class MetalCityRenderer {
         guard !stale.isEmpty else { return }
         stale.sort { isVisible(chunks[$0], through: matrix, mirrored: false)
             && !isVisible(chunks[$1], through: matrix, mirrored: false) }
+        // **M7: the live game swaps tiers off the main thread.** Four chunks a
+        // frame was affordable while a close-up building cost 0.05 ms; the
+        // facade, roof and lot passes doubled that, and a street-tier swap of
+        // four dense chunks became a few milliseconds on every zoom. Each
+        // stale chunk is sent to the background once, visible ones first, and
+        // `land` puts it in if the tier is still the one wanted.
+        if rebuildsInBackground, budget != nil {
+            let tier = detailTier, grid = chunkGrid, cache = cache
+            // A chunk already on its way, from a day or an earlier swap, is
+            // left to land or be refused first.
+            for index in stale where inFlight[index] == nil {
+                let signature = chunks[index].signature, region = chunks[index].region
+                inFlight[index] = signature
+                rebuildQueue.async { [weak self] in
+                    let built = MetalCityMesh.build(map, cache: cache, region: region, tier: tier)
+                    DispatchQueue.main.async {
+                        self?.land(built, at: index, signature: signature, tier: tier, grid: grid)
+                    }
+                }
+            }
+            return
+        }
         for index in stale.prefix(budget ?? stale.count) {
             let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, tier: detailTier)
             let count = built.vertices.count / GPUVertex.floatCount
