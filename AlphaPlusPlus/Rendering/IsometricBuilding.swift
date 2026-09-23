@@ -80,8 +80,11 @@ enum IsometricBuilding {
             }
         }
 
+        // SpriteKit draws what it drew before detail tiers existed: the near
+        // and street tiers are the Metal renderer's (`DetailTier`).
+        let shown = massing.drawn(at: .standard)
         let items = Isometric.sorted(
-            massing.solids.map(Item.solid) + massing.panels.map(Item.panel),
+            shown.solids.map(Item.solid) + shown.panels.map(Item.panel),
             depth: { $0.depth }
         )
 

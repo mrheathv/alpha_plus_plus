@@ -8483,6 +8483,37 @@ Two things measuring caught:
 further out read as sparse up close, with big blank roofs and few windows.
 That is the richer-toolkit work, not a camera problem.
 
+### P1: level of detail as a property of each part
+
+Agreed with the buildings session, which owns the tagging (the plan is the
+"Building Detail Plan" page). Every `Solid` and `Panel` carries a
+`DetailTier` (`far`, `standard`, `near`, `street`): the farthest camera it
+is drawn at. Untagged parts are `.far`, drawn at every zoom.
+
+- **API**: `BuildingMassing.add(_:_:from:)`, `Panel.at(_:)`,
+  `BuildingMassing.drawn(at:)`, and `DetailTier.floor(_:)` (0.19 / 0.06 /
+  0.03 / 0.016 tiles, about eight pixels at the farthest camera each tier is
+  drawn at).
+- **The Metal renderer** holds one `detailTier` chosen from pixels per tile,
+  with hysteresis at every boundary (standard 100/92, near 178/164, street
+  380/350). `Cache.Key.tier` replaces the near and street flags, a chunk is
+  rebuilt when its tier differs, and a building draws `drawn(at:)` its tier.
+  The resting camera (128) is `.standard`, so it draws exactly what it did.
+- **SpriteKit draws `drawn(at: .standard)`**, exactly what it drew before
+  tiers existed. The close tiers are Metal's only.
+- **The floor is measured on a part's largest extent** — a speck is small
+  in every direction, a mast or a lit fin is thin but long and reads — and
+  bounded only for parts with an explicit tier. Today 286 of 8,069 untagged
+  solids fall under the far floor; they are reported, and the tagging passes
+  will move them.
+
+Still in the renderer rather than the massing: the near tier's mullions and
+slab lines (`IsometricBuilding.nearDetail`, added in `MetalCityMesh.building`
+when `key.near`), and the street tier's window frames (same function, when
+`key.street`). Both become tagged parts during the facade pass. Crossing the
+far/standard boundary rebuilds chunks even while nothing is tagged
+`.standard`; cheap, spread over frames, and worth skipping once measured.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
