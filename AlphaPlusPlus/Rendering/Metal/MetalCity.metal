@@ -146,7 +146,14 @@ float rimAmount(float2 uv, float2 size) {
     float d = min(fromEdge.x, fromEdge.y);
     float aa = fwidth(d);
     float width = max(0.022, aa * 1.4);
-    return 1 - smoothstep(width - aa, width + aa, d);
+    // **Where the pixel floor has taken over, the rim gives back energy.**
+    // The floor keeps an edge visible as the camera pulls back — but at the
+    // widest camera a face is a few pixels across, a 1.4-pixel rim covers
+    // most of it, and every building came out the colour of its outline: a
+    // city of pastel lavender. The edge stays; its light scales with how much
+    // wider than its real width it is being drawn.
+    float energy = clamp(0.022 / width, 0.3, 1.0);
+    return (1 - smoothstep(width - aa, width + aa, d)) * energy;
 }
 
 /// The city, shaded. Shared by both passes; the entry points below decide
@@ -444,6 +451,9 @@ struct CompositeSettings {
     float hazeStrength;
     float exposure;
     float grain;
+    float saturation;   // 1 leaves colour alone
+    float toe;          // how hard the shadows are pressed toward black
+    float pad0, pad1;
 };
 
 // ACES filmic curve (Narkowicz's fit). Highlights roll off rather than clip,
@@ -468,6 +478,13 @@ kernel void composite(texture2d<float, access::sample> scene [[texture(0)]],
     // scattered in wet air — the atmosphere half of the Cyberpunk look.
     c += haze.sample(s, uv).rgb * settings.hazeStrength;
     c = aces(c * settings.exposure);
+    // **The grade**: shadows pressed down and colour pushed a little, in
+    // that order. A lit city at night went milky — pale windows, lavender
+    // haze — where the brief is deep black with saturated neon in it. The
+    // toe darkens only what is already dark, so a sign stays a sign.
+    c = c * (1 - settings.toe) + c * c * settings.toe;
+    float luma = dot(c, float3(0.2126, 0.7152, 0.0722));
+    c = max(0.0, mix(float3(luma), c, settings.saturation));
     // Back from linear light to the screen's gamma. Everything upstream is
     // linear, because lighting maths is; the output image is sRGB.
     c = pow(c, float3(1.0 / 2.2));

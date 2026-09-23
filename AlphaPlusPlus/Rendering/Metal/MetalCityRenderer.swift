@@ -78,6 +78,22 @@ final class MetalCityRenderer {
         var hazeStrength: Float = 0.35
         var exposure: Float = 1.0
         var grain: Float = 0.035
+        var saturation: Float = 1.15
+        var toe: Float = 0.35
+        var pad0: Float = 0
+        var pad1: Float = 0
+
+        /// **Classic and Cinematic carried across.** Classic is the ungraded
+        /// frame — no bloom, no haze, no grain, no grade — the same promise
+        /// the setting makes for SpriteKit ("flat, unbloomed and ungraded"),
+        /// so the switch keeps answering the one question it exists for.
+        static func `for`(_ style: VisualStyle) -> CompositeSettings {
+            switch style {
+            case .cinematic: return CompositeSettings()
+            case .classic: return CompositeSettings(bloomStrength: 0, hazeStrength: 0, exposure: 1,
+                                                    grain: 0, saturation: 1, toe: 0)
+            }
+        }
     }
 
     /// Where the camera looks and how close, in the same terms `GameScene`'s
@@ -116,7 +132,9 @@ final class MetalCityRenderer {
     /// is hidden, and two traces crossing add up rather than one winning.
     private let readOnlyDepthState: MTLDepthStencilState
     let projection: Isometric
-    var settings = CompositeSettings()
+    /// `nil` follows `VisualStyle.current`; a test can pin its own.
+    var settingsOverride: CompositeSettings?
+    var settings: CompositeSettings { settingsOverride ?? .for(VisualStyle.current) }
 
     static let sampleCount = 4
 
@@ -340,6 +358,8 @@ final class MetalCityRenderer {
         var vertexCount: Int
         /// Vertices that are ground; the rest are buildings.
         var groundCount: Int
+        /// Whether its buildings carry the close-up detail.
+        var near = false
         var lights: [Float]
         /// The tallest thing in it, for deciding whether it is on screen.
         var height: Float
@@ -403,6 +423,7 @@ final class MetalCityRenderer {
     func update(_ map: CityMap, revision: Int?) {
         if let revision, revision == builtRevision { return }
         builtRevision = revision
+        lastMap = map
         mapExtent = Float(map.width + map.height + 20 + 4 * Int(Self.backdropMargin))
         mapSizePacked = UInt32(map.width) | (UInt32(map.height) << 16)
         updateBackdrop(for: map)
@@ -422,7 +443,7 @@ final class MetalCityRenderer {
         for index in chunks.indices {
             let signature = Self.signature(of: chunks[index].region, in: map)
             guard signature != chunks[index].signature || chunks[index].buffer == nil else { continue }
-            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region)
+            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, near: nearDetail)
             let count = built.vertices.count / GPUVertex.floatCount
             var height: Float = 0
             var z = 2
@@ -432,6 +453,7 @@ final class MetalCityRenderer {
                 buffer: count == 0 ? nil : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4),
                 vertexCount: count, groundCount: built.groundFloats / GPUVertex.floatCount,
                 lights: built.lights, height: height, region: chunks[index].region)
+            chunks[index].near = nearDetail
             rebuilt += 1
         }
         chunksRebuiltLastUpdate = rebuilt
@@ -460,6 +482,48 @@ final class MetalCityRenderer {
         overlay.height = { [unowned self] in self.buildingHeight(zone: $0, density: $1, at: $2) }
         overlay.update(map, mode: overlayMode)
         overlayTint = makeTint(width: map.width, height: map.height)
+    }
+
+    // MARK: - Close-up detail
+
+    /// Whether buildings are drawn with their close-up marks. Chosen from the
+    /// camera in pixels per tile, with the hysteresis SpriteKit's detail tier
+    /// has for the same reason: one number read in both directions makes a
+    /// pinch resting on the boundary flip the whole city back and forth.
+    private(set) var nearDetail = false
+    static let nearEngages: Float = 178
+    static let nearReleases: Float = 164
+    private var lastMap: CityMap?
+
+    /// Moves the detail tier to suit `camera`, and rebuilds up to `budget`
+    /// chunks that are on the wrong one — the ones on screen first. `nil`
+    /// rebuilds them all, which is what a still picture wants.
+    ///
+    /// **Spread over frames**, because crossing the threshold asks every
+    /// visible building for a variant it may never have built, and SpriteKit
+    /// measured that as a 49 ms frame before it learned to spread the same
+    /// work (`pendingRefresh`).
+    func settleDetail(for camera: Camera, budget: Int?) {
+        let pixelsPerTile = Float(projection.tileWidth / camera.scale)
+        if nearDetail, pixelsPerTile < Self.nearReleases { nearDetail = false }
+        if !nearDetail, pixelsPerTile >= Self.nearEngages { nearDetail = true }
+        guard let map = lastMap else { return }
+        let matrix = viewProjection(for: camera, mapExtent: mapExtent)
+        var stale = chunks.indices.filter { chunks[$0].near != nearDetail && chunks[$0].vertexCount > 0 }
+        guard !stale.isEmpty else { return }
+        stale.sort { isVisible(chunks[$0], through: matrix, mirrored: false)
+            && !isVisible(chunks[$1], through: matrix, mirrored: false) }
+        for index in stale.prefix(budget ?? stale.count) {
+            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, near: nearDetail)
+            let count = built.vertices.count / GPUVertex.floatCount
+            chunks[index].buffer = count == 0 ? nil
+                : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4)
+            chunks[index].vertexCount = count
+            chunks[index].groundCount = built.groundFloats / GPUVertex.floatCount
+            chunks[index].lights = built.lights
+            chunks[index].near = nearDetail
+        }
+        allLights = chunks.flatMap(\.lights)
     }
 
     /// What one chunk holds, read back off the GPU, for `MetalAgreement` —
@@ -899,6 +963,14 @@ final class MetalCityRenderer {
             dispatch(bloomUp, over: targets.bloom[index - 1])
         }
         var composite = settings
+        // **Bloom and haze follow the camera.** Pulled back, three times as
+        // many lights land in every region of the frame, and at one strength
+        // they summed to a white veil over the whole city; at the resting
+        // camera the strength is what M1 tuned it to.
+        let pixelsPerTile = Float(projection.tileWidth / camera.scale)
+        let zoomFactor = min(1, max(0.4, pixelsPerTile / 128))
+        composite.bloomStrength *= zoomFactor
+        composite.hazeStrength *= zoomFactor * zoomFactor
         compute.setTexture(targets.hdr, index: 0)
         compute.setTexture(targets.bloom[0], index: 1)
         compute.setTexture(haze, index: 2)
@@ -918,6 +990,7 @@ final class MetalCityRenderer {
     /// One frame into the live view.
     func draw(in view: MTKView, camera: Camera, wetness: Float, time: Float,
               motionClock: Double, rainfall: Float) {
+        settleDetail(for: camera, budget: 4)
         guard let drawable = view.currentDrawable, let commands = queue.makeCommandBuffer(),
               encode(into: commands, output: drawable.texture, camera: camera,
                      wetness: wetness, time: time, motionClock: motionClock, rainfall: rainfall) != nil
@@ -939,6 +1012,7 @@ final class MetalCityRenderer {
                 motionClock: Double? = nil, rainfall: Float = 0) -> Frame? {
         lastMotionClock = motionClock ?? Double(time)
         update(map, revision: nil)
+        settleDetail(for: camera, budget: nil)
         let width = Int(camera.size.width), height = Int(camera.size.height)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
@@ -990,7 +1064,12 @@ enum MetalCityMesh {
     /// variant is generated once and every lot that draws it copies the
     /// floats, offset to where it stands. Stored relative to the lot's corner.
     final class Cache {
-        struct Key: Hashable { let zone: ZoneType; let density: Int; let variant: Int }
+        struct Key: Hashable {
+            let zone: ZoneType; let density: Int; let variant: Int
+            /// With the marks a building gains up close — mullions and slab
+            /// lines, `IsometricBuilding.nearDetail`.
+            var near = false
+        }
         var entries: [Key: Built] = [:]
     }
 
@@ -1038,7 +1117,8 @@ enum MetalCityMesh {
         func contains(_ p: GridPosition) -> Bool { p.x >= x0 && p.x < x1 && p.y >= y0 && p.y < y1 }
     }
 
-    static func build(_ map: CityMap, cache: Cache = Cache(), region: Region? = nil) -> Built {
+    static func build(_ map: CityMap, cache: Cache = Cache(), region: Region? = nil,
+                      near: Bool = false) -> Built {
         let region = region ?? .whole(map)
         let tilesInRegion: [Tile] = (region.y0 ..< region.y1).flatMap { y in
             (region.x0 ..< region.x1).map { x in map[GridPosition(x: x, y: y)] }
@@ -1258,7 +1338,7 @@ enum MetalCityMesh {
         // generated once per variant and copied into place.
         for tile in tilesInRegion where tile.isBuildingAnchor {
             let key = Cache.Key(zone: tile.zone, density: tile.density,
-                                variant: IsoTextureCache.variant(for: tile.position))
+                                variant: IsoTextureCache.variant(for: tile.position), near: near)
             let local: Built
             if let hit = cache.entries[key] {
                 local = hit
@@ -1339,11 +1419,20 @@ enum MetalCityMesh {
             // so they do not fight it for the depth test. Dark panels —
             // recesses, mullions, cladding — stay surface, not light.
             var lightPerFace: [Panel.Face: (sum: SIMD3<Float>, area: Float, centre: SIMD3<Float>, n: Float)] = [:]
+            var ledged: Set<String> = []
+            let accentColor = ZoneMassing.accent(for: key.zone, density: key.density)
             for panel in massing.panels {
                 let normal: SIMD3<Float> = panel.face == .right ? SIMD3(1, 0, 0) : SIMD3(0, 1, 0)
-                let corners = panel.corners.map { world($0) + normal * 0.004 }
                 let color = linear(panel.color) * Float(panel.color.alphaComponent)
-                if luminance(color) > 0.08 {
+                let lit = luminance(color) > 0.08
+                // **Lit panels stand further out than dark ones.** Both used
+                // to sit 0.004 off the wall, so wherever a window crossed the
+                // cladding behind it — piers, precast bands — the two fought
+                // pixel by pixel and the window edges came out ragged. The
+                // massing already layers cladding first and glazing over it
+                // (`NeonStyle.Cladding`); the offsets now say the same.
+                let corners = panel.corners.map { world($0) + normal * (lit ? 0.009 : 0.004) }
+                if lit {
                     polygon(corners, normal: normal, albedo: .zero, emissive: color * 0.95)
                     let area = simd_length(corners[1] - corners[0]) * simd_length(corners[3] - corners[0])
                     var entry = lightPerFace[panel.face] ?? (.zero, 0, .zero, 0)
@@ -1354,6 +1443,21 @@ enum MetalCityMesh {
                     lightPerFace[panel.face] = entry
                 } else {
                     polygon(corners, normal: normal, albedo: color)
+                }
+                // **Up close, the facade comes apart into panes** — the same
+                // marks, from the same derivation, SpriteKit's near tier
+                // draws. Standing proud of the panel they mark, for the
+                // reason lit panels stand proud of the cladding.
+                guard key.near else { continue }
+                for mark in IsometricBuilding.nearDetail(on: panel, accent: accentColor, in: Isometric(),
+                                                         ledged: &ledged) {
+                    let markColor = linear(mark.color) * Float(mark.color.alphaComponent)
+                    let markCorners = mark.corners.map { world($0) + normal * 0.013 }
+                    if luminance(markColor) > 0.03 {
+                        polygon(markCorners, normal: normal, albedo: .zero, emissive: markColor * 1.3)
+                    } else {
+                        polygon(markCorners, normal: normal, albedo: SIMD3(0.02, 0.015, 0.03))
+                    }
                 }
             }
             // One light per lit wall: its windows, together, spilling onto

@@ -152,20 +152,9 @@ enum IsometricBuilding {
                 // sort key the parent has — and this project has already lost
                 // a hospital's cross to exactly that tie. Riding with the
                 // parent makes the order a fact rather than a coincidence.
-                for mullion in mullions(on: panel, in: projection) {
-                    let bar = SKShapeNode(path: projection.path(mullion.corners))
-                    bar.fillColor = mullion.color
-                    bar.strokeColor = .clear
-                    content.append(bar)
-                }
-
-                // One slab line per row of windows, not one per window.
-                let row = ledgeKey(for: panel)
-                if !ledged.contains(row) {
-                    ledged.insert(row)
-                    let ledge = slabLine(under: panel, accent: accent, in: projection)
-                    let bar = SKShapeNode(path: projection.path(ledge.corners))
-                    bar.fillColor = ledge.color
+                for mark in nearDetail(on: panel, accent: accent, in: projection, ledged: &ledged) {
+                    let bar = SKShapeNode(path: projection.path(mark.corners))
+                    bar.fillColor = mark.color
                     bar.strokeColor = .clear
                     content.append(bar)
                 }
@@ -182,6 +171,21 @@ enum IsometricBuilding {
     }
 
     // MARK: - Near detail
+
+    /// The marks a panel gains up close: mullions across it, and — once per
+    /// row, tracked in `ledged` — the slab line under it. **Shared by both
+    /// renderers**: the Metal renderer draws these same panels as geometry,
+    /// so a facade comes apart into the same panes whichever one is drawing.
+    static func nearDetail(on panel: Panel, accent: SKColor, in projection: Isometric,
+                           ledged: inout Set<String>) -> [Panel] {
+        var marks = mullions(on: panel, in: projection)
+        let row = ledgeKey(for: panel)
+        if !ledged.contains(row) {
+            ledged.insert(row)
+            marks.append(slabLine(under: panel, accent: accent, in: projection))
+        }
+        return marks
+    }
 
     /// How long a panel is across its own face, in points.
     private static func widthInPoints(of panel: Panel, in projection: Isometric) -> CGFloat {

@@ -7971,6 +7971,56 @@ cap, where the order decides which lights survive. It is the same shape as
 `Traffic.computeLoad`'s `Set`-order bug, and the fix is the same: a fixed
 order wherever order decides an outcome.
 
+### M6 (done, first rounds): the look
+
+Taste, done without its reviewer. The player was asleep, so each call below
+was made against the brief ("Cyberpunk 2077 with the simplicity of Mini
+Motorways") and recorded so it can be reversed. `MetalLookTests.testRenderTheLook`
+is the instrument: Apex at the closest, resting and widest cameras, dry and
+in rain, plus the river city. `LOOK_NAME=metal-look-before` kept the starting
+point for comparison.
+
+**The widest camera was the real failure, and it was the zoom lesson again.**
+The city dissolved into pastel lavender. Two causes, both invisible at the
+resting camera the look had been tuned at:
+
+- **Rims have a 1.4-pixel floor** so they survive the camera pulling back,
+  and at the widest camera a face is a few pixels across: the rim covered
+  it, and every building came out the colour of its outline. Where the floor
+  has taken over, the rim now gives back energy in proportion (never below
+  30%). The edge stays; its light does not flood the face.
+- **Bloom and haze were one strength at every zoom**, while pulling back puts
+  three times the lights in every region of the frame. Both now scale with
+  pixels per tile (haze as the square), and are unchanged at the resting
+  camera.
+
+**A grade, for the milkiness at rest**: a toe that presses only what is
+already dark toward black, and 15% more saturation. Deep black with
+saturated neon in it, which is the brief, rather than pale windows in a
+lavender veil.
+
+**Ragged windows were z-fighting.** Cladding and glazing sat at the same
+offset from the wall. Lit panels now stand further out than dark ones, which
+is the order the massing already layers them in.
+
+**Close-up detail as geometry.** `IsometricBuilding.nearDetail` (mullions,
+and a slab line per row) is now shared, so the Metal renderer draws the same
+marks SpriteKit's near tier does, as polygons standing proud of their panel.
+The tier follows pixels per tile (on at 178, off at 164, hysteresis for the
+reason SpriteKit's has it), and chunks are swapped four a frame, visible
+first. The worst frame of the swap on Apex is 2.9 ms.
+
+**Classic and Cinematic carried across**: Classic is the ungraded Metal
+frame (no bloom, haze, grain or grade), and a test asserts the switch
+changes the frame rather than that the setting was set. Reduce motion was
+already carried in M3 (rain and smoke).
+
+**Left for the player to judge**: the flames are softer than the SpriteKit
+plume. The Traffic view washes every tile green, which is the shared paint
+decision and not a Metal choice. The reflection is half resolution, whose
+stair-steps show only at the closest camera in rain; full resolution costs
+about 1.2 ms against a 0.5 ms margin.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

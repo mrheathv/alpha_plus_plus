@@ -35,7 +35,8 @@
         "MetalMotionTests/testRenderTheMovingCityCloseUp()",
         "MetalOverlayTests/testRenderEveryView()",
         "MetalOverlayTests/testRenderTheBuildingMarks()",
-        "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()"
+        "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()",
+        "MetalLookTests"
       ]
     }
   ],
