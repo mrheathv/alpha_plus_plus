@@ -8306,6 +8306,45 @@ stream so the variants it already drew are unchanged.
   loudest marks in a downtown, since every ring is lit. If a skyline reads as
   "all drums", thin those rings first.
 
+### Icons: prestige, one of each per city
+
+Asked for after the player brought three reference images (a Hong Kong
+street, a skyline silhouetted on a striped sun, a skyline over grid water):
+"special buildings the player can only place a few of". Decided: **one of
+each per city, prestige only** — no effect on demand, land value or anything
+else, and no upkeep. `IconBuildings` (Simulation/) holds the rules;
+`IconMassing` draws them.
+
+| icon | rank | cost | the mark |
+|---|---|---|---|
+| Night Market | Village | $6k | pagoda eaves wrapped in tall vertical neon signs |
+| Chrome Dome | Town | $12k | a lit dome on a drum over a slim tower |
+| Twin Masts | City | $20k | two slim towers, two antennas each |
+| Harbour Tower | City | $30k | a tapering shaft under a crown of lit spikes |
+| Sunset Spire | Metropolis | $50k | Deco shoulders, a lit crown and a needle, 12.7 units |
+
+- **Earned through `RewardBuildings.requiredRank`**, which now falls through
+  to the icons, so `Unlocks`, the locked chip and the rank announcement needed
+  no second path. The announcement names every building a rank earns now
+  ("Broadcast Tower, Twin Masts, Harbour Tower unlocked"), since City opens
+  three and naming the first hid the others. One test moved with it: Village
+  used to carry no reward.
+- **One per city is a placement rule**, `.blocked` in `placementRefusal`, so
+  the cursor turns red over a second one the same way it does over water. The
+  chip reads **Built** once one stands, because a chip that looked available
+  and refused every click would read as a bug. Bulldozing frees the slot.
+- **The spire has to lead by a clear margin**, and the first version did not:
+  at 11.2 units it beat the Harbour Tower (10.3) by less than the 20% the test
+  asks. `testTheSunsetSpireIsTheTallestThingInTheGame` compares it with every
+  variant of every zone at every density.
+- **Two things only the render caught.** Twin Masts on the lot's main
+  diagonal put one tower directly behind the other and read as one; on the
+  anti-diagonal they stand side by side. And the night market's signs, at
+  first no taller than its eaves, read as a house with some trim.
+- `IconBuildingsTests.testRenderTheIcons` writes `icons.png`, and
+  `MetalLookTests.testRenderTheIconsDowntown` places all five in Apex and
+  renders them with Metal (`metal-icons.png`, Full plan).
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

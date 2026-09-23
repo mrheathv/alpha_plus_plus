@@ -102,7 +102,8 @@ enum Unlocks {
         // The rank rewards are gated on a rank, not a headcount — see
         // `RewardBuildings.requiredRank`. Zero here so that the population
         // ladder never announces or blocks them on its own.
-        case .neonArcade, .broadcastTower, .arcology:
+        case .neonArcade, .broadcastTower, .arcology,
+             .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire:
             return 0
         }
     }

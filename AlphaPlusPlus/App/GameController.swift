@@ -482,6 +482,9 @@ final class GameController: ObservableObject {
         // choice at founding from a look into a strategy: a Flat map cannot
         // have a seaport at all.
         if tool == .seaport, !RegionalTrade.canBerth(footprint, in: map) { return .blocked }
+        // **One icon of each kind per city.** Scarcity is the whole of what
+        // makes an icon special, since it does nothing else.
+        if IconBuildings.isIcon(tool), IconBuildings.isBuilt(tool, in: map) { return .blocked }
 
         guard treasury >= placementCost(of: tool, at: position) else { return .insufficientFunds }
         return nil

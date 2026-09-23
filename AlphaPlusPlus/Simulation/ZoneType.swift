@@ -127,6 +127,22 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     /// A 3×3 megastructure housing a small town inside itself, earned at
     /// Metropolis.
     case arcology
+
+    /// **The icons** — see `IconBuildings`. Prestige: each is a supertall
+    /// or a showpiece that does nothing but stand in the skyline, earned by
+    /// rank and limited to one per city.
+    ///
+    /// A night market under pagoda eaves wrapped in vertical neon signs.
+    case nightMarket
+    /// A slim tower under a lit dome.
+    case chromeDome
+    /// Two slim towers, each carrying a pair of antennas.
+    case twinMasts
+    /// A tapering chamfered supertall under a crown of lit spikes.
+    case harbourTower
+    /// The tallest building in the game: Deco shoulders, a lit crown and a
+    /// needle, the one tower everything else is measured against.
+    case sunsetSpire
 }
 
 extension ZoneType {
@@ -206,6 +222,13 @@ extension ZoneType {
         case .neonArcade: return 3_000
         case .broadcastTower: return 8_000
         case .arcology: return 25_000
+        // Prestige, priced as a purchase a rich city notices. A one-off sink
+        // with no upkeep, since an icon does nothing to be paid for.
+        case .nightMarket: return 6_000
+        case .chromeDome: return 12_000
+        case .twinMasts: return 20_000
+        case .harbourTower: return 30_000
+        case .sunsetSpire: return 50_000
         // City-scale infrastructure/civic projects, priced well above even
         // a service station to match sitting on 9 tiles instead of 4.
         case .powerPlant: return 2000
@@ -231,7 +254,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park, .seaport, .airport, .neonArcade, .broadcastTower, .arcology: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park, .seaport, .airport, .neonArcade, .broadcastTower, .arcology, .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: return 0
         // **Housing and shops reach a sixth level; industry stops at five.**
         // The sixth is the skyline — towers that need rapid transit to exist
         // (`CitySimulator.rapidTransitRequiredFromLevel`) — and a sixth level
@@ -314,6 +337,8 @@ extension ZoneType {
         case .neonArcade: return 30
         case .broadcastTower: return 60
         case .arcology: return 120
+        // Nothing to run: an icon has no staff and does nothing.
+        case .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: return 0
         case .powerPlant: return 50
         case .stadium: return 40
         // `.subway` *is* a service, same as `.publicTransit` (staffed
@@ -367,7 +392,7 @@ extension ZoneType {
         // A rail station is 2×2 where every other transit stop is 1×1, and
         // the land is part of the price: a bus shelter threads between
         // blocks, a regional terminus takes a lot.
-        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital, .railStation, .neonArcade, .broadcastTower: return 2
+        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital, .railStation, .neonArcade, .broadcastTower, .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: return 2
         case .powerPlant, .stadium, .seaport, .airport, .arcology: return 3
         }
     }

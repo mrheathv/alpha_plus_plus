@@ -96,7 +96,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         // Rewards have no dial: each is a single landmark, not a service with
         // staff to scale.
         case .empty, .residential, .commercial, .industrial, .park,
-             .neonArcade, .broadcastTower, .arcology: return 1.0
+             .neonArcade, .broadcastTower, .arcology,
+             .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: return 1.0
         }
     }
 
@@ -121,7 +122,8 @@ struct ServiceFunding: Equatable, Codable, Sendable {
         case .hospital: hospital = level
         case .road, .highway: road = level
         case .empty, .residential, .commercial, .industrial, .park,
-             .neonArcade, .broadcastTower, .arcology: break
+             .neonArcade, .broadcastTower, .arcology,
+             .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: break
         }
     }
 }

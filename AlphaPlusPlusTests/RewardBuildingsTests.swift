@@ -42,7 +42,9 @@ final class RewardBuildingsTests: XCTestCase {
     func testEarningARankNamesItsReward() {
         XCTAssertTrue(MilestoneText.earned(.town).contains("Neon Arcade"))
         XCTAssertTrue(MilestoneText.earned(.metropolis).contains("Arcology"))
-        XCTAssertFalse(MilestoneText.earned(.village).contains("unlocked"), "Village carries no reward")
+        // Village's only building is an icon, the Night Market.
+        XCTAssertTrue(MilestoneText.earned(.village).contains("Night Market"))
+        XCTAssertFalse(MilestoneText.earned(.hamlet).contains("unlocked"), "Hamlet carries no reward")
     }
 
     func testEveryRewardIsOnTheToolbar() {

@@ -208,4 +208,41 @@ final class MetalLookTests: XCTestCase {
         let name = ProcessInfo.processInfo.environment["LOOK_NAME"] ?? "metal-skyline"
         try MetalSpikeTests.writeGrid(frames, columns: 2, cell: size, named: name)
     }
+
+    /// **The icons in a real downtown**, through the renderer the game draws
+    /// with: Apex with all five placed over lots near its middle, at rest and
+    /// from the widest camera. An icon is only special against what stands
+    /// around it, so a sheet of them alone cannot answer whether they read.
+    func testRenderTheIconsDowntown() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        var map = try CitySaveFile.read(from: url).map
+        let middle = GridPosition(x: map.width / 2, y: map.height / 2)
+        // Ordinary 2×2 lots near the middle, spread so no two icons touch.
+        var spots: [GridPosition] = []
+        let lots = map.tiles
+            .filter { $0.isBuildingAnchor && $0.zone.maxDensity > 0 && $0.zone.footprintSize == 2 }
+            .map(\.position)
+            .sorted { abs($0.x - middle.x) + abs($0.y - middle.y) < abs($1.x - middle.x) + abs($1.y - middle.y) }
+        for lot in lots where spots.allSatisfy({ abs($0.x - lot.x) + abs($0.y - lot.y) >= 6 }) {
+            spots.append(lot)
+            if spots.count == IconBuildings.all.count { break }
+        }
+        XCTAssertEqual(spots.count, IconBuildings.all.count)
+        for (icon, spot) in zip(IconBuildings.all, spots) { map.placeBuilding(zone: icon, origin: spot) }
+
+        let size = CGSize(width: 1400, height: 875)
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        let centre = spots.map(MetalMotionTests.centre).reduce(CGPoint.zero) {
+            CGPoint(x: $0.x + $1.x / CGFloat(spots.count), y: $0.y + $1.y / CGFloat(spots.count))
+        }
+        var frames: [(String, NSImage)] = []
+        for (label, scale) in [("resting", CGFloat(0.6)), ("widest", 1.5)] {
+            let camera = MetalCityRenderer.Camera(centre: CGPoint(x: centre.x, y: centre.y + 120 * scale),
+                                                  scale: scale, size: size)
+            let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 0, time: 2))
+            frames.append(("icons downtown · \(label)", NSImage(cgImage: frame.image, size: size)))
+        }
+        try MetalSpikeTests.writeGrid(frames, columns: 2, cell: size, named: "metal-icons")
+    }
 }

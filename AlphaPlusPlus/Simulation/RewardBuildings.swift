@@ -32,7 +32,9 @@ enum RewardBuildings {
         case .neonArcade: return .town
         case .broadcastTower: return .city
         case .arcology: return .metropolis
-        default: return nil
+        // The icons are earned the same way, and asking one function keeps
+        // the toolbar's locked chip and `Unlocks` from needing a second.
+        default: return IconBuildings.requiredRank(for: zone)
         }
     }
 

@@ -26,6 +26,10 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
     /// one is always visible as something to aim at, the reason locked tools
     /// are shown rather than hidden.
     case landmarks
+    /// The icons — see `IconBuildings`. Prestige supertalls, one of each per
+    /// city, in a group of their own so the rewards that *do* something are
+    /// not crowded by the ones that only stand there.
+    case icons
 
     var id: String { rawValue }
 
@@ -37,6 +41,7 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
         case .services: return "Services"
         case .trade: return "Trade"
         case .landmarks: return "Landmarks"
+        case .icons: return "Icons"
         }
     }
 
@@ -107,6 +112,9 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
         case .landmarks:
             // In rank order, which is also unlock order.
             return [.zone(.neonArcade), .zone(.broadcastTower), .zone(.arcology)]
+        case .icons:
+            // In rank order, which is also unlock order.
+            return IconBuildings.all.map { .zone($0) }
         }
     }
 
