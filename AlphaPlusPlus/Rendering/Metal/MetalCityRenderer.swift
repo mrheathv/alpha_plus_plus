@@ -1709,6 +1709,31 @@ enum MetalCityMesh {
                               emissive: SIMD3<Float>, rim: SIMD3<Float>, ground: Float,
                               into vertices: inout [Float]) {
         guard points.count >= 3 else { return }
+        // **A polygon of five or more corners is fanned from its centre**, so
+        // each outer edge is its own triangle's `v = 0` and the rim shader can
+        // find it. Fanned from a corner with a constant uv, a tank's cap, a
+        // dome's crown or a bevelled roof had no rim of its own, and since its
+        // far edge sits exactly where the far walls' rims do, the cap won the
+        // depth test and read as a hole in the top (`MetalSheet`'s toolkit
+        // sheet showed it). `u` is held at 0.5 and `size.x` large, so only
+        // the outer edge counts; `size.y` is twice the centre's distance from
+        // that edge, so `v * size.y` is the true distance to it.
+        if points.count >= 5 {
+            let centre = points.reduce(SIMD3<Float>.zero, +) / Float(points.count)
+            for index in points.indices {
+                let a = points[index], b = points[(index + 1) % points.count]
+                let along = simd_normalize(b - a)
+                let offset = centre - a
+                let height = simd_length(offset - simd_dot(offset, along) * along)
+                let size = SIMD2<Float>(1_000, max(2 * height, 1e-4))
+                for (corner, uv) in [(a, SIMD2<Float>(0.5, 0)), (b, SIMD2<Float>(0.5, 0)), (centre, SIMD2<Float>(0.5, 0.5))] {
+                    vertices += MetalCityRenderer.GPUVertex(
+                        position: corner, normal: normal, albedo: albedo, emissive: emissive,
+                        rim: rim, uv: uv, size: size, ground: ground).floats
+                }
+            }
+            return
+        }
         let isQuad = points.count == 4
         let size = isQuad
             ? SIMD2(simd_length(points[1] - points[0]), simd_length(points[3] - points[0]))
