@@ -40,8 +40,6 @@ final class GameController: ObservableObject {
     /// SwiftUI already hears about the map through `map` itself.
     private(set) var mapRevision = 0
 
-    /// Which renderer draws the map. See `MapRenderer`.
-    @Published var mapRenderer: MapRenderer = .classic
 
     /// Which `ZoneType` the next click will paint. `.empty` doubles as the
     /// bulldoze tool — clicking with it clears a tile back to unzoned land,
