@@ -898,14 +898,28 @@ final class GameScene: SKScene {
     /// neighbours, both empty — still reflecting nothing, which is how the
     /// scene playtest caught this.
     private func refreshReflectionNeighbours(of position: GridPosition) {
-        // Down-screen is increasing x and increasing y: those are the tiles a
-        // building's reflection can fall on.
-        for ahead in [GridPosition(x: position.x + 1, y: position.y),
-                      GridPosition(x: position.x, y: position.y + 1)]
-        where map.contains(ahead) {
+        for ahead in Self.reflectionReach(of: position) where map.contains(ahead) {
             refresh(ahead)
         }
     }
+
+    /// Every tile a building at `position` can throw light onto.
+    ///
+    /// Down-screen is increasing x and increasing y, and a reflection runs
+    /// **two** tiles toward the viewer rather than one — see
+    /// `reflection(at:)` — so both of the tiles on each axis are in reach.
+    /// One list, used by both the placement path and the per-tick diff: this
+    /// project has had "what a mark depends on" written in two places before,
+    /// and the copies disagreed.
+    static func reflectionReach(of position: GridPosition) -> [GridPosition] {
+        (1 ... reflectionRun).flatMap { step in
+            [GridPosition(x: position.x + step, y: position.y),
+             GridPosition(x: position.x, y: position.y + step)]
+        }
+    }
+
+    /// How many tiles of wet ground a building's light runs across.
+    static let reflectionRun = 2
 
     private func refreshRoadNeighbors(of position: GridPosition) {
         for neighbor in position.orthogonalNeighbors() where map.contains(neighbor) {
@@ -1762,9 +1776,7 @@ final class GameScene: SKScene {
                 touched.insert(neighbour)
             }
             // A reflection lands on the ground *down-screen* of what casts it.
-            for ahead in [GridPosition(x: position.x + 1, y: position.y),
-                          GridPosition(x: position.x, y: position.y + 1)]
-            where after.contains(ahead) {
+            for ahead in Self.reflectionReach(of: position) where after.contains(ahead) {
                 touched.insert(ahead)
             }
         }
@@ -2756,17 +2768,32 @@ final class GameScene: SKScene {
         guard !here.isWater, here.zone == .road || here.zone == .highway || here.zone == .empty
         else { return nil }
 
-        for behind in [GridPosition(x: position.x - 1, y: position.y),
-                       GridPosition(x: position.x, y: position.y - 1)] {
-            guard map.contains(behind) else { continue }
-            let anchor = map[behind].buildingOrigin
-            let building = map[anchor]
-            // A zone with no building on it reflects nothing — bare road, and
-            // a zoned lot that has not grown yet.
-            guard building.zone != .empty, building.zone != .road, building.zone != .highway,
-                  building.zone.maxDensity == 0 || building.density > 0
-            else { continue }
-            return .init(zone: building.zone, density: building.density, seed: anchor)
+        // Nearest first, so the tile right in front of a building shows that
+        // building rather than one further back. A second step only counts
+        // across open ground: a building in between stands in the way of the
+        // light, and it is that building's reflection the tile should carry.
+        func isOpenGround(_ at: GridPosition) -> Bool {
+            let zone = map[at].zone
+            return zone == .road || zone == .highway || zone == .empty
+        }
+        for step in 1 ... Self.reflectionRun {
+            for (dx, dy) in [(-1, 0), (0, -1)] {
+                let behind = GridPosition(x: position.x + dx * step, y: position.y + dy * step)
+                guard map.contains(behind) else { continue }
+                if step > 1 {
+                    let between = GridPosition(x: position.x + dx, y: position.y + dy)
+                    guard isOpenGround(between) else { continue }
+                }
+                let anchor = map[behind].buildingOrigin
+                let building = map[anchor]
+                // A zone with no building on it reflects nothing — bare road,
+                // and a zoned lot that has not grown yet.
+                guard building.zone != .empty, building.zone != .road, building.zone != .highway,
+                      building.zone.maxDensity == 0 || building.density > 0
+                else { continue }
+                return .init(zone: building.zone, density: building.density, seed: anchor,
+                             distance: step)
+            }
         }
         return nil
     }

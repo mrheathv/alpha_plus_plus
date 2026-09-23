@@ -429,6 +429,10 @@ struct IsoTileRenderer {
         let zone: ZoneType
         let density: Int
         let seed: GridPosition
+        /// How many tiles of wet ground lie between this one and the
+        /// building: 1 right in front of it, 2 on the tile beyond. Further
+        /// from its source, the light is fainter and more broken up.
+        var distance: Int = 1
     }
 
     private func syncReflection(on node: SKNode, tile: Tile, reflecting: Reflected?) {
@@ -436,17 +440,37 @@ struct IsoTileRenderer {
         // Parenthesised deliberately: `+` binds tighter than `??`, so the
         // obvious spelling of this put the strength on the *fallback* only and
         // a tile that did reflect something was keyed without it.
-        let what = reflecting.map { "\($0.zone.rawValue)|\($0.density)|\($0.seed.x),\($0.seed.y)" } ?? "-"
+        let what = reflecting.map {
+            "\($0.zone.rawValue)|\($0.density)|\($0.seed.x),\($0.seed.y)|\($0.distance)"
+        } ?? "-"
         let key = what + "|\(Int(strength * 100))"
         guard !isUpToDate(node, Self.reflectionNodeName, key) else { return }
         markUpToDate(node, Self.reflectionNodeName, key)
         node.childNode(withName: Self.reflectionNodeName)?.removeFromParent()
         guard strength > 0, let reflecting else { return }
-        guard let sprite = textures.reflectionSprite(
-            for: reflecting.zone, density: reflecting.density, seed: reflecting.seed,
-            at: .zero, footprint: 1,
-            maximumSquash: 0.5, strength: strength
-        ) else { return }
+        // The variant comes from the ground the streaks lie on rather than the
+        // building casting them, so the two tiles in front of one tower do
+        // not carry the same pattern side by side.
+        let here = tile.position
+        guard let streaks = textures.wetStreaks(variant: here.x &* 7 &+ here.y &* 13) else { return }
+        let sprite = SKSpriteNode(texture: streaks.texture, size: streaks.size)
+        // Hung from just below the tile's back corner — the point nearest the
+        // building — and falling toward the viewer, never past the tile's own
+        // front corner: the tile in front is drawn later and opaque, and a
+        // streak it paints over is a streak cut off in a straight line.
+        sprite.position = CGPoint(x: streaks.offset.x,
+                                  y: textures.tileHeight * 0.32 + streaks.offset.y)
+        // The building's own neon, which is what a wet street gives back.
+        sprite.color = RenderPalette.fullColor(for: reflecting.zone)
+        sprite.colorBlendFactor = 1
+        // Taller buildings throw brighter light; a two-storey house barely
+        // registers, which is right — it has almost nothing lit to throw.
+        // Halved on the second tile out, which is what makes the two read as
+        // one streak fading rather than two separate marks.
+        sprite.alpha = strength * (0.5 + 0.1 * CGFloat(min(reflecting.density, 5)))
+            / CGFloat(reflecting.distance)
+        // Additive: light returning off a near-black street, not paint on it.
+        sprite.blendMode = .add
         sprite.name = Self.reflectionNodeName
         // Under the building and over the ground it is cast on.
         sprite.zPosition = 0.25

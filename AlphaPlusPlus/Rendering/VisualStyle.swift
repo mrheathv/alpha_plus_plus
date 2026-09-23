@@ -212,13 +212,15 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
     /// to the graded look, and the switch exists so it can be turned off and
     /// looked at rather than argued about.
     ///
-    /// Small on purpose. A mirror-bright reflection reads as ice; what wet
-    /// asphalt actually does is return a dim, smeared suggestion of what
-    /// stands on it, and the neon does the rest.
+    /// 0.34 when a reflection was a whole copy of the building, where
+    /// anything brighter read as ice. It is a few thin streaks of light now
+    /// (`IsoTextureCache.wetStreaks`), a small fraction of the area, and at
+    /// the old strength they read as noise in the close-up render — so they
+    /// carry more of it.
     var wetReflection: CGFloat {
         switch self {
         case .classic: return 0
-        case .cinematic: return 0.34
+        case .cinematic: return 0.8
         }
     }
 

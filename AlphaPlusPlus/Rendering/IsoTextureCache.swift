@@ -128,7 +128,7 @@ final class IsoTextureCache {
     /// sprites, and sprites batch. The glow comes along inside the texture, so
     /// the retrowave bloom on the road grid costs nothing per tile at all.
     private struct Key: Hashable {
-        enum Kind: Hashable { case building, ground, lane, car, conduit, badge }
+        enum Kind: Hashable { case building, ground, lane, car, conduit, badge, streak }
         var kind: Kind = .building
         let zone: ZoneType
         var tier: Int = 0
@@ -277,64 +277,82 @@ final class IsoTextureCache {
         return sprite
     }
 
-    /// The same building, thrown back off the wet street under it.
+    /// Light off a wet street: a few streaks of it, broken by ripples.
     ///
-    /// **It costs no texture.** The building has already been rasterised —
-    /// that is what this whole cache exists for — so a reflection is the
-    /// identical texture drawn a second time, flipped and squashed. One extra
-    /// sprite per lot, no new entry in the cache, and nothing to invalidate
-    /// when the building changes because it *is* the building's texture.
+    /// **Not a mirror, and the first version being one is why this exists.**
+    /// That version drew the building's own texture again, flipped and
+    /// squashed onto the ground in front of it — free, and wrong. Played, it
+    /// read as a flat miniature of every building lying on the pavement,
+    /// windows and outlines crisp, overlapping its neighbours: decals, not
+    /// water. Wet asphalt at night never gives back a *picture*. It gives
+    /// back the lights, each stretched into a vertical smear toward the
+    /// viewer and cut into pieces by the ripples in the film of water — the
+    /// most recognisable image in every rainy neon street ever photographed,
+    /// and exactly what a copy of the building could not look like.
     ///
-    /// That is also why this is not the reflection G5 was holding out for. A
-    /// true mirror needs the whole scene in a render target — every
-    /// neighbour, the road, the sky — and this is one building reflecting
-    /// only itself. What makes it work anyway is that wet asphalt does not
-    /// return a picture: it returns a dim smear directly beneath whatever is
-    /// standing on it, which is exactly the shape of this approximation.
+    /// So this is one white texture of three streaks, tinted per tile to the
+    /// neon of whatever stands behind it. The slats widen as each streak
+    /// falls, because a ripple breaks a reflection up more the further it is
+    /// from its source — the synthwave sun's slats, run downward, which is
+    /// the same motif the fire already borrows. Soft-edged by stacking, since
+    /// a shape node has no falloff.
     ///
-    /// Mirrored about the sprite's **base** rather than its centre, since the
-    /// base is where the building meets the ground and a reflection hinged
-    /// anywhere else floats. Squashed because the ground is seen at a glancing
-    /// angle in this projection — an unsquashed mirror reads as a second
-    /// building hanging upside down.
-    /// - Parameter footprint: how many tiles across the lot is, which is what
-    ///   bounds how far the reflection may fall. **This is not a style
-    ///   choice.** A reflection is a child of its own tile node, and the tile
-    ///   in front of it is drawn later and is opaque, so anything reaching
-    ///   past the lot is simply painted over — the first render showed
-    ///   reflections only where they happened to hang off the edge of the map
-    ///   into open ground. Squashing each one to its own lot is what makes it
-    ///   visible everywhere instead of nowhere.
-    func reflectionSprite(
-        for zone: ZoneType, density: Int, seed: GridPosition,
-        at origin: CGPoint, footprint: Int, maximumSquash: CGFloat, strength: CGFloat
-    ) -> SKSpriteNode? {
-        guard strength > 0, maximumSquash > 0,
-              let rendered = rendered(for: zone, density: density, seed: seed)
-        else { return nil }
-
-        // The room available is the ground it is drawn on, not the building
-        // it is drawn from.
-        let room = projection.tileHeight * CGFloat(footprint)
-        let squash = min(maximumSquash, room / rendered.size.height)
-
-        let sprite = SKSpriteNode(texture: rendered.texture, size: rendered.size)
-        // Hung from `origin`, which the caller puts at the back edge of the
-        // ground doing the reflecting.
-        sprite.position = CGPoint(
-            x: origin.x + rendered.offset.x,
-            y: origin.y - rendered.size.height * squash / 2
-        )
-        sprite.yScale = -squash
-        sprite.alpha = strength
-        // Additive, because a reflection on a near-black street is *light*
-        // returning off it rather than paint laid on it — the same reasoning
-        // that made the contact light a bright mark instead of a shadow.
-        // Held low: this project has recorded additive saturation three times,
-        // and a reflection blowing out to white would read as fog.
-        sprite.blendMode = .add
-        return sprite
+    /// Four variants, picked from the tile's position, so a wet street does
+    /// not stripe; a white texture, so four textures serve every colour in
+    /// the game. Drawn from `y = 0` downward: the caller hangs it from the
+    /// back of the tile, nearest the building casting it.
+    func wetStreaks(variant: Int) -> Rendered? {
+        let variant = ((variant % Self.streakVariants) + Self.streakVariants) % Self.streakVariants
+        return rendered(Key(kind: .streak, zone: .empty, variant: variant)) {
+            let root = SKNode()
+            let length = projection.tileHeight * 0.85
+            var rng = BuildingRandom(seed: GridPosition(x: variant, y: 7_001))
+            // Two streaks, not three: three parallel bars cut at the same
+            // intervals read as a graphic equaliser, which the render showed
+            // on the first try.
+            for index in 0 ..< 2 {
+                // Spread across the middle of the tile, never near its side
+                // corners, where the diamond is too narrow to hold a streak.
+                let x = projection.tileWidth * (CGFloat(index) - 0.5) * 0.2
+                    + CGFloat(rng.value(in: -0.04 ... 0.04)) * projection.tileWidth
+                let reach = length * CGFloat(rng.value(in: 0.6 ... 1.0))
+                let width = projection.tileWidth * CGFloat(rng.value(in: 0.05 ... 0.075))
+                var y: CGFloat = 0
+                var segment = reach * CGFloat(rng.value(in: 0.2 ... 0.32))
+                while y < reach {
+                    let height = min(segment, reach - y)
+                    let fade = 1 - (y / reach) * 0.85
+                    // **Soft ends as well as soft sides.** Each ring is shorter
+                    // as well as narrower than the one outside it, so a piece
+                    // of the streak swells and tapers rather than being cut
+                    // off square — square ends are what made the cuts read as
+                    // the segments of a meter.
+                    for (grow, trim, alpha) in [(2.8, 0.0, 0.12), (1.7, 0.18, 0.28), (0.8, 0.32, 0.95)]
+                        as [(CGFloat, CGFloat, CGFloat)] {
+                        let inset = height * trim
+                        let bar = SKShapeNode(rect: CGRect(
+                            x: x - width * grow / 2, y: -y - height + inset,
+                            width: width * grow, height: max(0.5, height - inset * 2)))
+                        bar.fillColor = SKColor(white: 1, alpha: alpha * fade)
+                        bar.strokeColor = .clear
+                        root.addChild(bar)
+                    }
+                    // Irregular breaks that open up as the streak falls — a
+                    // ripple breaks light up more the further it is from its
+                    // source, and evenly spaced breaks read as a pattern.
+                    y += height + height * CGFloat(rng.value(in: 0.15 ... 0.45)) * (1 + y / reach)
+                    segment *= CGFloat(rng.value(in: 0.6 ... 0.85))
+                }
+            }
+            return root
+        }
     }
+
+    static let streakVariants = 4
+
+    /// The projection's tile height, for callers that place a texture
+    /// against the tile it lies on.
+    var tileHeight: CGFloat { projection.tileHeight }
 
     // MARK: - Ground, lane lines and cars
 
