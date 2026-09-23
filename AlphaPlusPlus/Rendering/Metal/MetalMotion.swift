@@ -89,7 +89,10 @@ final class MetalMotion {
 
     private var cars: [Car] = []
     private var runs: [Run] = []
-    private var runsKey: String?
+    private struct RunKey: Hashable {
+        let vehicle: IsoTextureCache.Vehicle
+        let tiles: [GridPosition]
+    }
     private var airports: [Airport] = []
     private var fires: [Burning] = []
     /// x, y, z of a working factory's chimney top, and its density.
@@ -114,28 +117,22 @@ final class MetalMotion {
             }
         }
 
-        // The runs keep their place along the line unless the line itself
-        // changed, so they are keyed the way SpriteKit keys them — and the
-        // fires are in the key because they are the one input that changes on
-        // its own clock.
-        let tramRoutes = map.transit.routes(mode: .tram)
-        let fireKey = map.tiles.filter { $0.isBuildingAnchor && $0.isBurning }
-            .map { "\($0.position.x),\($0.position.y)" }.joined(separator: ";")
-        let key = tramRoutes.map { $0.stops.map { "\($0.x),\($0.y)" }.joined(separator: ";") }
-            .joined(separator: "|") + "#\(map.tramTracks.count)!\(fireKey)"
-            + "@\(map.tiles.filter { $0.zone == .seaport }.count)"
-        if key != runsKey {
-            runsKey = key
-            runs = CityMotion.pathRuns(in: map).map { run in
-                let points = run.tiles.map { tile -> SIMD3<Float> in
-                    let t = map[tile]
-                    let z: Float = run.vehicle == .ship ? -0.14 : Self.deck(of: t)
-                    return SIMD3(Float(tile.x) + 0.5, Float(tile.y) + 0.5, z)
-                }
-                return Run(motion: run, points: points,
-                           color: MetalCityMesh.linear(RenderPalette.vehicleColor(for: run.vehicle)),
-                           startedAt: clock)
+        // **A run keeps its place when its own route is unchanged**, and only
+        // then. Keying every run on one string that included the fires sent
+        // every tram and ship back to the start of its line whenever a block
+        // caught light or went out; keying on counts missed a seaport rebuilt
+        // elsewhere or a track re-routed to the same length. The route itself
+        // is the key: same vehicle, same tiles, same place along them.
+        let previous = Dictionary(runs.map { (RunKey(vehicle: $0.motion.vehicle, tiles: $0.motion.tiles), $0.startedAt) },
+                                  uniquingKeysWith: { first, _ in first })
+        runs = CityMotion.pathRuns(in: map).map { run in
+            let points = run.tiles.map { tile -> SIMD3<Float> in
+                let z: Float = run.vehicle == .ship ? -0.14 : Self.deck(of: map[tile])
+                return SIMD3(Float(tile.x) + 0.5, Float(tile.y) + 0.5, z)
             }
+            return Run(motion: run, points: points,
+                       color: MetalCityMesh.linear(RenderPalette.vehicleColor(for: run.vehicle)),
+                       startedAt: previous[RunKey(vehicle: run.vehicle, tiles: run.tiles)] ?? clock)
         }
 
         airports = map.tiles.filter { $0.zone == .airport && $0.isBuildingAnchor }.map { tile in
@@ -339,6 +336,8 @@ final class MetalMotion {
     }
 
     var carCount: Int { cars.count }
+    /// When each run started, for the test that a line keeps its place.
+    var runStartsForTesting: [Double] { runs.map(\.startedAt) }
     var runCount: Int { runs.count }
     var fireCount: Int { fires.count }
 }

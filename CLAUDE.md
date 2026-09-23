@@ -28,6 +28,11 @@ are why the grayboxing rule was retired:
   solid. (SpriteKit already renders via Metal under the hood, so this is an
   optimization/effects question, not a performance rescue.)
 - No cross-platform requirement. Mac-only, on purpose.
+- **The city is moving to our own Metal renderer** (`Rendering/Metal/`),
+  behind *Settings ▸ Renderer ▸ Metal (beta)*. See "The Metal spike" and
+  M0–M6 below: through M6 the Metal renderer draws the city, everything
+  that moves and every view, while SpriteKit still owns input, the camera,
+  the cursors and route diagrams, until M8 makes Metal the only renderer.
 
 ## Development philosophy
 
@@ -8020,6 +8025,46 @@ plume. The Traffic view washes every tile green, which is the shared paint
 decision and not a Metal choice. The reflection is half resolution, whose
 stair-steps show only at the closest camera in rain; full resolution costs
 about 1.2 ms against a 0.5 ms margin.
+
+### M6-B (done): the holistic second pass
+
+A second look at M0–M6 as a whole, asked for by the player: the whole Full
+plan in Release (954 tests, no failures), a code review of the Metal files
+by a separate reviewer, and every finding verified before it was fixed.
+
+**What the review found, and what came of it:**
+
+- **Trams jumped across stations**, which was real, and in shared simulation
+  code. Each leg of `Transit.tramPath` left from whichever road tile beside
+  its stop sorted first, not from where the last leg arrived, so a stop with
+  road on both sides left a gap. Legs now chain from the previous arrival,
+  and a stop built on the line is passable to its own tram. The new test
+  fails on the old code. SpriteKit's tram gets the fix too.
+- **A fire restarted every tram and ship.** Every run was keyed on one
+  string that included the fires. A run now keeps its place while its own
+  route (vehicle and tiles) is unchanged, which also fixes a seaport rebuilt
+  elsewhere, a track re-routed to the same length, and an engine still
+  leaving a demolished depot.
+- **Reduce Motion waited for the map to change**, because the plan is gated
+  on the map's revision and a setting is not a map change. It invalidates
+  the plan itself now.
+- **The reflection pass bound no texture** where its shader expects one,
+  which is invalid under Metal's API validation (on for a Debug run). A 1×1
+  placeholder fills every slot that might be empty, and the renders pass
+  under `MTL_DEBUG_LAYER=1`.
+- **Buildings popped at the screen's edges.** A chunk was culled on its own
+  tiles while its buildings overhang into the next. The cull pads by the
+  widest footprint.
+- **A view uploaded a whole map's worth of instances every frame.** It uploads
+  once per change of the map now. Static lights are no longer copied every
+  frame either, and moving lights (a fire, a beacon) are listed first, so
+  they are the ones kept when a screen tile is full.
+- **Puddle ripples kept moving while paused.** Rain is weather, so they run
+  on the motion clock; the river keeps the wall clock.
+
+The pattern worth keeping is the one this file already names: **a cache key
+has to be the thing it describes**. The run key was a string of proxies, and
+every stale-run bug above is a proxy that did not move when the thing did.
 
 ## Looking at the art without playing to it
 

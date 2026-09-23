@@ -231,12 +231,22 @@ enum Transit {
         let stops = workingStops(of: route, in: map)
         guard stops.count >= TransitRoute.minimumStops else { return [] }
 
+        // **Each leg leaves from where the last one arrived.** A leg used to
+        // start from whichever road tile beside its stop sorted first — not
+        // necessarily the one the previous leg arrived on — so at a stop with
+        // road on more than one side the joined path had a gap and the tram
+        // jumped across the station. Chaining the legs makes the joint one
+        // tile by construction. And a stop built *on* the line is a tile the
+        // tram may pass through: it is the tram's own station, and without
+        // that the only way past it is round the block.
+        let passable = drivable.union(stops)
         var path: [GridPosition] = []
         for (from, to) in zip(stops, stops.dropFirst()) {
             // `roadRun` walks back from the arrival through its parents, so it
             // comes out destination-first. Reversed here rather than there
             // because `tramTracks` unions it into a set and does not care.
-            let leg = roadRun(from: from, to: to, over: drivable, in: map).reversed()
+            let leg = roadRun(from: from, to: to, over: passable, in: map,
+                              startingAt: path.last).reversed()
             guard !leg.isEmpty else { return [] }
             // Drop the joint, so a stop shared by two legs is not visited
             // twice and the tram does not stutter at every station.
@@ -254,9 +264,11 @@ enum Transit {
     /// already runs.
     private static func roadRun(
         from origin: GridPosition, to destination: GridPosition,
-        over drivable: Set<GridPosition>, in map: CityMap
+        over drivable: Set<GridPosition>, in map: CityMap,
+        startingAt start: GridPosition? = nil
     ) -> [GridPosition] {
-        let starts = origin.orthogonalNeighbors().filter { drivable.contains($0) }.sortedByPosition()
+        let starts = start.map { [$0] }
+            ?? origin.orthogonalNeighbors().filter { drivable.contains($0) }.sortedByPosition()
         let targets = Set(destination.orthogonalNeighbors().filter { drivable.contains($0) })
         guard !starts.isEmpty, !targets.isEmpty else { return [] }
 

@@ -64,6 +64,25 @@ final class TramTests: XCTestCase {
         XCTAssertEqual(path.count, Set(path).count, "the path doubles back over itself")
     }
 
+    /// **No jump at a station with road on both sides.** Stops built on the
+    /// line itself — the way a player lays them along a street — used to
+    /// leave a two- or three-tile gap where one leg ended and the next began,
+    /// and the tram jumped diagonally across the station. Found by review of
+    /// the Metal renderer, which draws the tram on this path.
+    func testATramWalksThroughAStopBuiltOnTheLine() {
+        var map = corridor()
+        let a = stop(&map, at: GridPosition(x: 2, y: 3))
+        let b = stop(&map, at: GridPosition(x: 14, y: 3))
+        let c = stop(&map, at: GridPosition(x: 27, y: 3))
+        map.transit.add(mode: .tram, stops: [a, b, c])
+        let path = Transit.tramPath(of: map.transit.routes(mode: .tram)[0], in: map)
+        XCTAssertFalse(path.isEmpty)
+        for (from, to) in zip(path, path.dropFirst()) {
+            XCTAssertEqual(abs(to.x - from.x) + abs(to.y - from.y), 1,
+                           "the tram jumps from \(from) to \(to) at a station")
+        }
+    }
+
     /// **A severed line has no path**, and that is the honest answer rather
     /// than a straight line across the gap. Drawing a tram gliding over
     /// missing street would claim a connection the simulation does not have —

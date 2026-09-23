@@ -38,7 +38,7 @@ struct Uniforms {
     float4 frame;             // x, y: viewport in pixels · z: wetness 0…1 · w: 1 when mirrored
     float4 moonAndTime;       // xyz: direction moonlight comes from · w: seconds
     uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels · w: map width | height << 16
-    float4 overlay;           // x: 1 when a view washes buildings toward its colours
+    float4 overlay;           // x: 1 when a view washes buildings toward its colours · y: motion clock
 };
 
 // Most lights a single screen tile can carry. A tile over the densest block
@@ -295,7 +295,10 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         constexpr sampler s(filter::linear, address::clamp_to_edge);
         float2 screen = in.clip.xy / u.frame.xy;
         float t = u.moonAndTime.w;
-        float ripple = valueNoise(in.world.xy * 9.0 + float2(t * 0.35, t * 0.6)) - 0.5;
+        // Rain on the puddles is weather, and weather stops with the city;
+        // the river below keeps the wall clock because it is not part of it.
+        float rain = u.overlay.y;
+        float ripple = valueNoise(in.world.xy * 9.0 + float2(rain * 0.35, rain * 0.6)) - 0.5;
         float2 offset = float2(ripple * 0.003, ripple * 0.004);
         if (water) {
             // The waves bend the mirror: the surface normal, carried into

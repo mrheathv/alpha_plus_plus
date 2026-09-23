@@ -241,6 +241,38 @@ final class MetalMotionTests: XCTestCase {
 
     static func centre(_ p: GridPosition) -> CGPoint { Isometric().project(CGFloat(p.x), CGFloat(p.y), 0) }
 
+    /// **A fire does not send the trams back to the start of their line.**
+    /// Every run used to be keyed on one string that included the fires, so a
+    /// block catching light anywhere restarted every tram and ship. Found by
+    /// review; a run now keeps its place while its own route is unchanged.
+    func testAFireDoesNotRestartTheTrams() throws {
+        var map = Self.movingCity()
+        let motion = MetalMotion()
+        motion.update(map, clock: 0, reduceMotion: false)
+        let before = motion.runStartsForTesting
+        XCTAssertFalse(before.isEmpty)
+        map[GridPosition(x: 12, y: 6)].fireTicks = 4
+        motion.update(map, clock: 7, reduceMotion: false)
+        let tram = CityMotion.pathRuns(in: map).firstIndex { $0.vehicle == .transit(.tram) }
+        let index = try XCTUnwrap(tram)
+        XCTAssertEqual(motion.runStartsForTesting[index], 0, "the tram restarted when a fire began")
+    }
+
+    /// Reduce Motion takes effect at once, with no change to the map to
+    /// announce it — the revision the live view gates on never moves for it.
+    func testReduceMotionTakesEffectWithoutAMapChange() throws {
+        let map = Self.tickedCity()
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        let was = VisualStyle.reduceMotion
+        defer { VisualStyle.reduceMotion = was }
+        VisualStyle.reduceMotion = false
+        renderer.update(map, revision: 1)
+        XCTAssertFalse(renderer.motion.smokeEmitters.isEmpty)
+        VisualStyle.reduceMotion = true
+        renderer.update(map, revision: 1)
+        XCTAssertTrue(renderer.motion.smokeEmitters.isEmpty, "smoke kept drawing after Reduce Motion")
+    }
+
     // MARK: - Pixels
 
     static func bytes(_ image: CGImage) -> [UInt8] {
