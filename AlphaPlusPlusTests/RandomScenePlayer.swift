@@ -46,6 +46,11 @@ struct RandomScenePlayer {
                        file: StaticString = #filePath, line: UInt = #line) {
         for step in 1 ... steps {
             take(Action.allCases.randomElement(using: &rng) ?? .letTimePass)
+            // The Metal view is asked every frame whether the city moved, so
+            // a session drawing with it gets a frame per action: a change the
+            // revision does not announce is only visible if something looks
+            // between changes.
+            if game.metal != nil { game.frame() }
             if step % checkingEvery == 0 {
                 game.check("step \(step)", file: file, line: line)
             }

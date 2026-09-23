@@ -812,3 +812,80 @@ extension ScenePlaytestTests {
         game.check("the whole strip")
     }
 }
+
+// MARK: - The same sessions, drawn by Metal (migration M5)
+
+/// **The safety net, carried across.** The scene playtest and the random
+/// player caught more rendering bugs in this project than anything else, and
+/// every one of them was a picture falling behind the city — exactly the
+/// kind of bug the Metal renderer's own caching (chunks rebuilt by signature,
+/// a motion plan rebuilt by key, a view rebuilt by revision) can have. So the
+/// same sessions run again with Metal drawing the city, checked by
+/// `MetalAgreement` against a Metal renderer built fresh.
+@MainActor
+final class MetalPlaytestTests: XCTestCase {
+
+    private func game(seed: UInt64 = 0xA1F4) -> ScenePlaytest {
+        let game = ScenePlaytest(map: ScenePlaytestTests().startedCity(), seed: seed)
+        game.drawWithMetal()
+        return game
+    }
+
+    func testAnOrdinarySession() {
+        let game = game()
+        game.play()
+        game.drag(.road, from: GridPosition(x: 11, y: 0), to: GridPosition(x: 11, y: 15))
+        game.check("a cross street")
+        game.look(at: .water)
+        game.dragInView(from: GridPosition(x: 1, y: 13), to: GridPosition(x: 1, y: 2))
+        game.dragInView(from: GridPosition(x: 1, y: 2), to: GridPosition(x: 20, y: 2))
+        game.check("plumbing it")
+        game.look(at: .power)
+        game.dragInView(from: GridPosition(x: 18, y: 13), to: GridPosition(x: 18, y: 5))
+        game.check("wiring it")
+        game.look(at: .none)
+        // A month, not a week: a storey takes eight days a level to build,
+        // and a session in which nothing finishes growing cannot show a
+        // chunk failing to redraw a building that grew — the planted-bug run
+        // proved this one could not.
+        game.tick(30)
+        game.check("a month of growth")
+        game.click(.policeStation, at: GridPosition(x: 14, y: 10))
+        game.click(.park, at: GridPosition(x: 9, y: 7))
+        game.check("a station and a park")
+        game.pause()
+        game.look(at: .problems)
+        game.check("checking on the problems, paused")
+        game.play()
+        game.look(at: .none)
+        game.tick(30)
+        game.check("another month")
+    }
+
+    /// Building and bulldozing while paused, when no day passes to wake the
+    /// motion plan — the case its key has to cover on its own.
+    func testBuildingWhilePausedUnderEveryView() {
+        let game = game()
+        game.play()
+        game.tick(4)
+        game.pause()
+        for overlay in OverlayMode.allCases {
+            game.look(at: overlay)
+            game.click(.industrial, at: GridPosition(x: 2, y: 10))
+            game.check("zoning under \(overlay.displayName), paused")
+            game.bulldoze(at: GridPosition(x: 2, y: 10))
+            game.check("bulldozing under \(overlay.displayName), paused")
+        }
+    }
+
+    /// **A session nobody wrote**, on Metal. Short in the normal suite and a
+    /// real one under `PLAYTEST_FULL` — the plan's bar for M5 is that the
+    /// long run is clean.
+    func testARandomSessionKeepsThePictureHonest() {
+        let long = PlaytestHarness.Profile.current == .full
+        for seed in (long ? [1, 2, 3, 4, 5, 6] : [1, 2]) as [UInt64] {
+            var player = RandomScenePlayer(game: game(seed: seed), seed: seed)
+            player.play(steps: long ? 300 : 40, checkingEvery: long ? 3 : 1)
+        }
+    }
+}

@@ -462,6 +462,29 @@ final class MetalCityRenderer {
         overlayTint = makeTint(width: map.width, height: map.height)
     }
 
+    /// What one chunk holds, read back off the GPU, for `MetalAgreement` —
+    /// the test that a renderer updated change by change holds exactly what
+    /// one built fresh from the same city would.
+    struct ChunkSnapshot: Equatable {
+        let x0, y0, x1, y1: Int
+        let vertices: [Float]
+        let groundCount: Int
+        let lights: [Float]
+    }
+
+    func chunksForTesting() -> [ChunkSnapshot] {
+        chunks.map { chunk in
+            let count = chunk.vertexCount * GPUVertex.floatCount
+            let floats = chunk.buffer.map {
+                Array(UnsafeBufferPointer(start: $0.contents().bindMemory(to: Float.self, capacity: count),
+                                          count: count))
+            } ?? []
+            return ChunkSnapshot(x0: chunk.region.x0, y0: chunk.region.y0, x1: chunk.region.x1,
+                                 y1: chunk.region.y1, vertices: floats,
+                                 groundCount: chunk.groundCount, lights: chunk.lights)
+        }
+    }
+
     /// Is any of this chunk on screen? Its box, top to bottom, projected — or
     /// mirrored under the street for the reflection pass.
     private func isVisible(_ chunk: Chunk, through matrix: simd_float4x4, mirrored: Bool) -> Bool {
@@ -1335,7 +1358,14 @@ enum MetalCityMesh {
             }
             // One light per lit wall: its windows, together, spilling onto
             // the street in front of it.
-            for (face, entry) in lightPerFace where entry.n > 0 {
+            // **In a fixed order.** A dictionary's iteration order is not
+            // stable between two dictionaries holding the same keys, so two
+            // builds of the same building listed its lights differently —
+            // invisible until a screen tile is full, where the order decides
+            // which lights survive the 64-light cap. `MetalAgreement` found it
+            // as "lights are stale" on chunks whose triangles were identical:
+            // the same shape as `Traffic.computeLoad`'s `Set`-order bug.
+            for (face, entry) in lightPerFace.sorted(by: { "\($0.key)" < "\($1.key)" }) where entry.n > 0 {
                 let normal: SIMD3<Float> = face == .right ? SIMD3(1, 0, 0) : SIMD3(0, 1, 0)
                 let at = entry.centre / entry.n + normal * 0.6
                 addLight(at, entry.sum / max(entry.area, 1e-3) * min(1.2, entry.area * 0.7), radius: 2.2)

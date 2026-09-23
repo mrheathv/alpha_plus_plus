@@ -7939,6 +7939,38 @@ correctly over Metal through the transparent scene, and they belong with
 input and the camera, which the plan moves at M8. Moving them now would mean
 a second copy of cursor logic living beside the first until then.
 
+### M5 (done): the safety net comes across
+
+`ScenePlaytest.drawWithMetal()` hands a session's city to the Metal renderer
+the way the Renderer setting does. Every frame it then reads the controller
+exactly as `MetalMapView` does (revision, view, traffic flag), and `check`
+asks **`MetalAgreement`** instead of `SceneAgreement`. The yardstick is the
+same kind: a Metal renderer built fresh from the same city, compared against
+the one updated change by change. It compares every chunk's triangles and
+lights byte for byte, the motion plan and the view. Buffers rather than
+pixels, because a buffer names the chunk that fell behind where a pixel diff
+only says "somewhere".
+
+`MetalPlaytestTests` runs a scripted session, building and bulldozing while
+paused under every view (when no day passes to wake the motion plan), and
+the random player. **Six random sessions of 300 steps run clean under
+`PLAYTEST_FULL`**, which is the plan's bar.
+
+**The yardstick was proven before it was trusted**: a planted bug (chunk
+signatures ignoring density) failed the random player within a few steps.
+It also exposed that the scripted session could not fail on it. Eight days
+is shorter than one storey takes to build, so nothing ever finished growing.
+Its growth spells are a month now.
+
+**And it found a real bug on its first long run.** A building's window lights
+were gathered in a `Dictionary` keyed by wall, whose iteration order is not
+stable between two dictionaries holding the same keys. So two builds of the
+same building listed its lights in different orders: identical triangles,
+"stale" lights. That is invisible until a screen tile reaches the 64-light
+cap, where the order decides which lights survive. It is the same shape as
+`Traffic.computeLoad`'s `Set`-order bug, and the fix is the same: a fixed
+order wherever order decides an outcome.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

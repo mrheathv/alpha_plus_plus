@@ -312,6 +312,32 @@ final class MetalMotion {
 
     // MARK: - For the tests
 
+    /// Everything the plan holds that does not depend on when it was made —
+    /// for `MetalAgreement`. A run's *position* along its line does (a line
+    /// keeps running through a day that does not change it), so a run is
+    /// compared by its route.
+    struct PlanSnapshot: Equatable {
+        var cars: [Float] = []
+        var runs: [[GridPosition]] = []
+        var airports: [Float] = []
+        var fires: [Float] = []
+        var smoke: [SIMD4<Float>] = []
+    }
+
+    var planForTesting: PlanSnapshot {
+        var plan = PlanSnapshot()
+        for car in cars {
+            plan.cars += [car.start.x, car.start.y, car.start.z, car.end.x, car.end.y, car.end.z,
+                          Float(car.motion.crossing), Float(car.motion.phase), Float(car.motion.length),
+                          Float(car.motion.alpha), car.color.x, car.color.y, car.color.z]
+        }
+        plan.runs = runs.map(\.motion.tiles)
+        for airport in airports { plan.airports += [airport.start.x, airport.start.y, Float(airport.phase)] }
+        for fire in fires { plan.fires += [fire.top.x, fire.top.y, fire.top.z, fire.footprint] }
+        plan.smoke = smokeEmitters
+        return plan
+    }
+
     var carCount: Int { cars.count }
     var runCount: Int { runs.count }
     var fireCount: Int { fires.count }
