@@ -222,7 +222,9 @@ final class CitySimulatorTests: XCTestCase {
         XCTAssertEqual(sustainable(0.4), 2)
         XCTAssertEqual(sustainable(0.55), 3)
         XCTAssertEqual(sustainable(0.7), 4)
-        XCTAssertEqual(sustainable(0.9), 5)
+        XCTAssertEqual(sustainable(0.82), 5)
+        // The skyline: level 6 is kept from 0.85 (0.9 to reach, less the margin).
+        XCTAssertEqual(sustainable(0.95), 6)
     }
 
     /// Utilities cap what a lot can hold, whatever its land value.

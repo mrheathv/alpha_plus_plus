@@ -63,6 +63,8 @@ enum InspectorText {
             return "Needs power"
         case .needsSchool:
             return "Needs a school"
+        case .needsRapidTransit:
+            return "Needs a subway or rail station"
         case .readyToGrow(let demand):
             // The two halves of "nothing is wrong" are completely different
             // news. A lot that will grow shortly needs no attention; a lot
@@ -103,7 +105,10 @@ enum InspectorText {
         case .needsPower:
             return "Put a plant or a generator within a few tiles, or run a power line to it."
         case .needsSchool:
-            return "A school in range is what unlocks the top level."
+            return "A school in range is what unlocks the fifth level."
+        case .needsRapidTransit:
+            return "The skyline grows around rapid transit: build a subway entrance or a rail "
+                + "station within a short walk."
         case .readyToGrow(let demand):
             return demand > 0 ? nil : "Nothing is wrong here — the city just wants no more "
                 + "\(zoneNoun(report.zone)) yet. Watch the demand bars."
@@ -119,7 +124,7 @@ enum InspectorText {
             return .orange
         case .noRoadAccess, .beingAbandoned, .decliningToSustainable, .damaged:
             return .red
-        case .needsLandValue, .needsWater, .needsPower, .needsSchool:
+        case .needsLandValue, .needsWater, .needsPower, .needsSchool, .needsRapidTransit:
             return RetroUITheme.secondaryAccent
         case .notGrowable, .atMaximumDensity, .underConstruction, .readyToGrow:
             return RetroUITheme.primaryAccent
@@ -149,7 +154,7 @@ enum InspectorText {
     static func desirability(_ value: Double) -> String {
         for level in stride(from: ZoneType.residential.maxDensity, through: 2, by: -1)
         where value >= CitySimulator.requiredLandValue(toReach: level) {
-            return ["", "", "Fair", "Good", "Strong", "Prime"][level]
+            return ["", "", "Fair", "Good", "Strong", "Prime", "Skyline"][level]
         }
         return "Poor"
     }

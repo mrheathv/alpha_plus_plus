@@ -71,6 +71,10 @@ enum LotStatus: Equatable {
     /// The next level needs a school in range.
     case needsSchool
 
+    /// The next level — the skyline — needs a subway or rail station within
+    /// walking reach.
+    case needsRapidTransit
+
     /// Every requirement is met and the lot is waiting on the city wanting
     /// more of it — the growth roll, which is a probability rather than a
     /// gate. `demand` is what the city currently feels, −1 to 1.
@@ -103,7 +107,7 @@ enum LotStatus: Equatable {
             return .critical
         case .noRoadAccess, .beingAbandoned, .decliningToSustainable, .damaged:
             return .failing
-        case .needsLandValue, .needsWater, .needsPower, .needsSchool:
+        case .needsLandValue, .needsWater, .needsPower, .needsSchool, .needsRapidTransit:
             return .blocked
         case .notGrowable, .atMaximumDensity, .underConstruction, .readyToGrow:
             return .fine
@@ -189,6 +193,9 @@ extension CitySimulator {
         if nextLevel >= educationRequiredFromLevel, !hasSchooling(footprint, in: map, using: distances) {
             return .needsSchool
         }
+        if nextLevel >= rapidTransitRequiredFromLevel, !hasRapidTransit(footprint, in: map, using: distances) {
+            return .needsRapidTransit
+        }
         return .readyToGrow(demand: demand)
     }
 
@@ -223,6 +230,23 @@ extension CitySimulator {
         _ footprint: [GridPosition], in map: CityMap, using distances: ZoneDistanceField? = nil
     ) -> Bool {
         ServiceCoverage.serves(footprint, .school, in: map, using: distances)
+    }
+
+    /// Is a subway entrance or a rail station within walking reach — each
+    /// mode's own catchment, the distance `Transit` already calls "near
+    /// enough to ride"?
+    static func hasRapidTransit(
+        _ footprint: [GridPosition], in map: CityMap, using distances: ZoneDistanceField? = nil
+    ) -> Bool {
+        let stations: [(ZoneType, Int)] = [(.subway, Transit.catchment(for: .subway)),
+                                           (.railStation, Transit.catchment(for: .rail))]
+        return footprint.contains { cell in
+            stations.contains { zone, reach in
+                guard let distance = LandValue.distanceToNearest(zone, from: cell, in: map, using: distances)
+                else { return false }
+                return distance <= reach
+            }
+        }
     }
 
     /// Is the service a damaged block is waiting on actually reaching it?

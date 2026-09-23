@@ -108,17 +108,22 @@ final class InspectorTextTests: XCTestCase {
         XCTAssertEqual(InspectorText.desirability(0.1), "Poor",
                        "land that cannot reach level 2 is not 'Fair'")
 
+        // Level 5 is Prime; the skyline above it (level 6) has its own word.
+        let prime = CitySimulator.requiredLandValue(toReach: 5)
+        XCTAssertEqual(InspectorText.desirability(prime), "Prime")
+        XCTAssertNotEqual(InspectorText.desirability(prime - 0.01), "Prime",
+                          "land one notch short of level 5 is being called Prime")
         let top = CitySimulator.requiredLandValue(toReach: ZoneType.residential.maxDensity)
-        XCTAssertEqual(InspectorText.desirability(top), "Prime")
-        XCTAssertEqual(InspectorText.desirability(1), "Prime")
-        XCTAssertNotEqual(InspectorText.desirability(top - 0.01), "Prime",
-                          "land one notch short of the top tier is being called Prime")
+        XCTAssertEqual(InspectorText.desirability(top), "Skyline")
+        XCTAssertEqual(InspectorText.desirability(1), "Skyline")
+        XCTAssertNotEqual(InspectorText.desirability(top - 0.01), "Skyline",
+                          "land one notch short of the skyline is being called Skyline")
 
         // Monotonic, which a hand-written ladder is easy to get wrong.
         let ladder = stride(from: 0.0, through: 1.0, by: 0.05).map { InspectorText.desirability($0) }
         var seen: [String] = []
         for word in ladder where seen.last != word { seen.append(word) }
-        XCTAssertEqual(seen, ["Poor", "Fair", "Good", "Strong", "Prime"],
+        XCTAssertEqual(seen, ["Poor", "Fair", "Good", "Strong", "Prime", "Skyline"],
                        "the desirability ladder skips or repeats a rung")
     }
 
@@ -144,7 +149,7 @@ final class InspectorTextTests: XCTestCase {
     }
 
     func testLevelIsOnlyReportedForSomethingThatGrows() {
-        XCTAssertEqual(InspectorText.level(for: report(.atMaximumDensity, density: 4)), "Level 4 of 5")
+        XCTAssertEqual(InspectorText.level(for: report(.atMaximumDensity, density: 4)), "Level 4 of 6")
         XCTAssertNil(InspectorText.level(for: report(.notGrowable, zone: .road, density: 0)))
     }
 }

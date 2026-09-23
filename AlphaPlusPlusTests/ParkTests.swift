@@ -49,7 +49,10 @@ final class ParkTests: XCTestCase {
     /// street over that line.
     func testAParkCarriesAPlainStreetOverTheTopTiersLandValueGate() {
         var map = street()
-        let required = CitySimulator.requiredLandValue(toReach: ZoneType.residential.maxDensity)
+        // Level 5's gate — the one a park exists to carry an ordinary street
+        // over. The skyline above it (level 6) deliberately wants more than a
+        // park: a genuinely good address.
+        let required = CitySimulator.requiredLandValue(toReach: 5)
         XCTAssertLessThan(value(map), required,
                           "precondition: plain frontage already clears the top gate, so there "
                           + "is nothing for a park to fix")

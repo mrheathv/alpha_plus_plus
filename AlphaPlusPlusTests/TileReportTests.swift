@@ -101,6 +101,10 @@ final class TileReportTests: XCTestCase {
         map.placeBuilding(zone: .fireStation, origin: GridPosition(x: 7, y: 0))
         map.placeBuilding(zone: .hospital, origin: GridPosition(x: 9, y: 0))
         map.placeBuilding(zone: .publicTransit, origin: GridPosition(x: 2, y: 3))
+        // And a park: the skyline (level 6) is kept from a land value of 0.85,
+        // which services alone do not reach — it wants a genuinely good
+        // address, not only a served one.
+        map.placeBuilding(zone: .park, origin: GridPosition(x: 2, y: 0))
         XCTAssertEqual(status(map), .atMaximumDensity)
     }
 
@@ -228,7 +232,7 @@ final class TileReportTests: XCTestCase {
                 case .readyToGrow:
                     checkedReady += 1
                     XCTAssertTrue(grew, "\(tile.position) was reported ready and did not start building")
-                case .needsLandValue, .needsWater, .needsPower, .needsSchool,
+                case .needsLandValue, .needsWater, .needsPower, .needsSchool, .needsRapidTransit,
                      .atMaximumDensity, .noRoadAccess, .beingAbandoned, .decliningToSustainable:
                     checkedBlocked += 1
                     XCTAssertFalse(grew, "\(tile.position) was reported blocked (\(status)) and grew anyway")

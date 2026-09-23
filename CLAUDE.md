@@ -8158,6 +8158,36 @@ brand-new city when this was built, too small to show repetition, which is
 itself worth knowing: Apex is a generator's grid, and some of its repetition
 is its layout. Judge this pass on a player's city as soon as one exists.
 
+### Retrowave step 3a: a sixth level, the skyline
+
+A real density level, not taller drawings: the player asked for "denser
+taller buildings for sure". **Housing and shops reach level 6; industry stops
+at 5**, because a tall factory stops reading as industry.
+
+**The gate is rapid transit.** Level 6 needs everything level 5 does, plus a
+land value of 0.9 (plain road frontage is 0.75 and a park adds 0.18, so it
+wants a genuinely good address) and a subway entrance or rail station within
+that mode's catchment (`CitySimulator.rapidTransitRequiredFromLevel`,
+`hasRapidTransit`). **Downtown forms where the player invests in transit.**
+That makes the transport module a lever on the city's shape, not only on its
+traffic. Like the school, it gates reaching the level rather than keeping it:
+losing a station stalls a block and does not tear the towers down. The
+inspector says "Needs a subway or rail station" and names the fix; the
+desirability ladder gains "Skyline". Level 6 is its own visual tier (4), so
+3b can draw it as a different kind of building rather than a taller level 5.
+
+A survey for every "5 is the top" found two that would have shipped badly:
+**`sustainableDensity` looped `1...5`**, which would have decayed every
+level-6 tower back to 5 the tick after it was built; and **the desirability
+words ran out at index 6**, a crash in the inspector the first time a lot was
+good enough for the skyline. Loops read `CitySimulator.highestDensity` now.
+
+Seven tests failed. All seven were the thing moving rather than the yardstick
+(the school now unlocks level 5, not the top), and each was restated to say
+what is now true rather than relaxed. `SkylineTests` pins the gate: it waits
+for transit, a subway or rail station in reach opens it, one out of reach
+does not, and industry has no skyline.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

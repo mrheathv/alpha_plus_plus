@@ -232,7 +232,14 @@ extension ZoneType {
     var maxDensity: Int {
         switch self {
         case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park, .seaport, .airport, .neonArcade, .broadcastTower, .arcology: return 0
-        case .residential, .commercial, .industrial: return 5
+        // **Housing and shops reach a sixth level; industry stops at five.**
+        // The sixth is the skyline — towers that need rapid transit to exist
+        // (`CitySimulator.rapidTransitRequiredFromLevel`) — and a sixth level
+        // of factory would be a tall industrial building, which stops reading
+        // as industry and starts reading as a badly coloured office. Wide and
+        // low is industry's identity.
+        case .residential, .commercial: return 6
+        case .industrial: return 5
         }
     }
 

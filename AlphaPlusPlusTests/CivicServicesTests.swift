@@ -44,12 +44,14 @@ final class CivicServicesTests: XCTestCase {
         )
     }
 
+    /// Restated when level 6 arrived: a school unlocks the fifth level, and
+    /// the skyline above it wants rapid transit as well.
     func testASchoolInRangeUnlocksFullDensity() {
         var map = makeTopTierCity(school: true)
         var rng = AlwaysZeroRNG()
         map = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
-        XCTAssertEqual(map[GridPosition(x: 0, y: 0)].density, ZoneType.residential.maxDensity)
+        XCTAssertEqual(map[GridPosition(x: 0, y: 0)].density, CitySimulator.educationRequiredFromLevel)
     }
 
     /// A school on the far side of the map is not a school in range — the
@@ -69,7 +71,10 @@ final class CivicServicesTests: XCTestCase {
     func testEducationIsTheLastRungOfTheUtilityLadder() {
         XCTAssertLessThan(CitySimulator.waterRequiredFromLevel, CitySimulator.powerRequiredFromLevel)
         XCTAssertLessThan(CitySimulator.powerRequiredFromLevel, CitySimulator.educationRequiredFromLevel)
-        XCTAssertEqual(CitySimulator.educationRequiredFromLevel, ZoneType.residential.maxDensity)
+        // Rapid transit is the rung above education, and the last: it gates
+        // the skyline, which is the top of the ladder.
+        XCTAssertLessThan(CitySimulator.educationRequiredFromLevel, CitySimulator.rapidTransitRequiredFromLevel)
+        XCTAssertEqual(CitySimulator.rapidTransitRequiredFromLevel, ZoneType.residential.maxDensity)
     }
 
     /// Defunding schools has to bite, since coverage is falloff × funding.

@@ -504,14 +504,16 @@ enum RenderPalette {
     /// a `density / maxDensity` proportion — a proportional split would
     /// put density 2 and 3 in the *same* third for a max of 5, which is
     /// exactly the "adjacent levels should look different" case this
-    /// exists to show. Assumes today's `maxDensity` of 5 for every
-    /// growable zone; revisit this table specifically if that ever changes.
+    /// exists to show. **Level 6 is tier 4**, the skyline: housing and shops
+    /// reach it (industry stops at 5), and it is drawn as a different kind of
+    /// building rather than a taller level 5.
     static func growthTier(for density: Int) -> Int {
         switch density {
         case 0: return 0
         case 1, 2: return 1
         case 3, 4: return 2
-        default: return 3
+        case 5: return 3
+        default: return 4
         }
     }
 

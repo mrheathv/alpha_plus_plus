@@ -2952,7 +2952,9 @@ final class GameScene: SKScene {
                 let tier = building.zone.maxDensity > 0
                     ? RenderPalette.growthTier(for: building.density)
                     : 1
-                blocked += Double(tier) / 3
+                // Per side at most one, so a skyline tower (tier 4) blocks a
+                // side fully rather than more than fully.
+                blocked += Swift.min(1, Double(tier) / 3)
             }
         }
         return sides > 0 ? Swift.min(1, blocked / sides) : 0

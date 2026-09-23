@@ -1620,16 +1620,18 @@ enum MetalCityMesh {
     /// height: wide and low is its identity.
     static func heightScale(zone: ZoneType, density: Int, at position: GridPosition, in map: CityMap) -> Float {
         guard zone == .residential || zone == .commercial, density >= 3 else { return 1 }
-        var sum = 0, count = 0
+        var sum = 0, most = 0
         for dy in -3 ... 3 {
             for dx in -3 ... 3 {
                 let p = GridPosition(x: position.x + dx, y: position.y + dy)
                 guard map.contains(p) else { continue }
                 let t = map[p]
-                if t.zone.maxDensity > 0 { sum += t.density; count += 1 }
+                if t.zone.maxDensity > 0 { sum += t.density; most += t.zone.maxDensity }
             }
         }
-        let cluster = count == 0 ? 0 : Float(sum) / Float(count * 5)
+        // Against each lot's own ceiling, since housing and shops reach 6 and
+        // industry stops at 5.
+        let cluster = most == 0 ? 0 : Float(sum) / Float(most)
         let wobble = Float((position.x &* 73_856_093 ^ position.y &* 19_349_663) & 1023) / 1023 * 0.12 - 0.06
         return 0.85 + 0.6 * cluster * cluster + wobble
     }

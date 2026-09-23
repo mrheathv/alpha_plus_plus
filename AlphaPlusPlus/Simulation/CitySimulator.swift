@@ -72,7 +72,7 @@ enum CitySimulator {
             // Nothing happens. Each of these is a lot waiting on something the
             // player has to go and do; none of them is a roll.
             case .notGrowable, .atMaximumDensity,
-                 .needsLandValue, .needsWater, .needsPower, .needsSchool:
+                 .needsLandValue, .needsWater, .needsPower, .needsSchool, .needsRapidTransit:
                 continue
 
             case .noRoadAccess:
@@ -236,7 +236,7 @@ enum CitySimulator {
     /// since growth and decline read the same number.
     static func sustainableDensity(landValue: Double, hasWater: Bool, hasPower: Bool) -> Int {
         var sustainable = 0
-        for level in 1 ... 5 {
+        for level in 1 ... Self.highestDensity {
             guard landValue >= requiredLandValue(toReach: level) - Self.declineMargin else { break }
             if level >= Self.waterRequiredFromLevel, !hasWater { break }
             if level >= Self.powerRequiredFromLevel, !hasPower { break }
@@ -267,9 +267,17 @@ enum CitySimulator {
         case 2: return 0.3
         case 3: return 0.5
         case 4: return 0.65
-        default: return 0.8
+        case 5: return 0.8
+        // Plain road frontage tops out at 0.75 and a park adds 0.18, so the
+        // skyline wants a genuinely good address, not just a paved one.
+        default: return 0.9
         }
     }
+
+    /// The highest density any zone reaches — `ZoneType.maxDensity` over the
+    /// growable zones. Loops that walk the levels read this rather than a
+    /// literal, so the next level added is one change, not a hunt for fives.
+    static let highestDensity = ZoneType.allCases.map(\.maxDensity).max() ?? 5
 
     /// Below this level, a zone only needs today's road access + land
     /// value — a starter lot doesn't need city utilities yet. At this
@@ -326,6 +334,17 @@ enum CitySimulator {
     /// question is "is this block in a school's catchment," not "is a school
     /// connected to it."
     static let educationRequiredFromLevel = 5
+
+    /// From this level on — the skyline — a lot additionally needs a subway
+    /// entrance or a rail station within walking reach of it (that mode's
+    /// catchment).
+    ///
+    /// **Downtown forms where the player invests in transit**, which is both
+    /// what real downtowns do and what makes the transport module a lever on
+    /// the city's shape rather than only on its traffic. Like the school, it
+    /// gates reaching the level rather than keeping it: losing a station
+    /// stalls a block, it does not tear the towers down.
+    static let rapidTransitRequiredFromLevel = 6
 
     /// `growthChance(for:)`'s floor, at demand -1 (the city is drowning
     /// in this type already).
