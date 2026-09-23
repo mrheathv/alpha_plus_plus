@@ -17,10 +17,11 @@ import XCTest
 /// ```
 final class SoundtrackAnalysisTests: XCTestCase {
 
-    func testPrintTheSpectrumOfEveryTrack() {
+    func testPrintTheSpectrumOfEveryTrack() throws {
+        try XCTSkipUnless(TestReports.enabled, TestReports.skipReason)
         print("📊 " + AudioAnalysis.header())
         for track in MusicLibrary.all {
-            let report = AudioAnalysis.report(Soundtrack.render(track))
+            let report = AudioAnalysis.report(RenderedTracks.mix(track))
             print("📊 " + AudioAnalysis.row(track.name, report))
 
             // The one property every row has to have: the channels are never
@@ -35,7 +36,8 @@ final class SoundtrackAnalysisTests: XCTestCase {
     /// the mix is wrong this is what says which instrument put it there,
     /// which is how the hats were found to be full-band noise rather than
     /// the high-passed hiss their comment described.
-    func testPrintTheStemsOfOneTrack() {
+    func testPrintTheStemsOfOneTrack() throws {
+        try XCTSkipUnless(TestReports.enabled, TestReports.skipReason)
         let track = MusicLibrary.neonGrid
         let stems = Soundtrack.renderStems(track)
         print("📊 " + AudioAnalysis.header())
@@ -45,8 +47,9 @@ final class SoundtrackAnalysisTests: XCTestCase {
         }
     }
 
-    func testPrintEveryProfileOnOneTrack() {
-        let mix = Soundtrack.render(MusicLibrary.smallHours)
+    func testPrintEveryProfileOnOneTrack() throws {
+        try XCTSkipUnless(TestReports.enabled, TestReports.skipReason)
+        let mix = RenderedTracks.mix(MusicLibrary.smallHours)
         print("📊 " + AudioAnalysis.header())
         print("📊 " + AudioAnalysis.row("small-hours raw", AudioAnalysis.report(mix)))
         for profile in AudioProfile.all {

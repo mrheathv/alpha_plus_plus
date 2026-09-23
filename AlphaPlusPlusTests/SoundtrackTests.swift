@@ -91,7 +91,7 @@ final class SoundtrackTests: XCTestCase {
     /// sold as loudness — the exact trade the level trims on Overdrive were
     /// pulled back for.
     func testNoProfileClips() {
-        let mix = Soundtrack.render(MusicLibrary.smallHours)
+        let mix = RenderedTracks.mix(MusicLibrary.smallHours)
         for profile in AudioProfile.all {
             let shaped = profile.apply(to: mix)
             let peak = max(shaped.left.map(abs).max() ?? 0, shaped.right.map(abs).max() ?? 0)
@@ -106,7 +106,7 @@ final class SoundtrackTests: XCTestCase {
     /// cannot — and "I adjusted some numbers" is not a claim I can otherwise
     /// check.
     func testTheSmallSpeakerProfileRemovesWhatASmallSpeakerCannotPlay() {
-        let mix = Soundtrack.render(MusicLibrary.smallHours)
+        let mix = RenderedTracks.mix(MusicLibrary.smallHours)
         func lowEnergy(_ buffer: Soundtrack.Buffer) -> Double {
             var filter = Synth.LowPass()
             var total = 0.0
@@ -167,7 +167,7 @@ final class SoundtrackTests: XCTestCase {
     /// cancels rather than spreads, so the one thing this profile must do is
     /// hand the speaker identical channels.
     func testTheBuiltInSpeakerProfileSumsToMono() {
-        let mix = Soundtrack.render(MusicLibrary.neonGrid)
+        let mix = RenderedTracks.mix(MusicLibrary.neonGrid)
         let shaped = AudioProfile.monoSpeaker.apply(to: mix)
         var difference: Float = 0
         for index in 0 ..< shaped.frames { difference = max(difference, abs(shaped.left[index] - shaped.right[index])) }
@@ -186,7 +186,7 @@ final class SoundtrackTests: XCTestCase {
 
     func testEveryTrackIsTheLengthItClaims() {
         for track in MusicLibrary.all {
-            let buffer = Soundtrack.render(track)
+            let buffer = RenderedTracks.mix(track)
             XCTAssertEqual(buffer.frames, Int(track.duration * Synth.sampleRate), "\(track.name)")
             XCTAssertEqual(buffer.right.count, buffer.left.count, "\(track.name)")
         }
@@ -222,7 +222,7 @@ final class SoundtrackTests: XCTestCase {
     /// glaring to a listener and completely invisible here.
     func testNothingClips() {
         for track in MusicLibrary.all {
-            let buffer = Soundtrack.render(track)
+            let buffer = RenderedTracks.mix(track)
             let peak = max(buffer.left.map(abs).max() ?? 0, buffer.right.map(abs).max() ?? 0)
             XCTAssertLessThan(peak, 0.999, "\(track.name) reaches full scale — audible distortion")
             XCTAssertGreaterThan(peak, 0.25, "\(track.name) is so quiet something is not playing")
@@ -233,7 +233,7 @@ final class SoundtrackTests: XCTestCase {
     /// thumps when it starts and stops, and is inaudible as itself.
     func testTheMixIsCentred() {
         for track in MusicLibrary.all {
-            let buffer = Soundtrack.render(track)
+            let buffer = RenderedTracks.mix(track)
             let mean = buffer.left.reduce(0, +) / Float(buffer.frames)
             XCTAssertEqual(mean, 0, accuracy: 0.02, "\(track.name) has a DC offset")
         }
@@ -244,7 +244,7 @@ final class SoundtrackTests: XCTestCase {
     /// leaves a hole that no other assertion here would notice.
     func testEveryBarHasSoundInIt() {
         for track in MusicLibrary.all {
-            let buffer = Soundtrack.render(track)
+            let buffer = RenderedTracks.mix(track)
             let framesPerBar = buffer.frames / track.bars
             for bar in 0 ..< track.bars {
                 let slice = buffer.left[(bar * framesPerBar) ..< ((bar + 1) * framesPerBar)]
@@ -258,7 +258,7 @@ final class SoundtrackTests: XCTestCase {
     /// panned kit are what make it wide, and a mix that collapsed to mono
     /// would sound flat in a way nothing above would catch.
     func testItIsActuallyInStereo() {
-        let buffer = Soundtrack.render(MusicLibrary.theme)
+        let buffer = RenderedTracks.mix(MusicLibrary.theme)
         var difference: Float = 0
         for index in stride(from: 0, to: buffer.frames, by: 17) {
             difference += abs(buffer.left[index] - buffer.right[index])

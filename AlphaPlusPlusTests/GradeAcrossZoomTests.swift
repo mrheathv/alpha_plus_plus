@@ -79,6 +79,7 @@ final class GradeAcrossZoomTests: XCTestCase {
     }
 
     func testReportWhatTheGradeCostsAtEachZoom() throws {
+        try XCTSkipUnless(TestReports.enabled, TestReports.skipReason)
         let controller = GameController(map: city(), rng: SeededRNG(seed: 6))
         let scene = GameScene(controller: controller)
         scene.size = CGSize(width: 900, height: 600)

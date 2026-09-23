@@ -1,0 +1,34 @@
+{
+  "configurations": [
+    {
+      "id": "D8D628CE-D7DC-5155-96FD-AC25E5263C92",
+      "name": "Test Scheme Action",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {},
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:AlphaPlusPlus.xcodeproj",
+        "identifier": "A1B2C3D4E5F6000000000012",
+        "name": "AlphaPlusPlusTests"
+      },
+      "parallelizable": true,
+      "skippedTests": [
+        "DesignPlaytestTests",
+        "TransitBalanceTests",
+        "PlateauDiagnosticTests",
+        "PlaytestScenarioTests",
+        "MilestoneTests/testAServicedCityClimbsAndAnUnplumbedOneStalls()",
+        "CameraMotionCostTests",
+        "OversampleCostTests",
+        "RenderTimingTests",
+        "FrameCostDiagnosticTests",
+        "JourneyLookupCostTests",
+        "HarnessTimingTests"
+      ]
+    }
+  ],
+  "version": 1
+}

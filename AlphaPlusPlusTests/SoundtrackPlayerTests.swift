@@ -222,7 +222,8 @@ final class SoundtrackPlayerTests: XCTestCase {
     /// Reported rather than asserted tightly, the way `HarnessTimingTests`
     /// reports a tick: a number in a build log is what makes a regression
     /// visible before it is a stutter.
-    func testMeasureWhatRenderingTheLibraryCosts() {
+    func testMeasureWhatRenderingTheLibraryCosts() throws {
+        try XCTSkipUnless(TestReports.enabled, TestReports.skipReason)
         var total = 0.0
         for cue in MusicDirector.Cue.allCases {
             let track = cue.track

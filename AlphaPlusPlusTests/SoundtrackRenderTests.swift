@@ -31,7 +31,7 @@ final class SoundtrackRenderTests: XCTestCase {
         print("🔊 \(profile.name) — \(profile.summary)  (\(AudioProfile.currentModel()), \(AudioRoute.current()))")
 
         for track in MusicLibrary.all {
-            let data = Self.wav(profile.apply(to: Soundtrack.render(track)))
+            let data = Self.wav(profile.apply(to: RenderedTracks.mix(track)))
             let destination = folder.appendingPathComponent("\(track.name).wav")
             try data.write(to: destination)
             print(String(
@@ -51,7 +51,7 @@ final class SoundtrackRenderTests: XCTestCase {
             .appendingPathComponent("build/Audio/profiles")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
-        let mix = Soundtrack.render(MusicLibrary.smallHours)
+        let mix = RenderedTracks.mix(MusicLibrary.smallHours)
         for profile in AudioProfile.all {
             let slug = profile.name.lowercased().replacingOccurrences(of: " ", with: "-")
             let data = Self.wav(profile.apply(to: mix))

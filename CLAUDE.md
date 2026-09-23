@@ -7572,19 +7572,45 @@ controller, owns `UserDefaults`.
 The render caught one thing: `RelativeDateTimeFormatter` described a save
 from a second ago as "in 0 seconds". Under a minute it now says "moments ago".
 
-### The suite runs in under three minutes in Release
+### Two test plans: Quick and Full
 
-Measured while shipping the above: every test except the four soundtrack
-suites runs in **164 seconds** in Release, against about **23 minutes** for
-the whole suite in Debug. 41 tests carry 91% of the Debug time (playtest
-cities and the synthesiser), and both are the pure arithmetic Release is
-roughly 55× faster at. For a quick check before committing:
+A full run took about 23 minutes in Debug, which is too long to run before
+every commit. Measured first: 41 of ~900 tests carried 91% of the time, all
+of them either whole playtest cities or the soundtrack synthesiser.
+
+| plan | what | Debug | Release |
+|---|---|---|---|
+| **Quick** (the default, Cmd-U) | everything but the playtest cities and the timing benchmarks, in parallel | **97 s** | — |
+| **Full** | everything, one class at a time | ~18 min | **182 s** |
+
+Run Quick before every commit. Run Full before a merge to main and after any
+balance change, and run it in Release:
 
 ```sh
-xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
-           -configuration Release -derivedDataPath ./build \
-           ENABLE_TESTABILITY=YES test
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus -testPlan Full \
+           -configuration Release -derivedDataPath ./build ENABLE_TESTABILITY=YES test
 ```
+
+Three changes got there:
+
+- **Each soundtrack is created once per run.** The soundtrack suites asked
+  `Soundtrack.render` for the same tracks at fourteen call sites, about 480 s
+  in Debug. `RenderedTracks` caches by track name. The one test that *times*
+  rendering still renders for real, and is opt-in.
+- **Report-only tests are opt-in** (`TestReports`, `TEST_RUNNER_REPORTS=1`,
+  or the full playtest profile). A spectrum printout, a render-cost readout
+  and a grade-cost readout were a sixth of the suite and asserted little.
+- **Quick runs in parallel, Full does not.** Parallel testing took the whole
+  suite from 1,100 s to 372 s, and two timing benchmarks failed by a hair
+  (16.9 ms against a 16 ms budget) because seven other processes were sharing
+  the cores. A benchmark cannot measure honestly beside other work, so the
+  benchmarks live only in the serial plan. That is the same reason
+  `RenderTimingTests` takes the best of several batches: contention adds
+  time, never removes it.
+
+**Adding a slow test means deciding which plan it belongs to.** Anything that
+simulates a city for hundreds of days, or asserts a time budget, goes on
+Quick's skip list in `Quick.xctestplan`.
 
 ### Wet streets: light, not a mirror
 
