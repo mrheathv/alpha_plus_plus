@@ -45,6 +45,11 @@ struct GameView: View {
     /// fire again (e.g. if the view is removed and reinserted).
     @State private var scene: GameScene?
 
+    /// The map's input and its clock with Metal drawing (M8), made on appear
+    /// for the same reason the scene is: they need the controller.
+    @State private var interaction: MapInteraction?
+    @State private var clock: CityClock?
+
     /// Which group of tools the zoning row is showing. See `ToolCategory` for
     /// why the row is grouped at all.
     @State private var toolCategory: ToolCategory = .zones
@@ -53,17 +58,13 @@ struct GameView: View {
         VStack(spacing: 0) {
             if !controller.isScreenshotMode { toolRail }
             Group {
-                if let scene {
-                    // With the Metal renderer on, it draws the city underneath
-                    // and the SpriteKit view on top keeps input, the camera
-                    // and everything not yet ported. See `MapRenderer`.
-                    ZStack {
-                        if controller.mapRenderer == .metal {
-                            MetalMapView(controller: controller, scene: scene,
-                                         onScreenshot: { save(screenshot: $0) })
-                        }
-                        GameSpriteView(scene: scene)
-                    }
+                if controller.mapRenderer == .metal, let interaction, let clock {
+                    // Metal draws the city, takes the input and runs the clock
+                    // (M8); no SpriteKit scene is presented at all.
+                    MetalMapView(controller: controller, interaction: interaction, clock: clock,
+                                 onScreenshot: { save(screenshot: $0) })
+                } else if let scene {
+                    GameSpriteView(scene: scene)
                 } else {
                     Color.clear
                 }
@@ -103,6 +104,7 @@ struct GameView: View {
             // `GameController.cityGeneration`.
             scene?.rebuildEntireGrid()
             scene?.centerCameraOnMap()
+            // The Metal view recentres itself on a new generation.
         }
         // With Metal on, the Metal view answers the request itself: the
         // SpriteKit layer is transparent there and would capture nothing.
@@ -121,6 +123,12 @@ struct GameView: View {
                 made.runsDaysInBackground = true
                 made.setDrawsCity(controller.mapRenderer == .classic)
                 scene = made
+            }
+            if interaction == nil {
+                var camera = CityCamera()
+                camera.centre(on: controller.map)
+                interaction = MapInteraction(controller: controller, camera: camera)
+                clock = CityClock(controller: controller)
             }
         }
         .onChange(of: controller.mapRenderer) {
@@ -146,7 +154,8 @@ struct GameView: View {
         // this turns it into a real tick — which flashes hazards the way an
         // automatic tick does, unlike calling `advanceSimulation()` directly.
         .onChange(of: controller.manualAdvanceRequests) {
-            scene?.runSimulationTick()
+            // With Metal on the Metal view's clock answers it (M8).
+            if controller.mapRenderer == .classic { scene?.runSimulationTick() }
         }
         // The whole toolbar is hand-colored against a dark background
         // regardless of the system appearance — forcing dark here keeps
@@ -335,6 +344,7 @@ struct GameView: View {
             pan.dy += dy
         }
         scene?.keyboardPan = pan
+        interaction?.keyboardPan = pan
     }
 
     /// The hover inspector, over the map's top-right corner.
