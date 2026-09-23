@@ -99,6 +99,38 @@ final class MetalSpikeTests: XCTestCase {
                                atomically: true, encoding: .utf8)
     }
 
+    /// **Reflections, judged where they are strongest**: a waterfront block
+    /// facing a street and a river, close in, dry and in rain. Water mirrors
+    /// the city always; the street is glossy dry and a mirror wet.
+    func testRenderTheWaterfront() throws {
+        var map = CityMap(width: 18, height: 16)
+        for x in 0 ..< 18 { map[GridPosition(x: x, y: 8)].zone = .road }
+        for y in 9 ..< 16 { for x in 0 ..< 18 { map[GridPosition(x: x, y: y)].isWater = true } }
+        for y in 0 ..< 8 { map[GridPosition(x: 8, y: y)].zone = .road }
+        let lots: [(ZoneType, GridPosition, Int)] = [
+            (.commercial, GridPosition(x: 2, y: 6), 5), (.residential, GridPosition(x: 4, y: 6), 4),
+            (.commercial, GridPosition(x: 6, y: 6), 4), (.commercial, GridPosition(x: 9, y: 6), 5),
+            (.residential, GridPosition(x: 11, y: 6), 5), (.industrial, GridPosition(x: 13, y: 6), 3),
+            (.commercial, GridPosition(x: 15, y: 6), 4), (.residential, GridPosition(x: 4, y: 3), 5),
+            (.commercial, GridPosition(x: 10, y: 3), 5),
+        ]
+        for (zone, origin, density) in lots {
+            map.placeBuilding(zone: zone, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = density }
+        }
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        let size = CGSize(width: 1200, height: 800)
+        let centre = Isometric().project(9, 9, 0)
+        var frames: [(String, NSImage)] = []
+        for (label, wetness) in [("dry — glossy street, mirror river", Float(0)),
+                                 ("raining", Float(1))] {
+            let camera = MetalCityRenderer.Camera(centre: centre, scale: 0.55, size: size)
+            let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: wetness, time: 3))
+            frames.append(("Metal — \(label)", NSImage(cgImage: frame.image, size: size)))
+        }
+        try Self.writeGrid(frames, columns: 1, cell: size, named: "metal-waterfront")
+    }
+
     /// Frames in a grid with a caption over each, written beside the other
     /// contact sheets.
     static func writeGrid(_ frames: [(String, NSImage)], columns: Int, cell: CGSize, named name: String) throws {

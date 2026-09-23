@@ -361,7 +361,10 @@ final class MetalCityRenderer {
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = color
             pass.colorAttachments[0].loadAction = .clear
-            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0.012, green: 0.008, blue: 0.03, alpha: 1)
+            // Alpha is height in the reflection pass, so empty sky clears to
+            // zero — at one it would blur like the top of a tower.
+            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0.012, green: 0.008, blue: 0.03,
+                                                                alpha: mirrored ? 0 : 1)
             if let resolve {
                 pass.colorAttachments[0].resolveTexture = resolve
                 pass.colorAttachments[0].storeAction = .multisampleResolve
@@ -571,10 +574,12 @@ enum MetalCityMesh {
             // Land the city does not own, darker — as SpriteKit draws it, so
             // the edge of what you can build on reads in either renderer.
             if !map.isOwned(tile.position) { albedo *= 0.4 }
-            // `ground` 2 marks street, which is what gets wet enough to
-            // mirror the city; 1 is land, which only shines in its puddles.
+            // `ground` says how the surface reflects: 2 street (glossy, a
+            // mirror in rain), 3 water (a mirror always), 1 land (only its
+            // puddles, only in rain). A bridge is street, not water.
+            let surface: Float = isRoad ? 2 : (tile.isWater ? 3 : 1)
             polygon([SIMD3(x, y, 0), SIMD3(x + 1, y, 0), SIMD3(x + 1, y + 1, 0), SIMD3(x, y + 1, 0)],
-                    normal: up, albedo: albedo, ground: isRoad ? 2 : 1)
+                    normal: up, albedo: albedo, ground: surface)
             guard isRoad else { continue }
 
             // The lane line: a thin strip from the centre toward every

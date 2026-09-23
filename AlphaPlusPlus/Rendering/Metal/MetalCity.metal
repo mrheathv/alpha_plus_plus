@@ -179,36 +179,83 @@ fragment float4 sceneFragment(Varyings in [[stage_in]],
     color += in.emissive;
     color += in.rim * rimAmount(in.uv, in.size);
 
-    if (in.ground > 0.5 && u.frame.w < 0.5 && u.frame.z > 0) {
-        // **The wet street.** The mirrored city, sampled where this pixel is,
-        // pushed about by ripples and softened with a few taps — wet asphalt
-        // is a rough mirror, not a polished one. Puddles come and go with a
-        // low-frequency noise so the street is patchy rather than glass.
-        constexpr sampler s(filter::linear, address::clamp_to_edge);
-        float2 screen = in.clip.xy / u.frame.xy;
-        float ripple = valueNoise(in.world.xy * 9 + float2(0, u.moonAndTime.w * 0.6)) - 0.5;
-        // Small ripples, mostly sideways: the first pass pushed the image
-        // down the screen by a lot, and the reflections read as paint
-        // dripping off the buildings rather than light lying in water.
-        float2 offset = float2(ripple * 0.003, ripple * 0.004);
-        float3 mirrored = 0;
-        for (int i = -3; i <= 3; i++) {
-            mirrored += reflection.sample(s, screen + offset + float2(i * 0.0012, i * 0.0022)).rgb;
-        }
-        mirrored /= 7;
-        float puddles = smoothstep(0.35, 0.75, valueNoise(in.world.xy * 0.9));
-        // The street is what gets wet enough to mirror; the land beside it
-        // only catches the light in its puddles.
-        bool road = in.ground > 1.5;
-        float strength = u.frame.z * (road ? (0.35 + 0.35 * puddles) : 0.22 * puddles);
-        color = color * (1 - 0.3 * u.frame.z * (road ? 1.0 : 0.3)) + mirrored * strength;
-    }
-
-    // Grain in the ground, so a field of it is a surface and not plastic.
+    // Grain in the ground, so a field of it is a surface and not plastic —
+    // applied before the reflection, so the mirrored city stays clean.
     if (in.ground > 0.5) {
         color *= 0.9 + 0.2 * valueNoise(in.world.xy * 3.1);
     }
-    return float4(color, 1);
+
+    // **The wet street**, done the way wet asphalt actually behaves.
+    //
+    // - It is a *rough* mirror whose blur grows with height: the foot of a
+    //   tower reflects sharply and its top dissolves. The mirrored pass
+    //   stores each fragment's height in alpha, so the blur is read per
+    //   reflected point rather than applied to the whole image at one size.
+    // - It streaks *vertically*: light on wet tarmac stretches toward the
+    //   viewer into long bands — the image every rainy neon street is known
+    //   by — so the taps run mostly down the screen, not in a round blur.
+    // - Streets shine a little even dry (`dryGloss`), because a Cyberpunk
+    //   street always looks slick; rain turns that into a mirror.
+    // - Water mirrors the city always, with ripples, and harder than tarmac.
+    bool road = in.ground > 1.5 && in.ground < 2.5;
+    bool water = in.ground > 2.5;
+    float dryGloss = road ? 0.16 : 0.0;
+
+    // **Water has a surface of its own**, even where nothing is reflected in
+    // it. The first render left the river pure black with reflections
+    // floating on nothing — nothing said "water". Night water carries a faint
+    // tint of the sky and moving bands where the ripples catch the light.
+    if (water && u.frame.w < 0.5) {
+        float t = u.moonAndTime.w;
+        float bands = valueNoise(in.world.xy * float2(1.6, 7.0) + float2(t * 0.25, -t * 0.4));
+        float glints = valueNoise(in.world.xy * float2(3.0, 14.0) + float2(-t * 0.5, t * 0.3));
+        color = float3(0.018, 0.024, 0.06)
+            + float3(0.028, 0.02, 0.065) * smoothstep(0.55, 0.95, bands)
+            + float3(0.07, 0.055, 0.13) * smoothstep(0.88, 0.99, glints);
+    }
+    float wet = max(u.frame.z, dryGloss);
+    // Strength first, sampling only where it is worth something: most land
+    // in rain has no puddle under it, and nine taps of a texture for a
+    // reflection weighted zero was measured costing Apex 4 ms a frame.
+    float puddles = smoothstep(0.35, 0.75, valueNoise(in.world.xy * 0.9));
+    float strength = 0;
+    if (in.ground > 0.5 && u.frame.w < 0.5) {
+        if (water) {
+            strength = 0.75;
+        } else if (road) {
+            strength = wet * (0.4 + 0.4 * puddles);
+        } else {
+            // Land only catches the light in its puddles, and only in rain.
+            strength = u.frame.z * 0.22 * puddles;
+        }
+    }
+    if (strength > 0.01) {
+        constexpr sampler s(filter::linear, address::clamp_to_edge);
+        float2 screen = in.clip.xy / u.frame.xy;
+        float t = u.moonAndTime.w;
+        float ripple = valueNoise(in.world.xy * (water ? 5.0 : 9.0) + float2(t * 0.35, t * 0.6)) - 0.5;
+        float2 offset = float2(ripple * 0.003, ripple * (water ? 0.008 : 0.004));
+
+        // How high the reflected point stands decides how blurred it is.
+        float height = reflection.sample(s, screen + offset).a;
+        float spread = (water ? 0.0008 : 0.0016) + height * (water ? 0.0012 : 0.0028);
+        float3 mirrored = 0;
+        float total = 0;
+        for (int i = -4; i <= 4; i++) {
+            float w = 1.0 - abs(float(i)) / 5.0;
+            // Mostly down the screen, a little across: a streak, not a disc.
+            float2 tap = float2(float(i) * spread * 0.18, float(i) * spread);
+            mirrored += reflection.sample(s, screen + offset + tap).rgb * w;
+            total += w;
+        }
+        mirrored /= total;
+        float darken = water ? 0.5 : 0.3 * u.frame.z * (road ? 1.0 : 0.3);
+        color = color * (1 - darken) + mirrored * strength;
+    }
+
+    // The reflection pass keeps each fragment's height in alpha, which is
+    // what the street reads to decide how blurred that point's reflection is.
+    return float4(color, u.frame.w > 0.5 ? max(in.world.z, 0.0) : 1.0);
 }
 
 // MARK: - Light culling
