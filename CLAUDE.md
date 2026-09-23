@@ -8872,6 +8872,32 @@ and the two renderer blocks are gone.
   renderer's per-variant variation of it (`MetalCityMesh.varied`), which
   the massing cannot see. The difference is a few degrees of hue.
 
+### Building detail, P5: the lot, up close
+
+The ground a low-density lot leaves open, filled in at the near tier, in
+spots each form already keeps clear:
+
+| family | on its ground |
+|---|---|
+| housing | a car on the drive and a front hedge (detached house, duplex), loungers and an umbrella (pool bungalow, garden court), a car out front (walk-up) |
+| shops | marked stalls with parked cars (diner, mini-mall), a car at the pump, a car at the motel |
+| industry | pallets and a forklift (warehouse, sheds), yard fences (warehouse, container yard, tank farm, refinery) |
+
+- **Parked cars are the moving cars' size** (0.34 by 0.15, from
+  `MetalMotion`), so the ones on the drives match the ones on the street.
+- **Stripes are faint lit lines**, since at night the only paint that reads
+  is paint that glows. They join a building's merged lights rather than
+  adding any: Apex's light count is unchanged.
+- **Placed by the form, not by a pass.** Unlike roofs, open ground is only
+  known to the form that left it, so each call sits in the form with a
+  fixed position in its own `LotPlan`.
+- **A timing that looked like a regression was contention.** The budget
+  test read 9.2–9.9 ms at the resting camera, whose geometry P5 does not
+  change (115,600 triangles, 2,128 lights both before and after). Another
+  build of the game was running at full CPU. Alone it read 8.36 ms. Same
+  lesson as the throttled M3: a GPU timing taken beside other work is not a
+  measurement.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
