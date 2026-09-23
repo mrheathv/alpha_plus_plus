@@ -1,4 +1,4 @@
-import SpriteKit
+import Foundation
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -25,89 +25,17 @@ final class WallMaterialTests: XCTestCase {
     /// the thirty-two looks the cache actually draws from. Counting or
     /// photographing anything else measures a generator nobody renders.
     func testRenderWallMaterialsInGreyscale() throws {
-        let projection = Isometric(tileWidth: 64)
-        let cache = IsoTextureCache(projection: projection)
-        let view = SKView()
-        let cell = CGSize(width: 240, height: 340)
-        let zones: [ZoneType] = [.commercial, .residential]
-        let perRow = 8
-
-        var rows: [[NSImage]] = []
-        for zone in zones {
-            var row: [NSImage] = []
-            var drawn = 0
-            for x in 0 ..< 64 where drawn < perRow {
-                let position = GridPosition(x: x * 7, y: x * 3)
-                // Skip the landmarks: they are a different pass's subject and
-                // they would dominate a row about surfaces.
-                let canonical = IsoTextureCache.canonicalSeed(
-                    for: IsoTextureCache.variant(for: position))
-                guard !ZoneMassing.isLandmark(tier: 3, seed: canonical),
-                      let rendered = cache.rendered(for: zone, density: 5, seed: position)
-                else { continue }
-                drawn += 1
-
-                let node = SKSpriteNode(texture: rendered.texture, size: rendered.size)
-                node.setScale(1.1)
-                let frame = node.calculateAccumulatedFrame()
-                node.position = CGPoint(x: cell.width / 2, y: 24 - frame.minY)
-                let scene = SKScene(size: cell)
-                scene.backgroundColor = RenderPalette.background
-                scene.addChild(node)
-                view.frame = NSRect(origin: .zero, size: cell)
-                view.presentScene(scene)
-                let texture = try XCTUnwrap(
-                    view.texture(from: scene, crop: CGRect(origin: .zero, size: cell)))
-                row.append(NSImage(cgImage: texture.cgImage(), size: cell))
-            }
-            rows.append(row)
+        var cells: [MetalSheet.Cell] = []
+        for zone in [ZoneType.commercial, .residential] {
+            // Skip the landmarks: they are a different pass's subject and
+            // they would dominate a row about surfaces.
+            let variants = (0 ..< IsoTextureCache.variantCount).filter {
+                !ZoneMassing.isLandmark(tier: 3, seed: IsoTextureCache.canonicalSeed(for: $0))
+            }.prefix(8)
+            cells += variants.map { .init(label: "\(zone.rawValue) v\($0)", zone: zone, density: 5, variant: $0) }
         }
-
-        let gap: CGFloat = 8
-        let sheet = NSImage(size: CGSize(
-            width: cell.width * CGFloat(perRow) + gap * CGFloat(perRow + 1),
-            height: (cell.height + gap) * CGFloat(rows.count) + gap))
-        sheet.lockFocus()
-        RenderPalette.background.setFill()
-        NSRect(origin: .zero, size: sheet.size).fill()
-        var y = sheet.size.height - gap - cell.height
-        for row in rows {
-            var x = gap
-            for panel in row {
-                panel.draw(at: CGPoint(x: x, y: y), from: .zero,
-                           operation: .sourceOver, fraction: 1)
-                x += cell.width + gap
-            }
-            y -= cell.height + gap
-        }
-        sheet.unlockFocus()
-
-        // Desaturated here rather than by hand afterwards, so the sheet this
-        // writes *is* the one the decision was taken on.
-        guard let tiff = sheet.tiffRepresentation,
-              let colour = NSBitmapImageRep(data: tiff) else {
-            return XCTFail("could not encode the sheet")
-        }
-        let grey = NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: colour.pixelsWide, pixelsHigh: colour.pixelsHigh,
-            bitsPerSample: 8, samplesPerPixel: 1, hasAlpha: false, isPlanar: false,
-            colorSpaceName: .calibratedWhite, bytesPerRow: colour.pixelsWide, bitsPerPixel: 8)
-        guard let grey else { return XCTFail("could not make a greyscale target") }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: grey)
-        colour.draw(in: NSRect(x: 0, y: 0, width: colour.pixelsWide, height: colour.pixelsHigh))
-        NSGraphicsContext.restoreGraphicsState()
-
-        let directory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/ContactSheet")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("wall-materials.png")
-        guard let png = grey.representation(using: .png, properties: [:]) else {
-            return XCTFail("could not encode the sheet")
-        }
-        try png.write(to: url)
-        print("wrote \(url.path) — \(perRow) consecutive variants per zone, colour removed")
+        try MetalSheet.write(cells, columns: 8, cell: CGSize(width: 240, height: 340), greyscale: true,
+                             named: "wall-materials")
     }
 
     /// **The material has to reach the wall**, and this asserts the marks

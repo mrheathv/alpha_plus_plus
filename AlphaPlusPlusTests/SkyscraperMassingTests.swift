@@ -1,5 +1,5 @@
 import XCTest
-import SpriteKit
+import Foundation
 @testable import AlphaPlusPlus
 
 /// **Level 6 is drawn as a different kind of building.** A sixth rung nobody
@@ -68,26 +68,29 @@ final class SkyscraperMassingTests: XCTestCase {
     /// so a heavy form can hide from `testABuildingsGeometryStaysBounded`
     /// until the day it happens to be drawn. This builds each form in both
     /// zones from the variants the game uses and holds each to the same bound.
+    ///
+    /// Weighed in the Metal renderer's own currency, triangles at the resting
+    /// camera's tier, and held relative to the median form: a bound in
+    /// absolute triangles would move every time the building vocabulary
+    /// grew, where a form three times heavier than its peers is the thing
+    /// that goes wrong.
     func testEveryFormStaysWithinTheGeometryBudget() throws {
-        let projection = Isometric()
         for zone in Self.zones {
             var worst: [String: Int] = [:]
-            for seed in Self.variantSeeds where !ZoneMassing.isLandmark(tier: 4, seed: seed) {
-                let massing = try XCTUnwrap(ZoneMassing.make(for: zone, density: 6, seed: seed))
-                let node = IsometricBuilding.node(for: massing, accent: ZoneMassing.accent(for: zone, density: 6),
-                                                  tier: 4, in: projection)
+            for variant in 0 ..< IsoTextureCache.variantCount {
+                let seed = IsoTextureCache.canonicalSeed(for: variant)
+                guard !ZoneMassing.isLandmark(tier: 4, seed: seed) else { continue }
+                let built = MetalCityMesh.building(.init(zone: zone, density: 6, variant: variant, tier: .standard))
+                let triangles = built.vertices.count / MetalCityRenderer.GPUVertex.floatCount / 3
                 let form = "\(SkyscraperMassing.form(for: seed))"
-                worst[form] = max(worst[form] ?? 0, Self.nodeCount(node))
+                worst[form] = max(worst[form] ?? 0, triangles)
             }
-            print("\(zone.rawValue) nodes per form: \(worst.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
+            print("\(zone.rawValue) triangles per form: \(worst.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
+            let median = worst.values.sorted()[worst.count / 2]
             for (form, count) in worst {
-                XCTAssertLessThan(count, 220, "\(zone.rawValue) \(form) is far heavier than anything else")
+                XCTAssertLessThan(count, median * 3, "\(zone.rawValue) \(form) is far heavier than anything else")
             }
         }
-    }
-
-    private static func nodeCount(_ node: SKNode) -> Int {
-        1 + node.children.reduce(0) { $0 + nodeCount($1) }
     }
 
     /// **Distinct buildings per zone and tier, over the looks the game draws.**
@@ -131,97 +134,22 @@ final class SkyscraperMassingTests: XCTestCase {
     /// the left for scale — one frame, one ground line, one scale, because a
     /// skyline is defined entirely by contrast with what stands beside it.
     func testRenderTheSkyline() throws {
-        let projection = Isometric(tileWidth: 64)
-        let cache = IsoTextureCache(projection: projection)
-        let view = SKView()
-
-        /// Found by position, for the reason `LandmarkTests` records: the cache
-        /// quantises whatever seed it is handed.
-        func sprite(_ zone: ZoneType, density: Int,
-                    where wanted: (GridPosition) -> Bool) throws -> SKSpriteNode {
-            for x in 0 ..< 64 {
-                for y in 0 ..< 64 {
-                    let position = GridPosition(x: x, y: y)
-                    let canonical = IsoTextureCache.canonicalSeed(
-                        for: IsoTextureCache.variant(for: position))
-                    guard wanted(canonical),
-                          let rendered = cache.rendered(for: zone, density: density, seed: position)
-                    else { continue }
-                    let node = SKSpriteNode(texture: rendered.texture, size: rendered.size)
-                    node.setScale(1.1)
-                    return node
-                }
-            }
-            throw XCTSkip("no such variant for \(zone)")
-        }
-
-        var rows: [NSImage] = []
+        var cells: [MetalSheet.Cell] = []
         for zone in Self.zones {
-            var subjects: [SKSpriteNode] = [
-                try sprite(zone, density: 5) { !ZoneMassing.isLandmark(tier: 3, seed: $0) }
-            ]
+            func cell(_ label: String, density: Int, where wanted: (GridPosition) -> Bool) throws -> MetalSheet.Cell {
+                let variant = try XCTUnwrap(MetalSheet.variant(where: wanted), "no \(label) variant for \(zone)")
+                return .init(label: "\(zone == .commercial ? "shops" : "homes") \(label)", zone: zone,
+                             density: density, variant: variant, scale: 0.6)
+            }
+            cells.append(try cell("L5", density: 5) { !ZoneMassing.isLandmark(tier: 3, seed: $0) })
             for form in SkyscraperMassing.Form.allCases {
-                subjects.append(try sprite(zone, density: 6) {
+                cells.append(try cell("\(form)", density: 6) {
                     !ZoneMassing.isLandmark(tier: 4, seed: $0) && SkyscraperMassing.form(for: $0) == form
                 })
             }
-            subjects.append(try sprite(zone, density: 6) { ZoneMassing.isLandmark(tier: 4, seed: $0) })
-
-            let size = CGSize(width: 190, height: 620)
-            var panels: [NSImage] = []
-            for node in subjects {
-                let frame = node.calculateAccumulatedFrame()
-                node.position = CGPoint(x: size.width / 2, y: 40 - frame.minY)
-                let scene = SKScene(size: size)
-                scene.backgroundColor = RenderPalette.background
-                let ground = SKSpriteNode(color: SKColor(white: 0.12, alpha: 1),
-                                          size: CGSize(width: size.width, height: 1))
-                ground.position = CGPoint(x: size.width / 2, y: 40)
-                scene.addChild(ground)
-                scene.addChild(node)
-                view.frame = NSRect(origin: .zero, size: size)
-                view.presentScene(scene)
-                let texture = try XCTUnwrap(
-                    view.texture(from: scene, crop: CGRect(origin: .zero, size: size)))
-                panels.append(NSImage(cgImage: texture.cgImage(), size: size))
-            }
-            let row = NSImage(size: CGSize(width: CGFloat(panels.count) * (size.width + 8) + 8,
-                                           height: size.height))
-            row.lockFocus()
-            RenderPalette.background.setFill()
-            NSRect(origin: .zero, size: row.size).fill()
-            for (index, panel) in panels.enumerated() {
-                panel.draw(at: CGPoint(x: 8 + CGFloat(index) * (size.width + 8), y: 0),
-                           from: .zero, operation: .sourceOver, fraction: 1)
-            }
-            row.unlockFocus()
-            rows.append(row)
+            cells.append(try cell("supertall", density: 6) { ZoneMassing.isLandmark(tier: 4, seed: $0) })
         }
-
-        let gap: CGFloat = 10
-        let sheet = NSImage(size: CGSize(width: rows.map(\.size.width).max() ?? 0,
-                                         height: rows.map(\.size.height).reduce(0, +) + gap * CGFloat(rows.count + 1)))
-        sheet.lockFocus()
-        RenderPalette.background.setFill()
-        NSRect(origin: .zero, size: sheet.size).fill()
-        var y = gap
-        for row in rows.reversed() {
-            row.draw(at: CGPoint(x: 0, y: y), from: .zero, operation: .sourceOver, fraction: 1)
-            y += row.size.height + gap
-        }
-        sheet.unlockFocus()
-
-        let directory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/ContactSheet")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("skyline.png")
-        guard let tiff = sheet.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else {
-            return XCTFail("could not encode the sheet")
-        }
-        try png.write(to: url)
-        print("wrote \(url.path) — level 5, the five forms, and the supertall; shops above, homes below")
+        try MetalSheet.write(cells, columns: cells.count / Self.zones.count,
+                             cell: CGSize(width: 190, height: 620), named: "skyline")
     }
 }

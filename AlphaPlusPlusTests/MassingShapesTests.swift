@@ -1,4 +1,4 @@
-import SpriteKit
+import Foundation
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -65,40 +65,16 @@ final class MassingShapesTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(visible.count, 3)
     }
 
+    /// Each shape alone on a lot, drawn by the Metal renderer. These are
+    /// massings no lot generates, so each is handed to the renderer as a
+    /// low-density housing lot's building (housing carries no signs), one variant apiece.
     func testRenderTheToolkit() throws {
-        let projection = Isometric(tileWidth: 64)
-        let view = SKView()
-        let cell = CGSize(width: 220, height: 240)
-        let sheet = NSImage(size: CGSize(width: cell.width * CGFloat(Self.samples.count), height: cell.height))
-        sheet.lockFocus()
-        RenderPalette.background.setFill()
-        NSRect(origin: .zero, size: sheet.size).fill()
-        for (index, (name, shape)) in Self.samples.enumerated() {
+        let cells = Self.samples.enumerated().map { index, sample -> MetalSheet.Cell in
             var massing = BuildingMassing()
-            massing.add(.shape(shape))
-            let node = IsometricBuilding.node(for: massing, accent: RenderPalette.tierColor(for: .commercial, tier: 3),
-                                              tier: 3, in: projection)
-            let scene = SKScene(size: cell)
-            scene.backgroundColor = RenderPalette.background
-            node.position = CGPoint(x: cell.width / 2 - projection.project(1, 1, 0).x,
-                                    y: 50 - projection.project(1, 1, 0).y)
-            scene.addChild(node)
-            view.frame = NSRect(origin: .zero, size: cell)
-            view.presentScene(scene)
-            let texture = try XCTUnwrap(view.texture(from: scene, crop: CGRect(origin: .zero, size: cell)))
-            NSImage(cgImage: texture.cgImage(), size: cell)
-                .draw(at: CGPoint(x: CGFloat(index) * cell.width, y: 0), from: .zero, operation: .sourceOver, fraction: 1)
-            (name as NSString).draw(at: NSPoint(x: CGFloat(index) * cell.width + 8, y: cell.height - 18),
-                                    withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
-                                                     .foregroundColor: NSColor.white])
+            massing.add(.shape(sample.1))
+            return .init(label: sample.0, zone: .residential, density: 1, variant: index, massing: massing)
         }
-        sheet.unlockFocus()
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/ContactSheet/massing-shapes.png")
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(sheet.tiffRepresentation))?
-            .representation(using: .png, properties: [:]))
-        try png.write(to: url)
-        print("wrote \(url.path)")
+        try MetalSheet.write(cells, columns: cells.count, cell: CGSize(width: 240, height: 260),
+                             named: "massing-shapes")
     }
 }

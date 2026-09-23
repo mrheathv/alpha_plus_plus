@@ -27,8 +27,17 @@ enum MetalSheet {
         var variant: Int?
         /// A massing to draw instead of the generated one.
         var massing: BuildingMassing?
-        /// Camera scale in points per pixel; `nil` fits the building.
+        /// Camera scale in points per pixel; `nil` fits the building. A fixed
+        /// scale also stands the ground at the same row in every cell, so a
+        /// sheet comparing heights compares them from one ground line.
         var scale: CGFloat?
+    }
+
+    /// The first variant whose canonical seed passes `wanted`: how a sheet
+    /// asks for "a landmark" or "a deco tower", since a lot draws variant
+    /// `v` from `canonicalSeed(for: v)`.
+    static func variant(where wanted: (GridPosition) -> Bool) -> Int? {
+        (0 ..< IsoTextureCache.variantCount).first { wanted(IsoTextureCache.canonicalSeed(for: $0)) }
     }
 
     /// The map every cell stands on: 48 × 48, pipes and lines on every tile,
@@ -87,9 +96,14 @@ enum MetalSheet {
             * CGFloat(MetalCityMesh.heightScale(zone: cell.zone, density: cell.density, at: origin, in: map))
         let projection = Isometric()
         let n = CGFloat(size)
-        let centre = projection.project(CGFloat(origin.x) + n / 2, CGFloat(origin.y) + n / 2, top / 2)
+        var centre = projection.project(CGFloat(origin.x) + n / 2, CGFloat(origin.y) + n / 2, top / 2)
         let across = n * projection.tileWidth, tall = n * projection.tileHeight + top * projection.heightUnit
         let fit = max(across / pixels.width, tall / pixels.height) * 1.2
+        if let scale = cell.scale {
+            // The lot's near corner a tenth of the way up the cell.
+            let ground = projection.project(CGFloat(origin.x) + n, CGFloat(origin.y) + n, 0)
+            centre = CGPoint(x: ground.x, y: ground.y + scale * pixels.height * 0.4)
+        }
         let camera = MetalCityRenderer.Camera(centre: centre, scale: cell.scale ?? fit, size: pixels)
         return try XCTUnwrap(renderer.render(map, camera: camera, wetness: 0, time: 2)?.image,
                              "\(cell.label) did not render")

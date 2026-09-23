@@ -1,4 +1,4 @@
-import SpriteKit
+import Foundation
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -109,41 +109,8 @@ final class IconBuildingsTests: XCTestCase {
 
     /// All five, beside a level-6 skyscraper for scale.
     func testRenderTheIcons() throws {
-        let projection = Isometric(tileWidth: 64)
-        let cache = IsoTextureCache(projection: projection)
-        let view = SKView()
-        var subjects: [SKSpriteNode] = []
-        for (zone, density) in [(ZoneType.commercial, 6)] + IconBuildings.all.map({ ($0, 0) }) {
-            let rendered = try XCTUnwrap(cache.rendered(for: zone, density: density, seed: GridPosition(x: 3, y: 5)))
-            subjects.append(SKSpriteNode(texture: rendered.texture, size: rendered.size))
-        }
-        let size = CGSize(width: 220, height: 900)
-        let sheet = NSImage(size: CGSize(width: CGFloat(subjects.count) * (size.width + 8) + 8, height: size.height))
-        sheet.lockFocus()
-        RenderPalette.background.setFill()
-        NSRect(origin: .zero, size: sheet.size).fill()
-        for (index, node) in subjects.enumerated() {
-            let frame = node.calculateAccumulatedFrame()
-            node.position = CGPoint(x: size.width / 2, y: 40 - frame.minY)
-            let scene = SKScene(size: size)
-            scene.backgroundColor = RenderPalette.background
-            scene.addChild(node)
-            view.frame = NSRect(origin: .zero, size: size)
-            view.presentScene(scene)
-            let texture = try XCTUnwrap(view.texture(from: scene, crop: CGRect(origin: .zero, size: size)))
-            NSImage(cgImage: texture.cgImage(), size: size)
-                .draw(at: CGPoint(x: 8 + CGFloat(index) * (size.width + 8), y: 0),
-                      from: .zero, operation: .sourceOver, fraction: 1)
-        }
-        sheet.unlockFocus()
-        let directory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/ContactSheet")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("icons.png")
-        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(sheet.tiffRepresentation))?
-            .representation(using: .png, properties: [:]))
-        try png.write(to: url)
-        print("wrote \(url.path)")
+        let cells = [MetalSheet.Cell(label: "L6 for scale", zone: .commercial, density: 6, variant: 0, scale: 0.9)]
+            + IconBuildings.all.map { MetalSheet.Cell(label: RenderPalette.displayName(for: $0), zone: $0, scale: 0.9) }
+        try MetalSheet.write(cells, columns: cells.count, cell: CGSize(width: 260, height: 900), named: "icons")
     }
 }

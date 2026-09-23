@@ -1,4 +1,4 @@
-import SpriteKit
+import Foundation
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -139,105 +139,18 @@ final class LandmarkTests: XCTestCase {
     /// top-tier building of the same zone, at the same scale, in the same
     /// picture.
     func testRenderEachLandmarkBesideAnOrdinaryTower() throws {
-        let projection = Isometric(tileWidth: 64)
-        let cache = IsoTextureCache(projection: projection)
-        let view = SKView()
-
-        /// **Found by position, which is the only way to ask for one.**
-        ///
-        /// The obvious spelling is to take the landmark variant's canonical
-        /// seed and hand it to the cache — and it silently draws something
-        /// else, because `rendered` quantises whatever seed it is given:
-        /// `canonicalSeed(for:)` is not a fixed point of `variant(for:)`, so
-        /// asking for variant 7's seed gets you whatever variant *that*
-        /// position hashes to. The first run of this sheet was six ordinary
-        /// buildings, with nothing failing.
-        ///
-        /// So: walk positions the way a map does, quantise each one exactly as
-        /// the cache will, and keep the first whose variant is the kind wanted.
-        func sprite(_ zone: ZoneType, landmark: Bool) throws -> SKSpriteNode {
-            for x in 0 ..< 64 {
-                for y in 0 ..< 64 {
-                    let position = GridPosition(x: x, y: y)
-                    let canonical = IsoTextureCache.canonicalSeed(
-                        for: IsoTextureCache.variant(for: position))
-                    guard ZoneMassing.isLandmark(tier: 3, seed: canonical) == landmark,
-                          let rendered = cache.rendered(for: zone, density: 5, seed: position)
-                    else { continue }
-                    let node = SKSpriteNode(texture: rendered.texture, size: rendered.size)
-                    node.setScale(1.4)
-                    return node
-                }
-            }
-            throw XCTSkip("no \(landmark ? "landmark" : "ordinary") variant for \(zone)")
-        }
-
-        /// The two 3×3 civics, which have no ordinary/landmark pair — they are
-        /// one building each, and the question about them is the same one:
-        /// whether nine lots of ground buys a silhouette anybody notices.
-        func civic(_ zone: ZoneType) throws -> SKSpriteNode {
-            let rendered = try XCTUnwrap(
-                cache.rendered(for: zone, density: 0, seed: GridPosition(x: 5, y: 9)))
-            let node = SKSpriteNode(texture: rendered.texture, size: rendered.size)
-            node.setScale(1.4)
-            return node
-        }
-
-        var panels: [NSImage] = []
-        var subjects: [(ZoneType, Bool)] = []
-        for zone in Self.zones { subjects += [(zone, false), (zone, true)] }
-        for (zone, landmark) in subjects + [(.stadium, false), (.powerPlant, false)] {
-            do {
-                let node = zone == .stadium || zone == .powerPlant
-                    ? try civic(zone)
-                    : try sprite(zone, landmark: landmark)
-                let frame = node.calculateAccumulatedFrame()
-                // Every panel the same size, so the heights are comparable —
-                // the entire subject of this sheet.
-                let size = CGSize(width: 300, height: 560)
-                node.position = CGPoint(x: size.width / 2, y: 60 - frame.minY)
-                let scene = SKScene(size: size)
-                scene.backgroundColor = RenderPalette.background
-                // A ground line, so "how tall" is measured from somewhere.
-                let ground = SKSpriteNode(color: SKColor(white: 0.12, alpha: 1),
-                                          size: CGSize(width: size.width, height: 1))
-                ground.position = CGPoint(x: size.width / 2, y: 60)
-                scene.addChild(ground)
-                scene.addChild(node)
-                view.frame = NSRect(origin: .zero, size: size)
-                view.presentScene(scene)
-                let texture = try XCTUnwrap(
-                    view.texture(from: scene, crop: CGRect(origin: .zero, size: size)))
-                panels.append(NSImage(cgImage: texture.cgImage(), size: size))
+        var cells: [MetalSheet.Cell] = []
+        for zone in Self.zones {
+            for landmark in [false, true] {
+                let variant = try XCTUnwrap(MetalSheet.variant { ZoneMassing.isLandmark(tier: 3, seed: $0) == landmark },
+                                            "no \(landmark ? "landmark" : "ordinary") variant")
+                cells.append(.init(label: "\(zone.rawValue) \(landmark ? "landmark" : "ordinary")",
+                                   zone: zone, density: 5, variant: variant, scale: 0.55))
             }
         }
-
-        let gap: CGFloat = 10
-        let sheet = NSImage(size: CGSize(
-            width: panels.map(\.size.width).reduce(0, +) + gap * CGFloat(panels.count + 1),
-            height: (panels.first?.size.height ?? 0) + gap * 2))
-        sheet.lockFocus()
-        RenderPalette.background.setFill()
-        NSRect(origin: .zero, size: sheet.size).fill()
-        var x = gap
-        for panel in panels {
-            panel.draw(at: CGPoint(x: x, y: gap), from: .zero,
-                       operation: .sourceOver, fraction: 1)
-            x += panel.size.width + gap
-        }
-        sheet.unlockFocus()
-
-        let directory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/ContactSheet")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("landmarks.png")
-        guard let tiff = sheet.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else {
-            return XCTFail("could not encode the sheet")
-        }
-        try png.write(to: url)
-        print("wrote \(url.path) — ordinary and landmark, per zone, at one scale")
+        // The two 3×3 civics: one building each, and the same question —
+        // whether nine lots of ground buys a silhouette anybody notices.
+        cells += [ZoneType.stadium, .powerPlant].map { .init(label: $0.rawValue, zone: $0, scale: 0.55) }
+        try MetalSheet.write(cells, columns: cells.count, cell: CGSize(width: 300, height: 560), named: "landmarks")
     }
 }
