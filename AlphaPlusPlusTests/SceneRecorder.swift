@@ -35,8 +35,11 @@ import XCTest
 @MainActor
 final class SceneRecorder {
 
-    private let scene: GameScene
-    private let view: SKView
+    private let scene: GameScene?
+    private let view: SKView?
+    /// Draws the frame at a given number of seconds in, for a recording of
+    /// something other than a `GameScene` — the Metal renderer.
+    private let frameSource: ((TimeInterval) -> CGImage?)?
     private let fps: Int
 
     /// Frames kept for the filmstrip. Deliberately a handful: a recording is
@@ -52,7 +55,37 @@ final class SceneRecorder {
     init(scene: GameScene, view: SKView, fps: Int = 30) {
         self.scene = scene
         self.view = view
+        self.frameSource = nil
         self.fps = fps
+    }
+
+    /// Records whatever `frame` draws: it is handed the seconds since the
+    /// start and returns that moment's picture. The movie writer and the
+    /// filmstrip do not care where a frame came from.
+    init(fps: Int = 30, frame: @escaping (TimeInterval) -> CGImage?) {
+        self.scene = nil
+        self.view = nil
+        self.frameSource = frame
+        self.fps = fps
+    }
+
+    /// Records a frame source for `seconds`. See the scene form of `record`
+    /// for what `keepEvery` does.
+    @discardableResult
+    func recordFrames(seconds: Double, keepEvery: Int = 0) -> Int {
+        guard let frameSource else { return 0 }
+        let total = Int(seconds * Double(fps))
+        let keep = keepEvery > 0 ? keepEvery : max(1, total / 8)
+        for frame in 0 ..< total {
+            let at = TimeInterval(frame) / TimeInterval(fps)
+            guard let image = frameSource(at) else { continue }
+            if pixelSize == .zero { pixelSize = CGSize(width: image.width, height: image.height) }
+            append(image)
+            if frame % keep == 0 {
+                kept.append((String(format: "%.2fs", at), NSImage(cgImage: image, size: pixelSize)))
+            }
+        }
+        return total
     }
 
     static func outputDirectory() throws -> URL {
@@ -81,6 +114,7 @@ final class SceneRecorder {
         let keep = keepEvery > 0 ? keepEvery : max(1, total / 8)
         for frame in 0 ..< total {
             let progress = total <= 1 ? 0 : Double(frame) / Double(total - 1)
+            guard let scene else { return 0 }
             steer(frame, progress, scene)
             // Scene time, not wall clock: `update` takes the difference
             // between consecutive values, so a fixed step gives a steady
@@ -97,7 +131,7 @@ final class SceneRecorder {
     }
 
     private func capture() -> CGImage? {
-        guard let texture = view.texture(from: scene,
+        guard let scene, let view, let texture = view.texture(from: scene,
                                          crop: CGRect(origin: .zero, size: scene.size))
         else { return nil }
         let image = texture.cgImage()

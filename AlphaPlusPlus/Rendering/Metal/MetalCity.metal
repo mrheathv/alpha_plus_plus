@@ -458,3 +458,168 @@ kernel void composite(texture2d<float, access::sample> scene [[texture(0)]],
     c += g * settings.grain * (1 - saturate(dot(c, float3(0.33))));
     output.write(float4(saturate(c), 1), gid);
 }
+
+// MARK: - Things that move (migration M3)
+//
+// Traces are segments of light with a width: a car, a tram, an engine, a
+// flame, an ember, a raindrop. Drawn instanced — six vertices per instance,
+// no vertex buffer — additively, depth-tested against the city but never
+// writing depth, so a trace behind a tower is hidden and two traces crossing
+// simply add up, which is what light does.
+
+struct Trace {
+    packed_float3 a;       // tail, world tile units
+    float width;           // in tiles; floored in pixels below
+    packed_float3 b;       // head
+    float mode;            // 0 streak · 1 even line · 2 flame
+    packed_float3 color;   // linear, may exceed 1
+    float alpha;
+};
+
+// Every member a 16-byte vector, for the reason `Uniforms` is.
+struct MotionUniforms {
+    float4x4 viewProjection;
+    float4 frame;    // xy: viewport in pixels · z: pixels per tile · w: 1 when mirrored
+    float4 area;     // rain: the ground rectangle drops fall over, x0 y0 width height
+    float4 params;   // x: motion clock · y: rainfall 0…1 · z: smoke particles per emitter · w: unused
+};
+
+struct TraceVaryings {
+    float4 clip [[position]];
+    float2 uv;       // x: 0 at the tail, 1 at the head · y: -1…1 across
+    float3 color;
+    float alpha;
+    float mode;
+};
+
+static float3 mirrorIfNeeded(float3 p, constant MotionUniforms &u) {
+    return u.frame.w > 0.5 ? float3(p.xy, -p.z) : p;
+}
+
+// One corner of a segment's quad, expanded on screen so its width is a
+// number of pixels: at least `minPixels`, so a trace survives the camera
+// pulling back — the same floor the neon rims got in M1.
+static TraceVaryings segmentCorner(uint vid, float3 a, float3 b, float widthTiles, float minPixels,
+                                   constant MotionUniforms &u) {
+    const float2 corners[6] = { float2(0, -1), float2(1, -1), float2(1, 1),
+                                float2(0, -1), float2(1, 1), float2(0, 1) };
+    float2 c = corners[vid];
+    float4 ca = u.viewProjection * float4(mirrorIfNeeded(a, u), 1);
+    float4 cb = u.viewProjection * float4(mirrorIfNeeded(b, u), 1);
+    float2 halfView = u.frame.xy * 0.5;
+    float2 pa = ca.xy * halfView, pb = cb.xy * halfView;
+    float2 along = pb - pa;
+    float len = length(along);
+    float2 dir = len > 1e-4 ? along / len : float2(0, 1);
+    float2 perp = float2(-dir.y, dir.x);
+    float widthPx = max(minPixels, widthTiles * u.frame.z);
+    // Grow the ends by half a width, so a short trace is never a sliver.
+    float2 p = mix(pa - dir * widthPx * 0.5, pb + dir * widthPx * 0.5, c.x) + perp * c.y * widthPx * 0.5;
+    TraceVaryings out;
+    out.clip = float4(p / halfView, mix(ca.z, cb.z, c.x), 1);
+    out.uv = c;
+    return out;
+}
+
+vertex TraceVaryings traceVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                                 const device Trace *traces [[buffer(0)]],
+                                 constant MotionUniforms &u [[buffer(1)]]) {
+    Trace t = traces[iid];
+    TraceVaryings out = segmentCorner(vid, float3(t.a), float3(t.b), t.width, 1.6, u);
+    out.color = float3(t.color);
+    out.alpha = t.alpha;
+    out.mode = t.mode;
+    return out;
+}
+
+// Rain: nothing on the CPU but a count. Each drop's place and fall come from
+// its index and the clock, so a downpour of thousands costs no more to plan
+// than a drizzle. It falls over the ground the camera can see, from a fixed
+// height, and a drop behind a tower is hidden by it like anything else.
+vertex TraceVaryings rainVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                                constant MotionUniforms &u [[buffer(1)]]) {
+    float i = float(iid);
+    float2 r = float2(hash21(float2(i, 1.7)), hash21(float2(3.1, i)));
+    float2 ground = u.area.xy + r * u.area.zw;
+    const float ceiling = 7.0;
+    float fall = fract(u.params.x * (1.6 + 0.4 * r.x) + hash21(float2(i, i * 0.37)));
+    float z = ceiling * (1 - fall);
+    float3 head = float3(ground, z);
+    float3 tail = head + float3(0.06, 0.03, 0.45);
+    TraceVaryings out = segmentCorner(vid, tail, head, 0.012, 1.0, u);
+    out.color = float3(0.55, 0.6, 0.95) * 0.9;
+    out.alpha = 0.45 * u.params.y;
+    out.mode = 1;
+    return out;
+}
+
+fragment float4 traceFragment(TraceVaryings in [[stage_in]]) {
+    float u = saturate(in.uv.x), v = in.uv.y;
+    float3 color = in.color;
+    float shape;
+    if (in.mode < 0.5) {
+        // A streak: dark at the tail, brightest just behind the head — the
+        // motion blur of something travelling toward the bright end.
+        shape = smoothstep(0.0, 0.85, u) * (1 - smoothstep(0.93, 1.0, u));
+        shape *= pow(saturate(1 - v * v), 1.5);
+    } else if (in.mode < 1.5) {
+        shape = sin(u * M_PI_F) * saturate(1 - v * v);
+    } else {
+        // A flame: white-hot at its root, through ember to hot magenta at the
+        // tip, narrowing as it rises — and cut by horizontal slats that widen
+        // toward the top, which is the synthwave sun run upside down. That is
+        // the SpriteKit fire's own mark (`NeonStyle.sunsetFlameTexture`),
+        // carried across rather than reinvented: no zone owns a gradient, and
+        // a flame without its slats read as a searchlight beam.
+        float taper = max(0.04, 1 - u * 0.92);
+        float across = saturate(1 - (v / taper) * (v / taper));
+        float slat = step(0.22 * u * u, fract(u * 6.5 + 0.35));
+        shape = across * across * pow(1 - u, 0.5) * smoothstep(0.0, 0.06, u) * slat;
+        float3 hot = float3(1.0, 0.85, 0.55), ember = float3(1.0, 0.3, 0.04), tip = float3(0.95, 0.05, 0.4);
+        // The white core is short: at any length it swallows the ramp, and a
+        // flame that reads white is a lamp on a roof, not a fire.
+        color *= u < 0.15 ? mix(hot, ember, u / 0.15) : mix(ember, tip, saturate((u - 0.15) / 0.6));
+    }
+    // Alpha only matters to the flame pass, which is blended over what is
+    // behind it; the additive passes ignore it.
+    return float4(color * shape * in.alpha, in.mode > 1.5 ? saturate(shape * in.alpha) : 0);
+}
+
+// Smoke from a working factory: soft puffs rising and spreading downwind.
+// **The one particle that is not additive** — smoke hides what is behind it,
+// and adding it would make a chimney look like it was firing a beam.
+struct SmokeEmitter {
+    float4 place;   // xyz: chimney top · w: density 1…5
+};
+
+vertex TraceVaryings smokeVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                                 const device SmokeEmitter *emitters [[buffer(0)]],
+                                 constant MotionUniforms &u [[buffer(1)]]) {
+    uint perEmitter = uint(u.params.z);
+    SmokeEmitter e = emitters[iid / perEmitter];
+    float k = float(iid % perEmitter);
+    float seed = hash21(e.place.xy + k);
+    float density = e.place.w;
+    float age = fract(u.params.x * (0.12 + 0.02 * density) + k / float(perEmitter) + seed);
+    float3 at = e.place.xyz + float3(age * 1.3 + (seed - 0.5) * 0.3,
+                                     age * 0.4 + (hash21(float2(k, seed)) - 0.5) * 0.3,
+                                     age * (1.5 + 0.25 * density));
+    const float2 corners[6] = { float2(-1, -1), float2(1, -1), float2(1, 1),
+                                float2(-1, -1), float2(1, 1), float2(-1, 1) };
+    float2 c = corners[vid];
+    float4 clip = u.viewProjection * float4(at, 1);
+    float radiusPx = (0.12 + age * 0.55) * u.frame.z;
+    TraceVaryings out;
+    out.clip = float4(clip.xy + c * radiusPx / (u.frame.xy * 0.5), clip.z, 1);
+    out.uv = c;
+    out.color = float3(0.12, 0.1, 0.15);
+    out.alpha = 0.34 * (1 - age) * smoothstep(0.0, 0.12, age) * (0.5 + density * 0.1);
+    out.mode = 0;
+    return out;
+}
+
+fragment float4 smokeFragment(TraceVaryings in [[stage_in]]) {
+    float r2 = dot(in.uv, in.uv);
+    float a = in.alpha * pow(saturate(1 - r2), 2.0);
+    return float4(in.color * a, a);   // premultiplied
+}

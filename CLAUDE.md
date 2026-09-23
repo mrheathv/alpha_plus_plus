@@ -7835,6 +7835,63 @@ reflections came back as funhouse smears. Half that reads as moving water.
 lights. The lamps were what pushed it over (9.36 ms). Radius 2.1 → 1.35 fixed
 it, because light cost goes as the square of radius.
 
+### M3 (done): everything that moves
+
+Traffic, trams on their rails, ships on their lane, fire engines running to a
+fire, aircraft rolling down a runway, flames, embers, factory smoke and rain,
+all on the Metal renderer. `MetalMotion` is the Metal half; **`CityMotion`
+holds the rules for both renderers**: the lane a car keeps to, how slowly a
+jam makes it cross, what kind of vehicle a street carries, path speeds, the
+runway and the aircraft's timing. `GameScene` was moved onto it in the same
+change. A car that drove a different lane in Metal than in SpriteKit would be
+the next entry in this file's long list of second copies that drifted. Apex
+plans 302 cars in both.
+
+- **Traces are light, not paint**: a segment with a width, instanced, added to
+  the frame, depth-tested against the city and never writing depth. So a car
+  behind a tower is hidden, and two crossing traces add up. The width has a
+  floor in pixels, which is the rim lesson from M1.
+- **Flames are blended over what is behind them**, not added. Five tongues
+  added under bloom summed to a white blob every time. They carry the
+  SpriteKit plume's slatted sunset ramp; without the slats they read as
+  searchlight beams.
+- **Fire is a real light**, flickering, and it lights the walls beside it. So
+  does an engine's beacon.
+- **Rain and smoke are GPU particles**: the vertex shader places each one from
+  its index and the clock, so the CPU plans only a count. Rain falls over the
+  ground the camera can see, and buildings hide it. SpriteKit's rain is off
+  in Metal mode.
+- **The ship keeps a hull**, as lit geometry, for the reason the SpriteKit
+  ship did: it is what makes a seaport read as trading.
+
+**Pausing works because everything is a function of the motion clock**
+(`MotionClock`), which only advances while the city runs. There is nothing
+to remember to stop. The water keeps the wall clock, because it is not part
+of the simulation. `MetalMotionTests.testRecordTheCity` records 3 s running
+and 1.5 s paused through `SceneRecorder`, which now records any frame source:
+3.1% of the frame changes per frame while running and 0.03% while paused
+(that 0.03% is the water).
+
+Three things the renders decided:
+
+- **The cars were invisible at 2.2× their colour.** They sat under what the
+  tone map and the bloom lift off a lit street. Found by rendering one
+  variable at a time (lift, width, brightness), because the obvious suspect
+  was depth. Seven keeps the hue; past about ten they bleach toward white.
+- **A close-up of hidden cars says nothing about cars.** In a dense downtown
+  the camera sees streets mostly through canyons, and the towers in front
+  correctly hide the traffic. The close-up is aimed by
+  `exposedBusiestStreet`, the busiest street with nothing standing in front
+  of it.
+- **`Fire.count` was called once per car.** It scans the whole map, and it
+  was 95% of planning Apex's traffic: placement cost rose from 0.6 to 3.0 ms
+  against a 4 ms bound. It is asked once per plan now, and the plan takes
+  0.3 ms.
+
+The plan is rebuilt only when the city moves: a new day, a chunk rebuilt, a
+tram line drawn or a fire started. An unchanged city asked again rebuilds
+nothing. Apex still draws in 8.5 ms at the resting camera.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

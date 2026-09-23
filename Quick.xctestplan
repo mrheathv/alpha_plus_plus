@@ -30,7 +30,9 @@
         "MetalSpikeTests",
         "MetalAutosaveDiagnosticTests",
         "MetalMapTests/testApexFitsTheFrameBudget()",
-        "MetalFrameBreakdownTests"
+        "MetalFrameBreakdownTests",
+        "MetalMotionTests/testRecordTheCity()",
+        "MetalMotionTests/testRenderTheMovingCityCloseUp()"
       ]
     }
   ],

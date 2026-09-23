@@ -1346,6 +1346,10 @@ final class GameScene: SKScene {
             cityOwedWhileHidden = false
         }
         tileLayer.isHidden = !draws
+        if !draws {
+            rainNode?.removeFromParent()
+            rainNode = nil
+        }
         sunGlowNode.isHidden = !draws
         backdropNode.isHidden = !draws
         // The post-process would grade the transparent overlay as if it were
@@ -2688,10 +2692,6 @@ final class GameScene: SKScene {
     private var diagramVehicles: [DiagramVehicle] = []
     private var aircraft: [GridPosition: Aircraft] = [:]
 
-    /// Seconds an aircraft waits at the threshold, then rolls.
-    private static let aircraftWait: TimeInterval = 2.5
-    private static let aircraftRoll: TimeInterval = 2.2
-
     /// Where a fraction along a polyline lands, and which way it is heading.
     private static func walk(_ points: [CGPoint], _ lengths: [CGFloat],
                              fraction: CGFloat) -> (point: CGPoint, angle: CGFloat) {
@@ -2731,25 +2731,12 @@ final class GameScene: SKScene {
     private func advanceAircraft(by delta: TimeInterval) {
         guard !aircraft.isEmpty else { return }
         aircraftClock += delta
-        let wait = Self.aircraftWait, roll = Self.aircraftRoll
         for craft in aircraft.values {
-            let t = (aircraftClock + craft.phase).truncatingRemainder(dividingBy: wait + roll)
-            guard t >= wait else {
-                craft.sprite.position = craft.start
-                craft.sprite.alpha = 0
-                continue
-            }
-            let elapsed = t - wait
-            let f = CGFloat(elapsed / roll)
+            let (f, visibility) = CityMotion.aircraft(at: aircraftClock, phase: craft.phase)
             craft.sprite.position = CGPoint(
                 x: craft.start.x + (craft.end.x - craft.start.x) * f,
                 y: craft.start.y + (craft.end.y - craft.start.y) * f)
-            // Fades up as it accelerates away and out as it goes, so the
-            // reset to the threshold happens behind a beat of invisibility
-            // rather than as a visible snap back down the runway.
-            craft.sprite.alpha = elapsed < 0.3 ? CGFloat(elapsed / 0.3)
-                : elapsed < 1.7 ? 1
-                : max(0, CGFloat(1 - (elapsed - 1.7) / 0.5))
+            craft.sprite.alpha = visibility
         }
     }
 
@@ -2766,12 +2753,10 @@ final class GameScene: SKScene {
             aircraft[position] = nil
             return
         }
-        var random = BuildingRandom(seed: position, salt: 733)
         aircraft[position] = Aircraft(sprite: sprite,
                                       start: CGPoint(x: x0, y: y0),
                                       end: CGPoint(x: x1, y: y1),
-                                      phase: random.value(in: 0 ... (Self.aircraftWait
-                                                                     + Self.aircraftRoll)))
+                                      phase: CityMotion.aircraftPhase(at: position))
     }
 
     /// How many vehicles are being driven per frame, for the tests about
@@ -2827,7 +2812,9 @@ final class GameScene: SKScene {
         let view = size
         // Reduced motion takes the falling drops and leaves the wet street:
         // one of those is movement and the other is a surface.
-        guard rainfall > 0, !VisualStyle.reduceMotion,
+        // The Metal renderer draws its own rain, as GPU particles that
+        // buildings hide; this one falls in front of everything.
+        guard drawsCity, rainfall > 0, !VisualStyle.reduceMotion,
               VisualStyle.current.wetReflection > 0 else {
             rainNode?.removeFromParent()
             rainNode = nil
@@ -3057,17 +3044,17 @@ final class GameScene: SKScene {
         pathVehicles = []
 
         add(.transit(.tram), along: routes.map { Transit.tramPath(of: $0, in: map) },
-            tilesPerSecond: 1 / CGFloat(TransitRoute.Mode.tram.minutesPerTile * 0.55))
+            tilesPerSecond: CityMotion.tramTilesPerSecond)
         // A ship is slow. Speed is most of what tells a hull from a tram at a
         // glance once both are small on screen.
-        add(.ship, along: [lane], tilesPerSecond: 0.55)
+        add(.ship, along: [lane], tilesPerSecond: CityMotion.shipTilesPerSecond)
 
         // **Engines that actually go to the fire**, rather than traffic that
         // happens to be red near one. Fast, because the one thing everybody
         // knows about a fire engine is that it is in a hurry, and speed is
         // legible at this size where a shape is not.
         add(.fire, along: EmergencyResponse.fireRoutes(in: map),
-            tilesPerSecond: 2.6, oneWay: true)
+            tilesPerSecond: CityMotion.fireEngineTilesPerSecond, oneWay: true)
     }
 
     private func add(_ vehicle: IsoTextureCache.Vehicle,
@@ -3254,12 +3241,6 @@ final class GameScene: SKScene {
     /// simulation tick's `refreshAll()` — a one-tick lag, not incorrect data.
     /// Does this road run alongside industry? What decides whether its
     /// traffic is lorries or cars.
-    private func servesIndustry(at position: GridPosition) -> Bool {
-        position.orthogonalNeighbors().contains {
-            map.contains($0) && map[$0].zone == .industrial
-        }
-    }
-
     /// What is driving down this particular street.
     ///
     /// **Where a vehicle's colour comes from.** Ordinary traffic is the
@@ -3303,34 +3284,6 @@ final class GameScene: SKScene {
         return streak
     }
 
-    private func vehicleKind(at position: GridPosition,
-                             random: inout BuildingRandom) -> IsoTextureCache.Vehicle {
-        if Fire.count(in: map) > 0, isNear(position, { self.map[$0].isBurning }, within: 6),
-           random.chance(0.6) {
-            return .fire
-        }
-        if isNear(position, { self.map[$0].zone == .policeStation }, within: 5),
-           random.chance(0.35) {
-            return .police
-        }
-        return random.chance(servesIndustry(at: position) ? 0.55 : 0.12) ? .lorry : .car
-    }
-
-    /// Is anything matching `test` within `radius` tiles?
-    ///
-    /// Square rather than a true radius, and deliberately small: this runs per
-    /// car per rebuild, and the answer only decides a colour.
-    private func isNear(_ position: GridPosition,
-                        _ test: (GridPosition) -> Bool, within radius: Int) -> Bool {
-        for dy in -radius ... radius {
-            for dx in -radius ... radius {
-                let cell = GridPosition(x: position.x + dx, y: position.y + dy)
-                if map.contains(cell), test(cell) { return true }
-            }
-        }
-        return false
-    }
-
     private func syncTrafficAnimation(at position: GridPosition) {
         guard let node = tileNodes[position] else { return }
         let existingCars = node.children.filter { $0.name == Self.trafficCarNodeName }
@@ -3344,139 +3297,50 @@ final class GameScene: SKScene {
             return
         }
 
-        let congestion = Traffic.congestion(at: position, in: map)
-        let carCount = Traffic.carCount(forCongestion: congestion)
+        // **Where and how each car drives is `CityMotion`'s**, shared with
+        // the Metal renderer so the two cannot disagree about a lane. The
+        // reasons, briefly, since this is where they are drawn:
+        //
+        // - **Lanes are in tile units and projected, not in screen axes.** A
+        //   road running east-west is a down-right diagonal in isometric, so
+        //   laying cars out along screen x or y would drive them off the road
+        //   at forty-five degrees.
+        // - **One lane, the way the routed traffic actually heads**, offset to
+        //   one side: a two-way road never carries traffic down its centre
+        //   line, and several cars on a tile stay apart by a stagger in time
+        //   rather than by lanes the road does not have.
+        // - **Busier roads cross slower**, and their traces are shorter and
+        //   dimmer — reads as jammed, not just popular.
+        // - **A seeded per-tile phase**, or every tile staggers identically
+        //   and a street is an evenly spaced dotted line marching in step.
+        let cars = CityMotion.cars(at: position, in: map)
         // The node count is the cache key, and the driven list has to agree
         // with it: a tile whose sprites survive keeps the entry that moves
         // them, and one that rebuilds replaces both together.
-        guard existingCars.count != carCount || trafficCars[position] == nil else { return }
+        guard existingCars.count != cars.count || trafficCars[position] == nil else { return }
         existingCars.forEach { $0.removeFromParent() }
         trafficCars[position] = nil
-        guard carCount > 0 else { return }
+        guard !cars.isEmpty else { return }
+
         var driven: [TrafficCar] = []
-
-        let horizontal = Traffic.isHorizontallyOriented(at: position, in: map)
-        // Which way most *actual* routed traffic crosses this tile, not
-        // an arbitrary fixed screen direction — a car here should look
-        // like it's headed toward the job it's actually commuting to.
-        let flowsPositive = map.trafficLoad.netHeadingIsPositive(at: position, horizontal: horizontal)
-        // Busier roads get slower-crossing cars too, not just more of them —
-        // reads as "jammed," not just "popular."
-        let crossingDuration = 1.2 + congestion * 1.8
-        // **Lanes are in tile units and projected, not in screen axes.** A
-        // road running east-west is a horizontal line on a top-down map and a
-        // down-right diagonal in isometric, so laying cars out along screen x
-        // or y — which is what this did — would drive them off the road at
-        // forty-five degrees. Everything below is expressed in the lot's own
-        // coordinates and passed through the projection, which is also why the
-        // car's rotation now comes from the projected direction rather than a
-        // fixed angle per axis.
-        let laneOffset: CGFloat = 0.16
-        // Real two-way roads never carry traffic down the center line —
-        // every car this tile renders shares the same net flow direction
-        // (`flowsPositive`), so they all belong in the one lane that
-        // direction actually drives in, offset to one side or the other
-        // depending which way that is (an arbitrary but consistent side,
-        // there's no real left/right-hand-traffic convention modeled here).
-        // Multiple simultaneous cars stay visually distinct via the
-        // temporal stagger below — each at a different point along that
-        // same lane — rather than being spread across invented parallel
-        // lanes a single-lane-each-way road doesn't actually have. This
-        // used to include a third, centered offset (0) that every tile
-        // with exactly one car — the common case at low congestion — sat
-        // on by default, reading as straddling the center line rather
-        // than driving in a lane.
-        let lane = 0.5 + (flowsPositive ? laneOffset : -laneOffset)
-        let entry = horizontal ? projection.project(0, lane, 0) : projection.project(lane, 0, 0)
-        let exit = horizontal ? projection.project(1, lane, 0) : projection.project(lane, 1, 0)
-        // How free-flowing this tile's traffic actually is, 1 (empty
-        // road) down to 0 (gridlocked) — the same signal `crossingDuration`
-        // above already reads off `congestion`, reused here so the speed
-        // trail agrees with how fast the car it's attached to actually
-        // looks like it's crossing the tile.
-        let speedFactor = CGFloat(1 - congestion)
-        let lowEnd = entry, highEnd = exit
-        let heading = flowsPositive
-            ? CGPoint(x: highEnd.x - lowEnd.x, y: highEnd.y - lowEnd.y)
-            : CGPoint(x: lowEnd.x - highEnd.x, y: lowEnd.y - highEnd.y)
-        let travelAngle = atan2(heading.y, heading.x)
-
-        for index in 0 ..< carCount {
-            // One shape, rotated to the projected heading — there is no
-            // "horizontal car" and "vertical car" in isometric, only a car
-            // pointing down one of two diagonals.
-            let carSize = CGSize(width: max(6, projection.tileWidth * 0.26),
-                                 height: max(4, projection.tileWidth * 0.16))
-            // **What is on this street depends on what is beside it.** A road
-            // running past a factory carries lorries; one through a
-            // neighbourhood does not. Seeded from the tile so a street keeps
-            // its own mix rather than reshuffling on every refresh, and mixed
-            // with the car's index so three vehicles on one tile are not
-            // three of the same thing.
-            var random = BuildingRandom(seed: position, salt: 400 + index)
-            let vehicle = vehicleKind(at: position, random: &random)
-            // **A trace of light, not a little box.**
-            //
-            // Two real defects were fixed in the boxes — they bloomed into
-            // identical white lozenges, and every tile staggered its cars the
-            // same way so a street read as a dotted line — and they still
-            // looked wrong afterwards, because a box is the wrong object. A
-            // vehicle is about eleven screen points across at the zoom this
-            // is played at, and a form that small cannot show its form. That
-            // is exactly the case `NeonStyle.minimumDetailSize` says to cut
-            // rather than shrink.
-            //
-            // A streak has no such problem: it is a direction and a colour,
-            // and both survive any zoom. It is also this art direction's own
-            // rule applied to the one thing that moves — *colour comes from
-            // the light a thing throws, not from repainting it* — and it is
-            // what finally makes the **kind** of vehicle legible, because hue
-            // reads at a size silhouette never could.
-            let car = streakSprite(
-                for: vehicle,
-                length: projection.tileWidth * (0.18 + speedFactor * 0.8),
-                alpha: 0.3 + speedFactor * 0.35
-            )
-            car.zRotation = travelAngle
-            car.name = Self.trafficCarNodeName
-            car.zPosition = 2
-
-            let start = flowsPositive ? lowEnd : highEnd
-            let end = flowsPositive ? highEnd : lowEnd
-            car.position = start
-            let baseAlpha = car.alpha
-
-            // A car can't actually drive its full routed commute across
-            // every tile along the way — that's the individual-agent
-            // rendering complexity this file's own doc comment above
-            // already rules out — so it has to reset back to this tile's
-            // own start point somewhere. The reset itself used to be an
-            // instant, zero-duration teleport, which read exactly as a
-            // visible stutter: a car (and its speed trail, since that's a
-            // child of `car` and fades right along with it) would glide
-            // smoothly across, then pop backward with no transition at
-            // all. Fading out just before the teleport and back in right
-            // after masks the jump behind a beat of invisibility instead
-            // of showing it — the car glides away, and a fresh one glides
-            // in, rather than one car visibly snapping in place.
-            // Stagger each car's start so a multi-car tile doesn't drive in
-            // lockstep — **and offset the whole tile by a seeded phase**, or
-            // every tile staggers identically and the street comes out as an
-            // evenly spaced dotted line marching in step. That is what the
-            // three-zoom render showed: not traffic, a conveyor.
-            //
-            // Seeded from the position for the reason `BuildingRandom` always
-            // is: a street keeps its own rhythm across refreshes and launches
-            // rather than reshuffling every time a tile is rebuilt.
-            var phaseRandom = BuildingRandom(seed: position, salt: 911)
-            let tilePhase = CGFloat(phaseRandom.value(in: 0 ... 1))
-            let stagger = crossingDuration
-                * (Double(index) + Double(tilePhase)) / Double(carCount)
-
-            node.addChild(car)
-            driven.append(TrafficCar(sprite: car, start: start, end: end,
-                                     crossing: crossingDuration,
-                                     phase: stagger, baseAlpha: baseAlpha))
+        for car in cars {
+            let start = projection.project(car.start.x, car.start.y, 0)
+            let end = projection.project(car.end.x, car.end.y, 0)
+            // **A trace of light, not a little box.** A vehicle is about
+            // eleven screen points across at the zoom this is played at, and
+            // a form that small cannot show its form — the case
+            // `NeonStyle.minimumDetailSize` says to cut rather than shrink. A
+            // streak is a direction and a colour, both of which survive any
+            // zoom, and hue is what makes the *kind* of vehicle legible.
+            let sprite = streakSprite(for: car.vehicle,
+                                      length: projection.tileWidth * car.length,
+                                      alpha: car.alpha)
+            sprite.zRotation = atan2(end.y - start.y, end.x - start.x)
+            sprite.name = Self.trafficCarNodeName
+            sprite.zPosition = 2
+            sprite.position = start
+            node.addChild(sprite)
+            driven.append(TrafficCar(sprite: sprite, start: start, end: end, car: car))
         }
         trafficCars[position] = driven
     }
@@ -3501,30 +3365,15 @@ final class GameScene: SKScene {
         let sprite: SKSpriteNode
         let start: CGPoint
         let end: CGPoint
-        /// Seconds to cross its tile.
-        let crossing: TimeInterval
-        /// Where in the cycle this car starts.
-        let phase: TimeInterval
-        /// What it should be drawn at while crossing.
+        /// Its crossing time, stagger and brightness.
         ///
-        /// **This is a bug fix, not bookkeeping.** The action sequence ended
-        /// in `SKAction.fadeIn`, which fades to *1.0* rather than back to
-        /// whatever the node had — so every ambient car in the game jumped to
-        /// full opacity after its first loop and stayed there. The streaks are
-        /// deliberately drawn at 0.3–0.65, because this file records that a
-        /// saturated hue at modest alpha tints the lane while the same hue at
-        /// high alpha bleaches whatever it crosses. Traffic has been running
-        /// at the bleaching end since the streaks landed.
-        let baseAlpha: CGFloat
+        /// **The brightness is a bug fix, not bookkeeping.** The old action
+        /// sequence ended in `SKAction.fadeIn`, which fades to *1.0* rather
+        /// than back to what the node had — so every ambient car jumped to
+        /// full opacity after its first loop. A saturated hue at modest alpha
+        /// tints the lane; the same hue at high alpha bleaches it.
+        let car: CityMotion.Car
     }
-
-    /// How long a car spends invisible while it returns to the start of its
-    /// tile. A car cannot drive its whole routed commute — that is the
-    /// individual-agent rendering this project rules out — so it has to reset
-    /// somewhere, and the reset used to be a visible backward pop. Fading out
-    /// just before it and in just after hides the jump behind a beat of
-    /// invisibility: one car glides away, a fresh one glides in.
-    private static let carResetSeconds: TimeInterval = 0.2
 
     private var trafficCars: [GridPosition: [TrafficCar]] = [:]
     private var trafficClock: TimeInterval = 0
@@ -3537,30 +3386,17 @@ final class GameScene: SKScene {
     private func advanceTrafficCars(by delta: TimeInterval) {
         guard !trafficCars.isEmpty else { return }
         trafficClock += delta
-        let fade = Self.carResetSeconds
         for (position, cars) in trafficCars {
             // Tiles outside the view are detached by the culling, and moving a
             // sprite nobody can see is the one cost this design adds over an
             // action. One dictionary lookup skips a whole street of them.
             guard tileNodes[position]?.parent != nil else { continue }
-            for car in cars {
-                let cycle = car.crossing + fade * 2
-                var t = (trafficClock + car.phase).truncatingRemainder(dividingBy: cycle)
-                if t < 0 { t += cycle }
-                if t < car.crossing {
-                    let f = CGFloat(t / car.crossing)
-                    car.sprite.position = CGPoint(
-                        x: car.start.x + (car.end.x - car.start.x) * f,
-                        y: car.start.y + (car.end.y - car.start.y) * f)
-                    car.sprite.alpha = car.baseAlpha
-                } else if t < car.crossing + fade {
-                    car.sprite.position = car.end
-                    car.sprite.alpha = car.baseAlpha * CGFloat(1 - (t - car.crossing) / fade)
-                } else {
-                    car.sprite.position = car.start
-                    car.sprite.alpha = car.baseAlpha
-                        * CGFloat((t - car.crossing - fade) / fade)
-                }
+            for driven in cars {
+                let (f, visibility) = CityMotion.progress(of: driven.car, at: trafficClock)
+                driven.sprite.position = CGPoint(
+                    x: driven.start.x + (driven.end.x - driven.start.x) * f,
+                    y: driven.start.y + (driven.end.y - driven.start.y) * f)
+                driven.sprite.alpha = driven.car.alpha * visibility
             }
         }
     }

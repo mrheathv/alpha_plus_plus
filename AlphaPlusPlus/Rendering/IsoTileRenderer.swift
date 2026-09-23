@@ -523,11 +523,9 @@ struct IsoTileRenderer {
         sprite.name = Self.aircraftNodeName
         sprite.zPosition = 0.35
 
-        let span = CGFloat(ZoneType.airport.footprintSize) - 0.16
-        let lane = 0.08 + span * 0.13
-        let deck: CGFloat = 0.1
-        let start = projection.project(0.2, lane, deck)
-        let end = projection.project(span, lane, deck)
+        let runway = CityMotion.runway
+        let start = projection.project(runway.start.x, runway.start.y, runway.deck)
+        let end = projection.project(runway.end.x, runway.end.y, runway.deck)
         sprite.position = start
         // **Invisible except while moving**, which is the whole basis for
         // drawing it at all. Standing still it is a grey lump on the apron —

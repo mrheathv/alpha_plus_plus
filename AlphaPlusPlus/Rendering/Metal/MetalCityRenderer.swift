@@ -64,6 +64,14 @@ final class MetalCityRenderer {
         var counts: SIMD4<UInt32>
     }
 
+    /// Mirrors `MotionUniforms` in MetalCity.metal.
+    struct MotionUniforms {
+        var viewProjection: simd_float4x4
+        var frame: SIMD4<Float>
+        var area: SIMD4<Float>
+        var params: SIMD4<Float>
+    }
+
     struct CompositeSettings {
         var bloomStrength: Float = 0.55
         var hazeStrength: Float = 0.35
@@ -93,6 +101,14 @@ final class MetalCityRenderer {
     private let bloomUp: MTLComputePipelineState
     private let compositePipeline: MTLComputePipelineState
     private let cullPipeline: MTLComputePipelineState
+    private let tracePipeline: MTLRenderPipelineState
+    private let traceReflectionPipeline: MTLRenderPipelineState
+    private let rainPipeline: MTLRenderPipelineState
+    private let smokePipeline: MTLRenderPipelineState
+    private let flamePipeline: MTLRenderPipelineState
+    /// Depth-tested against the city, never written: a trace behind a tower
+    /// is hidden, and two traces crossing add up rather than one winning.
+    private let readOnlyDepthState: MTLDepthStencilState
     let projection: Isometric
     var settings = CompositeSettings()
 
@@ -109,7 +125,12 @@ final class MetalCityRenderer {
               let up = library.makeFunction(name: "bloomUp"),
               let composite = library.makeFunction(name: "composite"),
               let cull = library.makeFunction(name: "cullLights"),
-              let cullPipeline = try? device.makeComputePipelineState(function: cull)
+              let cullPipeline = try? device.makeComputePipelineState(function: cull),
+              let traceVertex = library.makeFunction(name: "traceVertex"),
+              let rainVertex = library.makeFunction(name: "rainVertex"),
+              let traceFragment = library.makeFunction(name: "traceFragment"),
+              let smokeVertex = library.makeFunction(name: "smokeVertex"),
+              let smokeFragment = library.makeFunction(name: "smokeFragment")
         else { return nil }
         self.cullPipeline = cullPipeline
         self.device = device
@@ -128,6 +149,41 @@ final class MetalCityRenderer {
         let depth = MTLDepthStencilDescriptor()
         depth.depthCompareFunction = .less
         depth.isDepthWriteEnabled = true
+
+        /// A blended pass over the city: `additive` for light, otherwise
+        /// premultiplied alpha. Alpha itself is never written, because in the
+        /// reflection pass it carries the height of what was reflected.
+        func blended(_ vertex: MTLFunction, _ fragment: MTLFunction, samples: Int,
+                     additive: Bool) -> MTLRenderPipelineState? {
+            let descriptor = MTLRenderPipelineDescriptor()
+            descriptor.vertexFunction = vertex
+            descriptor.fragmentFunction = fragment
+            descriptor.rasterSampleCount = samples
+            descriptor.depthAttachmentPixelFormat = .depth32Float
+            let color = descriptor.colorAttachments[0]!
+            color.pixelFormat = .rgba16Float
+            color.isBlendingEnabled = true
+            color.writeMask = [.red, .green, .blue]
+            color.sourceRGBBlendFactor = .one
+            color.destinationRGBBlendFactor = additive ? .one : .oneMinusSourceAlpha
+            return try? device.makeRenderPipelineState(descriptor: descriptor)
+        }
+        let readOnly = MTLDepthStencilDescriptor()
+        readOnly.depthCompareFunction = .less
+        readOnly.isDepthWriteEnabled = false
+        guard let tracePipeline = blended(traceVertex, traceFragment, samples: Self.sampleCount, additive: true),
+              let traceReflectionPipeline = blended(traceVertex, traceFragment, samples: 1, additive: true),
+              let rainPipeline = blended(rainVertex, traceFragment, samples: Self.sampleCount, additive: true),
+              let smokePipeline = blended(smokeVertex, smokeFragment, samples: Self.sampleCount, additive: false),
+              let flamePipeline = blended(traceVertex, traceFragment, samples: Self.sampleCount, additive: false),
+              let readOnlyDepthState = device.makeDepthStencilState(descriptor: readOnly)
+        else { return nil }
+        self.tracePipeline = tracePipeline
+        self.traceReflectionPipeline = traceReflectionPipeline
+        self.rainPipeline = rainPipeline
+        self.smokePipeline = smokePipeline
+        self.flamePipeline = flamePipeline
+        self.readOnlyDepthState = readOnlyDepthState
 
         guard let scene = pipeline(samples: Self.sampleCount, fragment: fragment),
               let reflection = pipeline(samples: 1, fragment: reflectionFragment),
@@ -177,6 +233,49 @@ final class MetalCityRenderer {
     // MARK: - The city on the GPU
 
     private let cache = MetalCityMesh.Cache()
+
+    /// Everything that moves — see `MetalMotion`.
+    let motion = MetalMotion()
+
+    /// The running-time clock the motion was last planned at, so a tram line
+    /// that is rebuilt starts from where the city's clock actually is.
+    private var lastMotionClock: Double = 0
+
+    /// Whether ambient traffic is drawn: off under every view that hides the
+    /// street network, the rule `OverlayMode.showsRoadNetwork` states.
+    var showsTraffic: Bool {
+        get { motion.showsTraffic }
+        set {
+            guard newValue != motion.showsTraffic else { return }
+            motion.showsTraffic = newValue
+            builtRevision = nil
+            plannedMotion = nil
+        }
+    }
+
+    /// How tall the building on an anchor tile stands, from its mesh.
+    private func buildingHeight(_ tile: Tile) -> Float {
+        let key = MetalCityMesh.Cache.Key(zone: tile.zone, density: tile.density,
+                                          variant: IsoTextureCache.variant(for: tile.position))
+        if let known = heights[key] { return known }
+        let built = cache.entries[key] ?? MetalCityMesh.building(key)
+        cache.entries[key] = built
+        var height: Float = 0
+        var z = 2
+        while z < built.vertices.count { height = max(height, built.vertices[z]); z += GPUVertex.floatCount }
+        heights[key] = height
+        return height
+    }
+    private var heights: [MetalCityMesh.Cache.Key: Float] = [:]
+
+    private struct MotionKey: Equatable {
+        let day: Int
+        let showsTraffic: Bool
+        let reduceMotion: Bool
+        let fires: Int
+        let routes: Int
+    }
+    private var plannedMotion: MotionKey?
     /// Every light in the city, on the CPU: culled to the view each frame.
     private var allLights: [Float] = []
     private var builtRevision: Int?
@@ -292,6 +391,22 @@ final class MetalCityRenderer {
         }
         chunksRebuiltLastUpdate = rebuilt
         if rebuilt > 0 { allLights = chunks.flatMap(\.lights) }
+        // **The motion plan moves when the city does**: a new day (traffic is
+        // re-routed every tick) or something built or bulldozed. A write that
+        // changes neither — and an unchanged city asked again, which is what
+        // the budget test's quiet update is — costs nothing here.
+        // A tram line drawn or a fire started while paused moves neither.
+        var routes = Hasher()
+        for route in map.transit.routes(mode: .tram) { for stop in route.stops { routes.combine(stop) } }
+        let motionKey = MotionKey(day: map.elapsedDays, showsTraffic: motion.showsTraffic,
+                                  reduceMotion: VisualStyle.reduceMotion,
+                                  fires: map.tiles.reduce(0) { $0 + ($1.isBurning ? 1 : 0) },
+                                  routes: routes.finalize())
+        if rebuilt > 0 || motionKey != plannedMotion {
+            plannedMotion = motionKey
+            motion.buildingHeight = { [unowned self] in self.buildingHeight($0) }
+            motion.update(map, clock: lastMotionClock, reduceMotion: VisualStyle.reduceMotion)
+        }
     }
 
     /// Is any of this chunk on screen? Its box, top to bottom, projected — or
@@ -335,7 +450,7 @@ final class MetalCityRenderer {
     /// cost. A light whose reach does not touch the view cannot change a
     /// visible pixel, so dropping it is free — and on a zoomed-in view of a
     /// big city that is almost all of them.
-    private func visibleLights(through matrix: simd_float4x4, camera: Camera) -> [Float] {
+    private func visibleLights(_ allLights: [Float], through matrix: simd_float4x4, camera: Camera) -> [Float] {
         let pixelsPerTile = Float(projection.tileWidth / camera.scale)
         var kept: [Float] = []
         let stride = GPULight.floatCount
@@ -440,18 +555,43 @@ final class MetalCityRenderer {
 
     // MARK: - Drawing
 
+    /// The ground the camera can see, as a rectangle in tile units — where
+    /// rain falls. Stretched toward the viewer by the height drops fall from,
+    /// because a drop high over ground just below the screen is on screen.
+    private func rainArea(for camera: Camera) -> SIMD4<Float> {
+        let halfWidth = projection.tileWidth / 2, halfHeight = projection.tileHeight / 2
+        let spanX = camera.size.width / 2 * camera.scale, spanY = camera.size.height / 2 * camera.scale
+        var xs: [CGFloat] = [], ys: [CGFloat] = []
+        for sx in [-spanX, spanX] {
+            for sy in [-spanY, spanY] {
+                let a = (camera.centre.x + sx) / halfWidth       // x - y
+                let b = -(camera.centre.y + sy) / halfHeight     // x + y
+                xs.append((a + b) / 2); ys.append((b - a) / 2)
+            }
+        }
+        let reach = 7 * projection.heightUnit / halfHeight / 2
+        let x0 = xs.min()! - 1, y0 = ys.min()! - 1
+        let x1 = xs.max()! + reach + 1, y1 = ys.max()! + reach + 1
+        return SIMD4(Float(x0), Float(y0), Float(x1 - x0), Float(y1 - y0))
+    }
+
     /// Encodes one whole frame into `output`, which is either the live view's
     /// drawable or a readable texture a test will copy out.
     @discardableResult
     private func encode(into commands: MTLCommandBuffer, output: MTLTexture, camera: Camera,
-                        wetness: Float, time: Float) -> (triangles: Int, lights: Int)? {
+                        wetness: Float, time: Float, motionClock: Double,
+                        rainfall: Float) -> (triangles: Int, lights: Int)? {
         let encodeStarted = DispatchTime.now().uptimeNanoseconds
         defer {
             lastEncodeMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - encodeStarted) / 1e6
         }
         guard chunks.contains(where: { $0.vertexCount > 0 }), let targets = targets(for: camera.size) else { return nil }
         let matrix = viewProjection(for: camera, mapExtent: mapExtent)
-        let lights = diagnostics.skipPointLights ? [] : visibleLights(through: matrix, camera: camera)
+        lastMotionClock = motionClock
+        let moving = motion.frame(at: motionClock)
+        let lights = diagnostics.skipPointLights ? []
+            : visibleLights(moving.lights.isEmpty ? allLights : allLights + moving.lights,
+                            through: matrix, camera: camera)
         let lightCount = lights.count / GPULight.floatCount
         var uniforms = Uniforms(
             viewProjection: matrix,
@@ -461,6 +601,32 @@ final class MetalCityRenderer {
         )
         let lightData = lights.isEmpty ? [Float](repeating: 0, count: GPULight.floatCount) : lights
         guard let lightBuffer = device.makeBuffer(bytes: lightData, length: lightData.count * 4) else { return nil }
+
+        // What moves this frame, on the GPU. Small: a few thousand traces and
+        // a ship or two.
+        let traceCount = moving.traces.count / MetalMotion.traceFloatCount
+        let traceBuffer = traceCount == 0 ? nil
+            : device.makeBuffer(bytes: moving.traces, length: moving.traces.count * 4)
+        let flameCount = moving.flames.count / MetalMotion.traceFloatCount
+        let flameBuffer = flameCount == 0 ? nil
+            : device.makeBuffer(bytes: moving.flames, length: moving.flames.count * 4)
+        let solidCount = moving.solids.count / GPUVertex.floatCount
+        let solidBuffer = solidCount == 0 ? nil
+            : device.makeBuffer(bytes: moving.solids, length: moving.solids.count * 4)
+        let emitters = motion.smokeEmitters
+        let smokeBuffer = emitters.isEmpty ? nil
+            : device.makeBuffer(bytes: emitters, length: emitters.count * MemoryLayout<SIMD4<Float>>.stride)
+        let smokePerEmitter = 20
+        let rainArea = rainArea(for: camera)
+        let drops = VisualStyle.reduceMotion || rainfall <= 0 ? 0
+            : min(9000, Int(rainArea.z * rainArea.w * 3 * rainfall))
+        var motionUniforms = MotionUniforms(
+            viewProjection: matrix,
+            frame: SIMD4(Float(camera.size.width), Float(camera.size.height),
+                         Float(projection.tileWidth / camera.scale) * 0.7, 0),
+            area: rainArea,
+            params: SIMD4(Float(motionClock.truncatingRemainder(dividingBy: 10_000)), rainfall,
+                          Float(smokePerEmitter), 0))
 
         // Cull first: every tile's list of the lights that can reach it.
         // How far one tile of light radius reaches on screen, in pixels: the
@@ -533,6 +699,39 @@ final class MetalCityRenderer {
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: chunk.vertexCount)
                 if !mirrored { drawn += chunk.vertexCount / 3 }
             }
+            // Ships are lit geometry like the city they sail through.
+            if let solidBuffer {
+                encoder.setVertexBuffer(solidBuffer, offset: 0, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: solidCount)
+            }
+            motionUniforms.frame.w = mirrored ? 1 : 0
+            encoder.setDepthStencilState(readOnlyDepthState)
+            encoder.setVertexBytes(&motionUniforms, length: MemoryLayout<MotionUniforms>.stride, index: 1)
+            // Smoke hides what is behind it, so it goes under the light.
+            // Neither smoke nor rain is reflected: both are in the air, and a
+            // mirrored copy of either reads as noise on the street.
+            if !mirrored, let smokeBuffer {
+                encoder.setRenderPipelineState(smokePipeline)
+                encoder.setVertexBuffer(smokeBuffer, offset: 0, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                       instanceCount: emitters.count * smokePerEmitter)
+            }
+            if let flameBuffer {
+                // In the reflection a flame is only light on the water, so it
+                // is added there like everything else.
+                encoder.setRenderPipelineState(mirrored ? traceReflectionPipeline : flamePipeline)
+                encoder.setVertexBuffer(flameBuffer, offset: 0, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: flameCount)
+            }
+            if let traceBuffer {
+                encoder.setRenderPipelineState(mirrored ? traceReflectionPipeline : tracePipeline)
+                encoder.setVertexBuffer(traceBuffer, offset: 0, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: traceCount)
+            }
+            if !mirrored, drops > 0 {
+                encoder.setRenderPipelineState(rainPipeline)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: drops)
+            }
             encoder.endEncoding()
         }
 
@@ -583,10 +782,11 @@ final class MetalCityRenderer {
     private(set) var framesPresented = 0
 
     /// One frame into the live view.
-    func draw(in view: MTKView, camera: Camera, wetness: Float, time: Float) {
+    func draw(in view: MTKView, camera: Camera, wetness: Float, time: Float,
+              motionClock: Double, rainfall: Float) {
         guard let drawable = view.currentDrawable, let commands = queue.makeCommandBuffer(),
               encode(into: commands, output: drawable.texture, camera: camera,
-                     wetness: wetness, time: time) != nil
+                     wetness: wetness, time: time, motionClock: motionClock, rainfall: rainfall) != nil
         else { return }
         commands.present(drawable)
         commands.commit()
@@ -601,7 +801,9 @@ final class MetalCityRenderer {
     }
 
     /// One frame into a picture, for the render tests.
-    func render(_ map: CityMap, camera: Camera, wetness: Float, time: Float = 0) -> Frame? {
+    func render(_ map: CityMap, camera: Camera, wetness: Float, time: Float = 0,
+                motionClock: Double? = nil, rainfall: Float = 0) -> Frame? {
+        lastMotionClock = motionClock ?? Double(time)
         update(map, revision: nil)
         let width = Int(camera.size.width), height = Int(camera.size.height)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -610,7 +812,8 @@ final class MetalCityRenderer {
         descriptor.storageMode = .shared
         guard let output = device.makeTexture(descriptor: descriptor),
               let commands = queue.makeCommandBuffer(),
-              let counts = encode(into: commands, output: output, camera: camera, wetness: wetness, time: time)
+              let counts = encode(into: commands, output: output, camera: camera, wetness: wetness, time: time,
+                                  motionClock: motionClock ?? Double(time), rainfall: rainfall)
         else { return nil }
         commands.commit()
         commands.waitUntilCompleted()

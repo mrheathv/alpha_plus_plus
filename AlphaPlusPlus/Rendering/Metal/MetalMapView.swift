@@ -36,6 +36,7 @@ struct MetalMapView: NSViewRepresentable {
         let scene: GameScene
         let renderer = MetalCityRenderer()
         private let started = CACurrentMediaTime()
+        private var motionClock = MotionClock()
 
         init(controller: GameController, scene: GameScene) {
             self.controller = controller
@@ -46,6 +47,10 @@ struct MetalMapView: NSViewRepresentable {
 
         func draw(in view: MTKView) {
             guard let renderer, view.drawableSize.width > 0, view.bounds.width > 0 else { return }
+            let now = CACurrentMediaTime()
+            motionClock.tick(at: now, running: controller.isRunning)
+
+            renderer.showsTraffic = controller.overlayMode.showsRoadNetwork
             renderer.update(controller.map, revision: controller.mapRevision)
             // Scene points per pixel: the camera's scale is per *view* point,
             // and a Retina drawable has two pixels to each.
@@ -53,11 +58,35 @@ struct MetalMapView: NSViewRepresentable {
             let camera = MetalCityRenderer.Camera(centre: scene.cameraCentre,
                                                   scale: scene.cameraScale / backing,
                                                   size: view.drawableSize)
-            let wetness = VisualStyle.current.wetReflection > 0
-                ? Float(Weather.wetness(onDay: controller.map.elapsedDays)) : 0
-            renderer.draw(in: view, camera: camera, wetness: wetness,
-                          time: Float(CACurrentMediaTime() - started))
+            let weather = VisualStyle.current.wetReflection > 0
+            let day = controller.map.elapsedDays
+            renderer.draw(in: view, camera: camera,
+                          wetness: weather ? Float(Weather.wetness(onDay: day)) : 0,
+                          time: Float(now - started),
+                          motionClock: motionClock.seconds,
+                          rainfall: weather ? Float(Weather.rainfall(onDay: day)) : 0)
         }
+    }
+}
+
+/// **Seconds the city has been running**, which is what everything that moves
+/// is a function of in the Metal renderer.
+///
+/// It only advances while the simulation does, so pausing freezes traffic,
+/// trains, flames, smoke and rain with nothing to remember to stop — the rule
+/// SpriteKit reached the hard way, after its cars kept driving around a paused
+/// map. The water, which is not part of the simulation, keeps the wall clock
+/// and keeps moving.
+struct MotionClock {
+    private(set) var seconds: Double = 0
+    private var last: Double?
+
+    /// Clamped like `GameScene.update`, so a stall or a drag between displays
+    /// does not send every car across the map at once.
+    mutating func tick(at now: Double, running: Bool) {
+        let delta = min(max(0, now - (last ?? now)), 0.1)
+        last = now
+        if running { seconds += delta }
     }
 }
 
