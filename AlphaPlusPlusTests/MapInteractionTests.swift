@@ -158,3 +158,53 @@ final class MapInteractionTests: XCTestCase {
         XCTAssertEqual(input.cursor?.blocked, true, "the road just laid is under the pointer")
     }
 }
+
+/// The cursor tests `ScenePlaytestTests` asked of `GameScene`'s preview,
+/// asked of the rule itself now that the scene only draws its answer.
+@MainActor
+final class MapInteractionCursorTests: XCTestCase {
+
+    /// **The cursor never promises a placement the click refuses**, swept
+    /// over every cell of a map with a river in it, for four tools. A test
+    /// naming the cases somebody thought of would have passed on the day
+    /// water landed; the sweep is what makes the next rule added to
+    /// `placementRefusal` show up here if the cursor is not taught about it.
+    func testTheCursorNeverPromisesAPlacementTheClickRefuses() {
+        var map = ScenePlaytestTests().startedCity()
+        for x in 0 ..< map.width { map[GridPosition(x: x, y: 8)].isWater = true }
+        let controller = GameController(map: map, rng: SeededRNG(seed: 1),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        for tool in [ZoneType.residential, .road, .seaport, .airport] {
+            controller.selectedTool = tool
+            for position in map.tiles.map(\.position) {
+                guard let cursor = MapInteraction.cursor(at: position, controller: controller) else { continue }
+                // A copy, so asking the question does not build the city.
+                let trial = GameController(map: map, rng: SystemRandomNumberGenerator(),
+                                           peakPopulation: Unlocks.everythingUnlocked)
+                trial.selectedTool = tool
+                let outcome = trial.place(at: position)
+                if cursor.blocked {
+                    XCTAssertNotEqual(outcome, .placed, "\(tool) at \(position): said blocked, and it placed")
+                } else {
+                    XCTAssertEqual(outcome, .placed, "\(tool) at \(position): said clear, and got \(outcome)")
+                }
+            }
+        }
+    }
+
+    /// While a line is drawn the station is the clear tile and bare ground the
+    /// blocked one. It was once the other way round: the cursor described the
+    /// armed zoning tool, which calls every building occupied.
+    func testTheCursorSaysWhichStopsALineCanCallAt() {
+        var map = ScenePlaytestTests().startedCity()
+        map.placeBuilding(zone: .publicTransit, origin: GridPosition(x: 5, y: 3))
+        let controller = GameController(map: map, rng: SeededRNG(seed: 1),
+                                        peakPopulation: Unlocks.everythingUnlocked)
+        controller.beginTransitRoute(mode: .bus)
+        let onStation = MapInteraction.cursor(at: GridPosition(x: 5, y: 3), controller: controller)
+        let onNothing = MapInteraction.cursor(at: GridPosition(x: 9, y: 9), controller: controller)
+        XCTAssertEqual(onStation?.blocked, false, "the station you are meant to click is drawn as forbidden")
+        XCTAssertEqual(onNothing?.blocked, true)
+        XCTAssertEqual(onStation?.kind, .routeStop)
+    }
+}

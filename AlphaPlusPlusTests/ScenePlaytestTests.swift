@@ -813,26 +813,25 @@ extension ScenePlaytestTests {
     }
 }
 
-// MARK: - The same sessions, drawn by Metal (migration M5)
+// MARK: - The same sessions, drawn by Metal with no scene (M5, then M8)
 
 /// **The safety net, carried across.** The scene playtest and the random
 /// player caught more rendering bugs in this project than anything else, and
 /// every one of them was a picture falling behind the city — exactly the
 /// kind of bug the Metal renderer's own caching (chunks rebuilt by signature,
 /// a motion plan rebuilt by key, a view rebuilt by revision) can have. So the
-/// same sessions run again with Metal drawing the city, checked by
-/// `MetalAgreement` against a Metal renderer built fresh.
+/// same sessions run with no `GameScene` at all (`CityPlaytest`): clicks go
+/// through `MapInteraction`, days through `CityClock`, and every check asks
+/// `MetalAgreement` about a Metal renderer built fresh.
 @MainActor
 final class MetalPlaytestTests: XCTestCase {
 
-    private func game(seed: UInt64 = 0xA1F4) -> ScenePlaytest {
-        let game = ScenePlaytest(map: ScenePlaytestTests().startedCity(), seed: seed)
-        game.drawWithMetal()
-        return game
+    private func game(seed: UInt64 = 0xA1F4) throws -> CityPlaytest {
+        try XCTUnwrap(CityPlaytest(map: ScenePlaytestTests().startedCity(), seed: seed), "no Metal device")
     }
 
-    func testAnOrdinarySession() {
-        let game = game()
+    func testAnOrdinarySession() throws {
+        let game = try game()
         game.play()
         game.drag(.road, from: GridPosition(x: 11, y: 0), to: GridPosition(x: 11, y: 15))
         game.check("a cross street")
@@ -864,8 +863,8 @@ final class MetalPlaytestTests: XCTestCase {
 
     /// Building and bulldozing while paused, when no day passes to wake the
     /// motion plan — the case its key has to cover on its own.
-    func testBuildingWhilePausedUnderEveryView() {
-        let game = game()
+    func testBuildingWhilePausedUnderEveryView() throws {
+        let game = try game()
         game.play()
         game.tick(4)
         game.pause()
@@ -881,10 +880,10 @@ final class MetalPlaytestTests: XCTestCase {
     /// **A session nobody wrote**, on Metal. Short in the normal suite and a
     /// real one under `PLAYTEST_FULL` — the plan's bar for M5 is that the
     /// long run is clean.
-    func testARandomSessionKeepsThePictureHonest() {
+    func testARandomSessionKeepsThePictureHonest() throws {
         let long = PlaytestHarness.Profile.current == .full
         for seed in (long ? [1, 2, 3, 4, 5, 6] : [1, 2]) as [UInt64] {
-            var player = RandomScenePlayer(game: game(seed: seed), seed: seed)
+            var player = RandomScenePlayer(game: try game(seed: seed), seed: seed)
             player.play(steps: long ? 300 : 40, checkingEvery: long ? 3 : 1)
         }
     }
