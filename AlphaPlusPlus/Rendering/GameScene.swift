@@ -658,6 +658,26 @@ final class GameScene: SKScene {
     /// `testTileNodesSitWhereTheProjectionSaysTheyDo` already pins.
     func place(at position: GridPosition) {
 
+        // **The Land view sells land.** A click buys the parcel under it, and
+        // only a click — a drag across a row of parcels buying every one it
+        // touched would spend a fortune on a gesture meant to pan. Every
+        // parcel's tiles change how they are drawn at once, so a purchase
+        // repaints the map, which is cheap next to how rarely it happens.
+        if controller.overlayMode == .land {
+            guard lastPaintPosition == nil else { return }
+            lastPaintPosition = position
+            switch controller.buyLand(at: position) {
+            case .bought:
+                refreshAll()
+            case .insufficientFunds:
+                flashInsufficientFunds(at: position)
+            case .refused, .nothingForSale:
+                flashBlockedPlacement(at: position)
+            }
+            updatePlacementPreview(at: position)
+            return
+        }
+
         // The Water overlay doubles as the pipe-editing layer — whatever
         // zone tool happens to be selected on the toolbar is irrelevant
         // while looking at it. See `Tile.hasPipe`'s doc comment for why
@@ -999,6 +1019,23 @@ final class GameScene: SKScene {
             placementPreviewNode.strokeColor = RenderPalette.placementPreviewClearStroke
             placementPreviewNode.path = projection.footprintCursor(size: 1)
             placementPreviewNode.position = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
+            placementPreviewNode.isHidden = false
+            return
+        }
+
+        // **In the Land view the cursor is a whole parcel**, since that is what
+        // a click buys — and it is clear or blocked by the controller's own
+        // rule, the contract every other cursor in this file keeps.
+        if controller.overlayMode == .land, let land = map.land {
+            let parcel = land.parcel(containing: position)
+            let buyable = controller.landRefusal(at: position) == nil
+            placementPreviewNode.fillColor = buyable
+                ? RenderPalette.placementPreviewClearFill : RenderPalette.placementPreviewBlockedFill
+            placementPreviewNode.strokeColor = buyable
+                ? RenderPalette.placementPreviewClearStroke : RenderPalette.placementPreviewBlockedStroke
+            placementPreviewNode.path = projection.footprintCursor(size: CGFloat(LandOwnership.parcelSize))
+            let origin = land.origin(of: parcel)
+            placementPreviewNode.position = projection.project(CGFloat(origin.x), CGFloat(origin.y), 0)
             placementPreviewNode.isHidden = false
             return
         }
@@ -2171,7 +2208,8 @@ final class GameScene: SKScene {
             tileRenderer.restoreFromOverlay(on: node)
             tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position),
                                 roadNeighbours: roadNeighbourMask(at: tile.position),
-                                occludedBy: occlusion(at: anchor))
+                                occludedBy: occlusion(at: anchor),
+                                owned: map.isOwned(anchor))
             tileRenderer.syncConduits(on: node, isPipe: true, segments: [])
             tileRenderer.syncConduits(on: node, isPipe: false, segments: [])
             tileRenderer.syncTramTrack(on: node, present: false, mask: 0)
@@ -2211,7 +2249,8 @@ final class GameScene: SKScene {
                 // changed one rebuilds exactly once.
                 tileRenderer.update(node, for: tile, reflecting: reflection(at: tile.position),
                                 roadNeighbours: roadNeighbourMask(at: tile.position),
-                                occludedBy: occlusion(at: anchor))
+                                occludedBy: occlusion(at: anchor),
+                                owned: map.isOwned(anchor))
                 tileRenderer.applyOverlay(on: node, buildings: paint.buildings, color: paint.color,
                                      buildingColor: paint.buildingColor,
                                      keepingRoads: paint.showsRoads,

@@ -38,6 +38,9 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     case tram
     case subway
     case rail
+    /// Which of the region the city owns, and which parcels are for sale.
+    /// Clicking a parcel here buys it — see `LandOwnership`.
+    case land
 
     var id: String { rawValue }
 
@@ -50,7 +53,7 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
     /// transit arrived, and a seventh and eighth of those is how one gets
     /// forgotten — leaving a mode where clicks silently do the wrong thing,
     /// which is exactly the bug this exclusivity exists to prevent.
-    static let clickEditing: Set<OverlayMode> = [.water, .power, .bus, .tram, .subway, .rail]
+    static let clickEditing: Set<OverlayMode> = [.water, .power, .bus, .tram, .subway, .rail, .land]
 
     /// The view that belongs to a kind of line. The inverse of `routeMode`,
     /// spelled once — it was a `mode == .bus ? .bus : .subway` ternary in
@@ -137,6 +140,7 @@ enum OverlayMode: String, CaseIterable, Identifiable, Hashable {
         // player looking at this view is asking about the connection to the
         // region, not about a platform.
         case .rail: return "Regional Rail"
+        case .land: return "Land"
         }
     }
 }

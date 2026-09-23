@@ -110,6 +110,12 @@ struct CityMap: Equatable, Codable, Sendable {
     /// simulation reads it, via `Demand.compute(for:)`.
     var regionalEconomy = RegionalEconomy()
 
+    /// Which of the map the city owns — see `LandOwnership`. `nil` means all
+    /// of it, which is what every save from before land could be bought
+    /// decodes to (an `Optional` decodes with `decodeIfPresent`), and what
+    /// every test fixture and playtest city is.
+    var land: LandOwnership?
+
     /// The bus and subway lines the player has drawn — see `TransitRoute`.
     ///
     /// **Stored optional, read non-optional.** `CityMap` decodes through the

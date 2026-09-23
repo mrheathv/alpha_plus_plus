@@ -7456,6 +7456,50 @@ fifth panel, the goal folds into a badge in Alerts. The narrow render caught
 the first version squeezing Alerts to "A…", which is the urgent panel losing
 to the one that can wait.
 
+### Buying land
+
+The player's call, modelled on Cities: Skylines. The map size chosen at
+founding is the **region**. The city starts on the middle 16×16 and buys the
+rest in 8×8 parcels. `LandOwnership` (Simulation/) is the rule, and
+`GameController.landRefusal` is the one place the Land view's cursor, the
+click and the Alerts hint all ask.
+
+**Rank decides whether you may buy; money decides whether you can.** Each
+rank permits a total number of parcels (6, 10, 20, 42, then all). Each total
+is sized so that rank's land can hold the *next* rank's residents at 48 a
+parcel, the default layout's measured density on the smallest map. An
+allowance below that would be a deadlock: a rank you could only reach with
+land that rank unlocks. `testEachRankAllowsLandEnoughToReachTheNext` pins it.
+
+**It is the first money sink that is a purchase rather than an upkeep.**
+Every sink before this was an upkeep, and a big tax base simply outruns
+those. Parcels cost $2,500 × the number bought so far, so the first is a
+quarter of a new city's treasury and buying out a 64×64 region costs about
+$4.6M. That is the scale of the *money accumulates* finding. **The price is
+sized by argument, not measured**: the harness zones a whole map at once and
+owns all of it, so measuring this needs a scenario that buys as it grows.
+
+**`nil` means all of it.** `CityMap.land` is an `Optional`, so every save from
+before this decodes to a fully owned map. Every test fixture and every
+playtest city is fully owned too, because they measure the city's own
+economics and a land budget would turn them into measurements of how much
+map the fixture started with. Only the founding panel passes `buyingLand`.
+
+Two things the render decided:
+
+- **Unowned ground is darkened on the sprite, not in a new texture.** One
+  tint serves every kind of ground, water included, and the ground key
+  gained an owned flag so a purchase redraws exactly the tiles it changed.
+- **The Land view is lit, not tinted.** The first render came out maroon and
+  navy for the reason the Problems view recorded: a tint multiplies into
+  near-black ground and then loses up to 40% more to the vignette. Owned
+  land and land for sale glow additively; land out of reach stays dark.
+
+`LandOwnershipTests.testTheMapKeepsUpWithAPurchase` buys a parcel through the
+scene and has `ScenePlaytest` check the picture in both views, because a
+purchase repaints a whole parcel at once. That is exactly the kind of change
+where a stale cache key would show up.
+
 ### Wet streets: light, not a mirror
 
 Reported from play: the reflections were "really not landing". The close-up

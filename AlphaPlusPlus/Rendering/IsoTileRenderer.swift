@@ -110,10 +110,15 @@ struct IsoTileRenderer {
     ///   0 for a building standing on its own and 1 for one walled in on every
     ///   side by towers. Worked out by the caller for the same reason the
     ///   reflection is — it needs the map, and this does not.
+    /// - Parameter owned: whether the city owns this ground — see
+    ///   `LandOwnership`. Land it does not own is drawn darker, so the edge of
+    ///   what you can build on is visible in the ordinary view, not only in
+    ///   the Land one.
     func update(_ node: SKNode, for tile: Tile, reflecting: Reflected? = nil,
-                roadNeighbours: Int = 0b1111, occludedBy occlusion: Double = 0) {
+                roadNeighbours: Int = 0b1111, occludedBy occlusion: Double = 0,
+                owned: Bool = true) {
         let shade = Self.occlusionStep(occlusion)
-        syncGround(on: node, tile: tile, roadNeighbours: roadNeighbours)
+        syncGround(on: node, tile: tile, roadNeighbours: roadNeighbours, owned: owned)
         syncGroundGlow(on: node, tile: tile, shade: shade)
         syncContactLight(on: node, tile: tile, shade: shade)
         syncSmoke(on: node, tile: tile)
@@ -174,6 +179,11 @@ struct IsoTileRenderer {
     /// purpose — see above.
     static let occlusionDimsBuilding = 0.22
 
+    /// How much darker land the city does not own is drawn. Enough that the
+    /// boundary reads at a glance from across the map, not so much that the
+    /// terrain you might buy next — a river, a coast — disappears.
+    static let unownedDarkening: CGFloat = 0.55
+
     static func nodeName(for position: GridPosition) -> String { "iso-\(position.x)-\(position.y)" }
 
     // MARK: - Ground
@@ -181,7 +191,8 @@ struct IsoTileRenderer {
     /// The lot itself: one diamond covering the whole footprint, not one per
     /// cell. A 2×2 building stands on a single 2×2 diamond, so its ground has
     /// no seams running through it.
-    private func syncGround(on node: SKNode, tile: Tile, roadNeighbours: Int = 0b1111) {
+    private func syncGround(on node: SKNode, tile: Tile, roadNeighbours: Int = 0b1111,
+                            owned: Bool = true) {
         // **The mask is in the key only for the tiles that draw it.**
         //
         // A street whose neighbour is bulldozed grows a kerb where the
@@ -204,7 +215,7 @@ struct IsoTileRenderer {
         let scatter = tile.zone == .empty && !tile.isWater
             ? "|\(IsoTextureCache.variant(for: tile.position) % IsoTextureCache.bareLandVariants)"
             : ""
-        let key = "\(tile.zone.rawValue)|\(tile.density)|\(tile.isWater)|\(mask)\(scatter)"
+        let key = "\(tile.zone.rawValue)|\(tile.density)|\(tile.isWater)|\(mask)\(scatter)|\(owned)"
         guard !isUpToDate(node, Self.groundNodeName, key) else { return }
         markUpToDate(node, Self.groundNodeName, key)
         node.childNode(withName: Self.groundNodeName)?.removeFromParent()
@@ -217,6 +228,13 @@ struct IsoTileRenderer {
         ground.name = Self.groundNodeName
         ground.position = rendered.offset
         ground.zPosition = 0
+        if !owned {
+            // Darkened on the sprite rather than baked into another texture:
+            // one tint serves every kind of ground, water included, and the
+            // cache stays the size it was.
+            ground.color = .black
+            ground.colorBlendFactor = Self.unownedDarkening
+        }
         if tile.isWater {
             // One shared shader instance, because an `SKShader` is the
             // batching unit — a per-tile instance would be a draw call per
@@ -723,6 +741,22 @@ struct IsoTileRenderer {
                     hue: RenderPalette.conduitColor(isPipe: true, live: true)
                 )
             )
+        case .land:
+            // Buildings hidden: the question is where the city can go next,
+            // and the answer is a shape on the ground. A map with no land
+            // budget reads as owned everywhere, which is the truth.
+            let land = map.land
+            let parcel = land?.parcel(containing: position)
+            let owned = map.isOwned(position)
+            let forSale = !owned && parcel.map { land?.touchesOwnedLand($0) ?? false } ?? false
+            let alternate = parcel.map { ($0.x + $0.y) % 2 == 1 } ?? false
+            let color = RenderPalette.landColor(owned: owned, forSale: forSale, alternate: alternate)
+            // **Lit, not tinted**, for the reason the Problems view found: a
+            // tint multiplies into near-black ground and then loses up to 40%
+            // more to the vignette, and the first render of this view came out
+            // maroon and navy. Additive light is what survives, so owned and
+            // for-sale land glow and land out of reach simply stays dark.
+            return OverlayPaint(buildings: .flagged(owned || forSale ? color : nil), color: color)
         case .problems:
             // Buildings hidden, like every other heatmap: the data *is* the
             // picture here, and a lot's ground diamond is its footprint — so a

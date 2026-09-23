@@ -61,7 +61,12 @@ struct GameView: View {
             }
             .frame(minWidth: 760, minHeight: 420)
             .overlay(alignment: .topTrailing) { if !controller.isScreenshotMode { inspector } }
-            .overlay(alignment: .topLeading) { if !controller.isScreenshotMode { transitEditor } }
+            .overlay(alignment: .topLeading) {
+                if !controller.isScreenshotMode {
+                    transitEditor
+                    landPanel
+                }
+            }
             .overlay(alignment: .bottomLeading) { if !controller.isScreenshotMode { guidePanel } }
             // **Focus on the map, not on the window.** `onKeyPress` needs a
             // focusable view, and putting it here rather than on the whole
@@ -378,6 +383,27 @@ struct GameView: View {
         }
     }
 
+    /// The Land view's price and rank limit, where the route editor sits —
+    /// the two are never up at once, since each belongs to its own view.
+    @ViewBuilder private var landPanel: some View {
+        if controller.overlayMode == .land, let land = controller.map.land {
+            LandPanel(land: land, rank: controller.milestone, treasury: controller.treasury)
+                .padding(RetroMetrics.gutter)
+                .transition(.opacity)
+        }
+    }
+
+    /// Whether a parcel could be bought right now, for the Alerts hint.
+    ///
+    /// Asked of the controller's own rule rather than restated: it is for
+    /// sale if *some* parcel touching the city passes `landRefusal`.
+    private var landIsForSale: Bool {
+        guard controller.overlayMode != .land, let land = controller.map.land, !land.isComplete,
+              land.owned.count < LandOwnership.allowance(for: controller.milestone),
+              controller.treasury >= land.nextPrice else { return false }
+        return true
+    }
+
     /// The first-city guide, over the map's bottom-left. See `GuidePanel`.
     ///
     /// The only lock a step's shortcut can hit is an unlock, so that is the
@@ -599,6 +625,12 @@ struct GameView: View {
             // *which*. A count with no way to act on it would be worse than
             // silence, so the badge names the view that answers it.
             attentionBadge
+            // An answer the player can act on right now, so it earns a line:
+            // a city that can afford to grow and is allowed to should be told
+            // where the land is sold.
+            if landIsForSale, let price = controller.map.land?.nextPrice {
+                RetroBadge(text: "Land for sale: $\(price) · Land view", accent: .orange)
+            }
             if let rank = controller.newlyEarnedMilestones.last {
                 RetroBadge(text: MilestoneText.earned(rank), accent: .green)
             } else if withGoal, let next = controller.nextMilestone {

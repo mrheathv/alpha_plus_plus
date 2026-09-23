@@ -68,13 +68,22 @@ struct NewCityPanel: View {
     }
 
     private var size: some View {
-        RetroPanel(title: "Size") {
+        RetroPanel(title: "Region") {
+            VStack(alignment: .leading, spacing: 8) {
                 RetroSegmentedPicker(
                     options: MapSize.allCases,
                     label: \.displayName,
                     selection: $controller.selectedMapSize
                 )
+                // The size is no longer the city — it is how far the city can
+                // grow. Said here, because a player choosing 64×64 and landing
+                // on a 16×16 patch would otherwise think something broke.
+                Text("You start on the middle 16×16 and buy the rest as the city earns it.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(RetroUITheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
 
     }
 
@@ -119,7 +128,10 @@ struct NewCityPanel: View {
             Button("Cancel", action: dismiss)
                     .buttonStyle(RetroButtonStyle(accent: RetroUITheme.textSecondary))
             Button("Found") {
-                controller.resetMap(guided: guided)
+                // Every city founded from here buys its land — the size
+                // picked above is the region, and the city starts on the
+                // middle of it. See `LandOwnership`.
+                controller.resetMap(guided: guided, buyingLand: true)
                 dismiss()
             }
             .buttonStyle(RetroButtonStyle(accent: RetroUITheme.primaryAccent))

@@ -607,6 +607,28 @@ enum RenderPalette {
         return landValueLow.blended(withFraction: fraction, of: landValueHigh) ?? landValueLow
     }
 
+    /// The Land view: owned ground, a parcel you could buy next, and the rest.
+    ///
+    /// For sale is the loud one, for the rule the utility views settled on —
+    /// one reading per answer, and the answer that wants something is the one
+    /// that shouts. Owned land is a quiet cyan, the colour the cockpit already
+    /// uses for "yours", and land out of reach sits near the night the map is
+    /// drawn on.
+    ///
+    /// `alternate` is a checkerboard of parcels: without it a run of owned
+    /// parcels reads as one slab and the player cannot count what they have.
+    static func landColor(owned: Bool, forSale: Bool, alternate: Bool) -> SKColor {
+        let base: SKColor
+        if owned {
+            base = SKColor(srgbRed: 0.10, green: 0.55, blue: 0.62, alpha: 1)
+        } else if forSale {
+            base = SKColor(srgbRed: 1.0, green: 0.62, blue: 0.16, alpha: 1)
+        } else {
+            base = SKColor(srgbRed: 0.10, green: 0.07, blue: 0.16, alpha: 1)
+        }
+        return alternate ? (base.blended(withFraction: 0.18, of: .black) ?? base) : base
+    }
+
     /// Low end of the traffic heatmap (empty road, congestion 0).
     private static let trafficLow = SKColor(srgbRed: 0.15, green: 1.0, blue: 0.45, alpha: 1.0)  // neon green
 

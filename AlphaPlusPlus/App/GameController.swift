@@ -449,6 +449,11 @@ final class GameController: ObservableObject {
 
         let footprint = map.footprintCells(origin: position, size: tool.footprintSize)
         guard !footprint.isEmpty else { return .unchanged } // doesn't fit on the map
+        // **Nothing is built on land the city does not own**, and a building
+        // straddling the boundary counts as on it. Refused as `.blocked` so
+        // the cursor and the flash say so the same way they say everything
+        // else — see `LandOwnership`.
+        guard footprint.allSatisfy({ map.isOwned($0) }) else { return .blocked }
 
         guard footprint.allSatisfy({ map[$0].zone == .empty }) else { return .blocked }
         // **Nothing is built on water except a bridge.** A road may cross it,
@@ -706,6 +711,7 @@ final class GameController: ObservableObject {
         // because a public-works budget resurfaces the street and replaces
         // the main beneath it in one job.
         guard !map[position].isWater || map[position].zone.canBridge else { return .blocked }
+        guard map.isOwned(position) else { return .blocked }
         guard !map[position].hasPipe else { return .unchanged }
         guard treasury >= Self.pipePlacementCost else { return .insufficientFunds }
         treasury -= Self.pipePlacementCost
@@ -743,6 +749,7 @@ final class GameController: ObservableObject {
                 recomputingSupply: Bool = true) -> PlacementOutcome {
         guard map.contains(position) else { return .unchanged }
         guard !map[position].isWater || map[position].zone.canBridge else { return .blocked }
+        guard map.isOwned(position) else { return .blocked }
         guard !map[position].hasPowerLine else { return .unchanged }
         guard treasury >= Self.powerLinePlacementCost else { return .insufficientFunds }
         treasury -= Self.powerLinePlacementCost
@@ -781,13 +788,18 @@ final class GameController: ObservableObject {
     /// `guided` starts `FirstCityGuide` on the new city. Off by default so
     /// every existing caller — tests, the menu's reset — founds exactly the
     /// city it always did; the founding panel is the one place that asks.
-    func resetMap(guided: Bool = false) {
+    ///
+    /// `buyingLand` founds the city on the middle of the map with the rest for
+    /// sale — see `LandOwnership`. Off by default for the same reason `guided`
+    /// is: every test and every playtest city expects to own the whole map.
+    func resetMap(guided: Bool = false, buyingLand: Bool = false) {
         // Dropped *first*: assigning `map` below runs the guide's update, and
         // the old city's guide must not see the new city at all.
         guide = nil
         let size = selectedMapSize.dimension
         map = CityMap(width: size, height: size) // a fresh CityMap's serviceFunding already defaults to 1.0 for everything
         TerrainGenerator.apply(selectedTerrain, to: &map, seed: selectedTerrainSeed)
+        if buyingLand { map.land = .starting(width: size, height: size) }
         treasury = Self.startingTreasury
         taxRate = 1.0
         bondBalance = 0
@@ -846,6 +858,44 @@ final class GameController: ObservableObject {
 
     func requestManualAdvance() {
         manualAdvanceRequests += 1
+    }
+
+    // MARK: - Land
+
+    enum LandPurchase: Equatable {
+        case bought(LandOwnership.Parcel)
+        /// The map has no land budget — every tile is already the city's.
+        case nothingForSale
+        case refused(LandOwnership.Refusal)
+        case insufficientFunds
+    }
+
+    /// Why the parcel under `position` cannot be bought right now, or `nil`
+    /// if it can.
+    ///
+    /// The whole rule, owned here and *called* by the Land view's cursor and
+    /// its panel — the contract `placementRefusal` keeps for buildings, and
+    /// for the same reason: a cursor restating the rule is a cursor that
+    /// drifts from it.
+    func landRefusal(at position: GridPosition) -> LandPurchase? {
+        guard let land = map.land else { return .nothingForSale }
+        if let refusal = land.refusal(for: land.parcel(containing: position), rank: milestone) {
+            return .refused(refusal)
+        }
+        guard treasury >= land.nextPrice else { return .insufficientFunds }
+        return nil
+    }
+
+    /// Buys the parcel under `position`.
+    @discardableResult
+    func buyLand(at position: GridPosition) -> LandPurchase {
+        if let refusal = landRefusal(at: position) { return refusal }
+        guard var land = map.land else { return .nothingForSale }
+        let parcel = land.parcel(containing: position)
+        treasury -= land.nextPrice
+        land.buy(parcel)
+        map.land = land
+        return .bought(parcel)
     }
 
     // MARK: - First-city guide
