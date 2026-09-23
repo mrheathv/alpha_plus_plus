@@ -137,4 +137,23 @@ final class DetailTierTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(Self.largestExtent(of: Volume.box(mast).faces.flatMap(\.points)),
                                     DetailTier.floor(.far), "a mast is a line, not a speck")
     }
+
+    /// A panel's standoff moves it off its wall in the Metal renderer, so a
+    /// dark frame can stand in front of the lit glass it borders.
+    func testAStandoffMovesAPanelOffItsWall() {
+        let box = Box(x: 0.5, y: 0.5, z: 0, width: 1, depth: 1, height: 1)
+        func frontX(_ standoff: CGFloat?) -> Float {
+            var massing = BuildingMassing()
+            massing.add(.box(box))
+            var panel = Panel(box: box, face: .right, u0: 0.2, u1: 0.8, v0: 0.2, v1: 0.8,
+                              color: SKColor(white: 0.05, alpha: 1))
+            panel.standoff = standoff
+            massing.panels.append(panel)
+            let built = MetalCityMesh.building(.init(zone: .commercial, density: 3, variant: 0), massing: massing)
+            return stride(from: 0, to: built.vertices.count, by: MetalCityRenderer.GPUVertex.floatCount)
+                .map { built.vertices[$0] }.max() ?? 0
+        }
+        XCTAssertEqual(frontX(nil), 1.504, accuracy: 0.0005, "the default dark standoff moved")
+        XCTAssertEqual(frontX(0.015), 1.515, accuracy: 0.0005)
+    }
 }

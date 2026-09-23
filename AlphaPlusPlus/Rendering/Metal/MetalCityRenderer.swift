@@ -1841,7 +1841,9 @@ enum MetalCityMesh {
     }
 
     /// One building's triangles and lights, relative to its lot's corner.
-    static func building(_ key: Cache.Key) -> Built {
+    /// `given` replaces the generated massing, for a test that needs a
+    /// building of its own; the game always generates it from `key`.
+    static func building(_ key: Cache.Key, massing given: BuildingMassing? = nil) -> Built {
         var built = Built()
         func add(_ v: MetalCityRenderer.GPUVertex) { built.vertices += v.floats }
         func addLight(_ at: SIMD3<Float>, _ color: SIMD3<Float>, radius: Float) {
@@ -1853,8 +1855,8 @@ enum MetalCityMesh {
                           ground: ground, into: &built.vertices)
         }
         do {
-            guard let whole = ZoneMassing.make(for: key.zone, density: key.density,
-                                               seed: IsoTextureCache.canonicalSeed(for: key.variant))
+            guard let whole = given ?? ZoneMassing.make(for: key.zone, density: key.density,
+                                                        seed: IsoTextureCache.canonicalSeed(for: key.variant))
             else { return built }
             // Only the parts tagged for this tier or a farther one.
             let massing = whole.drawn(at: key.tier)
@@ -1931,7 +1933,7 @@ enum MetalCityMesh {
                 // pixel by pixel and the window edges came out ragged. The
                 // massing already layers cladding first and glazing over it
                 // (`NeonStyle.Cladding`); the offsets now say the same.
-                let corners = panel.corners.map { world($0) + normal * (lit ? 0.009 : 0.004) }
+                let corners = panel.corners.map { world($0) + normal * Float(panel.standoff ?? (lit ? 0.009 : 0.004)) }
                 if lit {
                     // Tagged 0.25, so the shader can calm windows from afar
                     // without touching the neon that carries the form.
