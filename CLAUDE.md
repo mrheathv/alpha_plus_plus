@@ -8715,6 +8715,40 @@ P0 is `DetailBaselineTests` (an extension of `MetalLookTests`, Full plan):
   roofs are empty planes with at most a box or two, and the suburb's ground
   is bare between the palms. That is the list P3–P5 exist to answer.
 
+### P6: detail in the shader
+
+Detail that would cost millions of triangles, done as shading, in the main
+pass only and off under the Classic look (`Uniforms.overlay.w`). Everything
+fades out below the size it can be read at.
+
+- **Every window a room.** A lit window's seed rides in its surface tag
+  (`MetalCityMesh.windowTag`, 0.201…0.299, inside the band the shader reads
+  as "window"), hashed from the pane's position in the variant and mixed with
+  the lot's when the building is copied into place, so two lots drawing the
+  same cached design do not light the same panes the same way. From the seed:
+  a warm or cool tint on the window's own colour, about one room in seven
+  dark (whose glass then shows the sunset sky, more of it higher up), blinds
+  drawn part way on about a third (slats up close), a darker rim just inside
+  the frame that reads as a room behind the glass, and one window in a
+  hundred with a failing tube.
+- **Panel lines**: a storey line every 0.36 and joints every half tile, in
+  world space so they run straight across faces, drawn only where a storey
+  is at least a dozen pixels tall.
+
+**The first tint washed the palette out.** Mixing each window toward a
+neutral warm or cool white turned the cyan and gold windows cream. It is a
+tint on the window's own colour now.
+
+Cost on Apex: 8.02 → 8.28 ms at the resting camera (raining 8.52), inside
+the 9 ms bound but with a thinner margin. `ShaderDetailTests` pins the
+window band and that two lots of one design differ, and fails when the lot
+mix is removed.
+
+**Not done**: interior mapping (a fake room seen through the glass), and
+glass catching the sky at glancing angles, since in this fixed isometric
+camera every wall is seen at the same angle. The sky on dark panes is the
+version of it that reads.
+
 ### Building detail, P2: shapes beyond boxes
 
 `MassingShape` (Rendering/MassingShapes.swift) is one more kind of `Volume`,
