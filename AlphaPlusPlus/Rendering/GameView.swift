@@ -59,7 +59,8 @@ struct GameView: View {
                     // and everything not yet ported. See `MapRenderer`.
                     ZStack {
                         if controller.mapRenderer == .metal {
-                            MetalMapView(controller: controller, scene: scene)
+                            MetalMapView(controller: controller, scene: scene,
+                                         onScreenshot: { save(screenshot: $0) })
                         }
                         GameSpriteView(scene: scene)
                     }
@@ -103,7 +104,11 @@ struct GameView: View {
             scene?.rebuildEntireGrid()
             scene?.centerCameraOnMap()
         }
-        .onChange(of: controller.screenshotRequests) { saveScreenshot() }
+        // With Metal on, the Metal view answers the request itself: the
+        // SpriteKit layer is transparent there and would capture nothing.
+        .onChange(of: controller.screenshotRequests) {
+            if controller.mapRenderer == .classic, let data = scene?.captureImage() { save(screenshot: data) }
+        }
         .onChange(of: controller.restyleRequests) {
             // A style change redraws the same city rather than a different
             // one, so no recentre — the camera should not move under a player
@@ -196,8 +201,7 @@ struct GameView: View {
     /// something you are about to *do something with* — attach it, upload it,
     /// put it in a listing — and having to go and find it first is the kind
     /// of small tax that makes a feature not get used.
-    private func saveScreenshot() {
-        guard let data = scene?.captureImage() else { return }
+    private func save(screenshot data: Data) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         // Named for the city's own calendar, so a folder of captures sorts

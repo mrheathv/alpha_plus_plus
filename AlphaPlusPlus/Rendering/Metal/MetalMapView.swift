@@ -11,6 +11,8 @@ import SwiftUI
 struct MetalMapView: NSViewRepresentable {
     let controller: GameController
     let scene: GameScene
+    /// Called with a PNG when the player asks for a screenshot.
+    var onScreenshot: (Data) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(controller: controller, scene: scene) }
 
@@ -28,7 +30,9 @@ struct MetalMapView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: MTKView, context: Context) {}
+    func updateNSView(_ nsView: MTKView, context: Context) {
+        context.coordinator.onScreenshot = onScreenshot
+    }
 
     @MainActor
     final class Coordinator: NSObject, MTKViewDelegate {
@@ -43,6 +47,9 @@ struct MetalMapView: NSViewRepresentable {
         }()
         private let started = CACurrentMediaTime()
         private var motionClock = MotionClock()
+        var onScreenshot: (Data) -> Void = { _ in }
+        /// The last screenshot request answered, so each is answered once.
+        private var screenshotsTaken: Int?
 
         init(controller: GameController, scene: GameScene) {
             self.controller = controller
@@ -67,11 +74,27 @@ struct MetalMapView: NSViewRepresentable {
                                                   size: view.drawableSize)
             let weather = VisualStyle.current.wetReflection > 0
             let day = controller.map.elapsedDays
-            renderer.draw(in: view, camera: camera,
-                          wetness: weather ? Float(Weather.wetness(onDay: day)) : 0,
-                          time: Float(now - started),
-                          motionClock: motionClock.seconds,
-                          rainfall: weather ? Float(Weather.rainfall(onDay: day)) : 0)
+            let wetness: Float = weather ? Float(Weather.wetness(onDay: day)) : 0
+            let rainfall: Float = weather ? Float(Weather.rainfall(onDay: day)) : 0
+            renderer.draw(in: view, camera: camera, wetness: wetness, time: Float(now - started),
+                          motionClock: motionClock.seconds, rainfall: rainfall)
+
+            // **A screenshot is the Metal frame, rendered again offscreen**:
+            // the SpriteKit layer above is transparent in Metal mode, so its
+            // capture was an empty picture. At the drawable's own size, which
+            // on any Mac worth screenshotting on is Retina.
+            if screenshotsTaken == nil { screenshotsTaken = controller.screenshotRequests }
+            if controller.screenshotRequests != screenshotsTaken {
+                screenshotsTaken = controller.screenshotRequests
+                if let frame = renderer.render(controller.map, camera: camera, wetness: wetness,
+                                               time: Float(now - started), motionClock: motionClock.seconds,
+                                               rainfall: rainfall),
+                   let png = NSBitmapImageRep(cgImage: frame.image).representation(using: .png, properties: [:]) {
+                    // The save panel is modal, so it runs after this frame.
+                    let handler = onScreenshot
+                    DispatchQueue.main.async { handler(png) }
+                }
+            }
         }
     }
 }
