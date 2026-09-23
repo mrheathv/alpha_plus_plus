@@ -71,6 +71,52 @@ enum SuburbMassing {
                         .lit(NeonStyle.litAccent))
         }
     }
+
+    // MARK: - The ground, up close (P5)
+
+    /// Everything below is `.near`: the resting camera draws exactly what it
+    /// did, and a lot's ground fills in as the camera comes down to it.
+    static let groundTier: DetailTier = .near
+
+    /// A parked car, the size of the ones driving past (0.34 by 0.15): a low
+    /// body and a cabin set back. `alongA` says which way it points.
+    static func parkedCar(_ plan: LotPlan, a: CGFloat, b: CGFloat, alongA: Bool,
+                          into massing: inout BuildingMassing) {
+        let (length, width): (CGFloat, CGFloat) = (0.34, 0.15)
+        let body = alongA ? plan.box(a, b, length, width, z: 0.012, height: 0.055)
+                          : plan.box(a, b, width, length, z: 0.012, height: 0.055)
+        let cabin = alongA ? plan.box(a + 0.1, b + 0.015, 0.17, 0.12, z: 0.067, height: 0.045)
+                           : plan.box(a + 0.015, b + 0.1, 0.12, 0.17, z: 0.067, height: 0.045)
+        massing.add(.box(body), from: groundTier)
+        massing.add(.box(cabin), from: groundTier)
+    }
+
+    /// A painted parking stripe: a faint lit line lying on the ground, the
+    /// only paint that reads at night.
+    static func stripe(_ plan: LotPlan, a: CGFloat, b0: CGFloat, b1: CGFloat,
+                       into massing: inout BuildingMassing) {
+        massing.add(.box(plan.box(a - 0.008, b0, 0.016, b1 - b0, height: 0.004)),
+                    .lit(SKColor(white: 0.62, alpha: 1)), from: groundTier)
+    }
+
+    /// A low hedge along a lot's front, from `a0` to `a1` at depth `b`.
+    static func hedge(_ plan: LotPlan, a0: CGFloat, a1: CGFloat, b: CGFloat, into massing: inout BuildingMassing) {
+        massing.add(.box(plan.box(a0, b, a1 - a0, 0.07, height: 0.075)), from: groundTier)
+    }
+
+    /// A pool lounger: a low slab with a raised back.
+    static func lounger(_ plan: LotPlan, a: CGFloat, b: CGFloat, into massing: inout BuildingMassing) {
+        massing.add(.box(plan.box(a, b, 0.2, 0.08, height: 0.025)), from: groundTier)
+        massing.add(.box(plan.box(a, b, 0.06, 0.08, z: 0.025, height: 0.04)), from: groundTier)
+    }
+
+    /// A beach umbrella: a pole and a shallow lathed canopy.
+    static func umbrella(_ plan: LotPlan, a: CGFloat, b: CGFloat, into massing: inout BuildingMassing) {
+        let (x, y) = plan.point(a, b)
+        massing.add(.cylinder(Cylinder(x: x, y: y, z: 0, radius: 0.01, height: 0.22, sides: 6)), from: groundTier)
+        massing.add(.shape(MassingShape.lathe(x: x, y: y, z: 0.18, profile: [(0.15, 0), (0, 0.06)], sides: 8)),
+                    from: groundTier)
+    }
 }
 
 /// **A lot laid out in its own axes.** Most low-end forms have a long side

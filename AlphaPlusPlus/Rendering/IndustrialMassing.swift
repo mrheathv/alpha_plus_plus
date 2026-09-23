@@ -350,6 +350,13 @@ enum IndustrialMassing {
         chimney(at: CGPoint(x: plan.point(1.5, 0.3).0, y: plan.point(1.5, 0.3).1), base: hall.height,
                 tier: tier, into: &massing, random: &random)
         floodlight(at: plan.point(1.72, 1.72), into: &massing)
+        // The yard, up close: pallets between the trucks, a forklift, and a
+        // fence along the open corner that is not a way in.
+        pallets(plan, a: 0.6, b: 0.1 + depth + 0.3, crate: true, into: &massing)
+        pallets(plan, a: 0.6, b: 0.1 + depth + 0.48, crate: false, into: &massing)
+        forklift(plan, a: 0.62, b: min(1.78, 0.1 + depth + 0.66), into: &massing)
+        fence(plan, from: 1.42, to: 1.97, at: 1.96, atB: true, into: &massing)
+        fence(plan, from: 0.1 + depth + 0.14, to: 1.96, at: 1.96, atB: false, into: &massing)
     }
 
     /// A yard floodlight: a mast with a sodium head. Industry works at night
@@ -390,6 +397,7 @@ enum IndustrialMassing {
         for index in 0 ..< random.int(in: 2 ... 3) {
             massing.add(.box(plan.box(1.5, 1.2 + CGFloat(index) * 0.2, 0.26, 0.16, height: 0.16 + CGFloat(index) * 0.01)))
         }
+        forklift(plan, a: 1.42, b: 1.78, into: &massing)
     }
 
     /// A yard of shipping containers stacked beside a low workshop; with
@@ -415,6 +423,7 @@ enum IndustrialMassing {
             }
         }
         floodlight(at: plan.point(1.8, 1.0), into: &massing)
+        fence(plan, from: 0.84, to: 1.97, at: 1.96, atB: true, into: &massing)
         guard crane else { return }
         let top: CGFloat = 1.2
         for (a, b) in [(0.84, 0.14), (1.72, 0.14), (0.84, 1.8), (1.72, 1.8)] as [(CGFloat, CGFloat)] {
@@ -471,6 +480,10 @@ enum IndustrialMassing {
                                     color: NeonStyle.litAccent))
         massing.add(.box(plan.box(0.2, 0.92, 1.62, 0.06, z: 0.34, height: 0.05)))
         flare(at: plan.point(1.66, 1.66), height: CGFloat(random.value(in: 1.3 ... 1.7)), into: &massing)
+        // A secure perimeter, with a gate in the front.
+        fence(plan, from: 0.04, to: 0.8, at: 1.96, atB: true, into: &massing)
+        fence(plan, from: 1.1, to: 1.97, at: 1.96, atB: true, into: &massing)
+        fence(plan, from: 0.04, to: 1.96, at: 1.96, atB: false, into: &massing)
     }
 
     /// A refinery: two process columns ringed in light, a flare stack, drums
@@ -514,6 +527,37 @@ enum IndustrialMassing {
         massing.add(.cylinder(Cylinder(x: point.0, y: point.1, z: 0, radius: 0.045, height: height, sides: 8)))
         massing.add(.cylinder(Cylinder(x: point.0, y: point.1, z: height, radius: 0.08, height: 0.14, sides: 8)),
                     .lit(NeonStyle.emberColor))
+    }
+
+    // MARK: - The yard, up close (P5)
+
+    /// A stack of pallets, some with a crate on top.
+    private static func pallets(_ plan: LotPlan, a: CGFloat, b: CGFloat, crate: Bool,
+                                into massing: inout BuildingMassing) {
+        massing.add(.box(plan.box(a, b, 0.14, 0.14, height: 0.03)), from: SuburbMassing.groundTier)
+        massing.add(.box(plan.box(a, b, 0.14, 0.14, z: 0.03, height: 0.03 + 0.001)), from: SuburbMassing.groundTier)
+        if crate {
+            massing.add(.box(plan.box(a + 0.01, b + 0.01, 0.12, 0.12, z: 0.061, height: 0.1)),
+                        from: SuburbMassing.groundTier)
+        }
+    }
+
+    /// A forklift: a body, a mast and a pair of forks.
+    private static func forklift(_ plan: LotPlan, a: CGFloat, b: CGFloat, into massing: inout BuildingMassing) {
+        massing.add(.box(plan.box(a, b, 0.18, 0.1, z: 0.01, height: 0.08)), from: SuburbMassing.groundTier)
+        massing.add(.box(plan.box(a + 0.18, b + 0.01, 0.02, 0.08, height: 0.22)), from: SuburbMassing.groundTier)
+        massing.add(.box(plan.box(a + 0.2, b + 0.015, 0.1, 0.07, z: 0.01, height: 0.01)), from: SuburbMassing.groundTier)
+    }
+
+    /// A yard fence along one lot edge: a thin wall whose neon top edge is the
+    /// fence line. `atB` true runs it along `a` at depth `at`; false runs it
+    /// along `b` at `a` = `at`.
+    private static func fence(_ plan: LotPlan, from start: CGFloat, to end: CGFloat, at: CGFloat, atB: Bool,
+                              into massing: inout BuildingMassing) {
+        let t: CGFloat = 0.012
+        let box = atB ? plan.box(start, at, end - start, t, height: 0.1)
+                      : plan.box(at, start, t, end - start, height: 0.1 + 0.001)
+        massing.add(.box(box), from: SuburbMassing.groundTier)
     }
 
     private static func tank(
