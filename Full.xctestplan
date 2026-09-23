@@ -1,0 +1,22 @@
+{
+  "configurations": [
+    {
+      "id": "477AF540-B44E-55DA-B621-9A9C2D75DC34",
+      "name": "Test Scheme Action",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "codeCoverage": false
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:AlphaPlusPlus.xcodeproj",
+        "identifier": "A1B2C3D4E5F6000000000012",
+        "name": "AlphaPlusPlusTests"
+      }
+    }
+  ],
+  "version": 1
+}

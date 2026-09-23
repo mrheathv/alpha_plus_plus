@@ -47,6 +47,132 @@ struct CityMap: Equatable, Codable, Sendable {
     /// map has no traffic load anywhere.
     var waterSupply = WaterSupply()
 
+    /// City-wide pressure to grow each RCI type, as of the last time
+    /// `Demand.compute(for:)` ran and someone assigned the result here
+    /// (`GameController.advanceSimulation()` does this once per
+    /// simulation tick, alongside `trafficLoad` and `waterSupply`). Same
+    /// "cache a whole-map computation rather than redo it per tile"
+    /// shape as those two — `CitySimulator.advance` checks it once per
+    /// growable building, not by rescanning the whole city each time.
+    /// Defaults to `CityDemand()` (every type reads as perfectly
+    /// balanced, demand 0), so a fresh `CityMap` — or one built directly
+    /// in a test, never advanced — reads as a city with no particular
+    /// opinion about what gets built next, same neutral-default spirit
+    /// `ServiceFunding`'s 1.0 defaults have.
+    var cityDemand = CityDemand()
+
+    /// Which `.hasPowerLine` tiles are actually connected to a funded,
+    /// non-outaged Power Plant, as of the last time `PowerGrid.computeSupply(for:)`
+    /// ran and someone assigned the result here (`GameController.advanceSimulation()`
+    /// does this once per simulation tick, alongside `waterSupply`). Same
+    /// "cache a network search, don't redo it per tile" shape `waterSupply`
+    /// already documents for itself — `PowerGrid` is `Water`'s own shape,
+    /// copied for a second network. Defaults to empty, so a fresh
+    /// `CityMap` (or one built directly in a test, never advanced) reports
+    /// no power anywhere, same as an untouched map has no water supply.
+    var powerSupply = PowerSupply()
+
+    /// Which city-wide policies are currently active — see `Ordinances`'
+    /// own doc comment for why this lives here, next to `serviceFunding`,
+    /// rather than on `GameController`. Defaults to every ordinance off,
+    /// so a fresh `CityMap` behaves exactly as it did before this existed.
+    var ordinances = Ordinances()
+
+    /// How dirty each tile is, as of the last time `Pollution.compute(for:)`
+    /// ran and someone assigned the result here (`GameController
+    /// .advanceSimulation()` does, alongside `trafficLoad` and `waterSupply`).
+    /// Same "cache a whole-map computation rather than redo it per tile" shape
+    /// as those. Defaults to clean everywhere, so a fresh `CityMap` — or one
+    /// built directly in a test, never advanced — reads as unpolluted.
+    var pollution = PollutionMap()
+
+    /// The player's tax rate, as a fraction of the default (1.0 = the rate
+    /// every balance number was tuned against).
+    ///
+    /// Lives here rather than on `GameController` for the same reason
+    /// `serviceFunding` and `ordinances` do: the simulation itself reads it.
+    /// `Demand.compute(for:)` turns it into growth pressure — a high rate
+    /// makes the city a less attractive place to build, which is the whole
+    /// point of having a rate at all. It was a pure `GameController` display
+    /// number until then, and a lever nothing downstream reads is not a lever.
+    ///
+    /// Defaults to 1.0, so a fresh `CityMap` behaves exactly as it did before
+    /// this moved.
+    var taxRate: Double = 1.0
+
+    /// The boom-and-bust cycle of the region the city sits in — the one input
+    /// to `Demand` that does not come from the city itself.
+    ///
+    /// Stored rather than recomputed, unlike `cityDemand` and `pollution`
+    /// above, because it is genuinely *state*: a clock counting ticks since
+    /// the city was founded. That is also why it lives on the map rather than
+    /// on `GameController`, for the same reason `taxRate` does — the
+    /// simulation reads it, via `Demand.compute(for:)`.
+    var regionalEconomy = RegionalEconomy()
+
+    /// Which of the map the city owns — see `LandOwnership`. `nil` means all
+    /// of it, which is what every save from before land could be bought
+    /// decodes to (an `Optional` decodes with `decodeIfPresent`), and what
+    /// every test fixture and playtest city is.
+    var land: LandOwnership?
+
+    /// The bus and subway lines the player has drawn — see `TransitRoute`.
+    ///
+    /// **Stored optional, read non-optional.** `CityMap` decodes through the
+    /// synthesised `Codable` conformance, which throws on a missing key even
+    /// where the property has a default, so every non-optional field added
+    /// here has broken every save written before it (`CitySave
+    /// .minimumSupportedFormatVersion` records the four that already did).
+    /// `decodeIfPresent` handles an optional for free, so an existing city
+    /// loads and simply has no routes.
+    ///
+    /// This is save compatibility rather than meaning, though — "no transit
+    /// network" and "an empty one" are the same city — so the optionality
+    /// stops here and nothing outside this file ever sees it. The one visible
+    /// consequence is that a map decoded from an older save is `!=` one that
+    /// has had an empty network assigned, despite behaving identically.
+    private var transitNetwork: TransitNetwork?
+
+    var transit: TransitNetwork {
+        get { transitNetwork ?? TransitNetwork() }
+        set { transitNetwork = newValue }
+    }
+
+    /// Which road tiles a tram runs down, as of the last time
+    /// `Transit.tramTracks(in:)` ran and someone assigned the result here.
+    ///
+    /// Cached on the map for the same reason `waterSupply` is, and with more
+    /// force: `Traffic.congestion(at:in:)` reads it, and that is called from
+    /// `LandValue`, `Infrastructure`, the overlays and the inspector with
+    /// nothing but a position and a map. Deriving it per call would mean a
+    /// breadth-first search per tile.
+    ///
+    /// Optional in storage for save compatibility and non-optional to read,
+    /// exactly as `transitNetwork` above — an empty set and "no tram has ever
+    /// run here" are the same city.
+    private var tramTrackTiles: Set<GridPosition>?
+
+    var tramTracks: Set<GridPosition> {
+        get { tramTrackTiles ?? [] }
+        set { tramTrackTiles = newValue }
+    }
+
+    /// How many days old the city is.
+    ///
+    /// **One clock, read through one seam.** `RegionalEconomy.elapsed` has
+    /// counted ticks since the city was founded since the day it was written,
+    /// and it is already saved — so the calendar reads that rather than
+    /// introducing a second counter beside it. Two copies of the same fact is
+    /// precisely the mistake this project keeps paying for, and a date that
+    /// disagreed with the economy's own clock would be the next one.
+    ///
+    /// Everything outside `CityMap` goes through here, so only this line knows
+    /// where the number actually lives.
+    var elapsedDays: Int { regionalEconomy.elapsed }
+
+    /// What day it is — see `CityDate`, and note that one tick is one day.
+    var date: CityDate { CityDate(day: elapsedDays) }
+
     init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "City map must have positive dimensions")
         self.width = width
@@ -119,13 +245,35 @@ struct CityMap: Equatable, Codable, Sendable {
     /// silent no-op, same "let the caller check first" contract the
     /// subscript above documents).
     ///
-    /// Carries each cell's existing `hasPipe` forward rather than
-    /// defaulting it away — a pipe is an underground layer independent of
-    /// the surface zone (see `Tile.hasPipe`'s own doc comment), so
-    /// re-zoning a tile must never silently erase a pipe laid underneath it.
+    /// Carries each cell's existing `hasPipe`/`hasPowerLine` forward
+    /// rather than defaulting them away — both are underground/overhead
+    /// layers independent of the surface zone (see `Tile.hasPipe`'s own
+    /// doc comment), so re-zoning a tile must never silently erase either
+    /// one laid underneath it.
     mutating func placeBuilding(zone: ZoneType, origin: GridPosition) {
         for cell in footprintCells(origin: origin, size: zone.footprintSize) {
-            self[cell] = Tile(position: cell, zone: zone, buildingOrigin: origin, hasPipe: self[cell].hasPipe)
+            // `isWater` carries forward for the same reason `hasPipe` does:
+            // it is a property of the *ground*, not of what stands on it, and
+            // a fresh `Tile` would quietly dry out the river a bridge is
+            // crossing. Nothing but a bridge can be here at all — see
+            // `ZoneType.bridgeSurcharge` — so this is exactly the case.
+            self[cell] = Tile(
+                position: cell, zone: zone, buildingOrigin: origin,
+                hasPipe: self[cell].hasPipe, hasPowerLine: self[cell].hasPowerLine,
+                isWater: self[cell].isWater
+            )
         }
+    }
+
+    /// Sums density once per *building*, not once per cell — a 2×2
+    /// building's four cells all carry the same density (`CitySimulator`
+    /// keeps them in sync), so summing every cell would count its
+    /// contribution four times over. `isBuildingAnchor` is exactly "the
+    /// one cell of this building that should count." Shared by
+    /// `GameController.population`/`jobs` and `Demand.compute(for:)` —
+    /// one place this counting rule lives, not two copies that could
+    /// drift apart.
+    func totalDensity(of zone: ZoneType) -> Int {
+        tiles.filter { $0.zone == zone && $0.isBuildingAnchor }.reduce(0) { $0 + $1.density }
     }
 }

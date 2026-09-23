@@ -223,6 +223,76 @@ final class TrafficTests: XCTestCase {
         XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 5, y: 0)), 10)
     }
 
+    // MARK: - Distance-weighted job lottery
+
+    /// The scenario this whole rewrite exists to prove: with two reachable
+    /// jobs, *both* well under capacity, homes don't all pile onto the
+    /// nearer one just because it's nearer — some real fraction of the
+    /// total commute weight lands on the farther job too. Ten homes (one
+    /// tile skipped at `x=10` so a residential building placed there
+    /// wouldn't overlap the near job's own footprint), a small job at
+    /// `x=10-11` and a much farther one at `x=26-27`, both comfortably
+    /// under their capacity (50 each vs. 9 total commute weight) so
+    /// capacity never forces the split — whatever split happens here is
+    /// purely the lottery's doing.
+    func testHomesSpreadAcrossTwoReachableJobsNotAllOnTheNearest() {
+        var map = CityMap(width: 30, height: 3)
+        for x in 0 ..< 30 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 10, y: 1)) // the near job
+        map[GridPosition(x: 10, y: 1)].density = 5
+        map[GridPosition(x: 11, y: 1)].density = 5
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 26, y: 1)) // the far job
+        map[GridPosition(x: 26, y: 1)].density = 5
+        map[GridPosition(x: 27, y: 1)].density = 5
+        for x in [0, 2, 4, 6, 8, 12, 14, 16, 18] {
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: 1))
+            map[GridPosition(x: x, y: 1)].density = 1
+            map[GridPosition(x: x + 1, y: 1)].density = 1
+        }
+
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        // (9,0) sits west of *both* jobs, so every one of the five
+        // westernmost homes' commutes crosses it regardless of which job
+        // they end up choosing — a sanity check that nothing vanished.
+        XCTAssertEqual(map.trafficLoad.load(at: GridPosition(x: 9, y: 0)), 5)
+        // (25,0) sits just before the *far* job's own frontage — only a
+        // commute that actually chose the far job reaches it at all. A
+        // nonzero load here is the whole point: real commute weight chose
+        // the farther job over the nearer one with room to spare.
+        XCTAssertGreaterThan(map.trafficLoad.load(at: GridPosition(x: 25, y: 0)), 0)
+    }
+
+    /// The lottery draws from a position-seeded pseudo-random value, not
+    /// `GameController`'s shared RNG (see `chooseJob(from:homeSeed:)`'s own
+    /// doc comment for why) — recomputing load for the exact same,
+    /// unchanged map has to reproduce the exact same routing every time,
+    /// or the ambient traffic-car animation would flicker between
+    /// destinations for no in-game reason.
+    func testJobChoiceIsStableAcrossRepeatedCallsOnAnUnchangedMap() {
+        var map = CityMap(width: 30, height: 3)
+        for x in 0 ..< 30 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 10, y: 1))
+        map[GridPosition(x: 10, y: 1)].density = 5
+        map[GridPosition(x: 11, y: 1)].density = 5
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 26, y: 1))
+        map[GridPosition(x: 26, y: 1)].density = 5
+        map[GridPosition(x: 27, y: 1)].density = 5
+        for x in [0, 2, 4, 6, 8, 12, 14, 16, 18] {
+            map.placeBuilding(zone: .residential, origin: GridPosition(x: x, y: 1))
+            map[GridPosition(x: x, y: 1)].density = 1
+            map[GridPosition(x: x + 1, y: 1)].density = 1
+        }
+
+        let first = Traffic.computeLoad(for: map)
+        let second = Traffic.computeLoad(for: map)
+
+        for x in 0 ..< 30 {
+            let position = GridPosition(x: x, y: 0)
+            XCTAssertEqual(first.load(at: position), second.load(at: position), "load at x=\(x) differed between two calls on the same map")
+        }
+    }
+
     // MARK: - Highway capacity
 
     /// A `.highway`'s whole reason to exist: the exact same routed load
@@ -338,5 +408,215 @@ final class TrafficTests: XCTestCase {
             intersection[neighbor].zone = .road
         }
         XCTAssertTrue(Traffic.isHorizontallyOriented(at: position, in: intersection))
+    }
+
+    // MARK: - roadConnections (turns/intersections)
+
+    func testRoadConnectionsIsAllFalseWithNoNeighborsAtAll() {
+        let map = CityMap(width: 3, height: 3)
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertFalse(connections.north)
+        XCTAssertFalse(connections.south)
+        XCTAssertFalse(connections.east)
+        XCTAssertFalse(connections.west)
+        XCTAssertEqual(connections.count, 0)
+    }
+
+    /// A road with exactly one neighbor is a dead end — one direction
+    /// true, the rest false.
+    func testRoadConnectionsIsADeadEndWithExactlyOneNeighbor() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 2, y: 1)].zone = .road
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.east)
+        XCTAssertFalse(connections.north)
+        XCTAssertFalse(connections.south)
+        XCTAssertFalse(connections.west)
+        XCTAssertEqual(connections.count, 1)
+    }
+
+    /// Two *opposite* neighbors (east/west, or north/south) is a straight
+    /// run through the tile.
+    func testRoadConnectionsIsStraightWithTwoOppositeNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 0, y: 1)].zone = .road
+        map[GridPosition(x: 2, y: 1)].zone = .road
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.east)
+        XCTAssertTrue(connections.west)
+        XCTAssertFalse(connections.north)
+        XCTAssertFalse(connections.south)
+        XCTAssertEqual(connections.count, 2)
+    }
+
+    /// Two *adjacent* neighbors (e.g. north + east) is a 90° turn/corner —
+    /// the actual "concept of turns" this type exists to represent, distinct
+    /// from a straight run despite both being exactly two connections.
+    func testRoadConnectionsIsACornerWithTwoAdjacentNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 1, y: 2)].zone = .road // north
+        map[GridPosition(x: 2, y: 1)].zone = .road // east
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.north)
+        XCTAssertTrue(connections.east)
+        XCTAssertFalse(connections.south)
+        XCTAssertFalse(connections.west)
+        XCTAssertEqual(connections.count, 2)
+    }
+
+    func testRoadConnectionsIsATJunctionWithThreeNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 1, y: 2)].zone = .road // north
+        map[GridPosition(x: 0, y: 1)].zone = .road // west
+        map[GridPosition(x: 2, y: 1)].zone = .road // east
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.north)
+        XCTAssertTrue(connections.east)
+        XCTAssertTrue(connections.west)
+        XCTAssertFalse(connections.south)
+        XCTAssertEqual(connections.count, 3)
+    }
+
+    func testRoadConnectionsIsACrossroadsWithAllFourNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        let position = GridPosition(x: 1, y: 1)
+        for neighbor in position.orthogonalNeighbors() {
+            map[neighbor].zone = .road
+        }
+        let connections = Traffic.roadConnections(at: position, in: map)
+
+        XCTAssertTrue(connections.north)
+        XCTAssertTrue(connections.south)
+        XCTAssertTrue(connections.east)
+        XCTAssertTrue(connections.west)
+        XCTAssertEqual(connections.count, 4)
+    }
+
+    /// A `.highway` neighbor counts as a connection too — a highway meeting
+    /// a plain road is still a real intersection, the same "one definition
+    /// of road-like" reasoning `isHorizontallyOriented` already documents.
+    func testRoadConnectionsTreatsHighwayNeighborsAsConnected() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 2, y: 1)].zone = .highway
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertTrue(connections.east)
+    }
+
+    /// A non-road building next door isn't a connection, even though it
+    /// might grant *access* for growth purposes elsewhere in the sim.
+    func testRoadConnectionsIgnoresNonRoadNeighbors() {
+        var map = CityMap(width: 3, height: 3)
+        map[GridPosition(x: 2, y: 1)].zone = .residential
+        let connections = Traffic.roadConnections(at: GridPosition(x: 1, y: 1), in: map)
+
+        XCTAssertFalse(connections.east)
+        XCTAssertEqual(connections.count, 0)
+    }
+
+    // MARK: - Ambient cars point the way real commutes actually flow
+
+    /// `straightCommuteMap` puts the home west and the job east, so every
+    /// commute along the shared street heads in the positive-x direction.
+    func testNetHeadingIsPositiveWhenCommutesRouteEastward() {
+        var map = straightCommuteMap(roadLength: 6, residentialDensity: 3)
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 2, y: 0), horizontal: true))
+    }
+
+    /// The mirror image: job west, home east — every commute now heads in
+    /// the negative-x direction along the same shared street.
+    func testNetHeadingIsNegativeWhenCommutesRouteWestward() {
+        var map = CityMap(width: 6, height: 3)
+        for x in 0 ..< 6 { map[GridPosition(x: x, y: 0)].zone = .road }
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 0, y: 1))
+        map[GridPosition(x: 0, y: 1)].density = 1
+        map[GridPosition(x: 1, y: 1)].density = 1
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 4, y: 1))
+        map[GridPosition(x: 4, y: 1)].density = 3
+        map[GridPosition(x: 5, y: 1)].density = 3
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertFalse(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 2, y: 0), horizontal: true))
+    }
+
+    /// Same idea along the vertical axis: a home south of a job on a
+    /// north-south street routes every commute northward (positive y).
+    func testNetHeadingIsPositiveOnTheVerticalAxisToo() {
+        var map = CityMap(width: 3, height: 6)
+        for y in 0 ..< 6 { map[GridPosition(x: 0, y: y)].zone = .road }
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 1, y: 0))
+        map[GridPosition(x: 1, y: 0)].density = 3
+        map[GridPosition(x: 1, y: 1)].density = 3
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 1, y: 4))
+        map[GridPosition(x: 1, y: 4)].density = 1
+        map[GridPosition(x: 1, y: 5)].density = 1
+        map.trafficLoad = Traffic.computeLoad(for: map)
+
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 0, y: 2), horizontal: false))
+    }
+
+    /// A tile nothing routes through (including every tile on a `CityMap`
+    /// that never had `computeLoad` run at all) has no net bias either
+    /// way — reads as positive, the documented arbitrary-but-stable
+    /// default, not a crash or an optional to unwrap.
+    func testNetHeadingDefaultsPositiveWithNoLoadAtAll() {
+        let map = CityMap(width: 3, height: 3)
+
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 1, y: 1), horizontal: true))
+        XCTAssertTrue(map.trafficLoad.netHeadingIsPositive(at: GridPosition(x: 1, y: 1), horizontal: false))
+    }
+
+    // MARK: - Determinism
+
+    /// `computeLoad` must return the same answer for the same map, every time.
+    ///
+    /// It did not. Route ties — two equally short paths, two equidistant
+    /// frontage cells — were broken by `Set` iteration order, which is not
+    /// stable across two sets holding the same elements, so consecutive calls
+    /// on one unchanged map alternated between different loads. It needs a map
+    /// complex enough to produce ties, which is why no hand-built fixture ever
+    /// caught it and why it instead showed up as the playtest harness failing
+    /// its own reproducibility check. Every balance measurement taken before
+    /// the fix carried that noise.
+    func testComputeLoadIsDeterministicForTheSameMap() {
+        var map = CityMap(width: 24, height: 24)
+        // A grid with several equally good routes between homes and jobs —
+        // ties are the whole point of the fixture.
+        for y in stride(from: 0, to: 24, by: 3) {
+            for x in 0 ..< 24 {
+                map.placeBuilding(zone: .road, origin: GridPosition(x: x, y: y))
+            }
+        }
+        for x in stride(from: 0, to: 24, by: 3) {
+            for y in 0 ..< 24 where map[GridPosition(x: x, y: y)].zone == .empty {
+                map.placeBuilding(zone: .road, origin: GridPosition(x: x, y: y))
+            }
+        }
+        var placed = 0
+        for y in stride(from: 1, to: 23, by: 3) {
+            for x in stride(from: 1, to: 23, by: 3) {
+                let origin = GridPosition(x: x, y: y)
+                guard map.footprintCells(origin: origin, size: 2).allSatisfy({ map[$0].zone == .empty }) else { continue }
+                map.placeBuilding(zone: placed % 2 == 0 ? .residential : .commercial, origin: origin)
+                for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 4 }
+                placed += 1
+            }
+        }
+        XCTAssertGreaterThan(placed, 8, "the fixture is too small to produce route ties")
+
+        let reference = Traffic.computeLoad(for: map)
+        for attempt in 1 ... 8 {
+            XCTAssertEqual(
+                Traffic.computeLoad(for: map), reference,
+                "computeLoad returned a different answer on attempt \(attempt) for an unchanged map"
+            )
+        }
     }
 }

@@ -1,0 +1,48 @@
+{
+  "configurations": [
+    {
+      "id": "D8D628CE-D7DC-5155-96FD-AC25E5263C92",
+      "name": "Test Scheme Action",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "codeCoverage": false
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:AlphaPlusPlus.xcodeproj",
+        "identifier": "A1B2C3D4E5F6000000000012",
+        "name": "AlphaPlusPlusTests"
+      },
+      "parallelizable": true,
+      "skippedTests": [
+        "DesignPlaytestTests",
+        "TransitBalanceTests",
+        "PlateauDiagnosticTests",
+        "PlaytestScenarioTests",
+        "MilestoneTests/testAServicedCityClimbsAndAnUnplumbedOneStalls()",
+        "BackgroundChunkTests/testTheMainThreadIsSparedTheRebuild()",
+        "BackgroundChunkTests/testAClickInAViewSparesTheMainThread()",
+        "JourneyLookupCostTests",
+        "HarnessTimingTests",
+        "MetalSpikeTests",
+        "MetalAutosaveDiagnosticTests",
+        "MetalMapTests/testApexFitsTheFrameBudget()",
+        "MetalFrameBreakdownTests",
+        "MetalMotionTests/testRecordTheCity()",
+        "MetalMotionTests/testRenderTheMovingCityCloseUp()",
+        "MetalOverlayTests/testRenderEveryView()",
+        "UtilityGlowTests/testRenderTheUtilityViews()",
+        "NeonSignTests/testRenderTheSigns()",
+        "StreetLevelTests/testRenderStreetLevel()",
+        "MetalOverlayTests/testRenderTheBuildingMarks()",
+        "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()",
+        "MetalLookTests",
+        "SoundtrackPlayerTests/testAWantedTrackIsRenderedBeforeTheRestOfTheWarmUp()"
+      ]
+    }
+  ],
+  "version": 1
+}

@@ -5,7 +5,7 @@ import Foundation
 /// Deliberately *not* a `CGPoint`: grid coordinates are discrete tile indices,
 /// not screen positions. Keeping them as `Int` makes illegal states (a tile at
 /// x = 3.7) unrepresentable, and keeps the simulation free of any graphics
-/// types. Converting grid space -> screen space is `Rendering/GridLayout`'s job.
+/// types. Converting grid space -> screen space is `Rendering/Isometric`'s job.
 struct GridPosition: Hashable, Codable, Sendable {
     var x: Int
     var y: Int
@@ -27,7 +27,7 @@ extension GridPosition {
     /// This is Bresenham's line algorithm — the standard way to walk a
     /// straight line through a grid using only integer arithmetic, so it's
     /// exact (no rounding drift) and touches every cell the line passes
-    /// through with no gaps. It exists for drag-to-paint: `GameScene` only
+    /// through with no gaps. It exists for drag-to-paint: `MapInteraction` only
     /// gets a mouse-moved event roughly once per frame, so a fast drag can
     /// jump several tiles between two events. Filling in the line between
     /// the last tile and this one is what turns that into a continuous
@@ -85,5 +85,19 @@ extension GridPosition {
     /// road."
     func manhattanDistance(to other: GridPosition) -> Int {
         abs(x - other.x) + abs(y - other.y)
+    }
+}
+
+extension Sequence where Element == GridPosition {
+    /// A stable row-major ordering: top-to-bottom, then left-to-right.
+    ///
+    /// Exists because `Set<GridPosition>` iteration order is not a reliable
+    /// tiebreaker. Two sets holding the same positions can iterate differently,
+    /// so any algorithm whose *result* depends on which equal-ranked element it
+    /// reaches first — a shortest-path tie, a nearest-frontage tie — has to
+    /// impose an order of its own. `Traffic.computeLoad` learned this the hard
+    /// way: it returned different answers for the same map on consecutive calls.
+    func sortedByPosition() -> [GridPosition] {
+        sorted { ($0.y, $0.x) < ($1.y, $1.x) }
     }
 }

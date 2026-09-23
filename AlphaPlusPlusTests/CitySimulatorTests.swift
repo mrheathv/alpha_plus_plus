@@ -16,7 +16,8 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 2, y: 0)].zone = .road // shares an edge with (1,0), just outside the footprint
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
     }
@@ -26,7 +27,8 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         // No road anywhere on the map.
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
     }
@@ -39,20 +41,31 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 2, y: 2)].zone = .road // diagonal to (1,1), the footprint's far corner
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
     }
 
-    func testDensityStopsGrowingAtMaxDensity() {
+    /// Nothing ever climbs past `maxDensity`.
+    ///
+    /// Asserts a bound rather than equality, and the reason is worth keeping:
+    /// this fixture has no water and no power, so since decline landed it can
+    /// no longer *sustain* density 5 either — it falls back. That is correct
+    /// behaviour (see `testALotWithNoUtilitiesCannotSustainHighDensity`), and
+    /// it means equality here would be testing two things at once and failing
+    /// for the wrong reason. `testTileReachesMaxDensityWhenAlsoNearAService`
+    /// is the one that proves a properly-supplied lot *holds* its top tier.
+    func testDensityNeverExceedsMaxDensity() {
         var map = CityMap(width: 3, height: 3)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 0, y: 0)].density = ZoneType.residential.maxDensity
         map[GridPosition(x: 2, y: 0)].zone = .road
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
-        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, ZoneType.residential.maxDensity)
+        XCTAssertLessThanOrEqual(next[GridPosition(x: 0, y: 0)].density, ZoneType.residential.maxDensity)
     }
 
     func testEmptyAndRoadTilesAreUntouchedByAdvance() {
@@ -61,7 +74,8 @@ final class CitySimulatorTests: XCTestCase {
         // (0,0) stays .empty and is road-adjacent, but .empty has
         // maxDensity 0 — it should never accrue density regardless.
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         for tile in next.tiles {
             XCTAssertEqual(tile.density, 0)
@@ -74,7 +88,8 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 2, y: 0)].zone = .road // touches (1,0)
         map.placeBuilding(zone: .industrial, origin: GridPosition(x: 0, y: 3)) // covers (0,3)-(1,4), nowhere near a road
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
         XCTAssertEqual(next[GridPosition(x: 0, y: 3)].density, 0)
@@ -89,7 +104,10 @@ final class CitySimulatorTests: XCTestCase {
         // No road adjacent — simulates a road that used to be there getting
         // bulldozed out from under an already-developed building.
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        // Losing a level still happens in a single tick — construction is a
+        // cost of *growth*, not of decline.
+        let next = CitySimulator.advance(map, using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2)
     }
@@ -99,7 +117,8 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         // density defaults to 0, no road access.
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
     }
@@ -119,42 +138,241 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
         map.waterSupply = Water.computeSupply(for: map)
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 3)
     }
 
     // MARK: - Land value gates the final growth step
 
-    /// A building touching exactly one road and nothing else sits at land
-    /// value 0.75, which clears every growth threshold except the last
-    /// (0.8) — so it should stall at density 4 despite still having road
-    /// access.
-    func testTileWithOnlyBareRoadAccessStallsBelowMaxDensity() {
+    /// A lot with neither water nor power cannot hold a density that needs
+    /// them, and falls back one level at a time.
+    ///
+    /// This fixture used to assert the opposite — that it *stalls* at 4 — and
+    /// that was right when utilities could only gate growth. `CitySimulator`'s
+    /// own comment said so: "losing water later doesn't cause decay, exactly
+    /// like insufficient land value doesn't". Phase 2 made insufficient land
+    /// value cause decay, and that consistency argument then cut the other way:
+    /// leaving utilities one-directional would have made the rule arbitrary
+    /// rather than principled.
+    func testALotWithNoUtilitiesCannotSustainHighDensity() {
         var map = CityMap(width: 5, height: 5)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 0, y: 0)].density = 4
         map[GridPosition(x: 2, y: 0)].zone = .road // touches (1,0)
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        // Losing a level still happens in a single tick — construction is a
+        // cost of *growth*, not of decline.
+        let next = CitySimulator.advance(map, using: &rng)
 
-        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 4)
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 3,
+                       "density 4 needs power, which this lot has none of — it should shed a level")
+    }
+
+    // MARK: - Oversupply empties the worst lots first
+
+    /// A desirable lot feels more demand than the city reports, and a bad one
+    /// feels less.
+    func testLocalDemandShiftsWithDesirability() {
+        let city = -0.5
+        XCTAssertEqual(CitySimulator.localDemand(cityDemand: city, landValue: 0.5), city, accuracy: 0.0001,
+                       "a lot at the reference desirability should feel exactly the city's demand")
+        XCTAssertGreaterThan(CitySimulator.localDemand(cityDemand: city, landValue: 0.9), city,
+                             "a prime lot should be insulated from oversupply")
+        XCTAssertLessThan(CitySimulator.localDemand(cityDemand: city, landValue: 0.1), city,
+                          "a marginal lot should be exposed to it")
+    }
+
+    /// **The point of making demand local.** In an oversupplied city the worst
+    /// lots cross the abandonment threshold while the best do not — so a
+    /// district empties rather than the whole city thinning evenly.
+    ///
+    /// The numbers are the ones the diagnostic measured: residential demand
+    /// drifts to about −0.55 over a long run against a −0.75 threshold, which
+    /// city-wide is never reached at all.
+    func testOversupplyEmptiesTheWorstLotsFirst() {
+        let drifted = -0.55
+        XCTAssertGreaterThan(
+            CitySimulator.localDemand(cityDemand: drifted, landValue: 0.8),
+            CitySimulator.abandonmentDemand,
+            "a desirable lot should hold through ordinary oversupply"
+        )
+        XCTAssertLessThanOrEqual(
+            CitySimulator.localDemand(cityDemand: drifted, landValue: 0.1),
+            CitySimulator.abandonmentDemand,
+            "a marginal lot should give way — otherwise city-wide demand drifts forever with no consequence"
+        )
+    }
+
+    // MARK: - What a lot's surroundings can sustain
+
+    /// The land-value table, read downward.
+    func testSustainableDensityFollowsTheLandValueTable() {
+        func sustainable(_ landValue: Double) -> Int {
+            CitySimulator.sustainableDensity(landValue: landValue, hasWater: true, hasPower: true)
+        }
+        // Values chosen clear of the hysteresis band: sustaining level L needs
+        // `requiredLandValue(toReach: L) - declineMargin`, so 0.6 is exactly
+        // the boundary for level 4 and would be testing the margin, not the
+        // table. (It caught me — this assertion first read `sustainable(0.6)
+        // == 3`, and the code was right.)
+        XCTAssertEqual(sustainable(0.0), 1)
+        XCTAssertEqual(sustainable(0.4), 2)
+        XCTAssertEqual(sustainable(0.55), 3)
+        XCTAssertEqual(sustainable(0.7), 4)
+        XCTAssertEqual(sustainable(0.82), 5)
+        // The skyline: level 6 is kept from 0.85 (0.9 to reach, less the margin).
+        XCTAssertEqual(sustainable(0.95), 6)
+    }
+
+    /// Utilities cap what a lot can hold, whatever its land value.
+    func testUtilitiesCapSustainableDensity() {
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(landValue: 1.0, hasWater: false, hasPower: false), 2,
+            "without water a lot cannot hold the tier that first requires it"
+        )
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(landValue: 1.0, hasWater: true, hasPower: false), 3,
+            "without power a lot cannot hold the tier that first requires it"
+        )
+    }
+
+    /// **Hysteresis.** A lot may sink `declineMargin` below a level's own
+    /// growth threshold before it starts losing that level — otherwise growth
+    /// and decline read the same number and a lot sitting exactly on a
+    /// boundary flickers between the two forever.
+    func testAlotOnAThresholdDoesNotFlicker() {
+        let threshold = 0.65  // the growth requirement for density 4
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(
+                landValue: threshold - CitySimulator.declineMargin / 2,
+                hasWater: true, hasPower: true
+            ),
+            4,
+            "a lot just below its growth threshold should keep the level, not immediately shed it"
+        )
+        XCTAssertEqual(
+            CitySimulator.sustainableDensity(
+                landValue: threshold - CitySimulator.declineMargin * 2,
+                hasWater: true, hasPower: true
+            ),
+            3,
+            "but a lot well below it should"
+        )
     }
 
     /// The same building, but also within reach of a Police Station: land
-    /// value climbs to 0.875, clearing the 0.8 threshold for the final level.
+    /// value climbs to ~0.917, clearing the 0.8 threshold for the final level.
     func testTileReachesMaxDensityWhenAlsoNearAService() {
-        var map = CityMap(width: 6, height: 6)
+        // Widened from the original 6x6: `LandValue` also penalizes land
+        // near a power plant (`powerPlantPenaltyDistance`), so the plant
+        // this test now needs to clear the power gate has to sit farther
+        // than that penalty's own falloff distance from the residential
+        // footprint — an ordinary 2×2-tower-sized gap isn't enough room.
+        var map = CityMap(width: 14, height: 11)
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 0, y: 0)].density = 4
         map[GridPosition(x: 2, y: 0)].zone = .road // touches (1,0)
         map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 0, y: 2)) // covers (0,2)-(1,3), distance 1 from (0,1)
-        // Density 4 -> 5 crosses the water-required threshold too.
+        // Density 4 -> 5 crosses both the water- and power-required thresholds.
         map[GridPosition(x: 2, y: 1)].hasPipe = true
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 1))
         map.waterSupply = Water.computeSupply(for: map)
+        // A power-line run well clear of the water tower's footprint,
+        // out to a plant placed far enough away (Manhattan distance 15
+        // from (1,1), past the penalty's falloff distance of 8) that it
+        // doesn't drag this same tile's land value back down.
+        map[GridPosition(x: 2, y: 1)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 2)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 3)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 4)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 3, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 4, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 5, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 6, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 7, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 8, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 7)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 8)].hasPowerLine = true
+        map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 10, y: 7)) // covers (10,7)-(12,9), touches (9,8)
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
+        // The top tier now wants a school in range as well — see
+        // `CitySimulator.educationRequiredFromLevel`. Land value alone used to
+        // be enough for density 5, which is exactly what that gate changed.
+        map.placeBuilding(zone: .school, origin: GridPosition(x: 0, y: 3)) // clear of the station at (3,0)-(4,1)
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 5)
+    }
+
+    /// Caught by hands-on playtesting, not a unit test: the test right
+    /// above places its Police Station touching the residential footprint
+    /// directly, with no road between them — but that's not how two
+    /// buildings actually relate in an ordinary road-grid city, where a
+    /// station sits *across the street* from the block it serves. With the
+    /// original `LandValue.serviceFalloffDistance` (8), that ordinary
+    /// placement put the station at exactly distance 2 from the nearest
+    /// residential cell, which computed to the exact same land value
+    /// (0.75) bare road frontage already gives — so a station across the
+    /// street never actually helped a zone clear density 5; only touching
+    /// it directly (no road gap) did, a placement no normal city plan
+    /// produces. This pins the fix: a station one ordinary road-width away
+    /// must clear the level-5 threshold on its own.
+    func testTileReachesMaxDensityWithAServiceAcrossAnOrdinaryRoad() {
+        // Widened from the original 6x6: as with the test above, the power
+        // plant needed to clear the new power gate has to sit past
+        // `LandValue.powerPlantPenaltyDistance` (8) from the residential
+        // footprint, or its own proximity penalty cancels out the land-value
+        // boost this test is specifically checking for.
+        var map = CityMap(width: 14, height: 11)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
+        map[GridPosition(x: 0, y: 0)].density = 4
+        map[GridPosition(x: 2, y: 0)].zone = .road // the residential's own road frontage, touches (1,0)
+        // The station sits across that same road, not touching the
+        // residential footprint directly -- distance 2 from (1,0).
+        map.placeBuilding(zone: .policeStation, origin: GridPosition(x: 3, y: 0))
+        // A pipe run up the residential's other side (x=2, rows 1-3) to a
+        // tower placed clear of the police station's own footprint.
+        map[GridPosition(x: 2, y: 1)].hasPipe = true
+        map[GridPosition(x: 2, y: 2)].hasPipe = true
+        map[GridPosition(x: 2, y: 3)].hasPipe = true
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 3, y: 3)) // covers (3,3)-(4,4), touches (2,3)
+        map.waterSupply = Water.computeSupply(for: map)
+        // A power-line run that dog-legs around the water tower's footprint
+        // (down past it at x=2, then across at row 6) out to a plant placed
+        // far enough away (Manhattan distance 15 from (1,1)) to clear the
+        // penalty distance above.
+        map[GridPosition(x: 2, y: 1)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 2)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 3)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 4)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 5)].hasPowerLine = true
+        map[GridPosition(x: 2, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 3, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 4, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 5, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 6, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 7, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 8, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 6)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 7)].hasPowerLine = true
+        map[GridPosition(x: 9, y: 8)].hasPowerLine = true
+        map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 10, y: 7)) // covers (10,7)-(12,9), touches (9,8)
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: false)
+        // Density 5 wants a school in range as well — see
+        // `CitySimulator.educationRequiredFromLevel`. Placed clear of the
+        // station at (3,0)-(4,1) and the water tower at (3,3)-(4,4).
+        map.placeBuilding(zone: .school, origin: GridPosition(x: 0, y: 3))
+
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 5)
     }
@@ -170,7 +388,8 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 2, y: 0)].zone = .road
         // No pipes, no tower anywhere.
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2)
     }
@@ -186,7 +405,8 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 2, y: 0)].zone = .road
         // Still no pipes, no tower.
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2)
     }
@@ -202,7 +422,8 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 2, y: 1)].hasPipe = true // one tile, touching both the residential's (1,1) and the tower's (3,1)
         map.waterSupply = Water.computeSupply(for: map)
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 3)
     }
@@ -217,7 +438,8 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 2, y: 0)].zone = .publicTransit // touches (1,0)
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
     }
@@ -231,7 +453,8 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 2, y: 0)].zone = .highway
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
     }
@@ -242,7 +465,8 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
         map[GridPosition(x: 2, y: 0)].zone = .subway
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
     }
@@ -254,7 +478,8 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 2, y: 0)].zone = .road
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
             XCTAssertEqual(next[cell].density, 1)
@@ -267,7 +492,10 @@ final class CitySimulatorTests: XCTestCase {
         map[GridPosition(x: 0, y: 0)].density = 3
         // No road: every cell should decay together, not just the anchor.
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        // Losing a level still happens in a single tick — construction is a
+        // cost of *growth*, not of decline.
+        let next = CitySimulator.advance(map, using: &rng)
 
         for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
             XCTAssertEqual(next[cell].density, 2)
@@ -282,8 +510,137 @@ final class CitySimulatorTests: XCTestCase {
         map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
         map[GridPosition(x: 2, y: 1)].zone = .road // touches (1,1), the *opposite* corner from the anchor
 
-        let next = CitySimulator.advance(map)
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
 
         XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
+    }
+
+    // MARK: - Demand gates growth too, as a probability, not a hard wall
+
+    /// Every other gate in this file passes deterministically, but a
+    /// building whose type the city is drowning in should still be able
+    /// to hold rather than grow — this pins down that a low-demand roll
+    /// can actually block growth, not just theoretically exist.
+    func testStronglyNegativeDemandCanBlockGrowth() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        map.cityDemand = CityDemand(residential: -1, commercial: 0, industrial: 0)
+
+        var rng = AlwaysMaxRNG() // guaranteed to fail any chance below 1.0
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
+    }
+
+    /// At the bottom of the demand range, growth stops outright -- even for a
+    /// generator that always rolls the lowest possible value, which clears
+    /// every other probability gate in this file.
+    ///
+    /// This used to assert the opposite, back when `minimumGrowthChance` was
+    /// 0.05 so that oversupply was a slowdown rather than a wall. A design
+    /// playtest showed what that trickle actually bought: zoning every lot
+    /// residential reached 5,152 population against a balanced city's 3,320,
+    /// because 5% per tick over hundreds of ticks is simply a slower route to
+    /// the same maximum. Oversupply now genuinely stops growth.
+    func testStronglyNegativeDemandStopsGrowthEntirely() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        map.cityDemand = CityDemand(residential: -1, commercial: 0, industrial: 0)
+
+        var rng = AlwaysZeroRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
+    }
+
+    /// Past `abandonmentDemand`, an oversupplied building doesn't just stall
+    /// -- it loses a level. This is what makes over-zoning a decision with a
+    /// cost rather than one that merely wastes time.
+    func testDeepOversupplyAbandonsAnExistingBuilding() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 3
+        }
+        map.cityDemand = CityDemand(residential: -1, commercial: 0, industrial: 0)
+
+        var rng = AlwaysZeroRNG() // always clears the abandonment roll
+        // Losing a level still happens in a single tick — construction is a
+        // cost of *growth*, not of decline.
+        let next = CitySimulator.advance(map, using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 2)
+    }
+
+    /// Abandonment must not fire on ordinary, transient imbalance -- the kind
+    /// a growing city passes through constantly. Demand just above the
+    /// threshold stalls growth without tearing anything down.
+    func testMildOversupplyStallsGrowthWithoutAbandonment() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        for cell in map.footprintCells(origin: GridPosition(x: 0, y: 0), size: 2) {
+            map[cell].density = 3
+        }
+        map.cityDemand = CityDemand(residential: -0.5, commercial: 0, industrial: 0)
+
+        var rng = AlwaysMaxRNG() // fails the growth roll, so only decay could move this
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 3)
+    }
+
+    /// An empty lot at deep oversupply has nothing to abandon, and must not
+    /// underflow past density 0.
+    func testAbandonmentNeverDrivesDensityBelowZero() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        map.cityDemand = CityDemand(residential: -1, commercial: 0, industrial: 0)
+
+        var rng = AlwaysZeroRNG()
+        var next = map
+        for _ in 0 ..< 5 { next = CitySimulator.advance(next, using: &rng) }
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 0)
+    }
+
+    /// Strongly positive demand is a guaranteed grow, matching demand 0's
+    /// (a fresh, uncomputed `CityDemand`) already-passing behavior in
+    /// every test above -- demand can only ever help or leave growth
+    /// alone here, never require a lucky roll on top of already-positive
+    /// demand.
+    func testStronglyPositiveDemandGuaranteesGrowthEvenOnAnUnluckyRoll() {
+        var map = CityMap(width: 3, height: 3)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0))
+        map[GridPosition(x: 2, y: 0)].zone = .road
+        map.cityDemand = CityDemand(residential: 1, commercial: 0, industrial: 0)
+
+        var rng = AlwaysMaxRNG()
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1)
+    }
+
+    /// Demand is read per zone type, not one shared number -- a building
+    /// the city desperately wants shouldn't be blocked by another type
+    /// being oversupplied.
+    func testDemandIsReadPerZoneTypeNotShared() {
+        var map = CityMap(width: 6, height: 6)
+        map.placeBuilding(zone: .residential, origin: GridPosition(x: 0, y: 0)) // covers (0,0)-(1,1)
+        map[GridPosition(x: 2, y: 0)].zone = .road // touches (1,0)
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 0, y: 3)) // covers (0,3)-(1,4)
+        map[GridPosition(x: 2, y: 3)].zone = .road // touches (1,3)
+        map.cityDemand = CityDemand(residential: 1, commercial: -1, industrial: -1)
+
+        var rng = AlwaysMaxRNG() // fails anything short of a guaranteed 1.0 chance
+        let next = advanceOneLevel(map, at: GridPosition(x: 0, y: 0), using: &rng)
+
+        XCTAssertEqual(next[GridPosition(x: 0, y: 0)].density, 1) // residential: demand 1 -> guaranteed
+        XCTAssertEqual(next[GridPosition(x: 0, y: 3)].density, 0) // commercial: demand -1 -> blocked on this roll
     }
 }

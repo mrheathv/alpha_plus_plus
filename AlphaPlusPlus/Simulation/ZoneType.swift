@@ -40,6 +40,33 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // same relationship `.publicTransit` already has with `.road`.
     case highway
     case subway
+    // The third rung of the transit ladder, and the one that is not simply a
+    // pricier version of the rung below. A tram runs *in the street* on its
+    // own rails: it is barely slowed by traffic where a bus crawls, it is far
+    // cheaper than tunnelling, and it takes a lane away from the corridor it
+    // runs along (`Traffic.tramLaneShare`). That last part is the whole
+    // decision — every other transit building in this game is a pure
+    // addition, and this one costs the road something.
+    case tramStop
+    // The fourth and last rung, and the only one that points *off the map*.
+    // A commuter rail line reaching the city boundary is a connection to the
+    // region — the first channel `RegionalEconomy` has ever had into the city
+    // other than demand — and residents who can reach it can work outside.
+    // Long hops, few stops, a big station and a long wait: it is built for a
+    // journey no other mode is worth making.
+    case railStation
+
+    /// **The docks.** A freight connection to the region, and the first
+    /// building in this game that needs the *terrain*: it has to touch water,
+    /// so a Flat map cannot have one. That is what turns the choice at
+    /// founding from a look into a strategy — rivers and coasts were a
+    /// picture until something depended on them. See `RegionalTrade`.
+    case seaport
+
+    /// **The airport.** The same idea for commerce rather than industry, and
+    /// the one that needs space instead of shore: nine tiles of buildable
+    /// ground, which a dense city has to plan for rather than stumble onto.
+    case airport
     // The genre-parity "water & sewage" gap: unlike every access/coverage
     // mechanic above (a single adjacency or falloff-distance check),
     // water is a real network — a building needs an unbroken chain of
@@ -52,6 +79,70 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     // it per tile" shape `Traffic.computeLoad` already uses for routed
     // commutes.
     case waterTower
+
+    // The starter utilities. Playing the game turned up a genuine dead end:
+    // a building at density 2 raises a "no water" warning badge, but the
+    // water tower isn't earned until 100 residents — so a new city showed
+    // errors for a problem the player was forbidden from fixing. These are
+    // the small, cheap, low-capacity versions available from tick one, the
+    // same cheap/upgraded relationship `.road` has with `.highway` and
+    // `.publicTransit` with `.subway`, and the same shape SimCity uses when
+    // it starts you on a water pump and a small plant.
+    case waterPump
+    case generator
+
+    // The education/health axis — the genre's classic mid-game progression,
+    // and this project's first real money *sink*: a mature city was banking
+    // millions with nothing left to buy. A `.school` is what lets a lot reach
+    // the top density tier at all (see
+    // `CitySimulator.educationRequiredFromLevel`), and a `.hospital` halves
+    // what a hazard takes out of the blocks it covers.
+    case school
+    case hospital
+
+    /// A park: the one thing in the game whose only job is to make a place
+    /// nicer.
+    ///
+    /// Every other contributor to `LandValue` is a service with desirability
+    /// as a side effect — a police station raises land value *and* stops
+    /// crime, a school raises it *and* unlocks the top tier. So "make this
+    /// neighbourhood desirable" had no direct tool, which left the land-value
+    /// gate on the upper densities something you satisfied by accident rather
+    /// than something you could aim at.
+    ///
+    /// 1×1, unlike every other civic building, and that is the whole design:
+    /// a park's cost is the *ground* it sits on. Trading buildable area for
+    /// desirability is a real land-use decision, and it only reads as one if
+    /// parks are small enough to thread between blocks.
+    case park
+
+    /// **The rank rewards** — see `Milestone` and `RewardBuildings`. The only
+    /// buildings earned by *how* a city is run rather than by how many live
+    /// in it: each is gated on a rank, not on a headcount.
+    ///
+    /// A lit entertainment block, earned at Town.
+    case neonArcade
+    /// A mast that owns the skyline, earned at City.
+    case broadcastTower
+    /// A 3×3 megastructure housing a small town inside itself, earned at
+    /// Metropolis.
+    case arcology
+
+    /// **The icons** — see `IconBuildings`. Prestige: each is a supertall
+    /// or a showpiece that does nothing but stand in the skyline, earned by
+    /// rank and limited to one per city.
+    ///
+    /// A night market under pagoda eaves wrapped in vertical neon signs.
+    case nightMarket
+    /// A slim tower under a lit dome.
+    case chromeDome
+    /// Two slim towers, each carrying a pair of antennas.
+    case twinMasts
+    /// A tapering chamfered supertall under a crown of lit spikes.
+    case harbourTower
+    /// The tallest building in the game: Deco shoulders, a lit crown and a
+    /// needle, the one tower everything else is measured against.
+    case sunsetSpire
 }
 
 extension ZoneType {
@@ -63,6 +154,31 @@ extension ZoneType {
     /// `Foundation` — no import trade-off to make. `.empty` costs nothing:
     /// clearing a tile via the toolbar's "Bulldoze" tool is free, same as the
     /// right-click quick-bulldoze shortcut.
+    /// What it costs *extra* to put this on water, or `nil` if it cannot go
+    /// there at all.
+    ///
+    /// **Only roads cross.** A river is meant to be a real constraint on
+    /// where a city can go, and it stops being one the moment anything can be
+    /// dropped in it — so this is deliberately not a general "build on water
+    /// for more money" rule. What a bridge buys is a *route*, and routes are
+    /// what roads are for.
+    ///
+    /// Three times a road's own price, which is what makes a crossing
+    /// somewhere you choose rather than something you lay by the dozen: on a
+    /// wide river a single span costs more than the streets either side of
+    /// it. A highway bridge costs more again, in the same ratio the two
+    /// already stand in.
+    var bridgeSurcharge: Int? {
+        switch self {
+        case .road: return 150
+        case .highway: return 300
+        default: return nil
+        }
+    }
+
+    /// Can this cross water at all?
+    var canBridge: Bool { bridgeSurcharge != nil }
+
     var placementCost: Int {
         switch self {
         case .empty: return 0
@@ -77,6 +193,42 @@ extension ZoneType {
         // than a road tile (it projects access over an area, not just to
         // its own neighbors).
         case .publicTransit: return 150
+        // Between a bus stop and a subway entrance, like everything else
+        // about it: rails in the street cost more than a shelter and far
+        // less than a tunnel.
+        case .tramStop: return 250
+        case .railStation: return 700
+        // The two freight connections, priced as the late-game investments
+        // they are: each raises a whole sector's demand on its own, which is
+        // a lever nothing else in the game pulls.
+        case .seaport: return 1_800
+        case .airport: return 2_600
+        // Cheap enough to afford alongside the first few zones out of the
+        // $10,000 starting treasury, since a new city now has to buy both.
+        case .waterPump: return 250
+        case .generator: return 500
+        // Priced against the stations they sit alongside ($800): a school is
+        // the cheaper of the two because every neighbourhood wants one, while
+        // a hospital serves a wider area and costs accordingly.
+        case .school: return 900
+        case .hospital: return 1_400
+        // Cheap, because the price of a park is the lot it occupies rather
+        // than the money. A player should be able to answer "this block is
+        // grim" immediately, not save up for it.
+        case .park: return 120
+        // Sized for the cities that earn them, which are the ones banking
+        // money with nothing to spend it on. Each is a real purchase for its
+        // rank, not a free gift.
+        case .neonArcade: return 3_000
+        case .broadcastTower: return 8_000
+        case .arcology: return 25_000
+        // Prestige, priced as a purchase a rich city notices. A one-off sink
+        // with no upkeep, since an icon does nothing to be paid for.
+        case .nightMarket: return 6_000
+        case .chromeDome: return 12_000
+        case .twinMasts: return 20_000
+        case .harbourTower: return 30_000
+        case .sunsetSpire: return 50_000
         // City-scale infrastructure/civic projects, priced well above even
         // a service station to match sitting on 9 tiles instead of 4.
         case .powerPlant: return 2000
@@ -102,8 +254,46 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .waterTower: return 0
-        case .residential, .commercial, .industrial: return 5
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park, .seaport, .airport, .neonArcade, .broadcastTower, .arcology, .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: return 0
+        // **Housing and shops reach a sixth level; industry stops at five.**
+        // The sixth is the skyline — towers that need rapid transit to exist
+        // (`CitySimulator.rapidTransitRequiredFromLevel`) — and a sixth level
+        // of factory would be a tall industrial building, which stops reading
+        // as industry and starts reading as a badly coloured office. Wide and
+        // low is industry's identity.
+        case .residential, .commercial: return 6
+        case .industrial: return 5
+        }
+    }
+
+    /// How many people one density level of this zone houses. Only
+    /// `.residential` contributes population — every other zone is 0,
+    /// the same "not a concept that applies here" default `upkeepCost`
+    /// already uses for non-service zones. Lives here rather than as a
+    /// private constant on `GameController` now that `Demand.compute(for:)`
+    /// (Simulation/) needs the exact same number `GameController.population`
+    /// (App/) reads — one source of truth instead of two copies that
+    /// could drift apart. A freshly placed tile (density 0) houses no
+    /// one yet; population scales with how developed a tile actually is.
+    var populationPerDensityLevel: Int {
+        switch self {
+        case .residential: return 4
+        default: return 0
+        }
+    }
+
+    /// How many jobs one density level of this zone provides — Commercial
+    /// and Industrial both count, at the same rate, rather than each
+    /// having its own: one number is enough to make jobs visibly respond
+    /// to growth without inventing a balance distinction this early that
+    /// nothing yet depends on (see `Demand.compute(for:)`'s own doc
+    /// comment for the same reasoning applied to demand). Every other
+    /// zone is 0 — same shared-source-of-truth reasoning as
+    /// `populationPerDensityLevel`.
+    var jobsPerDensityLevel: Int {
+        switch self {
+        case .commercial, .industrial: return 3
+        default: return 0
         }
     }
 
@@ -129,6 +319,26 @@ extension ZoneType {
         case .empty, .residential, .commercial, .industrial, .road, .highway: return 0
         case .policeStation, .fireStation: return 20
         case .publicTransit: return 5
+        case .tramStop: return 9
+        case .railStation: return 25
+        case .waterPump: return 8
+        case .generator: return 15
+        // Heavy on purpose: a mature city was banking millions with nothing
+        // left to buy, and an ongoing cost is a better sink than a one-off
+        // purchase. A hospital is the single most expensive thing in the game
+        // to run; a school sits below the power plant, which is right — a 3×3
+        // plant serving the whole city should cost more than a neighbourhood
+        // school — but well above the stations.
+        case .school: return 35
+        case .hospital: return 55
+        // Small but not nothing: a city that paves itself in parks should feel
+        // it, and the ongoing cost is what stops "park everything" being free.
+        case .park: return 4
+        case .neonArcade: return 30
+        case .broadcastTower: return 60
+        case .arcology: return 120
+        // Nothing to run: an icon has no staff and does nothing.
+        case .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: return 0
         case .powerPlant: return 50
         case .stadium: return 40
         // `.subway` *is* a service, same as `.publicTransit` (staffed
@@ -137,6 +347,34 @@ extension ZoneType {
         case .subway: return 15
         // `.waterTower` *is* a service, same tier as Police/Fire.
         case .waterTower: return 20
+        // The heaviest things in the game to run, and deliberately so: each
+        // raises a whole sector's demand by itself, so the counterweight has
+        // to be an ongoing bill a plateaued treasury actually notices. An
+        // airport costs more than a hospital — the point at which "what else
+        // can I build" finally has an expensive answer.
+        case .seaport: return 60
+        case .airport: return 75
+        }
+    }
+
+    /// Does placing or clearing this change what the utility networks reach?
+    ///
+    /// **Only a source does.** Water supply is computed from the towers and
+    /// pumps, power from the generators and plants, plus the conduits between
+    /// them — which are laid by their own tools, not by this one. A road, a
+    /// zone or a police station moves none of it.
+    ///
+    /// This exists because `GameController.place` recomputed supply after
+    /// *every* placement, and the comment above that call already named the
+    /// condition — "a tower or a plant changes what is supplied the instant
+    /// it lands" — while the code checked nothing. Two whole-map flood fills,
+    /// measured at **8.6 ms of an 11 ms placement**, ran for every road tile
+    /// a player dragged out. Reported from play as having to wait for the
+    /// game to catch up while placing zones.
+    var feedsAUtilityNetwork: Bool {
+        switch self {
+        case .waterTower, .waterPump, .generator, .powerPlant: return true
+        default: return false
         }
     }
 
@@ -150,9 +388,12 @@ extension ZoneType {
     /// everything built on it) doesn't care how big a zone is.
     var footprintSize: Int {
         switch self {
-        case .empty, .road, .publicTransit, .highway, .subway: return 1
-        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower: return 2
-        case .powerPlant, .stadium: return 3
+        case .empty, .road, .publicTransit, .tramStop, .highway, .subway, .waterPump, .park: return 1
+        // A rail station is 2×2 where every other transit stop is 1×1, and
+        // the land is part of the price: a bus shelter threads between
+        // blocks, a regional terminus takes a lot.
+        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital, .railStation, .neonArcade, .broadcastTower, .nightMarket, .chromeDome, .twinMasts, .harbourTower, .sunsetSpire: return 2
+        case .powerPlant, .stadium, .seaport, .airport, .arcology: return 3
         }
     }
 }

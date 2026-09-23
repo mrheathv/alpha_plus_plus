@@ -1,11 +1,33 @@
 import SpriteKit
 
-/// Graybox color palette.
+/// The game's colour palette.
 ///
-/// This file is the *entire* answer to "what color is a residential zone?".
-/// Because `ZoneType` (in Simulation/) has no idea colors exist, restyling the
-/// whole game — or swapping colored squares for real sprites in Phase 3 — is a
-/// change to this file and `TileRenderer`, and nothing else.
+/// This file is the *entire* answer to "what colour is a residential zone?".
+/// Because `ZoneType` (in Simulation/) has no idea colours exist, restyling the
+/// whole game is a change to this file and `IsoTileRenderer`, and nothing else.
+///
+/// **Ground and light are different things, and that distinction is the whole
+/// art direction.** This file started as a graybox palette, where a zone's
+/// colour *was* its tile: every lot a big flat saturated rectangle keyed to
+/// what you had zoned it. That is a data visualisation, and it is the right
+/// answer while you are proving mechanics against coloured squares. It is the
+/// wrong answer for a game someone buys, for two reasons — no city has ground
+/// that colour, and it spends the screen's entire colour budget on a flat
+/// field, leaving the neon nothing to be brighter *than*.
+///
+/// So the palette is split:
+///
+/// - `groundColor(for:density:)` is what a tile is *made of* — asphalt and
+///   earth at night, near-black, carrying only a whisper of its zone's hue so
+///   a district still has a cast.
+/// - `tierColor(for:tier:)` / `fullColor(for:)` are what a zone *emits* —
+///   the neon a building is stroked in, the halo around it, and the pool of
+///   light it throws on the ground beneath it (`IsoTileRenderer.syncGroundGlow`).
+///
+/// Zone identity did not get weaker in the trade; it moved from a flat fill to
+/// light, which is both more legible against black and the only version of it
+/// that looks like night. Analytical views that genuinely want a colour-coded
+/// field still have one — that is exactly what the overlays are.
 ///
 /// `SKColor` is SpriteKit's cross-platform alias; on macOS it is `NSColor`.
 enum RenderPalette {
@@ -14,6 +36,253 @@ enum RenderPalette {
     /// reads as an object sitting on a surface. "Night sky," from the
     /// Retrowave SimCity reference palette.
     static let background = SKColor(srgbRed: 0.051, green: 0.008, blue: 0.129, alpha: 1.0)
+
+    /// Bare land: the colour of the map itself where nothing has been built.
+    /// Deliberately close to `background` but a step lighter, so the map still
+    /// reads as a surface sitting in the night rather than a hole in it.
+    static let ground = SKColor(srgbRed: 0.078, green: 0.043, blue: 0.157, alpha: 1.0)
+
+    /// The footway along a street's edge, where it does not carry on into
+    /// more street.
+    ///
+    /// **Between asphalt and bare land, and closer to asphalt.** This is the
+    /// first mark ever added to the ground plane, which is 42% of a frame and
+    /// had never had a pass — and the value ladder is the constraint that
+    /// makes it delicate. Asphalt is deliberately the *darkest* surface in
+    /// the game, because what makes a road visible is the lane line glowing on
+    /// top of it and that needs the darkest possible bed. A pavement bright
+    /// enough to notice on its own would undo exactly the fix that made the
+    /// street grid recede.
+    ///
+    /// So it is a step up from asphalt and still under bare ground: enough
+    /// that a street has an *edge* rather than bleeding into the lot beside
+    /// it, and not enough to compete with anything that is lit.
+    static let pavement = SKColor(srgbRed: 0.098, green: 0.063, blue: 0.180, alpha: 1.0)
+
+    /// The line where the footway meets the carriageway.
+    ///
+    /// Only the inner edge gets one. The outer edge is where the lot begins,
+    /// and that boundary already reads because the two surfaces differ — a
+    /// second line there would draw a box around every street tile.
+    static let kerb = SKColor(srgbRed: 0.22, green: 0.17, blue: 0.32, alpha: 0.9)
+
+    /// The land *outside* the map: the surface it is made of, and the grid
+    /// ruled across it.
+    ///
+    /// **A surface, not a wireframe.** The first attempt drew only the grid,
+    /// at an alpha low enough to be tasteful, and it disappeared — the city
+    /// still read as an island floating on black, which is the whole thing
+    /// this is here to fix. Lines hanging in space are not ground. What makes
+    /// somewhere look like somewhere is that it has a *value*, however dark,
+    /// which the neon then sits on top of.
+    ///
+    /// Both stay well under the city's own ground so the map still reads as
+    /// the lit, claimed part of a darker landscape — the moment the
+    /// surroundings are bright enough to look at, they compete with the city
+    /// standing on them, which is exactly the mistake the lane lines were
+    /// making across a third of the map.
+    /// Water, and its lit edge.
+    ///
+    /// Deep and blue where the land is a warm near-black, so a coastline
+    /// reads at a glance and from any zoom — the one surface in the game that
+    /// is a different *material* rather than a differently-tinted one. Kept
+    /// dark enough that it does not compete with the city standing beside it:
+    /// water at night is mostly a hole in the light, which is exactly what
+    /// makes the lit edge do the work.
+    static let water = SKColor(srgbRed: 0.035, green: 0.075, blue: 0.22, alpha: 1.0)
+
+    /// The parapet along a bridge deck — cool and pale, a structural mark
+    /// rather than a neon one, so a crossing reads as engineering standing in
+    /// the water rather than as another lit street.
+    /// A tail light under braking. Hotter and redder than the running lamp,
+    /// because a jam has to look like *stopping* — congestion already changes
+    /// how many cars there are and how slowly they cross, and neither of
+    /// those reads as a brake.
+    /// Factory smoke — a cool grey-violet that reads as soot against the
+    /// night rather than as a lit thing. The one particle in the game that
+    /// is not additive: smoke *occludes*, and adding it would make a chimney
+    /// look like it was firing a beam.
+    static let smoke = SKColor(srgbRed: 0.52, green: 0.48, blue: 0.60, alpha: 1.0)
+
+    /// How far a developed tile's ground is tinted toward its zone's own neon.
+    ///
+    /// Small on purpose, and smaller than it first looks like it should be.
+    /// This is the knob that decides whether the map reads as a city at night
+    /// or as a chart, and it has to be set *against* the ground glow rather
+    /// than on its own: the first pass used 0.26 here, which looked reasonable
+    /// alone but combined with `IsoTileRenderer.syncGroundGlow` on top rebuilt
+    /// exactly the flat saturated colour field the split was meant to retire,
+    /// only with a gradient in it. The fill is the faint cast; the glow is the
+    /// light. Turning either one up far enough makes the other pointless.
+    private static let groundTintAtFullDensity: CGFloat = 0.035
+    private static let groundTintWhenZonedOnly: CGFloat = 0.025
+
+    /// The warm glow of the retrowave "sun on the horizon" motif, which
+    /// `GameView`'s dashboard bleeds up along its top edge. Every reference
+    /// image this project's art pass has pulled from puts a big warm sun
+    /// behind the skyline; this is that same light.
+    static let sunGlow = SKColor(srgbRed: 1.0, green: 0.58, blue: 0.16, alpha: 1.0)
+
+    /// Colour for the Pollution overlay: clean tiles stay near the night-sky
+    /// background and dirty ones climb toward a sickly industrial yellow-green.
+    ///
+    /// Deliberately not the neon magenta/cyan the rest of the palette runs on
+    /// — pollution is the one channel that should read as *wrong*, and the
+    /// synthwave palette has no unpleasant colour in it by design. Borrowing
+    /// industrial's own ember hue and souring it toward green keeps it in the
+    /// family while still reading as contamination.
+    /// A building with no supply: dark and desaturated, but not black.
+    ///
+    /// The distinction the utility overlays live or die on, so it gets a name
+    /// rather than being whichever colour was to hand. Dark enough that a
+    /// wash toward it plainly reads as *off*, light enough that the building's
+    /// own neon outline survives at a fifth strength and the silhouette is
+    /// still a silhouette.
+    static let unlitBuilding = SKColor(srgbRed: 0.16, green: 0.15, blue: 0.24, alpha: 1.0)
+
+    /// The ground under a utility overlay, in the three states a tile can
+    /// actually be in.
+    ///
+    /// **Three, not two**, because the two supply routes have different shapes
+    /// and a player cannot see either. A source covers everything within
+    /// `Water.directSupplyRadius` with no pipe at all; a pipe covers what it
+    /// runs beside. Drawing both as one "served" colour hides the single most
+    /// useful thing the overlay could tell you — which part of your network
+    /// you did not need to build.
+    ///
+    /// So radius coverage is a soft halo around each source and pipe coverage
+    /// is the brighter field, and the difference between them is the pipe you
+    /// could have skipped.
+    static func supplyGroundColor(isPipe: Bool, supplied: Bool, direct: Bool) -> SKColor {
+        guard supplied else { return waterUnsupplied }
+        let hue = conduitColor(isPipe: isPipe, live: true)
+        return background.blended(withFraction: direct ? 0.22 : 0.48, of: hue) ?? waterUnsupplied
+    }
+
+    /// The Problems overlay's ground colour: how badly a lot wants looking
+    /// at.
+    ///
+    /// A heatmap rather than the lit/dark language the utility overlays use.
+    /// Those answer a yes/no about each building; this one ranks four states,
+    /// and "how bad" is a gradient — which is what a heatmap is for, and why
+    /// this overlay hides the buildings the way land value and pollution do.
+    static func problemColor(for severity: LotStatus.Severity) -> SKColor {
+        switch severity {
+        // Bright, because the whole point is a lot that catches your eye from
+        // across the map without being hunted for. The first values were half
+        // this and the render showed the cost: a correct picture nobody would
+        // notice they were being shown. Everything fine stays at the
+        // background, so the only marks on screen are the ones that want
+        // something.
+        case .fine: return background
+        case .blocked: return SKColor(srgbRed: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        case .failing: return SKColor(srgbRed: 1.0, green: 0.26, blue: 0.42, alpha: 1.0)
+        case .critical: return SKColor(srgbRed: 1.0, green: 0.68, blue: 0.15, alpha: 1.0)
+        }
+    }
+
+    /// The neon a transit line is drawn in.
+    ///
+    /// Borrowed from the station's own zone colour rather than picked fresh,
+    /// so the line running across the map is the same hue as the buildings it
+    /// calls at — sky blue for buses, violet for the subway. That is what lets
+    /// a player glance at a station in Normal view and know which of the two
+    /// overlays it belongs to.
+    static func transitLineColor(for mode: TransitRoute.Mode) -> SKColor {
+        fullColor(for: mode.stationZone)
+    }
+
+    /// The Bus/Subway overlays' ground: within walking distance of the line,
+    /// or not.
+    ///
+    /// Two states where water has three, because transit has no equivalent of
+    /// the pipe-versus-radius distinction — a station either reaches you or it
+    /// does not. Built the same way `supplyGroundColor` is, blending the
+    /// line's own hue into the night rather than naming a third colour, so the
+    /// four network overlays keep reading as one family.
+    static func transitGroundColor(for mode: TransitRoute.Mode, served: Bool) -> SKColor {
+        guard served else { return waterUnsupplied }
+        // **Scaled by how far the mode reaches.** A bus stop's catchment is a
+        // radius-4 diamond and a rail station's is radius-10, which is six
+        // times the area — so the same blend that reads as a pool of light
+        // under a bus stop reads as a flood under a terminus, and the route
+        // line disappears into its own coverage field. Tied to the catchment
+        // rather than tuned per mode, so a fifth mode cannot get this wrong.
+        let reach = Double(Transit.catchment(for: mode)) / Double(Transit.busCatchment)
+        let fraction = max(0.2, 0.42 / reach)
+        return background.blended(withFraction: fraction, of: transitLineColor(for: mode)) ?? waterUnsupplied
+    }
+
+    /// A building that wants a utility and has not got one.
+    ///
+    /// **Loud, and deliberately breaking "lit means fine".** That rule works
+    /// while an overlay asks a yes/no of every building; it breaks the moment
+    /// there are three answers, because "dark" then means both *not
+    /// applicable* and *broken* — and those could hardly be less alike. A
+    /// house too small to need water yet and a tower dying for want of it
+    /// were being painted the same near-black.
+    ///
+    /// So the third state gets the loudest mark on the map, in a hue chosen
+    /// to fight **both** utility colours. The first attempt borrowed
+    /// `problemColor(for: .critical)` on the reasoning that this is the same
+    /// claim the Problems view makes — which is not true (that view ranks a
+    /// missing utility as `.blocked`, and paints it blue) and which picked an
+    /// amber that sat almost on top of the power network's own yellow. A hot
+    /// red reads against water's cyan and power's amber alike.
+    static let utilityWanted = SKColor(srgbRed: 1.0, green: 0.22, blue: 0.34, alpha: 1.0)
+
+    /// A buried conduit's line colour.
+    ///
+    /// **Hot when live, cold when not.** Power runs electric yellow and water
+    /// runs a bright cyan-blue — the two hues the retrowave palette has going
+    /// spare, and the two a player already associates with the things they
+    /// carry. An orphaned conduit drops to a dead slate with no bloom behind
+    /// it, so a run that fails to reach its source reads as unlit wire rather
+    /// than as a slightly different shade of the same thing.
+    static func conduitColor(isPipe: Bool, live: Bool) -> SKColor {
+        // **A dead conduit has to be visible as a dead conduit.** The first
+        // value here was 0.30 grey, which against this palette's near-black
+        // ground was not "unlit wire", it was nothing at all — and an orphaned
+        // run you cannot see is the exact failure the live/dead distinction
+        // exists to fix.
+        guard live else { return SKColor(srgbRed: 0.46, green: 0.47, blue: 0.56, alpha: 1.0) }
+        // **Deliberately short of full brightness.** These are drawn additively
+        // so a straight run brightens where tiles meet, and at 1.0 the overlap
+        // plus the bloom saturated the line to white — losing the one thing
+        // the colour was carrying, which is *which* utility this is. Held
+        // below the ceiling, the sum lands on a bright blue or a bright
+        // yellow instead of on paper.
+        return isPipe
+            ? SKColor(srgbRed: 0.10, green: 0.58, blue: 0.82, alpha: 1.0)
+            : SKColor(srgbRed: 0.78, green: 0.62, blue: 0.10, alpha: 1.0)
+    }
+
+    /// The Crime and Fire Risk overlays' ground colour: how strongly a
+    /// service reaches this tile, from unreached to right next door.
+    ///
+    /// Ramped from the "night" the map already sits on toward the service's
+    /// own colour, rather than through a second invented hue, so the overlay
+    /// and the station it is about agree by construction — the same
+    /// relationship `waterColor` keeps with a water tower. Squared on the way
+    /// up because `LandValue.falloffValue` is linear in distance and a linear
+    /// ramp makes a station's whole catchment read as one flat disc; with the
+    /// curve, the *edge* of the catchment is where the colour changes fastest,
+    /// which is exactly where the player is deciding whether to build another.
+    static func coverageColor(for value: Double, service: ZoneType) -> SKColor {
+        let clamped = max(0, min(1, value))
+        return background.blended(withFraction: CGFloat(clamped * clamped), of: fullColor(for: service))
+            ?? background
+    }
+
+    static func pollutionColor(for level: Double) -> SKColor {
+        let clamped = max(0, min(1, level))
+        return SKColor(
+            srgbRed: 0.10 + 0.62 * clamped,
+            green: 0.05 + 0.72 * clamped,
+            blue: 0.16 + 0.06 * clamped,
+            alpha: 1.0
+        )
+    }
 
     /// Flash color for "you can't afford this" feedback, when `place(at:)`
     /// reports `.insufficientFunds`. Saturated red reads as an error against
@@ -33,6 +302,14 @@ enum RenderPalette {
     /// says which hazard it was.
     static let crimeHazardFlash = SKColor(srgbRed: 0.55, green: 0.25, blue: 0.85, alpha: 1.0)
 
+    /// Flash color for "bulldoze it first" feedback, when `place(at:)`
+    /// reports `.blocked` — placing over a tile that already has something
+    /// on it. The exact hue `placementPreviewBlockedFill`/`Stroke` already
+    /// warn with before the click, just opaque, so the pre-click warning
+    /// and the post-click flash read as the same signal rather than two
+    /// different reds with two different meanings.
+    static let blockedPlacementFlash = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 1.0)
+
     /// The color a zone is drawn at its most developed. For every service
     /// building, `.empty`, and `.road`/`.highway` (their *base* fill — see
     /// `networkAccentColor(for:)` for the separate glow/lane color those
@@ -45,7 +322,7 @@ enum RenderPalette {
     ///
     /// Retrowave palette: every hue below is a saturated neon rather than a
     /// realistic material color (asphalt gray, brick red, grass green).
-    /// `ZoneIcon` reads this same function for every *civic* building's own
+    /// `ServiceMassing` reads this same function for every civic building's own
     /// "accent" — the glow color for its silhouette's outline — so a
     /// service zone's tile color and the glow on the building standing on
     /// it are always the same color by construction, not two palettes that
@@ -53,6 +330,39 @@ enum RenderPalette {
     /// exactly that reason.
     static func fullColor(for zone: ZoneType) -> SKColor {
         switch zone {
+        // The rank rewards. Each picked against its neighbours on this list
+        // rather than for itself: the arcade sits between the stadium's pink
+        // and the subway's violet as the one electric magenta; the tower is
+        // the warm white of a beacon, the only near-white building in the
+        // game; the arcology is a pale aqua no zone uses.
+        case .neonArcade:
+            return SKColor(srgbRed: 0.92, green: 0.22, blue: 1.0, alpha: 1.0)
+        case .broadcastTower:
+            return SKColor(srgbRed: 1.0, green: 0.93, blue: 0.72, alpha: 1.0)
+        case .arcology:
+            return SKColor(srgbRed: 0.40, green: 1.0, blue: 0.92, alpha: 1.0)
+        // The icons, each in the colour its reference image lights it with:
+        // the night market's sign red, the dome's chrome, the masts'
+        // twilight violet, the harbour tower's ice blue, and the spire in
+        // the gold of the sun it stands in front of.
+        case .nightMarket:
+            return SKColor(srgbRed: 1.0, green: 0.26, blue: 0.42, alpha: 1.0)
+        case .chromeDome:
+            return SKColor(srgbRed: 0.76, green: 0.9, blue: 1.0, alpha: 1.0)
+        case .twinMasts:
+            return SKColor(srgbRed: 0.58, green: 0.5, blue: 1.0, alpha: 1.0)
+        case .harbourTower:
+            return SKColor(srgbRed: 0.42, green: 0.74, blue: 1.0, alpha: 1.0)
+        case .sunsetSpire:
+            return SKColor(srgbRed: 1.0, green: 0.66, blue: 0.3, alpha: 1.0)
+        case .park:
+            // **The one green in the game**, and deliberately the only one.
+            // Every other zone sits somewhere on the magenta-to-cyan
+            // retrowave spine; a park is the thing that is *not* built, so it
+            // gets the hue nothing else uses. Pushed toward emerald rather
+            // than a natural leaf green — this is a park at night under city
+            // light, not a photograph of grass.
+            return SKColor(srgbRed: 0.18, green: 0.92, blue: 0.55, alpha: 1.0)
         case .empty:
             // Unzoned land — between the near-black background and the
             // road's own dark asphalt-purple, the "night" every neon shape
@@ -60,11 +370,32 @@ enum RenderPalette {
             return SKColor(srgbRed: 0.11, green: 0.035, blue: 0.23, alpha: 1.0)
         case .residential, .commercial, .industrial:
             return tierColor(for: zone, tier: 3)
+        case .school:
+            // Warm amber against the cool blues of water and transit — the
+            // civic buildings should read as their own family on the map.
+            return SKColor(srgbRed: 1.0, green: 0.78, blue: 0.25, alpha: 1.0)
+        case .hospital:
+            // Clinical white-pink, the one nearly-desaturated colour in the
+            // palette, so a hospital stands out from every neon around it.
+            return SKColor(srgbRed: 1.0, green: 0.62, blue: 0.70, alpha: 1.0)
+        case .waterPump:
+            // Deliberately the same hue as `.waterTower`, and `.generator`
+            // as `.powerPlant` below: the pair is the same utility at two
+            // sizes, so they should read as the same *system* on the map,
+            // the way `.road` and `.highway` share their asphalt base.
+            return fullColor(for: .waterTower)
+        case .generator:
+            return fullColor(for: .powerPlant)
         case .road, .highway:
-            // Dark asphalt-purple base — both read as the same paved
-            // surface now; what makes a highway a highway is its brighter
-            // `networkAccentColor(for:)` glow, not a different base fill.
-            return SKColor(srgbRed: 0.169, green: 0.063, blue: 0.333, alpha: 1.0)
+            // Asphalt: the *darkest* surface on the map, a shade under bare
+            // ground. It was twice `ground`'s brightness when every tile was
+            // a saturated fill and asphalt had to hold its own against them.
+            // Against a dark map that inverted the whole picture — roads are
+            // about a third of a normal grid's tiles, so a pavement brighter
+            // than the land read as a lilac board with dark blocks sitting on
+            // it. What makes a road visible is the lane line glowing on top of
+            // it, and that needs the darkest possible bed.
+            return SKColor(srgbRed: 0.063, green: 0.031, blue: 0.129, alpha: 1.0)
         case .policeStation:
             return SKColor(srgbRed: 0.35, green: 0.35, blue: 1.0, alpha: 1.0)  // neon indigo-blue, distinct from commercial's cyan family
         case .fireStation:
@@ -83,14 +414,46 @@ enum RenderPalette {
             return SKColor(srgbRed: 1.0, green: 0.25, blue: 0.75, alpha: 1.0)  // hot pink, "entertainment lights"
         case .subway:
             return SKColor(srgbRed: 0.55, green: 0.30, blue: 1.0, alpha: 1.0)  // neon violet — same transit family as publicTransit's sky blue, richer
+        case .railStation:
+            // Chartreuse — deliberately *outside* the blue-to-violet family
+            // the three urban modes share, because regional rail is the one
+            // that is not an urban mode. It reads as the odd one out, which
+            // is what it is. Checked against its neighbours the way the
+            // tram's teal was: `.park` is a cooler mint, and the land-value
+            // overlay's gold never appears beside a building.
+            //
+            // Held well below full brightness, which the render insisted on.
+            // At 0.85/1.0/0.25 this is by far the most luminous colour in the
+            // game, and its overlay's ground wash — spread over the widest
+            // catchment of any mode — flooded the map so thoroughly that the
+            // route line was lost inside its own coverage field.
+            return SKColor(srgbRed: 0.68, green: 0.82, blue: 0.16, alpha: 1.0)
+        case .tramStop:
+            // Deep teal. Picked against its two dangerous neighbours rather
+            // than for its own sake: `.park` is a *warm* mint (0.18/0.92/0.55)
+            // and both are 1×1 buildings threaded between blocks, while the
+            // highway's lane glow is a pure sky cyan (0/0.90/1.0). This sits
+            // between them and is clearly neither, while staying in the blue
+            // half of the wheel where the rest of transit lives.
+            return SKColor(srgbRed: 0.0, green: 0.85, blue: 0.70, alpha: 1.0)
         case .waterTower:
             return SKColor(srgbRed: 0.05, green: 0.60, blue: 0.90, alpha: 1.0)  // deep ocean-blue, distinct from Commercial's cyan family
+        // **The two freight connections share a family**, because that is
+        // what they are: a sea-green and a warmer signal-amber, both well
+        // clear of the blue-violet the urban transit modes live in and of
+        // rail's chartreuse. A player should be able to see at a glance that
+        // these two are the same *kind* of thing as each other and a
+        // different kind from everything else.
+        case .seaport:
+            return SKColor(srgbRed: 0.10, green: 0.82, blue: 0.62, alpha: 1.0)
+        case .airport:
+            return SKColor(srgbRed: 1.0, green: 0.68, blue: 0.16, alpha: 1.0)
         }
     }
 
     /// Which of 3 visual/color tiers a growable zone's density falls into —
     /// 0 (nothing built yet), 1 (small), 2 (medium), 3 (large/fully
-    /// developed). The same table `ZoneIcon` already picks a building's
+    /// developed). The same table the massing generators already pick a building's
     /// *shape* from, and now also which of `tierColor(for:tier:)`'s three
     /// named colors it's drawn in — a lot doesn't just get brighter as it
     /// grows any more, it changes hue at each tier the same way its
@@ -98,14 +461,16 @@ enum RenderPalette {
     /// a `density / maxDensity` proportion — a proportional split would
     /// put density 2 and 3 in the *same* third for a max of 5, which is
     /// exactly the "adjacent levels should look different" case this
-    /// exists to show. Assumes today's `maxDensity` of 5 for every
-    /// growable zone; revisit this table specifically if that ever changes.
+    /// exists to show. **Level 6 is tier 4**, the skyline: housing and shops
+    /// reach it (industry stops at 5), and it is drawn as a different kind of
+    /// building rather than a taller level 5.
     static func growthTier(for density: Int) -> Int {
         switch density {
         case 0: return 0
         case 1, 2: return 1
         case 3, 4: return 2
-        default: return 3
+        case 5: return 3
+        default: return 4
         }
     }
 
@@ -113,24 +478,27 @@ enum RenderPalette {
     /// the Retrowave SimCity reference palette — a small lot, a mid-size
     /// development, and a fully-built one are different *hues* now, not
     /// just different brightnesses of one fixed color the way every other
-    /// zone still works. `tier` is clamped to `1...3`: tier 0 (nothing
+    /// zone still works. `tier` is clamped to `1...4` (4 being the level-6
+    /// skyline, which industry never reaches): tier 0 (nothing
     /// built) has no color of its own — `color(for:density:)` uses tier
     /// 1's for that "dim, not built yet" state, on the theory that a bare
     /// lot previews what it's zoned to *become*, not its eventual
     /// fully-built form.
     static func tierColor(for zone: ZoneType, tier: Int) -> SKColor {
-        let clampedTier = min(max(tier, 1), 3)
+        let clampedTier = min(max(tier, 1), zone == .industrial ? 3 : 4)
         switch zone {
         case .residential:
             switch clampedTier {
             case 1: return SKColor(srgbRed: 0.482, green: 0.184, blue: 0.969, alpha: 1.0)  // Low density — violet
             case 2: return SKColor(srgbRed: 0.655, green: 0.259, blue: 0.910, alpha: 1.0)  // Mid density — orchid
+            case 4: return SKColor(srgbRed: 0.62, green: 0.58, blue: 1.0, alpha: 1.0)  // Skyline — periwinkle
             default: return SKColor(srgbRed: 0.902, green: 0.651, blue: 1.0, alpha: 1.0)  // High density — pale lavender
             }
         case .commercial:
             switch clampedTier {
             case 1: return SKColor(srgbRed: 1.0, green: 0.431, blue: 0.780, alpha: 1.0)  // Retail — pink
             case 2: return SKColor(srgbRed: 1.0, green: 0.239, blue: 0.506, alpha: 1.0)  // Offices — hot rose
+            case 4: return SKColor(srgbRed: 1.0, green: 0.36, blue: 0.86, alpha: 1.0)  // Skyline — neon magenta
             default: return SKColor(srgbRed: 1.0, green: 0.702, blue: 0.278, alpha: 1.0)  // Entertainment — amber
             }
         case .industrial:
@@ -148,8 +516,8 @@ enum RenderPalette {
     }
 
     /// The bright accent a road or highway tile's network glow
-    /// (`TileRenderer.syncNetworkGlow`) and lane-line detail
-    /// (`TileRenderer.syncLaneLine`) are drawn in — separate from
+    /// (the road network glow) and lane-line detail
+    /// (`IsoTileRenderer.syncLaneLine`) are drawn in — separate from
     /// `fullColor(for:)`'s dark asphalt base now that the two are
     /// deliberately different values: a synthwave highway reads as a dark
     /// road with a *glowing line down the middle of it*, not a solid
@@ -161,29 +529,36 @@ enum RenderPalette {
         }
     }
 
-    /// What color a tile should be drawn, given both its zone *and* how
-    /// developed it is.
+    /// What a tile is made of — the ground it is, not the zone it means.
     ///
-    /// For the three growable zones, this is the graybox stand-in for "a
-    /// building appears and grows": a freshly zoned tile (density 0) is a
-    /// dim, washed-out version of its tier-1 color — "claimed but nothing
-    /// built yet" — that brightens toward that tier's own color as density
-    /// climbs, then jumps to the *next* tier's color the moment density
-    /// actually crosses into it (`growthTier(for:)`), rather than
-    /// continuously blending across all 5 density levels toward one fixed
-    /// color the way this used to work. Every other zone (`.empty`/
-    /// `.road`/every service) has `maxDensity == 0` and skips straight to
-    /// its one fixed color, since there's no development state for them to
-    /// show.
+    /// Near-black for everything, tinted a little toward the zone's own neon
+    /// so a residential district has a violet cast and an industrial one an
+    /// amber cast without either becoming a block of flat colour. A zoned but
+    /// unbuilt lot is tinted less than a developed one, so "claimed" and
+    /// "built" still differ at a glance even before a building appears (and
+    /// `IsoTileRenderer.syncZoneMarker` puts a surveyed outline on it besides).
+    ///
+    /// Roads and highways keep their own asphalt value rather than being
+    /// tinted from it: they are the one surface in the game that really is a
+    /// different material, and the glowing lane line drawn on top of them
+    /// needs a dark, neutral bed to read against.
     static func color(for zone: ZoneType, density: Int) -> SKColor {
-        guard zone.maxDensity > 0 else { return fullColor(for: zone) }
-
-        let tier = growthTier(for: density)
-        guard tier > 0 else {
-            let notYetBuilt = tierColor(for: zone, tier: 1)
-            return notYetBuilt.blended(withFraction: 0.7, of: background) ?? notYetBuilt
+        switch zone {
+        case .empty:
+            return ground
+        case .road, .highway:
+            return fullColor(for: zone)
+        default:
+            break
         }
-        return tierColor(for: zone, tier: tier)
+
+        let emitted = zone.maxDensity > 0
+            ? tierColor(for: zone, tier: max(1, growthTier(for: density)))
+            : fullColor(for: zone)
+        let tint = zone.maxDensity > 0 && growthTier(for: density) == 0
+            ? groundTintWhenZonedOnly
+            : groundTintAtFullDensity
+        return ground.blended(withFraction: tint, of: emitted) ?? ground
     }
 
     /// Low end of the land-value heatmap (worthless land, value 0).
@@ -203,6 +578,28 @@ enum RenderPalette {
     static func landValueColor(for value: Double) -> SKColor {
         let fraction = CGFloat(min(max(value, 0), 1))
         return landValueLow.blended(withFraction: fraction, of: landValueHigh) ?? landValueLow
+    }
+
+    /// The Land view: owned ground, a parcel you could buy next, and the rest.
+    ///
+    /// For sale is the loud one, for the rule the utility views settled on —
+    /// one reading per answer, and the answer that wants something is the one
+    /// that shouts. Owned land is a quiet cyan, the colour the cockpit already
+    /// uses for "yours", and land out of reach sits near the night the map is
+    /// drawn on.
+    ///
+    /// `alternate` is a checkerboard of parcels: without it a run of owned
+    /// parcels reads as one slab and the player cannot count what they have.
+    static func landColor(owned: Bool, forSale: Bool, alternate: Bool) -> SKColor {
+        let base: SKColor
+        if owned {
+            base = SKColor(srgbRed: 0.10, green: 0.55, blue: 0.62, alpha: 1)
+        } else if forSale {
+            base = SKColor(srgbRed: 1.0, green: 0.62, blue: 0.16, alpha: 1)
+        } else {
+            base = SKColor(srgbRed: 0.10, green: 0.07, blue: 0.16, alpha: 1)
+        }
+        return alternate ? (base.blended(withFraction: 0.18, of: .black) ?? base) : base
     }
 
     /// Low end of the traffic heatmap (empty road, congestion 0).
@@ -235,33 +632,51 @@ enum RenderPalette {
         hasSupply ? waterSupplied : waterUnsupplied
     }
 
-    /// Marker drawn on top of the Water overlay wherever `Tile.hasPipe` is
-    /// true (see `TileRenderer`'s pipe-marker sync) — pipes have no
-    /// surface color of their own now that they're an underground layer
-    /// rather than a `ZoneType`, so this is the one place a pipe is
-    /// actually visible at all. A muted, desaturated version of
-    /// `waterTower`'s ocean-blue, same "plainer infrastructure, richer
-    /// service building" family relationship highway/road and
-    /// subway/publicTransit already have — the exact value `.pipe`'s own
-    /// tile color used to be, before pipes moved off the surface grid.
-    static let pipeMarkerColor = SKColor(srgbRed: 0.15, green: 0.40, blue: 0.55, alpha: 1.0)
+    /// Color for the "Show Power" overlay — the exact same "plain
+    /// two-color read" shape `waterColor(for:)` documents one paragraph
+    /// up, for the parallel network: `PowerGrid.hasSupply(at:in:)` is
+    /// just as binary as `Water.hasSupply(at:in:)`. Reuses `powerPlant`'s
+    /// own icy blue-white for "supplied," against the same dim
+    /// desaturated tone `waterUnsupplied` uses for "not supplied" —
+    /// deliberately the same unsupplied color both overlays share, since
+    /// "nothing here" should read identically regardless of which
+    /// utility you're looking for.
+    private static let powerSupplied = SKColor(srgbRed: 0.70, green: 0.88, blue: 1.0, alpha: 1.0)
 
-    /// Body and outline for the small ambient "cars" `GameScene` animates
-    /// driving along road tiles (see `Traffic.carCount(forCongestion:)`).
-    /// Pale, headlight-like body so they stand out against road's own gray.
-    static let trafficCarBody = SKColor(white: 0.95, alpha: 0.95)
-    static let trafficCarOutline = SKColor.black.withAlphaComponent(0.4)
+    static func powerColor(for hasSupply: Bool) -> SKColor {
+        hasSupply ? powerSupplied : waterUnsupplied
+    }
 
-    /// Fill/stroke for the placement-preview outline that follows the
-    /// cursor before a click commits (`GameScene.updatePlacementPreview`) —
-    /// green while every cell the selected tool would cover is still
-    /// `.empty`, red once hovering somewhere that already has a road or
-    /// building on it (placing there would replace it, via the same
-    /// auto-replace path a real click already uses) — visible *before*
-    /// the click, not just discoverable after.
-    static let placementPreviewClearFill = SKColor(srgbRed: 0.3, green: 1.0, blue: 0.5, alpha: 0.28)
+    /// What colour a vehicle's light trace is.
+    ///
+    /// **This is the channel that boxes could not carry.** A vehicle is about
+    /// eleven screen points across at the zoom this game is played at, and a
+    /// form that small cannot show its form — which is why the lorry's
+    /// separate box body, added so freight would read "from the silhouette
+    /// alone", never actually did. Hue survives the downsample where shape
+    /// does not, so drawing traffic as light makes *type* legible for the
+    /// first time: amber freight, blue patrols, a red engine running to a
+    /// fire, all readable from across the map.
+    ///
+    /// Each colour is the one its own service already uses on the map, so a
+    /// police car and a police station are the same blue and nothing has to
+    /// be learned twice.
+    static func vehicleColor(for vehicle: IsoTextureCache.Vehicle) -> SKColor {
+        switch vehicle {
+        // Ordinary traffic is the quietest thing on the road, deliberately:
+        // it is also the most of it, and a street of individually interesting
+        // cars is a street you cannot read.
+        case .car: return SKColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1)
+        case .lorry: return fullColor(for: .industrial)
+        case .police: return SKColor(srgbRed: 0.35, green: 0.62, blue: 1.0, alpha: 1)
+        case .fire: return SKColor(srgbRed: 1.0, green: 0.36, blue: 0.30, alpha: 1)
+        case .transit(let mode): return fullColor(for: mode.stationZone)
+        case .ship: return fullColor(for: .seaport)
+        case .aircraft: return fullColor(for: .airport)
+        }
+    }
+
     static let placementPreviewClearStroke = SKColor(srgbRed: 0.3, green: 1.0, blue: 0.5, alpha: 0.95)
-    static let placementPreviewBlockedFill = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 0.28)
     static let placementPreviewBlockedStroke = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 0.95)
 
     /// Label for the zone-picker toolbar. Lives here rather than on
@@ -272,6 +687,15 @@ enum RenderPalette {
     /// "no zone" case used for freshly-created tiles.
     static func displayName(for zone: ZoneType) -> String {
         switch zone {
+        case .park: return "Park"
+        case .neonArcade: return "Neon Arcade"
+        case .broadcastTower: return "Broadcast Tower"
+        case .arcology: return "Arcology"
+        case .nightMarket: return "Night Market"
+        case .chromeDome: return "Chrome Dome"
+        case .twinMasts: return "Twin Masts"
+        case .harbourTower: return "Harbour Tower"
+        case .sunsetSpire: return "Sunset Spire"
         case .empty: return "Bulldoze"
         case .residential: return "Residential"
         case .commercial: return "Commercial"
@@ -281,10 +705,18 @@ enum RenderPalette {
         case .fireStation: return "Fire Station"
         case .publicTransit: return "Transit Stop"
         case .powerPlant: return "Power Plant"
+        case .school: return "School"
+        case .hospital: return "Hospital"
+        case .waterPump: return "Water Pump"
+        case .generator: return "Generator"
         case .stadium: return "Stadium"
         case .highway: return "Highway"
         case .subway: return "Subway"
+        case .tramStop: return "Tram Stop"
+        case .railStation: return "Rail Station"
         case .waterTower: return "Water Tower"
+        case .seaport: return "Seaport"
+        case .airport: return "Airport"
         }
     }
 }

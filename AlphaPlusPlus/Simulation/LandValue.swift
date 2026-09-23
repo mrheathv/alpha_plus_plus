@@ -29,30 +29,112 @@ enum LandValue {
 
     /// A transit stop's reach sits between road frontage and a full service
     /// building: it serves more than its own doorstep, but a rider still
-    /// has to be able to walk to it.
+    /// has to be able to walk to it. Deliberately left short enough that a
+    /// stop can never out-value a zone's own road frontage (see
+    /// `serviceFalloffDistance`'s doc comment for the arithmetic reason
+    /// that matters) — `.publicTransit` is meant to work purely as a
+    /// second *access* method alongside `.road` (`CitySimulator.hasAccess`),
+    /// not as a competing land-value booster.
     static let transitFalloffDistance = 6
 
     /// A subway stop's reach, wider than a bus-stop-equivalent
     /// `.publicTransit`'s — the whole reason to pay `.subway`'s higher
     /// price and ongoing upkeep is that it serves a bigger area, the same
     /// "pricier, higher-capacity version" relationship `.highway` has with
-    /// `.road`.
-    static let subwayFalloffDistance = 9
+    /// `.road`. Tuned to clear the same "must beat bare road frontage"
+    /// bar `serviceFalloffDistance` documents, with room to stay the wider
+    /// of the two.
+    static let subwayFalloffDistance = 14
 
     /// Coverage from a service building (police/fire) falls off over a
     /// wider radius than road frontage — a station serves a neighborhood,
     /// not just its own tile's edges.
-    static let serviceFalloffDistance = 8
+    ///
+    /// Playtesting (a synthetic but realistic fully-built, fully-serviced
+    /// city, run through `CitySimulator`/`CityHazards`/`Traffic`/`Water`
+    /// for 200 ticks) turned up a real problem with the original value of
+    /// 8: a station across a *single road* from a zone — the ordinary way
+    /// two buildings relate in a road-grid city — sat at exactly distance
+    /// 2 from that zone's nearest cell, and `1 - 2/8 == 1 - 1/4`, the exact
+    /// same fraction `roadFalloffDistance` (4) gives a zone touching that
+    /// same road directly. A station one road-width away therefore never
+    /// out-valued the road itself — `value(at:in:)`'s `max()` just kept
+    /// the road's own number — so a zone with bare road access, one
+    /// nearby service, `and` nothing else could climb to density 4
+    /// (`CitySimulator.requiredLandValue`'s 0.65) but never to 5 (0.8): the
+    /// "something more" the level-4 doc comment promises turned out to
+    /// need a station touching the zone directly, on a side with *no* road
+    /// between them, which isn't a placement any normal, road-fronting
+    /// city plan produces. Raised to 12 so a station one ordinary road
+    /// -width away (distance 2) clears 0.8 outright (`1 - 2/12 ≈ 0.83`),
+    /// making the level-5 ceiling reachable by placing a station near the
+    /// neighborhood you want maxed out, not by a placement trick. This
+    /// also widens `CityHazards`' fire/crime coverage radius by the same
+    /// amount, since `CityHazards.apply` reads coverage through this same
+    /// falloff — an intentional side effect, not a separate tuning pass:
+    /// a station that projects real land value further out should
+    /// plausibly protect further out too.
+    static let serviceFalloffDistance = 12
 
     /// A stadium's draw reaches further still — it's a destination people
-    /// travel to, not a neighborhood amenity like a station.
-    static let stadiumFalloffDistance = 10
+    /// travel to, not a neighborhood amenity like a station. Kept the
+    /// widest of the three service-tier falloffs after the
+    /// `serviceFalloffDistance` retuning, for the same "clears 0.8 one
+    /// road-width away" reason.
+    static let stadiumFalloffDistance = 16
 
     /// How far a power plant's *negative* pull on land value reaches.
     /// Every other service in this file only ever raises value; a power
     /// plant is the first to lower it — nobody wants to live next to one,
     /// same falloff shape as everything else, just subtracted instead of
     /// competing in the `max`.
+    /// How far a park's effect carries.
+    ///
+    /// Short — a park serves the streets around it, not a district. That is
+    /// what makes covering a neighbourhood take several of them, and what
+    /// turns "make this area desirable" into a land-use decision rather than
+    /// a single purchase.
+    static let parkFalloffDistance = 4
+
+    /// How far a view of the water is worth anything, and how much.
+    ///
+    /// **In the `max` group, not added like a park**, and that is the whole
+    /// balance decision. A park is additive because it is the one *tool* a
+    /// player has for making a block nicer, and adding a second additive
+    /// positive would dilute the thing parks exist to be. Water is not a tool
+    /// — nobody builds a river — so it competes to be the best thing near a
+    /// lot rather than stacking on top of whatever already is.
+    ///
+    /// The effect that matters is still there: on a fresh coastal map, a lot
+    /// on the shore is worth meaningfully more than one inland, so the
+    /// waterfront is where a city wants to start. Beside a police station it
+    /// adds nothing, which is correct — by then the block is already served.
+    ///
+    /// 0.82 rather than 1.0 so plain road frontage plus real services still
+    /// beats a bare beach; three tiles, because "waterfront" should mean the
+    /// row or two that can actually see it, not half the map.
+    static let waterfrontFalloffDistance = 3
+    static let waterfrontValue = 0.82
+
+    /// How much desirability a park adds at its own doorstep.
+    ///
+    /// **Added to the best nearby amenity rather than competing with it**, and
+    /// that is the whole point of parks existing. Every other positive goes
+    /// through the `max` in `value(at:in:using:)` — "how good is the best
+    /// thing near you" — which means a second amenity beside a police station
+    /// contributes nothing. A park is not trying to be the best thing nearby;
+    /// it is the thing that makes an already-decent block better, so it stacks
+    /// on top the same way the pollution and power-plant penalties stack
+    /// underneath. It is the only positive that does.
+    ///
+    /// Sized against the gate it exists to help with: plain road frontage tops
+    /// out at 0.75 and the top density tier asks 0.8, so a park is what
+    /// carries an ordinary street over that line. It cannot do it alone —
+    /// density 5 still wants water, power and a school — it just stops land
+    /// value being the thing that quietly blocks it. A first guess, and the
+    /// playtest harness can check it.
+    static let parkBonus = 0.18
+
     static let powerPlantPenaltyDistance = 8
 
     /// How much land value a power plant subtracts at distance 0 (standing
@@ -60,6 +142,51 @@ enum LandValue {
     /// strong nearby road or station — it's an eyesore, not automatically a
     /// dealbreaker. A first guess, same as every other number in this file.
     static let powerPlantPenaltyStrength = 0.5
+
+    /// How much land value fully saturated pollution destroys.
+    ///
+    /// Sized against the thresholds it has to interact with. A tile with plain
+    /// road frontage and nothing else sits at 0.75, and
+    /// `CitySimulator.requiredLandValue` asks 0.65 for density 4 and 0.8 for
+    /// density 5. At 0.5, heavy neighbouring industry drags an ordinary
+    /// road-fronted lot down to roughly 0.25 — enough to cap it in the low
+    /// density tiers without making it completely unbuildable, so a polluted
+    /// block becomes *slums* rather than bare dirt. Moderate pollution costs
+    /// proportionally less, so the penalty is a gradient the player can plan
+    /// against rather than a cliff.
+    ///
+    /// A first guess like every other number in this file, but one aimed at a
+    /// specific target: that a planned city, which keeps its industry away
+    /// from its housing, should beat a homogeneous blob.
+    static let pollutionPenaltyStrength = 0.5
+
+    /// How much a given zone minds being polluted.
+    ///
+    /// **This asymmetry is the entire planning incentive**, and getting it
+    /// wrong made the mechanic worthless. The first version had every zone
+    /// suffer pollution equally, and a design playtest found that separating
+    /// industry from housing then bought *nothing* — 2,384 population planned
+    /// against 2,436 mixed. The reason is that concentrating industry
+    /// concentrates the pollution onto the industry itself, so whatever the
+    /// housing gained by moving away, the factories lost by bunching up. A
+    /// symmetric penalty makes segregation a wash by construction.
+    ///
+    /// Residents mind most, shops mind somewhat, and factories barely care
+    /// about being next to other factories — which is both how the reference
+    /// games model it and what makes "put the dirty thing over there" a
+    /// decision with an upside instead of a lateral move.
+    ///
+    /// Non-growable tiles (empty land, roads) are treated as fully sensitive,
+    /// so the land-value overlay keeps showing a polluted area as bad land to
+    /// build housing on rather than quietly reading as fine.
+    static func pollutionSensitivity(of zone: ZoneType) -> Double {
+        switch zone {
+        case .residential: return 1.0
+        case .commercial: return 0.6
+        case .industrial: return 0.1
+        default: return 1.0
+        }
+    }
 
     /// How much a jammed adjacent road cuts into that road's contribution
     /// to land value, at `Traffic.congestion == 1`: a 25% haircut. Only the
@@ -87,14 +214,42 @@ enum LandValue {
     /// operating on map data takes (`CitySimulator.hasAccess`,
     /// `CityMap.contains`) — consistent signatures made this a non-decision
     /// rather than a choice.
-    static func value(at position: GridPosition, in map: CityMap) -> Double {
-        let road = roadValue(at: position, in: map)
-        let transit = falloffValue(nearestZone: .publicTransit, falloffDistance: transitFalloffDistance, at: position, in: map)
-        let subway = falloffValue(nearestZone: .subway, falloffDistance: subwayFalloffDistance, at: position, in: map)
-        let police = falloffValue(nearestZone: .policeStation, falloffDistance: serviceFalloffDistance, at: position, in: map)
-        let fire = falloffValue(nearestZone: .fireStation, falloffDistance: serviceFalloffDistance, at: position, in: map)
-        let stadium = falloffValue(nearestZone: .stadium, falloffDistance: stadiumFalloffDistance, at: position, in: map)
-        let positives = max(road, transit, subway, police, fire, stadium)
+    /// `field` is an optional precomputed `ZoneDistanceField`.
+    ///
+    /// Passing one is what makes a whole-map sweep affordable: without it,
+    /// every `falloffValue` below re-scans the entire tile array looking for
+    /// the nearest tile of its zone, so one `value(at:)` call costs eight full
+    /// map scans. Callers that ask about many tiles in a row —
+    /// `CitySimulator.advance`, `CityHazards.apply`, the land-value overlay —
+    /// compute the field once and hand it to every call. Callers asking about
+    /// a single tile can leave it `nil` and pay the scan, which is cheaper
+    /// than building a field for one question.
+    ///
+    /// Both paths go through `distanceToNearest`, which is the only place
+    /// either strategy is implemented, so they cannot drift apart —
+    /// `LandValueTests` asserts they agree tile for tile.
+    static func value(at position: GridPosition, in map: CityMap, using field: ZoneDistanceField? = nil) -> Double {
+        let road = roadValue(at: position, in: map, using: field)
+        let transit = falloffValue(nearestZone: .publicTransit, falloffDistance: transitFalloffDistance, at: position, in: map, using: field)
+        let subway = falloffValue(nearestZone: .subway, falloffDistance: subwayFalloffDistance, at: position, in: map, using: field)
+        let police = falloffValue(nearestZone: .policeStation, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let fire = falloffValue(nearestZone: .fireStation, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let stadium = falloffValue(nearestZone: .stadium, falloffDistance: stadiumFalloffDistance, at: position, in: map, using: field)
+        let school = falloffValue(nearestZone: .school, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let hospital = falloffValue(nearestZone: .hospital, falloffDistance: serviceFalloffDistance, at: position, in: map, using: field)
+        let waterfront = waterfrontValue(at: position, in: map, using: field)
+        let positives = max(road, transit, subway, police, fire, stadium, school, hospital, waterfront)
+
+        // Parks add rather than compete — see `parkBonus`. Two parks do not
+        // stack with each other, because `falloffValue` measures the distance
+        // to the *nearest* one, which is what stops a wall of parks being the
+        // dominant strategy.
+        let parks = falloffValue(nearestZone: .park, falloffDistance: parkFalloffDistance, at: position, in: map, using: field) * parkBonus
+        // The Neon Arcade adds the same way, further and harder — see
+        // `RewardBuildings.arcadeBonus`.
+        let arcade = falloffValue(nearestZone: .neonArcade,
+                                  falloffDistance: RewardBuildings.arcadeFalloffDistance,
+                                  at: position, in: map, using: field) * RewardBuildings.arcadeBonus
 
         // The power plant penalty is subtracted from the combined positive
         // score, not folded into the same `max` — it's not competing to be
@@ -102,8 +257,32 @@ enum LandValue {
         // already has. Floored at 0 rather than allowed to go negative:
         // "worthless" is as bad as this model represents, not "worse than
         // worthless."
-        let powerPlantPenalty = falloffValue(nearestZone: .powerPlant, falloffDistance: powerPlantPenaltyDistance, at: position, in: map) * powerPlantPenaltyStrength
-        return max(0, positives - powerPlantPenalty)
+        let powerPlantPenalty = falloffValue(nearestZone: .powerPlant, falloffDistance: powerPlantPenaltyDistance, at: position, in: map, using: field) * powerPlantPenaltyStrength
+
+        // Industry's own penalty, read from the accumulated field rather than
+        // as a falloff from the nearest factory — see `Pollution` for why
+        // stacking is the point. Subtracted alongside the power plant's
+        // penalty rather than competing in the `max` above, for the same
+        // reason: it drags down whatever score the tile already has instead of
+        // trying to be the best thing about it.
+        // `map[position]` traps out of bounds, and `value(at:in:)` is
+        // legitimately asked about off-map positions — `LandValueTests` checks
+        // that a falloff reaches zero past the map edge. `contains` first, and
+        // treat anything outside as bare land.
+        let zoneHere = map.contains(position) ? map[position].zone : .empty
+        let pollutionPenalty = map.pollution.level(at: position)
+            * pollutionPenaltyStrength
+            * pollutionSensitivity(of: zoneHere)
+
+        // **Deliberately not clamped at the top**, and adding parks was very
+        // nearly the change that clamped it by accident. `falloffValue` is
+        // scaled by funding, which the player can push above 1.0, and
+        // `testOverfundedServiceProjectsProportionallyMoreLandValue` pins that
+        // as a real lever: an over-funded station out-projects its usual
+        // falloff. A ceiling here would have quietly taken that away as a side
+        // effect of an unrelated feature. Only the floor is enforced —
+        // "worthless" is as bad as this model represents.
+        return max(0, positives + parks + arcade - powerPlantPenalty - pollutionPenalty)
     }
 
     /// Road frontage value, dampened by whichever adjacent road is most
@@ -124,10 +303,10 @@ enum LandValue {
     /// `falloffValue` calls, same falloff distance for both), and either
     /// one adjacent contributes to the congestion check. A highway isn't a
     /// *different* kind of frontage, just a higher-capacity `.road`.
-    private static func roadValue(at position: GridPosition, in map: CityMap) -> Double {
+    private static func roadValue(at position: GridPosition, in map: CityMap, using field: ZoneDistanceField?) -> Double {
         let base = max(
-            falloffValue(nearestZone: .road, falloffDistance: roadFalloffDistance, at: position, in: map),
-            falloffValue(nearestZone: .highway, falloffDistance: roadFalloffDistance, at: position, in: map)
+            falloffValue(nearestZone: .road, falloffDistance: roadFalloffDistance, at: position, in: map, using: field),
+            falloffValue(nearestZone: .highway, falloffDistance: roadFalloffDistance, at: position, in: map, using: field)
         )
         let worstAdjacentCongestion = position.orthogonalNeighbors()
             .filter { map.contains($0) && (map[$0].zone == .road || map[$0].zone == .highway) }
@@ -151,14 +330,61 @@ enum LandValue {
     /// keep in sync. `zone`s that aren't fundable report a funding level of
     /// 1.0 (see `ServiceFunding.level(for:)`), so this is a no-op for
     /// roads and every other non-service falloff.
-    static func falloffValue(nearestZone zone: ZoneType, falloffDistance: Int, at position: GridPosition, in map: CityMap) -> Double {
-        guard let distance = distanceToNearest(zone, from: position, in: map) else { return 0 }
+    static func falloffValue(
+        nearestZone zone: ZoneType,
+        falloffDistance: Int,
+        at position: GridPosition,
+        in map: CityMap,
+        using field: ZoneDistanceField? = nil
+    ) -> Double {
+        guard let distance = distanceToNearest(zone, from: position, in: map, using: field) else { return 0 }
         let base = max(0, 1 - Double(distance) / Double(falloffDistance))
+        // Funding is read live rather than baked into the field: a field is a
+        // snapshot of where things *are*, and moving a funding slider must
+        // take effect immediately rather than at the next field rebuild.
         return base * map.serviceFunding.level(for: zone)
     }
 
-    private static func distanceToNearest(_ zone: ZoneType, from position: GridPosition, in map: CityMap) -> Int? {
-        map.tiles
+    /// What a lot is worth for being near the water.
+    ///
+    /// Reads the distance field's own water channel rather than scanning,
+    /// for the reason every other falloff here does: this runs per footprint
+    /// cell of every building on every tick.
+    static func waterfrontValue(
+        at position: GridPosition, in map: CityMap, using field: ZoneDistanceField? = nil
+    ) -> Double {
+        let distance: Int?
+        if let field {
+            distance = field.distanceToWater(at: position)
+        } else {
+            distance = map.tiles.filter(\.isWater)
+                .map { abs($0.position.x - position.x) + abs($0.position.y - position.y) }
+                .min()
+        }
+        guard let distance else { return 0 }
+        return Swift.max(0, 1 - Double(distance) / Double(waterfrontFalloffDistance)) * Self.waterfrontValue
+    }
+
+    /// The one place "distance to the nearest tile of this zone" is defined.
+    ///
+    /// Two strategies, identical results: read a precomputed
+    /// `ZoneDistanceField` when the caller supplied one, otherwise scan the
+    /// map. Keeping both behind a single function is what stops the fast path
+    /// from quietly disagreeing with the slow one — and `LandValueTests` pins
+    /// that agreement across a whole map rather than trusting it.
+    /// Internal rather than private since `ServiceCoverage` asks the same
+    /// question in tiles rather than as a falloff — it is still the one
+    /// definition, which is the property that matters.
+    static func distanceToNearest(
+        _ zone: ZoneType,
+        from position: GridPosition,
+        in map: CityMap,
+        using field: ZoneDistanceField?
+    ) -> Int? {
+        if let field {
+            return field.distance(to: zone, at: position)
+        }
+        return map.tiles
             .filter { $0.zone == zone }
             .map { position.manhattanDistance(to: $0.position) }
             .min()
