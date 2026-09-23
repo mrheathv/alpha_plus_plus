@@ -8269,6 +8269,43 @@ measurement. One thing the run showed that predates this work: planned and
 mixed layouts now finish level (3,276 against 3,272 people) where this file
 records planning winning clearly. That is worth checking separately.
 
+### Retrowave step 4: sixteen skyscrapers, and more of level 5
+
+The player asked for "a TON of variety... all sorts of skyscrapers". Level 6
+went from five forms to **sixteen**, each a different silhouette rather than
+the same drawing at different numbers: ziggurat (equal tiers stepped from the
+ground, a lit fin on every wall), antenna farm (steps retreating to the back
+corner, a roof of masts), telescope (an octagon closing in three collared
+stages), cantilever (a full-width block overhanging a slim shaft), split top
+(one shaft forking into two blades), stacked (four blocks zigzagging corner to
+corner), wedge (a steep slanted roof with a lit ridge), cluster (three towers of
+three heights on one podium), halo (a core carrying one or two saucers),
+obelisk (eight shallow steps tapering into a needle) and ribbed (lit fins that
+break the roofline into a comb). Level 5 gained a corner tower and a glass slab
+for shops, an L-block and an estate slab for housing, picked on their own
+stream so the variants it already drew are unchanged.
+
+- **Forms are dealt, not rolled.** Sixteen forms over the ~29 ordinary cached
+  variants, rolled fairly, leaves one or two forms the game never draws.
+  `SkyscraperMassing.form(for:)` deals them in turn over the canonical seeds,
+  so each appears once or twice; any other seed still rolls.
+- **Two of the original five were already over the geometry bound**, and had
+  been hidden by the contact sheet's eight seeds: a residential drum was 275
+  nodes and a twin 232, against 220. `testEveryFormStaysWithinTheGeometryBudget`
+  now weighs every form over the variants the game draws. Rings went from 16
+  sides to 12 and housing's window rows are capped at ten per shaft.
+- **Measured on Apex**, same process, before and after: GPU at the resting
+  camera 7.99 → 7.91 ms, whole city 5.22 → 5.05, lights 2,034 → 2,041. Lit
+  solids are nearly free here, because a building's lit volumes merge into at
+  most two lights.
+- **Distinct massings over the 32 cached variants**: housing 25 / 32 / 32 / 32
+  at densities 1, 3, 5, 6; shops 24 / 31 / 32 / 31; industry 28 / 31 / 29. The
+  top tiers saturate `variantCount`. Raising it is the next lever for variety,
+  and it needs texture memory measured first (`OversampleCostTests`).
+- **What the widest camera showed**: the ringed drums and telescopes are the
+  loudest marks in a downtown, since every ring is lit. If a skyline reads as
+  "all drums", thin those rings first.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

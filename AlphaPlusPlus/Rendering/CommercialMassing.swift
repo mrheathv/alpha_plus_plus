@@ -26,6 +26,21 @@ enum CommercialMassing {
             spire(seed: seed, footprint: footprint, into: &massing, random: &random)
             return massing
         }
+        // Level 5 picks its form on its own stream, so the podium towers it
+        // already drew stay byte-identical and only the new forms are new.
+        if tier == 3 {
+            var formRandom = BuildingRandom(seed: seed, salt: 250)
+            switch formRandom.int(in: 0 ... 3) {
+            case 0:
+                cornerTower(seed: seed, footprint: footprint, into: &massing, random: &random)
+                return massing
+            case 1:
+                glassSlab(seed: seed, footprint: footprint, into: &massing, random: &random)
+                return massing
+            default:
+                break
+            }
+        }
         let form: Form = tier >= 2 ? .podiumTower : random.pick([.strip, .cornerUnit, .podiumTower])
 
         switch form {
@@ -219,6 +234,58 @@ enum CommercialMassing {
             x: shaft.x + shaft.width / 2, y: shaft.y + shaft.depth / 2,
             z: top + 0.1 + mastHeight, radius: 0.07, height: 0.12, sides: 8
         )), .lit(NeonStyle.litAccent))
+    }
+
+    /// **Level 5: a tower pushed into one back corner of its lot**, with a
+    /// low lit-roofed wing wrapping the rest. Every other downtown tower here
+    /// stands in the middle of its podium, which is exactly what made a block
+    /// of them read as a grid of identical posts from the widest camera.
+    private static func cornerTower(
+        seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.06
+        let wing = Box(x: margin, y: margin, z: 0, width: footprint - margin * 2,
+                       depth: footprint - margin * 2, height: CGFloat(random.value(in: 0.5 ... 0.8)))
+        massing.add(.box(wing))
+        shopfront(on: wing, share: 0.18 ... 0.62, into: &massing)
+        let size = CGFloat(random.value(in: 0.95 ... 1.15))
+        let backX = random.chance(0.5)
+        let tower = Box(x: backX ? 0.14 : footprint - 0.14 - size - 0.1, y: backX ? footprint - 0.14 - size - 0.1 : 0.14,
+                        z: wing.height, width: size, depth: size,
+                        height: CGFloat(random.value(in: 2.8 ... 3.6)))
+        massing.add(.box(tower))
+        NeonStyle.clad(tower, as: cladding(for: seed), into: &massing, random: &random)
+        glazingBands(on: tower, into: &massing, random: &random)
+        bladeSign(on: tower, color: NeonStyle.signColor(for: seed), footprint: footprint,
+                  into: &massing, random: &random)
+        crown(on: tower, tier: 3, seed: seed, into: &massing, random: &random)
+    }
+
+    /// **Level 5: a thin glass slab standing across its podium**, long in one
+    /// plan direction and narrow in the other, with a lit band at the top.
+    private static func glassSlab(
+        seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.06
+        let podium = Box(x: margin, y: margin, z: 0, width: footprint - margin * 2,
+                         depth: footprint - margin * 2, height: CGFloat(random.value(in: 0.4 ... 0.56)))
+        massing.add(.box(podium))
+        shopfront(on: podium, share: 0.18 ... 0.62, into: &massing)
+        let thin = CGFloat(random.value(in: 0.55 ... 0.7))
+        let long = CGFloat(random.value(in: 1.3 ... 1.55))
+        let alongX = random.chance(0.5)
+        let width = alongX ? long : thin
+        let depth = alongX ? thin : long
+        let slab = Box(x: (footprint - width) / 2, y: (footprint - depth) / 2, z: podium.height,
+                       width: width, depth: depth, height: CGFloat(random.value(in: 2.6 ... 3.4)))
+        massing.add(.box(slab))
+        NeonStyle.clad(slab, as: cladding(for: seed), into: &massing, random: &random)
+        glazingBands(on: slab, into: &massing, random: &random)
+        massing.add(.box(Box(x: slab.x - 0.03, y: slab.y - 0.03, z: slab.z + slab.height,
+                             width: slab.width + 0.06, depth: slab.depth + 0.06, height: 0.09)),
+                    .lit(NeonStyle.signColor(for: seed, salt: 3)))
     }
 
     // MARK: - Parts

@@ -32,6 +32,21 @@ enum ResidentialMassing {
                        into: &massing, random: &random)
             return massing
         }
+        // Level 5 picks its form on its own stream, so the blocks it already
+        // drew stay byte-identical and only the new forms are new.
+        if tier == 3 {
+            var formRandom = BuildingRandom(seed: seed, salt: 150)
+            switch formRandom.int(in: 0 ... 3) {
+            case 0:
+                lBlock(seed: seed, footprint: footprint, into: &massing, random: &random)
+                return massing
+            case 1:
+                slabBlock(seed: seed, footprint: footprint, into: &massing, random: &random)
+                return massing
+            default:
+                break
+            }
+        }
         if tier == 1, random.chance(0.5) {
             houseRow(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
         } else {
@@ -206,6 +221,63 @@ enum ResidentialMassing {
         NeonStyle.rooftopPlant(on: shaft, into: &massing, random: &random)
         crown(atTop: shaft.z + shaft.height, inset: inset, footprint: footprint,
               tier: tier, into: &massing, random: &random)
+    }
+
+    /// **Level 5: two wings meeting in an L**, one taller than the other,
+    /// wrapped round a lit courtyard corner. The stepped block is a pyramid in
+    /// every direction; this one has a hollow, which is the mark.
+    private static func lBlock(
+        seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.14
+        let thickness = CGFloat(random.value(in: 0.7 ... 0.85))
+        let tall = CGFloat(random.value(in: 2.0 ... 2.6))
+        let short = tall - CGFloat(random.value(in: 0.5 ... 0.9))
+        let full = footprint - margin * 2
+        let wings = [
+            Box(x: margin, y: margin, z: 0, width: full, depth: thickness, height: tall),
+            Box(x: margin, y: margin + thickness, z: 0, width: thickness, depth: full - thickness, height: short),
+        ]
+        for (index, wing) in wings.enumerated() {
+            massing.add(.box(wing))
+            NeonStyle.clad(wing, as: cladding(for: seed), into: &massing, random: &random)
+            windows(on: wing, rows: max(2, Int((wing.height / 0.36).rounded())),
+                    columns: max(1, Int((max(wing.width, wing.depth) / 0.55).rounded())),
+                    chance: 0.7, salt: index, into: &massing, random: &random)
+            balcony(on: wing, at: CGFloat(random.value(in: 0.4 ... 0.7)), into: &massing)
+            NeonStyle.rooftopPlant(on: wing, into: &massing, random: &random)
+        }
+        entrance(on: wings[1], into: &massing, random: &random)
+    }
+
+    /// **Level 5: a long slab block**, one flat deep and the length of its
+    /// lot, balconies running its whole face — the post-war estate slab.
+    private static func slabBlock(
+        seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let thin = CGFloat(random.value(in: 0.62 ... 0.78))
+        let long = footprint - 0.28
+        let alongX = random.chance(0.5)
+        let slab = Box(x: alongX ? 0.14 : (footprint - thin) / 2, y: alongX ? (footprint - thin) / 2 : 0.14, z: 0,
+                       width: alongX ? long : thin, depth: alongX ? thin : long,
+                       height: CGFloat(random.value(in: 2.1 ... 2.8)))
+        massing.add(.box(slab))
+        NeonStyle.clad(slab, as: cladding(for: seed), into: &massing, random: &random)
+        windows(on: slab, rows: max(2, Int((slab.height / 0.36).rounded())),
+                columns: max(1, Int((long / 0.5).rounded())), chance: 0.68, salt: 2,
+                into: &massing, random: &random)
+        var fraction = CGFloat(random.value(in: 0.2 ... 0.28))
+        while fraction < 0.9 {
+            balcony(on: slab, at: fraction, into: &massing)
+            fraction += CGFloat(random.value(in: 0.22 ... 0.3))
+        }
+        entrance(on: slab, into: &massing, random: &random)
+        // Its own parapet and plant: `crown` sizes itself for a square top.
+        massing.add(.box(Box(x: slab.x - 0.03, y: slab.y - 0.03, z: slab.height,
+                             width: slab.width + 0.06, depth: slab.depth + 0.06, height: 0.09)))
+        NeonStyle.rooftopPlant(on: slab, into: &massing, random: &random)
     }
 
     // MARK: - Parts
