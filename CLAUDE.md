@@ -8350,6 +8350,18 @@ orange, black) that the street's light falls on. The top panels carry only
 a faint edge: a full neon rim on every panel striped the body, and what
 sells it is one sweep of paint. Lorries, patrols and engines keep boxes.
 
+**Next, agreed: a closer camera, level of detail, and a richer toolkit.**
+Asked how detailed Metal can draw: the limit is not the GPU (Apex draws
+~110k triangles against a budget of millions) but how close the camera goes
+(a car is under 100 pixels long at the closest zoom, so anything under a few
+pixels is wasted) and how shapes are authored (primitives in code, judged on
+stills). In order: let the camera go nearer to street level, draw detailed
+meshes only when close (the near tier, extended), then widen the procedural
+vocabulary with bevels, curved and lathed profiles, and shader detail such
+as panel lines. Imported 3D models (an artist's or bought) are the route
+past what code can express, and would be the project's first real art
+assets; that is the player's decision and is parked.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
