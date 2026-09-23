@@ -196,27 +196,104 @@ final class MetalMapTests: XCTestCase {
     /// near a drawable. So: the real view, in a real (offscreen) window,
     /// asked for a real frame.
     func testTheLiveViewPresentsFrames() throws {
-        var map = CityMap(width: 12, height: 12)
-        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 4, y: 4))
-        map[GridPosition(x: 4, y: 4)].density = 3
-        let game = ScenePlaytest(map: map)
-        let coordinator = MetalMapView.Coordinator(controller: game.controller, scene: game.scene)
-        let renderer = try XCTUnwrap(coordinator.renderer)
-        let view = PassThroughMTKView(frame: NSRect(x: 0, y: 0, width: 640, height: 400), device: renderer.device)
-        view.colorPixelFormat = .bgra8Unorm
-        view.framebufferOnly = false
-        view.isPaused = true
-        view.enableSetNeedsDisplay = false
-        view.delegate = coordinator
-        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        // A window made in code frees itself on close by default, and this
-        // one is also released when the test ends — a double free.
-        window.isReleasedWhenClosed = false
-        window.contentView = view
-        view.draw()
-        view.draw()
-        XCTAssertGreaterThan(renderer.framesPresented, 0, "the live view never presented a frame")
-        window.close()
+        let live = try LiveMap()
+        live.view.draw()
+        live.view.draw()
+        XCTAssertGreaterThan(live.renderer.framesPresented, 0, "the live view never presented a frame")
+        live.close()
+    }
+
+    /// **M8, end to end**: real mouse events on the live Metal view lay a
+    /// road, through the view's picking, `MapInteraction` and the controller,
+    /// with no SpriteKit scene anywhere, and the frame after it draws the
+    /// cursor where the pointer is.
+    func testMouseEventsOnTheLiveViewBuild() throws {
+        let live = try LiveMap()
+        let controller = live.controller
+        controller.selectTool(.road)
+        let from = GridPosition(x: 2, y: 8), to = GridPosition(x: 7, y: 8)
+        func event(_ type: NSEvent.EventType, at tile: GridPosition) throws -> NSEvent {
+            let world = live.interaction.camera.projection.centerPoint(ofFootprintOrigin: tile, size: 1)
+            let camera = live.interaction.camera
+            let viewPoint = CGPoint(x: (world.x - camera.centre.x) / camera.scale + live.view.bounds.width / 2,
+                                    y: (world.y - camera.centre.y) / camera.scale + live.view.bounds.height / 2)
+            return try XCTUnwrap(NSEvent.mouseEvent(
+                with: type, location: live.view.convert(viewPoint, to: nil), modifierFlags: [],
+                timestamp: 0, windowNumber: live.window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        live.view.mouseDown(with: try event(.leftMouseDown, at: from))
+        live.view.mouseDragged(with: try event(.leftMouseDragged, at: to))
+        live.view.mouseUp(with: try event(.leftMouseUp, at: to))
+        for x in from.x ... to.x {
+            XCTAssertEqual(controller.map[GridPosition(x: x, y: 8)].zone, .road, "no road at x \(x)")
+        }
+        live.view.mouseMoved(with: try event(.mouseMoved, at: GridPosition(x: 9, y: 9)))
+        live.view.draw()
+        XCTAssertEqual(live.interaction.cursor?.origin, GridPosition(x: 9, y: 9))
+        live.close()
+    }
+
+    /// The live view's frame loop runs the clock: a running city advances
+    /// with no scene, and a paused one does not.
+    func testTheLiveViewRunsTheClock() throws {
+        let live = try LiveMap()
+        live.clock.runsDaysInBackground = false
+        live.view.draw()
+        let paused = live.controller.map.elapsedDays
+        Thread.sleep(forTimeInterval: live.controller.simulationSpeed.tickInterval * 1.2)
+        live.view.draw()
+        XCTAssertEqual(live.controller.map.elapsedDays, paused, "a paused city advanced")
+        live.controller.isRunning = true
+        live.view.draw()
+        // `MetalMapView` turns background days on; this test keeps them on
+        // this thread, so the day it asks for has landed when it returns.
+        live.clock.runsDaysInBackground = false
+        Thread.sleep(forTimeInterval: live.controller.simulationSpeed.tickInterval * 1.2)
+        live.view.draw()
+        XCTAssertEqual(live.controller.map.elapsedDays, paused + 1, "the frame loop did not run the clock")
+        live.close()
+    }
+
+    /// The live Metal view in an offscreen window, as `MetalMapView` builds it.
+    @MainActor
+    final class LiveMap {
+        let controller: GameController
+        let interaction: MapInteraction
+        let clock: CityClock
+        let coordinator: MetalMapView.Coordinator
+        let renderer: MetalCityRenderer
+        let view: CityMTKView
+        let window: NSWindow
+
+        init() throws {
+            var map = CityMap(width: 12, height: 12)
+            map.placeBuilding(zone: .commercial, origin: GridPosition(x: 4, y: 4))
+            map[GridPosition(x: 4, y: 4)].density = 3
+            controller = GameController(map: map, rng: AlwaysZeroRNG(), peakPopulation: Unlocks.everythingUnlocked)
+            var camera = CityCamera()
+            camera.centre(on: map)
+            interaction = MapInteraction(controller: controller, camera: camera)
+            clock = CityClock(controller: controller)
+            coordinator = MetalMapView.Coordinator(controller: controller, interaction: interaction, clock: clock)
+            renderer = try XCTUnwrap(coordinator.renderer)
+            view = CityMTKView(frame: NSRect(x: 0, y: 0, width: 640, height: 400), device: renderer.device)
+            view.colorPixelFormat = .bgra8Unorm
+            view.framebufferOnly = false
+            view.isPaused = true
+            view.enableSetNeedsDisplay = false
+            view.delegate = coordinator
+            view.input = interaction
+            let controller = controller
+            view.map = { controller.map }
+            window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            // A window made in code frees itself on close by default, and this
+            // one is also released when the test ends — a double free.
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+        }
+
+        func close() { window.close() }
     }
 
     /// The map revision moves on every change, which is how the renderer
