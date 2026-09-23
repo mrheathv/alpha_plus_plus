@@ -1071,97 +1071,19 @@ final class GameScene: SKScene {
         // pointer has actually crossed onto a different lot.
         controller.inspect(at: position)
 
-        // Laying a pipe (or a power line) never conflicts with anything
-        // already on the surface — there's no "blocked" state to warn
-        // about the way a surface building has, so this is always a
-        // plain 1×1 "clear" tile.
-        if controller.overlayMode == .water || controller.overlayMode == .power {
-            placementPreviewNode.fillColor = RenderPalette.placementPreviewClearFill
-            placementPreviewNode.strokeColor = RenderPalette.placementPreviewClearStroke
-            placementPreviewNode.path = projection.footprintCursor(size: 1)
-            placementPreviewNode.position = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
-            placementPreviewNode.isHidden = false
-            return
-        }
-
-        // **In the Land view the cursor is a whole parcel**, since that is what
-        // a click buys — and it is clear or blocked by the controller's own
-        // rule, the contract every other cursor in this file keeps.
-        if controller.overlayMode == .land, let land = map.land {
-            let parcel = land.parcel(containing: position)
-            let buyable = controller.landRefusal(at: position) == nil
-            placementPreviewNode.fillColor = buyable
-                ? RenderPalette.placementPreviewClearFill : RenderPalette.placementPreviewBlockedFill
-            placementPreviewNode.strokeColor = buyable
-                ? RenderPalette.placementPreviewClearStroke : RenderPalette.placementPreviewBlockedStroke
-            placementPreviewNode.path = projection.footprintCursor(size: CGFloat(LandOwnership.parcelSize))
-            let origin = land.origin(of: parcel)
-            placementPreviewNode.position = projection.project(CGFloat(origin.x), CGFloat(origin.y), 0)
-            placementPreviewNode.isHidden = false
-            return
-        }
-
-        // **Drawing a line asks a different question of the tile.**
-        //
-        // Reported from play: *"it could be more apparent that you're
-        // selecting a valid stop when making a route."* It was worse than
-        // unclear — the cursor was actively lying. While a line is being
-        // drawn a click names a *station*, but the preview went on describing
-        // whatever zoning tool happened to be armed, and its "would this
-        // replace something" test is true of every building on the map. So
-        // the bus stop you were meant to click was drawn in the blocked
-        // colour: the one tile that works, marked forbidden.
-        //
-        // It now answers the question the click will actually be asked, and
-        // wraps the whole station rather than the tool's footprint, so a 2×2
-        // rail terminus lights up as one thing.
-        if let mode = controller.overlayMode.routeMode, controller.routeDraft?.mode == mode {
-            let station = map[position].buildingOrigin
-            let isStation = map[station].zone == mode.stationZone
-            placementPreviewNode.fillColor = isStation
-                ? RenderPalette.placementPreviewClearFill
-                : RenderPalette.placementPreviewBlockedFill
-            placementPreviewNode.strokeColor = isStation
-                ? RenderPalette.placementPreviewClearStroke
-                : RenderPalette.placementPreviewBlockedStroke
-            let size = isStation ? map[station].zone.footprintSize : 1
-            placementPreviewNode.path = projection.footprintCursor(size: CGFloat(size))
-            placementPreviewNode.position = projection.project(
-                CGFloat(isStation ? station.x : position.x),
-                CGFloat(isStation ? station.y : position.y), 0
-            )
-            placementPreviewNode.isHidden = false
-            return
-        }
-
-        let footprintSize = controller.selectedTool.footprintSize
-        let footprint = map.footprintCells(origin: position, size: footprintSize)
-        guard !footprint.isEmpty else {
-            // Footprint doesn't fit the map from this corner (e.g. hovering
-            // the last column with a 2×2 tool selected) — same "can't
-            // place here" case `place(at:)` itself already no-ops on.
+        // **The rule is `MapInteraction`'s** (M8), shared so the SpriteKit
+        // cursor and the Metal one cannot disagree about what a click will do
+        // before this scene is deleted. This only draws the answer.
+        guard let mark = MapInteraction.cursor(at: position, controller: controller) else {
             placementPreviewNode.isHidden = true
             return
         }
-
-        // **The cursor asks the question the click will be asked.** It used
-        // to test "would this replace something", which was the whole rule
-        // when it was written and has been a partial one since water landed:
-        // a house hovered over a river, and a seaport hovered over dry land,
-        // both drew clear and then refused. `placementRefusal` is the rule,
-        // owned once by the controller.
-        //
-        // Affordability is deliberately *not* drawn as blocked. It already
-        // has its own feedback — the red flash on the click — and a cursor
-        // that turns red across the whole map the moment you are broke is
-        // saying something about your treasury, not about this lot.
-        let refusal = controller.placementRefusal(of: controller.selectedTool, at: position)
-        let wouldBeRefused = refusal != nil && refusal != .insufficientFunds
-        placementPreviewNode.fillColor = wouldBeRefused ? RenderPalette.placementPreviewBlockedFill : RenderPalette.placementPreviewClearFill
-        placementPreviewNode.strokeColor = wouldBeRefused ? RenderPalette.placementPreviewBlockedStroke : RenderPalette.placementPreviewClearStroke
-
-        placementPreviewNode.path = projection.footprintCursor(size: CGFloat(footprintSize))
-        placementPreviewNode.position = projection.project(CGFloat(position.x), CGFloat(position.y), 0)
+        placementPreviewNode.fillColor = mark.blocked
+            ? RenderPalette.placementPreviewBlockedFill : RenderPalette.placementPreviewClearFill
+        placementPreviewNode.strokeColor = mark.blocked
+            ? RenderPalette.placementPreviewBlockedStroke : RenderPalette.placementPreviewClearStroke
+        placementPreviewNode.path = projection.footprintCursor(size: CGFloat(mark.size))
+        placementPreviewNode.position = projection.project(CGFloat(mark.origin.x), CGFloat(mark.origin.y), 0)
         placementPreviewNode.isHidden = false
     }
 
