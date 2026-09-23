@@ -217,7 +217,7 @@ enum ResidentialMassing {
     /// left a line. A projecting slab says "balcony" from its silhouette, needs
     /// no detail to do it, and survives every zoom — the shape carries the
     /// meaning instead of the decoration.
-    private static func balcony(on box: Box, at fraction: CGFloat, into massing: inout BuildingMassing) {
+    static func balcony(on box: Box, at fraction: CGFloat, into massing: inout BuildingMassing) {
         let overhang: CGFloat = 0.08
         massing.add(.box(Box(
             x: box.x - overhang, y: box.y - overhang,
@@ -242,11 +242,11 @@ enum ResidentialMassing {
     /// Deliberately *not* commerce's option: piers on a punched grid would
     /// read as a glazing frame, which is the one thing housing's facade is
     /// defined against.
-    private static func cladding(for seed: GridPosition) -> NeonStyle.Cladding {
+    static func cladding(for seed: GridPosition) -> NeonStyle.Cladding {
         NeonStyle.cladding(for: seed, options: [.curtainWall, .panel], salt: 1)
     }
 
-    private static func windows(
+    static func windows(
         on box: Box,
         rows: Int,
         columns: Int,
@@ -278,7 +278,7 @@ enum ResidentialMassing {
 
     /// A lit doorway at street level — the human-scale detail that says people
     /// live here.
-    private static func entrance(on box: Box, into massing: inout BuildingMassing, random: inout BuildingRandom) {
+    static func entrance(on box: Box, into massing: inout BuildingMassing, random: inout BuildingRandom) {
         let centre = CGFloat(random.value(in: 0.35 ... 0.65))
         massing.panels.append(Panel(
             box: box, face: random.chance(0.5) ? .right : .left,

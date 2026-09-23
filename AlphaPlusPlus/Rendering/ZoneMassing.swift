@@ -13,6 +13,10 @@ enum ZoneMassing {
 
     static func make(for zone: ZoneType, density: Int, seed: GridPosition) -> BuildingMassing? {
         let footprint = CGFloat(zone.footprintSize)
+        // Level 6 is its own kind of building, shared by housing and shops.
+        if RenderPalette.growthTier(for: density) >= 4, zone == .residential || zone == .commercial {
+            return SkyscraperMassing.make(zone: zone, seed: seed, footprint: footprint)
+        }
         switch zone {
         case .industrial:
             let tier = RenderPalette.growthTier(for: density)

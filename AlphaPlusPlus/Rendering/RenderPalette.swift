@@ -521,24 +521,27 @@ enum RenderPalette {
     /// the Retrowave SimCity reference palette — a small lot, a mid-size
     /// development, and a fully-built one are different *hues* now, not
     /// just different brightnesses of one fixed color the way every other
-    /// zone still works. `tier` is clamped to `1...3`: tier 0 (nothing
+    /// zone still works. `tier` is clamped to `1...4` (4 being the level-6
+    /// skyline, which industry never reaches): tier 0 (nothing
     /// built) has no color of its own — `color(for:density:)` uses tier
     /// 1's for that "dim, not built yet" state, on the theory that a bare
     /// lot previews what it's zoned to *become*, not its eventual
     /// fully-built form.
     static func tierColor(for zone: ZoneType, tier: Int) -> SKColor {
-        let clampedTier = min(max(tier, 1), 3)
+        let clampedTier = min(max(tier, 1), zone == .industrial ? 3 : 4)
         switch zone {
         case .residential:
             switch clampedTier {
             case 1: return SKColor(srgbRed: 0.482, green: 0.184, blue: 0.969, alpha: 1.0)  // Low density — violet
             case 2: return SKColor(srgbRed: 0.655, green: 0.259, blue: 0.910, alpha: 1.0)  // Mid density — orchid
+            case 4: return SKColor(srgbRed: 0.62, green: 0.58, blue: 1.0, alpha: 1.0)  // Skyline — periwinkle
             default: return SKColor(srgbRed: 0.902, green: 0.651, blue: 1.0, alpha: 1.0)  // High density — pale lavender
             }
         case .commercial:
             switch clampedTier {
             case 1: return SKColor(srgbRed: 1.0, green: 0.431, blue: 0.780, alpha: 1.0)  // Retail — pink
             case 2: return SKColor(srgbRed: 1.0, green: 0.239, blue: 0.506, alpha: 1.0)  // Offices — hot rose
+            case 4: return SKColor(srgbRed: 1.0, green: 0.36, blue: 0.86, alpha: 1.0)  // Skyline — neon magenta
             default: return SKColor(srgbRed: 1.0, green: 0.702, blue: 0.278, alpha: 1.0)  // Entertainment — amber
             }
         case .industrial:

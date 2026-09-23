@@ -21,7 +21,7 @@ final class IsometricContactSheetTests: XCTestCase {
 
     private static let projection = Isometric()
     private static let variantCount = 8
-    private static let tierDensities = [1: 1, 2: 3, 3: 5]
+    private static let tierDensities = [1: 1, 2: 3, 3: 5, 4: 6]
 
     private struct Entry {
         let zone: ZoneType
@@ -50,7 +50,7 @@ final class IsometricContactSheetTests: XCTestCase {
                 ? tierDensities.keys.sorted().map { ($0, tierDensities[$0]!) }
                 : [(0, 0)]
             for (tier, density) in cases {
-                for (index, seed) in seeds().enumerated() {
+                for (index, seed) in seeds().enumerated() where density <= zone.maxDensity {
                     guard ZoneMassing.make(for: zone, density: density, seed: seed) != nil else { continue }
                     entries.append(Entry(
                         zone: zone, density: density, tier: tier, seed: seed,
@@ -118,7 +118,7 @@ final class IsometricContactSheetTests: XCTestCase {
             let cases: [(Int, Int)] = zone.maxDensity > 0
                 ? Self.tierDensities.map { ($0.key, $0.value) }
                 : [(0, 0)]
-            for (tier, density) in cases {
+            for (tier, density) in cases where density <= zone.maxDensity {
                 let signatures = Set(Self.seeds().compactMap { seed -> String? in
                     guard let massing = ZoneMassing.make(for: zone, density: density, seed: seed) else { return nil }
                     let kinds = massing.solids.map { solid -> String in

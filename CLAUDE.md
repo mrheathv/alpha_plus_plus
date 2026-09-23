@@ -8188,6 +8188,42 @@ what is now true rather than relaxed. `SkylineTests` pins the gate: it waits
 for transit, a subway or rail station in reach opens it, one out of reach
 does not, and industry has no skyline.
 
+### Retrowave step 3b: the skyscrapers
+
+`SkyscraperMassing` draws level 6 (growth tier 4). It is not the level-5
+tower generator with bigger numbers. It has five forms, each a silhouette
+nothing below level 6 has:
+
+- **Deco:** setbacks, each ledge lit, with a needle on top.
+- **Pyramid:** a stepped pyramid with a lit capstone.
+- **Slab:** a thin blade edged in neon.
+- **Twin:** two shafts joined by a lit sky bridge.
+- **Round:** a glass drum ringed in light.
+
+The rare landmark roll becomes a supertall Deco tower.
+
+**The forms are shared, and the walls are not.** Housing and shops use the
+same five forms, but each is dressed with its own zone's facade helpers:
+commerce gets bands and a shopfront, housing a punched grid, balconies and a
+lit door. Those helpers are now `internal`, so they are called rather than
+copied. `ZoneMassing.make` sends tier 4 here before the zone generators.
+
+Level 6 has its own tier colour: periwinkle for housing, neon magenta for
+shops. `tierColor` clamps industry at 3.
+
+`SkyscraperMassingTests` checks three things:
+
+- all five forms appear among the 32 cached variants;
+- the shortest skyscraper stands taller than every ordinary level-5 tower;
+- housing and shops dress the same form differently.
+
+It also writes `skyline.png`: level 5, the five forms and the supertall, with
+shops and housing in separate rows.
+
+**Not yet measured in Metal.** The fixture cities were minted before level 6
+existed, so the Apex budget does not include any skyscrapers yet. Step 3d
+re-mints Apex and measures it.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

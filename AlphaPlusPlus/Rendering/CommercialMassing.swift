@@ -225,7 +225,7 @@ enum CommercialMassing {
 
     /// The ground floor: one unbroken slab of light per wall, which is the
     /// brightest and most zone-identifying mark commerce has.
-    private static func shopfront(on box: Box, share: ClosedRange<CGFloat>, into massing: inout BuildingMassing) {
+    static func shopfront(on box: Box, share: ClosedRange<CGFloat>, into massing: inout BuildingMassing) {
         for face in [Panel.Face.right, .left] {
             massing.panels.append(Panel(box: box, face: face, u0: 0.06, u1: 0.94,
                                         v0: share.lowerBound, v1: share.upperBound,
@@ -243,14 +243,14 @@ enum CommercialMassing {
     /// check found missing.
     ///
     /// Drawn *before* the glazing, so the bands sit on top of the frame.
-    private static func cladding(for seed: GridPosition) -> NeonStyle.Cladding {
+    static func cladding(for seed: GridPosition) -> NeonStyle.Cladding {
         NeonStyle.cladding(for: seed, options: [.curtainWall, .curtainWall, .piers], salt: 2)
     }
 
     /// Unbroken horizontal ribbons running the full width of both walls and
     /// wrapping the corner — the single strongest difference from housing's
     /// grid of separate little windows, and one that survives greyscale.
-    private static func glazingBands(on box: Box, into massing: inout BuildingMassing, random: inout BuildingRandom) {
+    static func glazingBands(on box: Box, into massing: inout BuildingMassing, random: inout BuildingRandom) {
         let bands = max(1, Int((box.height / 0.34).rounded()))
         guard bands >= 1 else { return }
         for face in [Panel.Face.right, .left] {
@@ -270,7 +270,7 @@ enum CommercialMassing {
     /// A real volume, not a bright rectangle beside a silhouette — see the
     /// type's doc comment. Kept inside the lot, since the tower it hangs off
     /// is inset and the blade is thin.
-    private static func bladeSign(
+    static func bladeSign(
         on tower: Box,
         color: SKColor,
         footprint: CGFloat,
