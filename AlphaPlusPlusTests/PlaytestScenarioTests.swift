@@ -226,7 +226,7 @@ final class PlaytestScenarioTests: XCTestCase {
     /// `CityHazards.fire`'s doc comment reports what the old 0.05/0.04 rates
     /// did in a mature city: fire and crime together struck an average of
     /// 4.5-5.6 tiles *every single tick*, spiking to 8, forever. Each strike
-    /// fires `GameScene.flashHazard`, so several overlapping per tick read as
+    /// fired `GameScene.flashHazard`, so several overlapping per tick read as
     /// ambient flicker rather than as an occasional, noticeable event.
     ///
     /// This pins the "occasional event" property the 10x cut restored. It

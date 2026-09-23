@@ -1,20 +1,19 @@
 import CoreGraphics
 import Foundation
 
-/// **What moves on the map, and how** — shared by both renderers.
+/// **What moves on the map, and how.**
 ///
 /// Everything here is a rule about motion, stated in tile units: which
 /// vehicle a street carries, where on a tile a car drives and how long it
 /// takes to cross, how fast a tram, a ship or a fire engine goes, when an
-/// aircraft rolls. `GameScene` turns these into sprites and `MetalMotion`
-/// into light traces.
+/// aircraft rolls. `MetalMotion` turns these into light traces.
 ///
-/// **One copy, on purpose.** The Metal migration moves drawing across one
+/// **One copy, on purpose.** The Metal migration moved drawing across one
 /// piece at a time, and the thing this project keeps paying for is a second
 /// implementation of a fact that drifts from the first — a streetscape
 /// painting its own tiles, an overlay render carrying its own switch. A car
-/// that drives a different lane in Metal than in SpriteKit would be the next
-/// one.
+/// that drove a different lane in Metal than in SpriteKit would have been the
+/// next one.
 enum CityMotion {
 
     // MARK: - Ambient traffic
@@ -46,8 +45,7 @@ enum CityMotion {
     ///
     /// Everything that decides where and how a car drives is here — the lane
     /// it keeps to, the way it heads, how slowly a jam makes it cross, the
-    /// seeded stagger that stops a street reading as a conveyor. The reasons
-    /// for each are recorded where `GameScene` draws them.
+    /// seeded stagger that stops a street reading as a conveyor.
     ///
     /// `anyFire` is whether anything in the city is alight, which decides
     /// whether an engine can be among the traffic. It is a whole-map scan, so

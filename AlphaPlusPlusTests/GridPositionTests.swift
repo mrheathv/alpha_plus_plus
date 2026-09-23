@@ -2,7 +2,7 @@ import XCTest
 @testable import AlphaPlusPlus
 
 /// Covers `GridPosition.line(to:)`, the Bresenham interpolation that backs
-/// `GameScene`'s drag-to-paint — it's what turns a fast mouse drag (which
+/// `MapInteraction`'s drag-to-paint — it's what turns a fast mouse drag (which
 /// only reports a handful of sampled points) into a gap-free stroke.
 final class GridPositionTests: XCTestCase {
 

@@ -23,16 +23,12 @@ are why the grayboxing rule was retired:
 
 - Swift, native macOS app target, Apple Silicon only (no Intel fallback)
 - Minimum deployment target: macOS 14
-- SpriteKit for rendering (Phase 1–2). May consider custom Metal shaders later
-  for effects SpriteKit can't handle natively, but not until mechanics are
-  solid. (SpriteKit already renders via Metal under the hood, so this is an
-  optimization/effects question, not a performance rescue.)
+- **Our own Metal renderer** (`Rendering/Metal/`) draws the game, and has
+  since M8. The project began on SpriteKit (Phases 1–3 and the isometric
+  migration below were all built on it); "The Metal spike" and M0–M8 below
+  are how it moved across. SpriteKit is still imported, but only for
+  `SKColor`, which on macOS is `NSColor`.
 - No cross-platform requirement. Mac-only, on purpose.
-- **The city is moving to our own Metal renderer** (`Rendering/Metal/`),
-  behind *Settings ▸ Renderer ▸ Metal (beta)*. See "The Metal spike" and
-  M0–M6 below: through M6 the Metal renderer draws the city, everything
-  that moves and every view, while SpriteKit still owns input, the camera,
-  the cursors and route diagrams, until M8 makes Metal the only renderer.
 
 ## Development philosophy
 
@@ -9051,6 +9047,59 @@ Three things the move found:
 169 triangles at the resting tier, and the worst is 610 (housing L6 v4).
 Each skyscraper form is held to three times the median form, not to an
 absolute number that would move whenever the vocabulary grew.
+
+### M8 (done): Metal is the only renderer
+
+The other half of M8. The Metal view now owns everything the transparent
+SpriteKit scene still did, and the scene is gone.
+
+- **Input:** `CityMTKView` is an `MTKView` in the real responder chain, so
+  it gets scroll and pinch, which `SKScene` never passed on. It turns events
+  into tiles and hands them to `MapInteraction`.
+- **The camera** is `CityCamera`, a value in world points. Every zoom goes
+  down to 0.2 now; SpriteKit stopped at 0.5.
+- **The clock** is `CityClock`, advanced by `MetalMapView` each frame, with
+  background days as before.
+- **Marks:** `MetalMarks` draws the cursor, flashes, route diagrams and the
+  vehicles running them.
+- **Screenshots** re-render the Metal frame offscreen at the drawable's
+  size, without the cursor.
+- **The renderer setting is gone.**
+
+**Deleted:** `GameScene`, `GameSKView`, `GameSpriteView`, `RetroShader`,
+`WaterShader`, the emitters, and the bodies of `IsoTileRenderer`,
+`IsoTextureCache` and `IsometricBuilding`. The three names survive as empty
+namespaces that the shared statics extend (`paint`, `variant(for:)`,
+`nearDetail` and the rest). About 14,000 lines went, against 420 added.
+
+**Three bugs M8 fixed by moving things across**, all in Metal mode before:
+
+- Feedback flashes (insufficient funds, blocked, hazard struck) were drawn
+  by the hidden scene, so nobody saw them.
+- ⇧⌘P captured the transparent scene, which gave an empty picture.
+- The renderer setting was not saved between launches.
+
+**What happened to the tests:**
+
+- About sixteen test files were SpriteKit's own: scene rebuilds, the shader
+  and bloom, texture oversampling, `ScenePlaytest`, pause and cull. They
+  went with it.
+- The rest were ported:
+  - the transit diagram and its vehicles are asserted on `MetalMarks`;
+  - the Power view's bolt on `MetalOverlay.billboards`;
+  - a background day, a land purchase and ownership through `CityPlaytest`
+    and `MetalAgreement`;
+  - the reward, land and utility renders through `CityPlaytest.picture`.
+- `SceneRecorder` only records frame closures now.
+- Three restated tests:
+  - ownership after placing near the boundary is now a `MetalAgreement`
+    check, since Metal has one drawing path where SpriteKit had two;
+  - a vehicle is now "a function of the motion clock";
+  - SpriteKit's one-blur-pass-per-building test has nothing left to guard.
+
+**Left over, deliberately:** replacing `SKColor` (181 uses) with `NSColor`
+would let the SpriteKit import go. It is a mechanical change, and it can
+wait until it is not competing with anything else.
 
 ## Looking at the art without playing to it
 

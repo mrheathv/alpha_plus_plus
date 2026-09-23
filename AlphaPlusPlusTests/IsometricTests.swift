@@ -315,33 +315,4 @@ final class IsometricTests: XCTestCase {
             }
         }
     }
-
-    // MARK: - Rendering
-
-    /// One building must cost exactly one blur pass regardless of how many
-    /// volumes it is made of. The elevation contact sheet twice showed that
-    /// a scene silently stops servicing effect nodes past a budget, so a
-    /// five-box building costing five of them would not fail loudly — the map
-    /// would just start dropping buildings.
-    func testABuildingCostsOneEffectNode() {
-        var massing = BuildingMassing()
-        for index in 0 ..< 5 {
-            massing.add(.box(Box(x: CGFloat(index) * 0.3, y: 0, z: CGFloat(index) * 0.4,
-                                 width: 0.5, depth: 0.5, height: 0.4)))
-        }
-        let node = IsometricBuilding.node(for: massing, accent: .magenta, tier: 2, in: projection)
-        let effectNodes = node.children.filter { $0 is SKEffectNode }
-        XCTAssertEqual(effectNodes.count, 1, "expected exactly one blur pass for the whole building")
-    }
-
-    func testRenderedBuildingHasArea() {
-        var massing = BuildingMassing()
-        massing.add(.box(Box(x: 0, y: 0, z: 0, width: 2, depth: 2, height: 1)))
-        massing.panels.append(Panel(box: Box(x: 0, y: 0, z: 0, width: 2, depth: 2, height: 1),
-                                    face: .left, u0: 0.2, u1: 0.8, v0: 0.3, v1: 0.7, color: .cyan))
-        let node = IsometricBuilding.node(for: massing, accent: .magenta, tier: 3, in: projection)
-        let frame = node.calculateAccumulatedFrame()
-        XCTAssertGreaterThan(frame.width, 0)
-        XCTAssertGreaterThan(frame.height, 0)
-    }
 }

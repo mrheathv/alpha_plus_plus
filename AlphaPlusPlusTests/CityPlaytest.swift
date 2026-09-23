@@ -27,12 +27,8 @@ protocol PlaytestSession: AnyObject {
     func check(_ what: String, file: StaticString, line: UInt)
 }
 
-extension ScenePlaytest: PlaytestSession {
-    var wantsFramePerAction: Bool { metal != nil }
-}
-
-/// **The playtest with no scene in it** (M8). The same actions as
-/// `ScenePlaytest`, driven the way the game now is: clicks through
+/// **The playtest with no scene in it** (M8). The same actions the SpriteKit
+/// `ScenePlaytest` took, driven the way the game now is: clicks through
 /// `MapInteraction`, days through `CityClock`, the city drawn by a
 /// `MetalCityRenderer` that reads the controller each frame exactly as the
 /// Metal view does, and every check asked of `MetalAgreement`: is the
@@ -151,6 +147,20 @@ final class CityPlaytest: PlaytestSession {
     func tick(_ count: Int = 1) {
         record("\(count) day\(count == 1 ? "" : "s") pass")
         for _ in 0 ..< count { clock.runSimulationTick() }
+    }
+
+    // MARK: - Looking
+
+    /// The whole map, framed to fit `size` pixels, through the renderer the
+    /// session is keeping up to date. For the renders that want a picture of
+    /// a session rather than a check on it.
+    func picture(size: CGSize = CGSize(width: 1200, height: 800)) -> CGImage? {
+        frame()
+        let bounds = Isometric().contentBounds(of: controller.map)
+        let scale = max(bounds.width / size.width, bounds.height / size.height) * 1.1
+        let camera = MetalCityRenderer.Camera(centre: CGPoint(x: bounds.midX, y: bounds.midY),
+                                              scale: scale, size: size)
+        return metal.render(controller.map, camera: camera, wetness: 0, time: 1)?.image
     }
 
     // MARK: - Checking

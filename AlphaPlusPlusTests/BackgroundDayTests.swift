@@ -83,24 +83,28 @@ final class BackgroundDayTests: XCTestCase {
         XCTAssertLessThan(onMain, 2, "starting a background day blocked the main thread for \(onMain) ms")
     }
 
-    /// **The scene, end to end.** The clock starts background days and the
-    /// map is redrawn when each lands; `SceneAgreement` then checks the
-    /// picture against a scene built fresh from the same city — the check
+    /// **The map, end to end.** The clock starts background days and the
+    /// renderer catches up when each lands; `MetalAgreement` then checks the
+    /// picture against a renderer built fresh from the same city — the check
     /// that has caught every stale-redraw bug this project has had.
-    func testTheSceneKeepsUpWithBackgroundDays() async throws {
-        let game = ScenePlaytest(map: grownCity())
-        game.scene.runsDaysInBackground = true
+    func testTheMapKeepsUpWithBackgroundDays() async throws {
+        let game = try XCTUnwrap(CityPlaytest(map: grownCity()))
+        game.clock.runsDaysInBackground = true
         game.play()
         let start = game.controller.map.elapsedDays
+        let step = game.controller.simulationSpeed.tickInterval
+        var now: TimeInterval = 0
         var frames = 0
         while game.controller.map.elapsedDays < start + 6, frames < 2000 {
+            game.clock.advance(to: now)
             game.frame()
+            now += step
             frames += 1
             // Let the finished day hop back onto the main actor.
             try await Task.sleep(nanoseconds: 2_000_000)
         }
         XCTAssertGreaterThanOrEqual(game.controller.map.elapsedDays, start + 6,
-                                    "background days never landed in the scene")
+                                    "background days never landed on the map")
         // Wait out any day still in flight, so the check sees a settled city.
         while game.controller.isDayInFlight { try await Task.sleep(nanoseconds: 2_000_000) }
         game.pause()

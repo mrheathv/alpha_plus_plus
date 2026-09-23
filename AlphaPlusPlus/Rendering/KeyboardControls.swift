@@ -12,7 +12,7 @@ enum KeyboardControls {
     /// A key's meaning, if it has one.
     enum Command: Equatable {
         /// Move the camera. In *camera* terms — positive `dy` is up the
-        /// screen — rather than in `GameScene.pan`'s content-drag terms, which
+        /// screen — rather than in `CityCamera.pan`'s content-drag terms, which
         /// are inverted because they exist to follow a trackpad.
         case pan(dx: CGFloat, dy: CGFloat)
         /// Start or stop the simulation.

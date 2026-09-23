@@ -245,8 +245,8 @@ struct RetroStatTile: View {
             // found it. These numbers grow — treasury reaches seven digits
             // over a long session — and without a limit SwiftUI wraps rather
             // than truncates, which changes this row's height, which changes
-            // the SpriteKit view's height, which fires
-            // `GameScene.didChangeSize`, which recentres the camera. Every
+            // the map view's height. Under SpriteKit that fired
+            // `GameScene.didChangeSize`, which recentred the camera: every
             // tick the number crossed the wrap threshold, the *whole map*
             // jumped — reading as "the city is shifting", not as a layout bug.
             Text(value)

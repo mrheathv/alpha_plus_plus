@@ -57,43 +57,32 @@ final class MetalSpikeTests: XCTestCase {
 
     private static var timings = ""
 
-    func testRenderTheSpikeBesideSpriteKit() throws {
+    func testRenderTheBlock() throws {
         let size = CGSize(width: 1200, height: 800)
-        let scale: CGFloat = 0.72
-        let game = ScenePlaytest(map: Self.block(), size: size)
+        let game = try XCTUnwrap(CityPlaytest(map: Self.block()))
         game.controller.setFundingLevel(4, for: .waterTower)
         game.controller.setFundingLevel(4, for: .powerPlant)
         let renderer = try XCTUnwrap(MetalCityRenderer(), "no Metal device, or the shaders did not compile")
+        let centre = Isometric().centerPoint(of: game.controller.map)
 
-        func frameBoth(_ label: String, wetness: Float, scale: CGFloat = scale) throws -> [(String, NSImage)] {
-            game.scene.centerCameraOnMap()
-            game.scene.camera?.setScale(scale)
-            game.frame()
-            game.frame()
-            let texture = try XCTUnwrap(game.scene.view?.texture(from: game.scene,
-                                                                crop: CGRect(origin: .zero, size: size)))
-            let sprite = NSImage(cgImage: texture.cgImage(), size: size)
-
-            let camera = MetalCityRenderer.Camera(centre: game.scene.cameraPositionForTesting,
-                                                  scale: scale, size: size)
+        func frame(_ label: String, wetness: Float, scale: CGFloat = 0.72) throws -> (String, NSImage) {
+            let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: size)
             let frame = try XCTUnwrap(renderer.render(game.controller.map, camera: camera, wetness: wetness))
             let line = String(format: "metal %@: %.2f ms GPU, %d triangles, %d lights\n",
                               label, frame.gpuMilliseconds, frame.triangles, frame.lights)
             Self.timings += line
             print(line)
-            return [("SpriteKit — \(label)", sprite),
-                    ("Metal spike — \(label)", NSImage(cgImage: frame.image, size: size))]
+            return ("Metal — \(label)", NSImage(cgImage: frame.image, size: size))
         }
 
-        var frames = try frameBoth("dry", wetness: 0)
+        var frames = [try frame("dry", wetness: 0)]
         game.play()
         game.tick(6)
-        XCTAssertGreaterThan(game.scene.wetnessForTesting, 0, "day 6 should be raining")
-        frames += try frameBoth("day 6, raining", wetness: 1)
-        // Close in, where SpriteKit is showing pictures magnified and the
-        // spike is still drawing geometry — `GameScene.minimumZoomScale`.
-        frames += try frameBoth("closest zoom, raining", wetness: 1, scale: 0.5)
-        try Self.writeGrid(frames, columns: 2, cell: size, named: "metal-spike")
+        XCTAssertGreaterThan(Weather.wetness(onDay: game.controller.map.elapsedDays), 0,
+                             "day 6 should be raining")
+        frames.append(try frame("day 6, raining", wetness: 1))
+        frames.append(try frame("close in, raining", wetness: 1, scale: 0.25))
+        try Self.writeGrid(frames, columns: 1, cell: size, named: "metal-spike")
         try Self.timings.write(to: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("build/ContactSheet/metal-spike.txt"),
                                atomically: true, encoding: .utf8)
@@ -167,28 +156,6 @@ final class MetalSpikeTests: XCTestCase {
 /// **M0's two questions, measured on the biggest city there is.**
 @MainActor
 final class MetalMapTests: XCTestCase {
-
-    /// Switching renderer hides the city in the SpriteKit scene and keeps what
-    /// SpriteKit still owns — and switching back restores it exactly.
-    func testTheSceneHandsTheCityToMetalAndBack() {
-        var map = CityMap(width: 12, height: 12)
-        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 4, y: 4))
-        let game = ScenePlaytest(map: map)
-        game.scene.setDrawsCity(false)
-        XCTAssertFalse(game.scene.drawsCity)
-        XCTAssertEqual(game.scene.backgroundColor.alphaComponent, 0, "the Metal map would be hidden behind it")
-        game.click(.road, at: GridPosition(x: 1, y: 1))
-        XCTAssertEqual(game.controller.map[GridPosition(x: 1, y: 1)].zone, .road,
-                       "input still goes through the scene")
-        // While Metal draws the city the scene does no tile work at all, so
-        // a building placed and a day ticked in that time have to be caught
-        // up in one pass when the city is handed back.
-        game.click(.commercial, at: GridPosition(x: 8, y: 1))
-        game.play()
-        game.tick(2)
-        game.scene.setDrawsCity(true)
-        game.check("after handing the city back")
-    }
 
     /// **The live path draws.** The renderer writes the finished frame into
     /// the view's drawable from a compute kernel, which only works when the
@@ -454,12 +421,12 @@ final class MetalFrameBreakdownTests: XCTestCase {
     }
 }
 
-/// **The player's own city, through both renderers.** A diagnostic for a
-/// report from play, reading the autosave — so it skips on any machine that
-/// has not played, and lives only in the Full plan.
+/// **The player's own city.** A diagnostic for a report from play, reading
+/// the autosave — so it skips on any machine that has not played, and lives
+/// only in the Full plan.
 @MainActor
 final class MetalAutosaveDiagnosticTests: XCTestCase {
-    func testRenderTheAutosaveBothWays() throws {
+    func testRenderTheAutosave() throws {
         guard let autosave = CityAutosave.standard(), autosave.available != nil else {
             throw XCTSkip("no autosave on this machine")
         }
@@ -467,24 +434,17 @@ final class MetalAutosaveDiagnosticTests: XCTestCase {
         // The live view: 1440×932 points on a 2880×1864 Retina panel, less
         // the chrome — about the map area a player actually sees.
         let points = CGSize(width: 1440, height: 640)
-        let game = ScenePlaytest(map: map, size: points)
-        game.scene.centerCameraOnMap()
-        game.frame()
-        game.frame()
-        let texture = try XCTUnwrap(game.scene.view?.texture(from: game.scene,
-                                                            crop: CGRect(origin: .zero, size: points)))
+        var view = CityCamera()
+        view.centre(on: map)
         let renderer = try XCTUnwrap(MetalCityRenderer())
-        // The same camera the live view builds: scene points per *pixel*, on
+        // The same camera the live view builds: world points per *pixel*, on
         // a 2× panel.
-        let camera = MetalCityRenderer.Camera(centre: game.scene.cameraCentre,
-                                              scale: game.scene.cameraScale / 2,
+        let camera = MetalCityRenderer.Camera(centre: view.centre, scale: view.scale / 2,
                                               size: CGSize(width: points.width * 2, height: points.height * 2))
         let wetness = Float(Weather.wetness(onDay: map.elapsedDays))
         let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: wetness))
         try MetalSpikeTests.writeGrid(
-            [("SpriteKit — your city, day \(map.elapsedDays), camera \(game.scene.cameraScale)",
-              NSImage(cgImage: texture.cgImage(), size: points)),
-             ("Metal — same city, same camera", NSImage(cgImage: frame.image, size: points))],
+            [("your city, day \(map.elapsedDays), camera \(view.scale)", NSImage(cgImage: frame.image, size: points))],
             columns: 1, cell: points, named: "metal-autosave")
     }
 }

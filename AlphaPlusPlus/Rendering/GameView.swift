@@ -5,14 +5,11 @@ import SpriteKit
 /// it: a tool picker, simulation controls, overlay/size pickers, and a
 /// stats readout with trend sparklines.
 ///
-/// Hosts via `GameSpriteView` (a custom `NSViewRepresentable`), not
-/// SwiftUI's built-in `SpriteView` — this file's own doc comment used to say
-/// "if we later need AppKit-level control, we swap this one file for an
-/// `NSViewRepresentable` wrapping an `SKView`; `GameScene` doesn't change."
-/// Trackpad pan/zoom turned out to be exactly that case, and the swap
-/// happened exactly as predicted: this file changed one line, `GameScene`
-/// didn't change at all (see `GameSKView`'s doc comment for why `SpriteView`
-/// couldn't support it no matter how `GameScene` was written).
+/// Hosts via `MetalMapView` (a custom `NSViewRepresentable` wrapping
+/// `CityMTKView`), which receives the trackpad pan and zoom directly. The
+/// SpriteKit version of this file made the same move once, from SwiftUI's
+/// built-in `SpriteView` to a custom representable, because `SpriteView`
+/// could not deliver those gestures.
 ///
 /// The toolbar itself is styled entirely through `RetroUITheme`/
 /// `RetroButtonStyle`/`RetroSegmentedPicker`/`RetroStepper` rather than
@@ -242,8 +239,8 @@ struct GameView: View {
     /// Tracked rather than acted on directly because holding a key should pan
     /// *continuously*: `onKeyPress` would otherwise deliver one event, pause
     /// for the OS key-repeat delay, and then repeat at the system rate, which
-    /// reads as a stutter. `GameScene` integrates a velocity per frame
-    /// instead — see `KeyboardControls.panPointsPerSecond`.
+    /// reads as a stutter. `MetalMapView` integrates a velocity per frame
+    /// instead (`CityCamera.applyKeyboardPan`) — see `KeyboardControls.panPointsPerSecond`.
     @State private var heldKeys: Set<KeyEquivalent> = []
 
     /// Whether the map is what the keyboard is talking to. Given back to the
@@ -549,11 +546,10 @@ struct GameView: View {
 
     /// Warm light bleeding up out of the dashboard.
     ///
-    /// The map keeps a sun parked in world space below its own bottom edge —
-    /// the retrowave "sun behind the skyline" the whole palette is built on.
-    /// The dashboard sits exactly there on screen, so a warm glow along its top
-    /// edge reads as that same sun continuing behind the chrome, rather than
-    /// the city ending at a hard line and a control panel starting.
+    /// The map's sky is a sunset gradient, warmest at the horizon, so a warm
+    /// glow along the dashboard's top edge reads as that light continuing
+    /// behind the chrome, rather than the city ending at a hard line and a
+    /// control panel starting.
     private var sunBleed: some View {
         LinearGradient(
             colors: [Color(nsColor: RenderPalette.sunGlow).opacity(0.16), .clear],

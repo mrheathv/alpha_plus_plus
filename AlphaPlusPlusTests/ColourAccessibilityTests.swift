@@ -1,5 +1,5 @@
-import SpriteKit
 import XCTest
+import SpriteKit
 @testable import AlphaPlusPlus
 
 /// **This game says almost everything in hue, and some players cannot hear it.**
@@ -165,17 +165,20 @@ final class ColourAccessibilityTests: XCTestCase {
 
         let controller = GameController(map: map, rng: SeededRNG(seed: 2))
         controller.recomputeUtilitySupply()
-        let scene = GameScene(controller: controller)
-        scene.size = CGSize(width: 800, height: 600)
-        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
-        view.presentScene(scene)
-        controller.overlayMode = .power
-        scene.rebuildEntireGrid()
-        scene.refreshAll()
+        let overlay = MetalOverlay()
+        overlay.updateMarks(controller.map, mode: .power)
 
+        /// Whether a bolt is drawn over the building anchored here. Each
+        /// badge is a billboard whose first two floats are the building's
+        /// centre and whose eighth is its glyph.
         func badged(_ position: GridPosition) -> Bool {
-            scene.tileNodesForTesting[position]?
-                .children.contains { $0.name == IsoTileRenderer.warningNodeNameForTesting } ?? false
+            let size = Float(controller.map[position].zone.footprintSize)
+            let centre = SIMD2(Float(position.x) + size / 2, Float(position.y) + size / 2)
+            return stride(from: 0, to: overlay.billboards.count, by: MetalOverlay.billboardFloatCount)
+                .contains { i in
+                    SIMD2(overlay.billboards[i], overlay.billboards[i + 1]) == centre
+                        && overlay.billboards[i + 7] == MetalOverlay.Glyph.power.rawValue
+                }
         }
         // The fixture has to actually be in the state it claims, or the
         // assertions below measure nothing.

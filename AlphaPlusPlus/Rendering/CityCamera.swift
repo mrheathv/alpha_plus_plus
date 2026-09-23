@@ -71,7 +71,7 @@ struct CityCamera {
         clamp(to: map)
     }
 
-    /// One frame of keyboard panning. `direction` is `GameScene.keyboardPan`'s
+    /// One frame of keyboard panning. `direction` is `MapInteraction.keyboardPan`'s
     /// velocity (dy positive is up the screen); it is normalised, so a
     /// diagonal is not 1.41 times faster, and scaled by the zoom, so a key
     /// crosses the same fraction of the screen however far out you are.

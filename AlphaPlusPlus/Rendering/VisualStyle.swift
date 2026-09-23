@@ -76,23 +76,6 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
 
     // MARK: - The numbers that differ
 
-    /// How much of its brightness an ordinary street keeps.
-    var roadLaneAlpha: Double {
-        switch self {
-        case .classic: return 1.0
-        case .cinematic: return 0.52
-        }
-    }
-
-    /// An arterial keeps more, so the two kinds of road differ by weight and
-    /// not only by hue.
-    var highwayLaneAlpha: Double {
-        switch self {
-        case .classic: return 1.0
-        case .cinematic: return 0.78
-        }
-    }
-
     /// How hard the frame blooms, and what counts as bright enough to.
     ///
     /// **Zero for `classic`, which is the point of having it here.** Bloom is
@@ -140,83 +123,16 @@ enum VisualStyle: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// How much halo is *baked into* each building's texture.
-    ///
-    /// Until bloom existed this was the entire glow: a blurred copy of the
-    /// building rasterised once. With the frame blooming, most of that job
-    /// moved — and moved somewhere better, because the frame's version knows
-    /// about the building next door and a baked halo never could.
-    ///
-    /// Keeping both at full strength double-counts, which is how a dense
-    /// block went to mush. `cinematic` pulls the bake back to a tight rim and
-    /// lets bloom carry the spill; `classic` keeps the original numbers,
-    /// because with bloom off the bake is all there is.
-    ///
-    /// **It does not pay for itself, which was the prediction.** The reason
-    /// to expect a saving was that blur cost scales superlinearly with
-    /// radius, so a smaller bake should fill the cache faster. Measured on a
-    /// cold cache over every building variant, radius 7 takes 191.9 ms and
-    /// radius 4 takes 191.0. The change is worth making on the picture alone
-    /// — see `IsometricBuilding.glowLayer`.
-    var bakedGlowRadius: Double {
-        switch self {
-        case .classic: return 7
-        case .cinematic: return 4
-        }
-    }
-
-    var bakedGlowWeight: CGFloat {
-        switch self {
-        case .classic: return 1
-        case .cinematic: return 0.7
-        }
-    }
-
-    /// Film grain, and how far the blacks are lifted toward the sunset.
-    ///
-    /// The cheap half of the post-process, and the half that does the most
-    /// per line: every dark pixel in this game sits at nearly the same
-    /// near-black, which is right for contrast and slightly wrong for film —
-    /// a photographed night is never truly black, it is a shade of whatever
-    /// lights the sky.
-    ///
-    /// Both stay small. Grain past about 0.03 stops reading as stock and
-    /// starts reading as a dirty screen, and a lift past about 0.5 turns the
-    /// ground purple rather than merely warm.
-    var grainStrength: Double {
-        switch self {
-        case .classic: return 0
-        case .cinematic: return 0.022
-        }
-    }
-
-    var liftShadows: Double {
-        switch self {
-        case .classic: return 0
-        case .cinematic: return 0.38
-        }
-    }
-
-    /// How much the water moves. `classic` is the still fill terrain
-    /// shipped with, so the switch answers this too.
-    var waterShimmer: Double {
-        switch self {
-        case .classic: return 0
-        case .cinematic: return 0.55
-        }
-    }
-
     /// How much of itself a building throws back off a wet street.
     ///
     /// Zero for `classic` for the same reason bloom is: this is an addition
     /// to the graded look, and the switch exists so it can be turned off and
     /// looked at rather than argued about.
     ///
-    /// 0.34 when a reflection was a whole copy of the building, where
-    /// anything brighter read as ice. It is a few thin streaks of light now
-    /// (`IsoTextureCache.wetStreaks`), a small fraction of the area, and at
-    /// the old strength they read as noise in the close-up render — so they
-    /// carry more of it.
+    /// It was 0.34 when a reflection was a whole copy of the building, where
+    /// anything brighter read as ice, and 0.8 once SpriteKit drew it as a few
+    /// thin streaks of light. The Metal renderer only asks whether it is above
+    /// zero, which decides whether the weather reaches the street at all.
     var wetReflection: CGFloat {
         switch self {
         case .classic: return 0

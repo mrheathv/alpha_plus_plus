@@ -1,4 +1,4 @@
-import SpriteKit
+import AppKit
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -153,11 +153,11 @@ final class LandOwnershipTests: XCTestCase {
 
     /// **The view keeps up with a purchase.** Buying repaints a parcel's worth
     /// of ground at once, in the Land view and back in Normal — the kind of
-    /// change `ScenePlaytest` exists to catch the picture falling behind.
-    func testTheMapKeepsUpWithAPurchase() {
+    /// change the playtest exists to catch the picture falling behind.
+    func testTheMapKeepsUpWithAPurchase() throws {
         var map = CityMap(width: 32, height: 32)
         map.land = .starting(width: 32, height: 32)
-        let game = ScenePlaytest(map: map)
+        let game = try XCTUnwrap(CityPlaytest(map: map))
         game.look(at: .land)
         game.clickInView(at: GridPosition(x: 3, y: 10))
         game.check("buying a parcel in the Land view")
@@ -172,7 +172,7 @@ final class LandOwnershipTests: XCTestCase {
     func testTheLandViewTellsItsThreeStatesApart() {
         var map = CityMap(width: 32, height: 32)
         map.land = .starting(width: 32, height: 32)
-        func color(_ position: GridPosition) -> SKColor? {
+        func color(_ position: GridPosition) -> NSColor? {
             IsoTileRenderer.paint(for: .land, at: position, in: map, using: nil)?.color
         }
         let owned = color(GridPosition(x: 12, y: 12))
@@ -187,11 +187,11 @@ final class LandOwnershipTests: XCTestCase {
     /// bought, in the Normal view and the Land view — whether the edge of
     /// what you own reads at a glance without the Land view up is a question
     /// only a picture answers.
-    func testRenderTheLand() {
+    func testRenderTheLand() throws {
         var map = CityMap(width: 32, height: 32)
         map.land = .starting(width: 32, height: 32)
         for x in 8 ..< 24 { map[GridPosition(x: x, y: 12)].zone = .road }
-        for y in 8 ..< 24 { map[GridPosition(x: 15, y: 12 == y ? y : y)].zone = .road }
+        for y in 8 ..< 24 { map[GridPosition(x: 15, y: y)].zone = .road }
         for (index, origin) in [GridPosition(x: 9, y: 10), GridPosition(x: 11, y: 13),
                                 GridPosition(x: 16, y: 10), GridPosition(x: 18, y: 13),
                                 GridPosition(x: 13, y: 16)].enumerated() {
@@ -199,51 +199,39 @@ final class LandOwnershipTests: XCTestCase {
             map.placeBuilding(zone: zone, origin: origin)
             for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = 2 + index % 2 }
         }
-        let game = ScenePlaytest(map: map)
-        game.frameTheWholeMap()
-        game.frame()
-        game.capture("normal view — the dark ground is not yet yours")
+        let game = try XCTUnwrap(CityPlaytest(map: map))
+        let size = CGSize(width: 1200, height: 800)
+        var frames: [(String, NSImage)] = []
+        let normal = try XCTUnwrap(game.picture(size: size))
+        frames.append(("normal view — the dark ground is not yet yours", NSImage(cgImage: normal, size: size)))
         game.look(at: .land)
         game.clickInView(at: GridPosition(x: 3, y: 10))
-        game.frame()
-        game.capture("land view — owned, for sale, out of reach; one parcel just bought")
-        game.writeFilmstrip(named: "land")
+        let land = try XCTUnwrap(game.picture(size: size))
+        frames.append(("land view — owned, for sale, out of reach; one parcel bought",
+                       NSImage(cgImage: land, size: size)))
+        try MetalSpikeTests.writeGrid(frames, columns: 2, cell: size, named: "land")
     }
 
     /// **Every tile says whether it is yours, however it was last drawn.**
     ///
     /// Reported from play as a starting square that "doesn't render
     /// properly": the dark edge of the land you do not own came out as a
-    /// staircase cutting into the square. Tiles are drawn by two paths — built
-    /// fresh, and refreshed — and only the refresh path had been told about
-    /// ownership, so whichever path a tile last went through decided whether
-    /// it looked owned. `SceneAgreement` compares two scenes built the same
-    /// wrong way, so it agreed; this asks the picture the question directly,
-    /// after the three things that draw tiles: a fresh map, a building placed
-    /// near the boundary (which rebuilds a window round it), and a tick.
-    func testUnownedGroundIsDarkEverywhereAndOwnedGroundNowhere() {
+    /// staircase, because SpriteKit drew tiles by two paths and only one had
+    /// been told about ownership. Metal draws a chunk one way, and ownership
+    /// is in its signature, so the question becomes whether the renderer kept
+    /// up — after the three things that change what a chunk holds: a fresh
+    /// map, a building placed near the boundary, and a day.
+    func testOwnershipIsRedrawnWheneverItsChunkIs() throws {
         var map = CityMap(width: 32, height: 32)
         map.land = .starting(width: 32, height: 32)
-        let game = ScenePlaytest(map: map)
-
-        func check(_ when: String) {
-            for (position, node) in game.scene.tileNodesForTesting {
-                guard let ground = node.childNode(withName: IsoTileRenderer.groundNodeName) as? SKSpriteNode
-                else { continue }
-                let dark = ground.colorBlendFactor > 0
-                XCTAssertEqual(dark, !game.controller.map.isOwned(position),
-                               "\(position) \(dark ? "dark" : "bright") \(when)")
-            }
-        }
-        check("on a fresh map")
-        // Founding a city rebuilds the whole grid and refreshes nothing
-        // (`GameView`'s `cityGeneration` handler) — the route play took and the
-        // harness, which refreshes after building, never did.
-        game.scene.rebuildEntireGrid()
-        check("straight after a rebuild, as founding a city does")
-        game.click(.residential, at: GridPosition(x: 9, y: 9))   // rebuilds 5...13
-        check("after placing near the boundary")
+        let game = try XCTUnwrap(CityPlaytest(map: map))
+        game.check("on a fresh map")
+        game.click(.residential, at: GridPosition(x: 9, y: 9))
+        game.check("after placing near the boundary")
+        game.look(at: .land)
+        game.clickInView(at: GridPosition(x: 3, y: 10))
+        game.check("after buying the parcel beside it")
         game.tick(1)
-        check("after a day")
+        game.check("after a day")
     }
 }

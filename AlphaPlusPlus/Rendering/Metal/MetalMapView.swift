@@ -158,7 +158,7 @@ struct MotionClock {
     private(set) var seconds: Double = 0
     private var last: Double?
 
-    /// Clamped like `GameScene.update`, so a stall or a drag between displays
+    /// Clamped like the frame loop's own delta, so a stall or a drag between displays
     /// does not send every car across the map at once.
     mutating func tick(at now: Double, running: Bool) {
         let delta = min(max(0, now - (last ?? now)), 0.1)

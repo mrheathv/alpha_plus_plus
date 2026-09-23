@@ -27,7 +27,7 @@ extension GridPosition {
     /// This is Bresenham's line algorithm — the standard way to walk a
     /// straight line through a grid using only integer arithmetic, so it's
     /// exact (no rounding drift) and touches every cell the line passes
-    /// through with no gaps. It exists for drag-to-paint: `GameScene` only
+    /// through with no gaps. It exists for drag-to-paint: `MapInteraction` only
     /// gets a mouse-moved event roughly once per frame, so a fast drag can
     /// jump several tiles between two events. Filling in the line between
     /// the last tile and this one is what turns that into a continuous

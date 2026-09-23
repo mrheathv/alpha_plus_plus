@@ -61,23 +61,7 @@ final class DetailTierTests: XCTestCase {
         XCTAssertEqual(massing.drawn(at: .street).panels.count, 2)
     }
 
-    /// SpriteKit draws what it drew before tiers existed: a `.near` or
-    /// `.street` part never reaches it.
-    func testSpriteKitDrawsNothingPastTheStandardTier() {
-        var plain = BuildingMassing()
-        let box = Box(x: 0.2, y: 0.2, z: 0, width: 1, depth: 1, height: 1)
-        plain.add(.box(box))
-        var detailed = plain
-        detailed.add(.box(Box(x: 0.5, y: 0.5, z: 1, width: 0.1, depth: 0.1, height: 0.1)), from: .near)
-        detailed.panels.append(Panel(box: box, face: .right, u0: 0.2, u1: 0.8, v0: 0.2, v1: 0.8, color: .white)
-            .at(.street))
-        func count(_ node: SKNode) -> Int { 1 + node.children.reduce(0) { $0 + count($1) } }
-        let projection = Isometric()
-        XCTAssertEqual(count(IsometricBuilding.node(for: detailed, accent: .magenta, tier: 3, in: projection)),
-                       count(IsometricBuilding.node(for: plain, accent: .magenta, tier: 3, in: projection)))
-    }
-
-    /// And the Metal renderer draws a tagged part at its tier and not before.
+    /// The Metal renderer draws a tagged part at its tier and not before.
     func testMetalDrawsATaggedPartOnlyFromItsTier() {
         let key = MetalCityMesh.Cache.Key(zone: .commercial, density: 5, variant: 3)
         var near = key; near.tier = .near

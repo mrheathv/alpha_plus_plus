@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which data channel `GameScene` draws instead of normal zone colors, if
+/// Which data channel the Metal renderer draws instead of normal zone colors, if
 /// any. Replaces what used to be a single `isShowingLandValue` boolean now
 /// that there are two overlays (land value, traffic) instead of one — an
 /// enum makes "both at once" a state that can't be represented, rather than

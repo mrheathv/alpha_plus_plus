@@ -262,8 +262,8 @@ final class MapInteraction: MapInput {
 
     /// **What the cursor says: the question the click will be asked.**
     /// Static and pure, so it can be asked of a controller without an
-    /// interaction, and so `GameScene`'s own preview can share it until M8
-    /// deletes that scene.
+    /// interaction, and so a test can sweep it cell by cell against what
+    /// `place` actually returns.
     static func cursor(at position: GridPosition, controller: GameController) -> MapMarks.Cursor? {
         let map = controller.map
         guard map.contains(position) else { return nil }

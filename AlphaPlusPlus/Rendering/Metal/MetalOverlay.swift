@@ -10,7 +10,7 @@ import simd
 ///
 /// **The decision is not made here.** Which colour a tile is under which
 /// view, and what happens to its building, is `IsoTileRenderer.paint` — the
-/// same call `GameScene` and the city render make, for the recorded reason
+/// same call the overlay tests ask directly, for the recorded reason
 /// that the last time that decision lived in two places, three heatmaps
 /// painted nothing while the render reported they were fine. This file only
 /// decides how the answer *looks* when light is real:

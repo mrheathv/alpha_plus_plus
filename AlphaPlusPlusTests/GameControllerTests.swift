@@ -856,7 +856,7 @@ final class GameControllerTests: XCTestCase {
         XCTAssertEqual(controller.treasury, startingTreasury - GameController.pipePlacementCost)
     }
 
-    /// `GameScene` calls `layPipe` on every tile a drag stroke crosses —
+    /// `MapInteraction` calls `layPipe` on every tile a drag stroke crosses —
     /// re-crossing already-piped ground shouldn't charge a second time.
     func testLayingAPipeOnATileThatAlreadyHasOneIsFreeAndUnchanged() {
         let controller = makeController()
@@ -938,7 +938,7 @@ final class GameControllerTests: XCTestCase {
         XCTAssertEqual(controller.treasury, startingTreasury - GameController.powerLinePlacementCost)
     }
 
-    /// `GameScene` calls `layPowerLine` on every tile a drag stroke crosses —
+    /// `MapInteraction` calls `layPowerLine` on every tile a drag stroke crosses —
     /// re-crossing already-lined ground shouldn't charge a second time.
     func testLayingAPowerLineOnATileThatAlreadyHasOneIsFreeAndUnchanged() {
         let controller = makeController()

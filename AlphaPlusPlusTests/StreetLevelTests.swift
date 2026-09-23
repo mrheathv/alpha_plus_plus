@@ -9,7 +9,7 @@ final class StreetLevelTests: XCTestCase {
 
     /// What the Metal renderer's camera scale is at the closest zoom a player
     /// can reach, on a 2× Retina panel.
-    static let closest = GameScene.metalMinimumZoomScale / 2
+    static let closest = CityCamera.minimumScale / 2
 
     func testTheStreetTierEngagesAtTheClosestCameraAndNotAtRest() throws {
         let renderer = try XCTUnwrap(MetalCityRenderer())

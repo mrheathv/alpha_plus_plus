@@ -1,5 +1,4 @@
 import XCTest
-import SpriteKit
 @testable import AlphaPlusPlus
 
 /// A pipe goes under anything — and, until this, was invisible wherever it did.
@@ -52,83 +51,5 @@ final class BuriedUnderBuildingsTests: XCTestCase {
         XCTAssertTrue(controller.map.waterSupply.isSupplied(at: covered),
                       "a pipe under a building is not part of the network")
         XCTAssertTrue(Water.hasSupply(at: block, in: controller.map))
-    }
-
-    // MARK: - And now it is drawn
-
-    /// **The bug.** Every cell of the building that carries a pipe gets a
-    /// segment, so a run across a block is continuous on screen.
-    func testEveryCoveredCellCarryingAPipeIsDrawn() {
-        var map = blockOnAStreet()
-        for x in 0 ... 8 { map[GridPosition(x: x, y: 3)].hasPipe = true }
-        map.waterSupply = Water.computeSupply(for: map)
-
-        let renderer = IsoTileRenderer(projection: projection)
-        let node = renderer.makeNode(for: map[block])
-        renderer.syncConduits(on: node, isPipe: true, segments: [
-            IsoTileRenderer.Segment(offset: GridPosition(x: 0, y: 0),
-                                    mask: Infrastructure.conduitMask(at: block, in: map, isPipe: true),
-                                    live: true),
-            IsoTileRenderer.Segment(offset: GridPosition(x: 1, y: 0),
-                                    mask: Infrastructure.conduitMask(at: covered, in: map, isPipe: true),
-                                    live: true),
-        ])
-
-        let drawn = node.children.filter { $0.name == IsoTileRenderer.pipeNodeName }
-        XCTAssertEqual(drawn.count, 2, "a building drew only one cell's worth of pipe")
-        // And the second is offset from the first by exactly one tile east,
-        // which is what puts it over the ground it is actually buried under.
-        let shift = projection.project(1, 0, 0)
-        let positions = drawn.map(\.position).sorted { $0.x < $1.x }
-        XCTAssertEqual(positions[1].x - positions[0].x, shift.x, accuracy: 0.01)
-        XCTAssertEqual(positions[1].y - positions[0].y, shift.y, accuracy: 0.01)
-    }
-
-    /// Cells without a pipe draw nothing, so a building standing over one
-    /// corner of a run does not sprout three phantom segments.
-    func testOnlyTheCellsThatCarryOneAreDrawn() {
-        var map = blockOnAStreet()
-        map[block].hasPipe = true
-        map.waterSupply = Water.computeSupply(for: map)
-
-        let renderer = IsoTileRenderer(projection: projection)
-        let node = renderer.makeNode(for: map[block])
-        renderer.syncConduits(on: node, isPipe: true, segments: [
-            IsoTileRenderer.Segment(offset: GridPosition(x: 0, y: 0), mask: 0, live: false),
-        ])
-        XCTAssertEqual(node.children.filter { $0.name == IsoTileRenderer.pipeNodeName }.count, 1)
-    }
-
-    /// Leaving the overlay takes them all away — every one, not just the
-    /// anchor's. A stale segment would leave a pipe drawn over a city in
-    /// Normal view, which is how an overlay bug hides.
-    func testLeavingTheOverlayClearsEverySegment() {
-        let renderer = IsoTileRenderer(projection: projection)
-        let node = renderer.makeNode(for: blockOnAStreet()[block])
-        renderer.syncConduits(on: node, isPipe: true, segments: [
-            IsoTileRenderer.Segment(offset: GridPosition(x: 0, y: 0), mask: 3, live: true),
-            IsoTileRenderer.Segment(offset: GridPosition(x: 1, y: 0), mask: 3, live: true),
-        ])
-        XCTAssertEqual(node.children.filter { $0.name == IsoTileRenderer.pipeNodeName }.count, 2)
-
-        renderer.syncConduits(on: node, isPipe: true, segments: [])
-        XCTAssertTrue(node.children.filter { $0.name == IsoTileRenderer.pipeNodeName }.isEmpty)
-    }
-
-    /// The cache key has to see *every* segment, or a change under one cell
-    /// of a block would be skipped as "already up to date" — which is the
-    /// same class of bug as the stale keys an overlay has to invalidate.
-    func testAChangeUnderOneCellIsNotMistakenForNoChange() {
-        let renderer = IsoTileRenderer(projection: projection)
-        let node = renderer.makeNode(for: blockOnAStreet()[block])
-        let first = IsoTileRenderer.Segment(offset: GridPosition(x: 0, y: 0), mask: 3, live: true)
-
-        renderer.syncConduits(on: node, isPipe: true, segments: [first])
-        renderer.syncConduits(on: node, isPipe: true, segments: [
-            first,
-            IsoTileRenderer.Segment(offset: GridPosition(x: 1, y: 0), mask: 3, live: true),
-        ])
-        XCTAssertEqual(node.children.filter { $0.name == IsoTileRenderer.pipeNodeName }.count, 2,
-                       "a second segment appearing was mistaken for no change at all")
     }
 }

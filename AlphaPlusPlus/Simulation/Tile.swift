@@ -43,8 +43,8 @@ struct Tile: Equatable, Codable, Sendable {
     /// Is this tile the anchor of whatever building it belongs to? True for
     /// every 1×1 tile (trivially — it's its own one-cell footprint) and for
     /// the one corner of a bigger building that `GameController.place(at:)`
-    /// stamped as its origin. `GameScene` uses this to decide which cells
-    /// get a visible sprite: one per building, not one per cell.
+    /// stamped as its origin. The renderer uses this to decide which cells
+    /// draw a building: one per building, not one per cell.
     var isBuildingAnchor: Bool { buildingOrigin == position }
 
     /// Does this tile carry a pipe? Independent of `zone` — a tile can be

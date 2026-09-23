@@ -160,7 +160,7 @@ final class MapInteractionTests: XCTestCase {
 }
 
 /// The cursor tests `ScenePlaytestTests` asked of `GameScene`'s preview,
-/// asked of the rule itself now that the scene only draws its answer.
+/// asked of the rule itself now that the renderer only draws its answer.
 @MainActor
 final class MapInteractionCursorTests: XCTestCase {
 
@@ -170,7 +170,7 @@ final class MapInteractionCursorTests: XCTestCase {
     /// water landed; the sweep is what makes the next rule added to
     /// `placementRefusal` show up here if the cursor is not taught about it.
     func testTheCursorNeverPromisesAPlacementTheClickRefuses() {
-        var map = ScenePlaytestTests().startedCity()
+        var map = MetalPlaytestTests.startedCity()
         for x in 0 ..< map.width { map[GridPosition(x: x, y: 8)].isWater = true }
         let controller = GameController(map: map, rng: SeededRNG(seed: 1),
                                         peakPopulation: Unlocks.everythingUnlocked)
@@ -196,7 +196,7 @@ final class MapInteractionCursorTests: XCTestCase {
     /// blocked one. It was once the other way round: the cursor described the
     /// armed zoning tool, which calls every building occupied.
     func testTheCursorSaysWhichStopsALineCanCallAt() {
-        var map = ScenePlaytestTests().startedCity()
+        var map = MetalPlaytestTests.startedCity()
         map.placeBuilding(zone: .publicTransit, origin: GridPosition(x: 5, y: 3))
         let controller = GameController(map: map, rng: SeededRNG(seed: 1),
                                         peakPopulation: Unlocks.everythingUnlocked)

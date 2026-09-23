@@ -59,42 +59,6 @@ enum RenderPalette {
     /// it, and not enough to compete with anything that is lit.
     static let pavement = SKColor(srgbRed: 0.098, green: 0.063, blue: 0.180, alpha: 1.0)
 
-    /// What a street lamp puts on the footway under it.
-    ///
-    /// Sodium, against a city lit in magenta and cyan, so the street reads as
-    /// a different kind of light from the buildings either side of it rather
-    /// than as more of the same. Kept low in value on purpose: a lamp is
-    /// infrastructure, and the value ladder puts infrastructure in the tier
-    /// that recedes. The first pass had it at alpha 0.30 and the render was
-    /// unambiguous — a warm slab, the brightest ground in frame, which is the
-    /// exact complaint this file already records against the old lane lines.
-    ///
-    /// **Added rather than painted over**, and it took a render to see why.
-    /// Alpha-blended onto a near-black ground a warm colour does not read as
-    /// warm at all: it averages toward the ground and arrives as grey haze,
-    /// which is a translucent panel lying on the road rather than light
-    /// falling on it. The same correction the traffic streaks needed one pass
-    /// earlier — *a trace that cannot be brighter than what it lies on is
-    /// paint.* So this is what **one layer** of a lamp's pool adds, and it is
-    /// tiny on purpose: eight of them stack toward the middle, so the number
-    /// that matters is eight times this one — a warm wash a shade above the
-    /// asphalt, not the orange target the first additive pass produced.
-    static let streetLampPool = SKColor(srgbRed: 0.035, green: 0.019, blue: 0.006, alpha: 1.0)
-
-    /// Unbuilt ground is not one colour. These are the two directions it
-    /// varies in — a little dust catching what light there is, and a little
-    /// scrub swallowing it.
-    ///
-    /// Both are tiny on purpose. This is the surface that tiles the map, so
-    /// whatever is drawn on it is drawn forty times at once in the same
-    /// frame; anything strong enough to identify as a mark becomes a pattern
-    /// rather than a texture. `IsoTextureCache.addScrub` says the rest.
-    static let scrubPale = SKColor(srgbRed: 0.016, green: 0.008, blue: 0.020, alpha: 1.0)
-
-    /// Alpha-blended rather than added, so it takes light away where the pale
-    /// patches put it back.
-    static let scrubDark = SKColor(srgbRed: 0.055, green: 0.018, blue: 0.125, alpha: 0.22)
-
     /// The line where the footway meets the carriageway.
     ///
     /// Only the inner edge gets one. The outer edge is where the lot begins,
@@ -126,17 +90,6 @@ enum RenderPalette {
     /// water at night is mostly a hole in the light, which is exactly what
     /// makes the lit edge do the work.
     static let water = SKColor(srgbRed: 0.035, green: 0.075, blue: 0.22, alpha: 1.0)
-    ///
-    /// **Faint, and that is a correction.** The first version gave water the
-    /// same edge weight the land grid has, on the reasoning that the lit rims
-    /// of adjacent tiles would add up along a shoreline. They do — and they
-    /// also add up in the *middle* of a lake, where every neighbour is water
-    /// too, so a bay came out looking like a tiled swimming pool. The
-    /// shoreline does not need drawing: water is the one surface here that is
-    /// a different colour rather than a different tint, so the boundary is
-    /// already the strongest edge on the map. What is left is just enough
-    /// structure to read as a surface with something moving on it.
-    static let waterEdge = SKColor(srgbRed: 0.22, green: 0.55, blue: 0.95, alpha: 0.13)
 
     /// The parapet along a bridge deck — cool and pale, a structural mark
     /// rather than a neon one, so a crossing reads as engineering standing in
@@ -151,13 +104,6 @@ enum RenderPalette {
     /// look like it was firing a beam.
     static let smoke = SKColor(srgbRed: 0.52, green: 0.48, blue: 0.60, alpha: 1.0)
 
-    static let brakeLight = SKColor(srgbRed: 1.0, green: 0.14, blue: 0.20, alpha: 1.0)
-
-    static let bridgeDeck = SKColor(srgbRed: 0.62, green: 0.72, blue: 0.85, alpha: 0.85)
-
-    static let unclaimedGround = SKColor(srgbRed: 0.068, green: 0.038, blue: 0.142, alpha: 1.0)
-    static let unclaimedGrid = SKColor(srgbRed: 0.40, green: 0.28, blue: 0.62, alpha: 0.16)
-
     /// How far a developed tile's ground is tinted toward its zone's own neon.
     ///
     /// Small on purpose, and smaller than it first looks like it should be.
@@ -171,13 +117,10 @@ enum RenderPalette {
     private static let groundTintAtFullDensity: CGFloat = 0.035
     private static let groundTintWhenZonedOnly: CGFloat = 0.025
 
-    /// The warm glow `GameScene`'s ambient sun sprite tints — the
-    /// retrowave "sun on the horizon" motif, sitting fixed in world space
-    /// well below the map's own bottom edge rather than on any literal
-    /// horizon line (a top-down camera has none). Every reference image
-    /// this project's art pass has pulled from puts a big warm sun behind
-    /// the skyline; this is that same light, adapted for a camera that
-    /// looks straight down instead of across a horizon.
+    /// The warm glow of the retrowave "sun on the horizon" motif, which
+    /// `GameView`'s dashboard bleeds up along its top edge. Every reference
+    /// image this project's art pass has pulled from puts a big warm sun
+    /// behind the skyline; this is that same light.
     static let sunGlow = SKColor(srgbRed: 1.0, green: 0.58, blue: 0.16, alpha: 1.0)
 
     /// Colour for the Pollution overlay: clean tiles stay near the night-sky
@@ -689,17 +632,6 @@ enum RenderPalette {
         hasSupply ? waterSupplied : waterUnsupplied
     }
 
-    /// Marker drawn on top of the Water overlay wherever `Tile.hasPipe` is
-    /// true (see `IsoTileRenderer.syncBuriedMarker`) — pipes have no
-    /// surface color of their own now that they're an underground layer
-    /// rather than a `ZoneType`, so this is the one place a pipe is
-    /// actually visible at all. A muted, desaturated version of
-    /// `waterTower`'s ocean-blue, same "plainer infrastructure, richer
-    /// service building" family relationship highway/road and
-    /// subway/publicTransit already have — the exact value `.pipe`'s own
-    /// tile color used to be, before pipes moved off the surface grid.
-    static let pipeMarkerColor = SKColor(srgbRed: 0.15, green: 0.40, blue: 0.55, alpha: 1.0)
-
     /// Color for the "Show Power" overlay — the exact same "plain
     /// two-color read" shape `waterColor(for:)` documents one paragraph
     /// up, for the parallel network: `PowerGrid.hasSupply(at:in:)` is
@@ -715,17 +647,6 @@ enum RenderPalette {
         hasSupply ? powerSupplied : waterUnsupplied
     }
 
-    /// Marker drawn on top of the Power overlay wherever `Tile.hasPowerLine`
-    /// is true — the exact same role `pipeMarkerColor` plays for pipes,
-    /// one level up, just tinted toward `powerPlant`'s own icy blue-white
-    /// rather than `waterTower`'s ocean-blue, so the two utility markers
-    /// stay visually distinct from one another even though both share
-    /// the same muted, desaturated "just a line, not a building" treatment.
-    static let powerLineMarkerColor = SKColor(srgbRed: 0.45, green: 0.55, blue: 0.60, alpha: 1.0)
-
-    /// Body and outline for the small ambient "cars" `GameScene` animates
-    /// driving along road tiles (see `Traffic.carCount(forCongestion:)`).
-    /// Pale, headlight-like body so they stand out against road's own gray.
     /// What colour a vehicle's light trace is.
     ///
     /// **This is the channel that boxes could not carry.** A vehicle is about
@@ -755,34 +676,7 @@ enum RenderPalette {
         }
     }
 
-    /// **A car is a dark little volume with its lamps lit**, not a bright
-    /// one — and it used to be `white: 0.95`, then blended *further* toward
-    /// white by up to 0.7 for the face shading. That made an eleven-point car
-    /// brighter than a lit window and well past `VisualStyle.bloomThreshold`,
-    /// so traffic bloomed into a row of identical white lozenges sliding along
-    /// the lane glow. The fourth time this project has walked into additive
-    /// saturation, after the conduit runs, the route lines and the tram rails.
-    ///
-    /// The value ladder `VisualStyle` sets puts building silhouettes in the
-    /// mid tones and reserves the top for lit windows and signage. A car is
-    /// smaller than any of them, so it belongs at or below a silhouette — and
-    /// against the magenta of a lit street a dark body reads *better*, because
-    /// the road is doing the lighting.
-    static let trafficCarBody = SKColor(srgbRed: 0.17, green: 0.16, blue: 0.23, alpha: 1)
-    /// A soft rim rather than black: on a body this dark, a black outline is
-    /// the same colour as the body and the car loses its edges.
-    static let trafficCarOutline = SKColor(white: 0.62, alpha: 0.55)
-
-    /// Fill/stroke for the placement-preview outline that follows the
-    /// cursor before a click commits (`GameScene.updatePlacementPreview`) —
-    /// green while every cell the selected tool would cover is still
-    /// `.empty`, red once hovering somewhere that already has a road or
-    /// building on it (placing there would replace it, via the same
-    /// auto-replace path a real click already uses) — visible *before*
-    /// the click, not just discoverable after.
-    static let placementPreviewClearFill = SKColor(srgbRed: 0.3, green: 1.0, blue: 0.5, alpha: 0.28)
     static let placementPreviewClearStroke = SKColor(srgbRed: 0.3, green: 1.0, blue: 0.5, alpha: 0.95)
-    static let placementPreviewBlockedFill = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 0.28)
     static let placementPreviewBlockedStroke = SKColor(srgbRed: 1.0, green: 0.2, blue: 0.25, alpha: 0.95)
 
     /// Label for the zone-picker toolbar. Lives here rather than on
