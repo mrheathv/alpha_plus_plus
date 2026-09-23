@@ -8773,9 +8773,25 @@ growing city in Release (`BackgroundChunkTests`, ten days at a time).
 
 `BackgroundChunkTests` pins that background rebuilds land byte for byte
 where synchronous ones would, that a newer change wins, and that a click is
-drawn at once. **Still on the main thread** after a changed day, about 5 ms
-on the growing city: the signature pass, the motion plan, the view layer's
-rebuild and its uploads.
+drawn at once.
+
+**Most of the remaining 5 ms was scaffolds**, found by timing each part of
+`update` before touching anything. Normal view has no overlay, yet its
+building marks cost 1–12 ms. Each construction site asks for the height of
+the level it is growing into, and that building has usually never been
+drawn, so the lookup generated its whole mesh on the spot (about 0.1 ms
+each, 80 on a busy day). `MetalOverlay.comingHeight` may answer `nil`: the
+live game fetches the height on the background queue, the scaffold stands
+at its floor for a frame or two, and the view is rebuilt once every pending
+height has landed. A test still waits, as with chunks. Worst main-thread
+update on the growing city: **7.06 → 2.0 ms**, which is now the signature
+pass (0.4), the motion plan (0.6) and the view's own work.
+
+`testScaffoldsSettleOnTheirRealHeight` checks that the settled scaffolds
+match a synchronous renderer's exactly, and it fails on a planted bug where
+landed heights are ignored. The timing test is Full-plan only now: its
+tighter bound (a third of the synchronous cost) failed in Quick's parallel
+Debug run, where it shares the cores.
 
 ### Building detail, P2: shapes beyond boxes
 

@@ -40,6 +40,11 @@ final class MetalOverlay {
     /// Height of a building of this zone and density on this lot, for putting
     /// a badge on its roof and a scaffold between two roofs.
     var height: (ZoneType, Int, GridPosition) -> Float = { _, _, _ in 1 }
+    /// The height of the building a construction site is growing into, or
+    /// `nil` while it is not known yet. It is separate from `height` because
+    /// the coming building is usually one nobody has drawn, and generating it
+    /// on the spot cost the live game up to 12 ms on a busy day.
+    var comingHeight: (ZoneType, Int, GridPosition) -> Float? = { _, _, _ in nil }
 
     private(set) var mode: OverlayMode = .none
     /// Instances for the overlay-tile pass.
@@ -166,7 +171,8 @@ final class MetalOverlay {
     /// `IsoTileRenderer.syncConstructionSite`'s drawing, in light.
     private func scaffold(_ tile: Tile, at corner: SIMD2<Float>, size: Float, roof: Float) {
         let target = tile.density + 1
-        let top = max(height(tile.zone, target, tile.position), roof + 0.5)
+        // Not known yet: the scaffold's floor stands in for a frame or two.
+        let top = max(comingHeight(tile.zone, target, tile.position) ?? 0, roof + 0.5)
         let total = Float(CitySimulator.constructionTicks(toReach: target))
         let progress = total > 0 ? max(0, 1 - Float(tile.constructionRemaining ?? 0) / total) : 1
         let inset: Float = 0.14

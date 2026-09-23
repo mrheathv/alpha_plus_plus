@@ -24,6 +24,7 @@
         "PlaytestScenarioTests",
         "MilestoneTests/testAServicedCityClimbsAndAnUnplumbedOneStalls()",
         "CameraMotionCostTests",
+        "BackgroundChunkTests/testTheMainThreadIsSparedTheRebuild()",
         "OversampleCostTests",
         "RenderTimingTests",
         "FrameCostDiagnosticTests",

@@ -96,7 +96,28 @@ final class BackgroundChunkTests: XCTestCase {
         let worstBackground = onMain.max() ?? 0, worstSynchronous = synchronous.max() ?? 0
         print(String(format: "a growing day's update on the main thread: background worst %.2f ms, synchronous worst %.2f ms",
                      worstBackground, worstSynchronous))
-        XCTAssertLessThan(worstBackground, worstSynchronous, "rebuilding in the background saved nothing")
+        XCTAssertLessThan(worstBackground, worstSynchronous / 3, "rebuilding in the background saved little")
+    }
+
+    /// **A scaffold never waits for the building it is growing into.** The
+    /// coming level's height is fetched in the background, and once it lands
+    /// every scaffold stands exactly where a synchronous renderer puts it.
+    func testScaffoldsSettleOnTheirRealHeight() async throws {
+        let controller = growingCity()
+        let background = try XCTUnwrap(MetalCityRenderer())
+        background.rebuildsInBackground = true
+        let foreground = try XCTUnwrap(MetalCityRenderer())
+        background.update(controller.map, revision: nil)
+        for day in 1 ... 3 {
+            grow(controller)
+            background.update(controller.map, revision: nil)
+            try await settle(background)
+            background.update(controller.map, revision: nil)
+            foreground.update(controller.map, revision: nil)
+            XCTAssertFalse(foreground.overlay.traces.isEmpty, "day \(day): no construction to measure")
+            XCTAssertEqual(background.overlay.traces, foreground.overlay.traces,
+                           "day \(day): the scaffolds differ once the heights have landed")
+        }
     }
 
     /// A player's own click is drawn at once, not a frame later: an edit that
@@ -111,7 +132,9 @@ final class BackgroundChunkTests: XCTestCase {
         controller.selectedTool = .park
         _ = controller.place(at: spot)
         renderer.update(controller.map, revision: nil)
-        XCTAssertFalse(renderer.isRebuildingInBackground, "a single placement was sent to the background")
+        // Chunks, not everything: a scaffold may still be fetching the height
+        // of the level it is growing into, which is not the player's click.
+        XCTAssertEqual(renderer.chunksRebuildingInBackground, 0, "a single placement was sent to the background")
         let fresh = try XCTUnwrap(MetalCityRenderer())
         fresh.update(controller.map, revision: nil)
         XCTAssertEqual(renderer.chunksForTesting(), fresh.chunksForTesting())
