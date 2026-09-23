@@ -42,11 +42,17 @@ final class ScenePlaytest {
     /// of the thing the bugs are not in.
     private let view: SKView
 
-    init(map: CityMap, seed: UInt64 = 0xA1F4) {
+    /// `size` is the frame every capture comes out at, since
+    /// `SKView.texture(from:)` renders at the scene's own size. The default is
+    /// what every session in the suite uses; a figure destined for a page
+    /// somebody will read at full width asks for more pixels, and there is no
+    /// backing scale to get them from — a headless view has no window.
+    init(map: CityMap, seed: UInt64 = 0xA1F4,
+         size: CGSize = CGSize(width: 900, height: 700)) {
         controller = GameController(map: map, rng: SeededRNG(seed: seed),
                                     peakPopulation: Unlocks.everythingUnlocked)
         scene = GameScene(controller: controller)
-        scene.size = CGSize(width: 900, height: 700)
+        scene.size = size
         view = SKView(frame: NSRect(origin: .zero, size: scene.size))
         view.presentScene(scene)
         scene.rebuildEntireGrid()
@@ -217,6 +223,18 @@ final class ScenePlaytest {
     func frame() {
         scene.update(sceneTime)
         sceneTime += 1
+    }
+
+    /// Tightens the shot after `frameTheWholeMap`.
+    ///
+    /// An isometric map is a wide, shallow diamond, so fitting it inside a
+    /// rectangle leaves the frame mostly empty night above and below it — fine
+    /// for a filmstrip nobody publishes, wrong for a figure somebody reads.
+    /// A factor below 1 moves the camera closer.
+    func zoom(by factor: CGFloat) {
+        guard let camera = scene.camera else { return }
+        camera.setScale(camera.xScale * factor)
+        frame()
     }
 
     /// Arming a route tool, which is what raises its view and starts a line.

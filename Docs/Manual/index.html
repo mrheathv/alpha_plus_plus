@@ -1,0 +1,1116 @@
+<title>The Alpha++ Field Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+
+    /* Every accent below is the colour the game itself emits for that thing,
+       taken from RenderPalette. The manual is lit the same way the city is. */
+    --ground:      #0d0221;
+    --surface:     #140b28;
+    --surface-2:   #19102e;
+    --line:        #2b1c4a;
+    --line-soft:   #221641;
+
+    --ink:         #ece4f8;
+    --ink-dim:     #b8a9d4;
+    --muted:       #9183ad;
+
+    --residential: #a742e8;
+    --commercial:  #ff3d81;
+    --industrial:  #ff9e2c;
+    --park:        #2eeb8c;
+    --water:       #35a8e0;
+    --power:       #e0b52a;
+    --alarm:       #ff3857;
+    --scaffold:    #ff942a;
+    --road:        #7d6aa8;
+
+    --accent:      var(--commercial);
+
+    --step: clamp(2.2rem, 5vw, 3.6rem);
+    --chamfer: 10px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(120% 70% at 50% -10%, #2a0b3f 0%, rgba(42,11,63,0) 60%),
+      radial-gradient(80% 50% at 50% 108%, #40160c 0%, rgba(64,22,12,0) 55%),
+      var(--ground);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- scaffolding ------------------------------------------------ */
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 0;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  @media (min-width: 1000px) {
+    .layout { grid-template-columns: 210px minmax(0, 1fr); gap: 56px; align-items: start; }
+  }
+
+  main { max-width: 74ch; min-width: 0; }
+
+  /* ---- masthead --------------------------------------------------- */
+
+  header.masthead {
+    padding-block: clamp(3rem, 9vw, 6rem) clamp(2rem, 5vw, 3.5rem);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 1.1rem;
+  }
+
+  h1 {
+    font-family: "Chakra Petch", "Chakra Petch Fallback", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(2.6rem, 8vw, 4.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    margin: 0 0 1.2rem;
+    text-wrap: balance;
+    color: #fff;
+    text-shadow: 0 0 34px rgba(255, 61, 129, 0.38);
+  }
+
+  h1 .sub {
+    display: block;
+    font-size: clamp(1rem, 2.6vw, 1.35rem);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--commercial);
+    text-shadow: none;
+    margin-top: 0.7rem;
+  }
+
+  .standfirst {
+    font-size: clamp(1.02rem, 2.2vw, 1.18rem);
+    color: var(--ink-dim);
+    max-width: 58ch;
+    margin: 0;
+  }
+
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- side index -------------------------------------------------- */
+
+  nav.index {
+    display: none;
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 28px);
+    padding-top: clamp(2.5rem, 6vw, 4rem);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.76rem;
+    line-height: 1.5;
+  }
+
+  @media (min-width: 1000px) { nav.index { display: block; } }
+
+  nav.index p {
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.9rem;
+    font-size: 0.68rem;
+  }
+
+  nav.index ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+
+  nav.index a {
+    color: var(--ink-dim);
+    text-decoration: none;
+    display: block;
+    padding: 2px 0 2px 12px;
+    border-left: 2px solid var(--line);
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  nav.index a:hover, nav.index a:focus-visible { color: #fff; border-left-color: var(--commercial); }
+
+  /* ---- sections ---------------------------------------------------- */
+
+  section { padding-block: var(--step); border-bottom: 1px solid var(--line-soft); scroll-margin-top: 24px; }
+  section:last-of-type { border-bottom: 0; }
+
+  h2 {
+    font-family: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: clamp(1.6rem, 4vw, 2.1rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.35rem;
+    color: #fff;
+    text-wrap: balance;
+  }
+
+  h2 + .deck { color: var(--muted); margin: 0 0 1.8rem; font-size: 0.97rem; max-width: 56ch; }
+
+  h3 {
+    font-family: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.14rem;
+    letter-spacing: 0.005em;
+    margin: 2.2rem 0 0.5rem;
+    color: #fff;
+  }
+
+  h3:first-child { margin-top: 0; }
+
+  p { margin: 0 0 1.05rem; }
+  p:last-child { margin-bottom: 0; }
+
+  a { color: var(--commercial); }
+
+  strong { color: #fff; font-weight: 600; }
+
+  em { color: var(--ink); }
+
+  ul.body-list { margin: 0 0 1.05rem; padding-left: 1.1rem; }
+  ul.body-list li { margin-bottom: 0.5rem; }
+  ul.body-list li::marker { color: var(--muted); }
+
+  /* ---- chamfered panel, the shape the game's own UI uses ----------- */
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    clip-path: polygon(
+      var(--chamfer) 0, 100% 0, 100% calc(100% - var(--chamfer)),
+      calc(100% - var(--chamfer)) 100%, 0 100%, 0 var(--chamfer));
+    padding: 1.3rem 1.4rem;
+    margin: 0 0 1.4rem;
+  }
+
+  .panel > :last-child { margin-bottom: 0; }
+
+  .panel-label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.6rem;
+  }
+
+  .note {
+    border-left: 2px solid var(--accent);
+    background: linear-gradient(90deg, rgba(255,61,129,0.07), rgba(255,61,129,0));
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.4rem;
+    font-size: 0.95rem;
+    color: var(--ink-dim);
+  }
+  .note > :last-child { margin-bottom: 0; }
+  .note.water  { border-left-color: var(--water);  background: linear-gradient(90deg, rgba(53,168,224,0.08), transparent); }
+  .note.alarm  { border-left-color: var(--alarm);  background: linear-gradient(90deg, rgba(255,56,87,0.08), transparent); }
+  .note.park   { border-left-color: var(--park);   background: linear-gradient(90deg, rgba(46,235,140,0.07), transparent); }
+
+  /* ---- tables ------------------------------------------------------ */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; -webkit-overflow-scrolling: touch; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 420px;
+    font-size: 0.9rem;
+  }
+
+  caption {
+    text-align: left;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-bottom: 0.7rem;
+  }
+
+  th, td { text-align: left; padding: 0.55rem 0.85rem 0.55rem 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+
+  thead th {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    border-bottom-color: var(--line);
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+
+  /* Right-aligned figures need a gutter against whatever sits to their right;
+     only the final column can be flush, and several of these tables carry
+     numeric columns in the middle. */
+  td.num, th.num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; padding-right: 1.1rem; }
+  tr > .num:last-child { padding-right: 0; }
+  thead th.num { text-align: right; }
+
+  td.name { font-weight: 500; color: var(--ink); white-space: nowrap; }
+
+  /* ---- zone swatch chips ------------------------------------------- */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .dot {
+    width: 0.62em; height: 0.62em; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 9px currentColor;
+    flex: none;
+  }
+
+  .c-res  { color: var(--residential); }
+  .c-com  { color: var(--commercial); }
+  .c-ind  { color: var(--industrial); }
+  .c-park { color: var(--park); }
+  .c-wat  { color: var(--water); }
+  .c-pow  { color: var(--power); }
+  .c-alm  { color: var(--alarm); }
+  .c-scf  { color: var(--scaffold); }
+  .c-road { color: var(--road); }
+
+  /* ---- the growth ladder ------------------------------------------- */
+
+  ol.ladder { list-style: none; margin: 0 0 1.4rem; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+  ol.ladder li {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 0 1rem;
+    align-items: baseline;
+    background: var(--surface);
+    border-left: 3px solid var(--rung, var(--line));
+    padding: 0.8rem 1rem;
+  }
+
+  ol.ladder .lvl {
+    font-family: "Chakra Petch", ui-sans-serif, sans-serif;
+    font-weight: 700;
+    font-size: 1.5rem;
+    color: var(--rung, var(--ink-dim));
+    line-height: 1;
+  }
+
+  ol.ladder .gate { font-weight: 600; color: #fff; display: block; }
+  ol.ladder .why { color: var(--muted); font-size: 0.9rem; display: block; }
+
+  /* ---- step list (a real sequence) --------------------------------- */
+
+  ol.steps { list-style: none; counter-reset: s; margin: 0; padding: 0; }
+
+  ol.steps li {
+    counter-increment: s;
+    display: grid;
+    grid-template-columns: 2.4rem minmax(0, 1fr);
+    gap: 0 1rem;
+    padding: 0 0 1.35rem;
+    position: relative;
+  }
+
+  ol.steps li::before {
+    content: counter(s, decimal-leading-zero);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.8rem;
+    color: var(--commercial);
+    padding-top: 0.22em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  ol.steps li::after {
+    content: "";
+    position: absolute;
+    left: 0.62rem; top: 1.9em; bottom: 0.3rem;
+    width: 1px;
+    background: var(--line);
+  }
+
+  /* The ::before counter auto-places into column 1; everything else has to be
+     told to stay in column 2, or the <p> wraps onto the next row and lands in
+     the 2.4rem number column — which renders as one word per line. */
+  ol.steps li > * { grid-column: 2; }
+
+  ol.steps li:last-child { padding-bottom: 0; }
+  ol.steps li:last-child::after { display: none; }
+
+  ol.steps h4 {
+    margin: 0 0 0.15rem;
+    font-family: "Chakra Petch", ui-sans-serif, sans-serif;
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  ol.steps p { margin: 0; color: var(--ink-dim); font-size: 0.95rem; }
+
+  /* ---- key caps ----------------------------------------------------- */
+
+  kbd {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 0.12em 0.42em;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.88em;
+    color: var(--ink);
+    background: var(--surface-2);
+    padding: 0.08em 0.34em;
+    border-radius: 2px;
+  }
+
+  /* ---- definition grid ---------------------------------------------- */
+
+  dl.defs { margin: 0 0 1.4rem; display: grid; gap: 0; }
+  dl.defs > div { display: grid; grid-template-columns: 1fr; gap: 0.1rem 1.2rem; padding: 0.75rem 0; border-bottom: 1px solid var(--line-soft); }
+  dl.defs > div:last-child { border-bottom: 0; }
+  @media (min-width: 620px) { dl.defs > div { grid-template-columns: 12.5rem minmax(0, 1fr); } }
+  dl.defs dt { font-weight: 600; color: #fff; }
+  dl.defs dd { margin: 0; color: var(--ink-dim); font-size: 0.95rem; }
+
+  /* ---- footer -------------------------------------------------------- */
+
+  footer {
+    padding-block: 2.6rem 3.4rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.87rem;
+  }
+
+  footer p { margin-bottom: 0.4rem; }
+
+  .hr-glow { height: 1px; border: 0; background: linear-gradient(90deg, var(--commercial), rgba(255,61,129,0) 70%); margin: 0; }
+
+  /* ---- figures ------------------------------------------------------ */
+
+  figure { margin: 0 0 1.7rem; }
+
+  figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--ground);
+    border: 1px solid var(--line);
+  }
+
+  figcaption {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    color: var(--muted);
+    padding-top: 0.55rem;
+  }
+
+  figcaption b { color: var(--ink-dim); font-weight: 500; }
+
+  figure.hero { margin: 2.4rem 0 0; }
+
+  figure.hero img { border-color: var(--line-soft); }
+
+  figure.plain img { border: 0; }
+
+  :focus-visible { outline: 2px solid var(--commercial); outline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Alpha++ · City Builder · Player's Manual</p>
+    <h1>The Alpha++ Field Manual
+      <span class="sub">How a neon city grows, and what stops it</span></h1>
+    <p class="standfirst">A city you zone, light, plumb and pay for. Every block is asking for something specific — <strong>land, water, power, a school, a road it can reach</strong> — and this manual is the list of what each one wants, in the order it will ask.</p>
+    <figure class="hero">
+      <img src="img/hero.jpg" alt="A dense neon city district at night, with a river and a bridge" decoding="async">
+      <figcaption><b>Six blocks of a city, at the zoom you play at.</b> Housing in violet, shops in pink, factories in orange under their own smoke; water towers on the roofs, a river along the left with a road bridging it. Everything in this manual is a picture of the running game.</figcaption>
+    </figure>
+  </header>
+
+  <div class="layout">
+    <nav class="index" aria-label="Manual contents">
+      <p>Contents</p>
+      <ol>
+        <li><a href="#start">Founding a city</a></li>
+        <li><a href="#first">Your first city</a></li>
+        <li><a href="#controls">Controls</a></li>
+        <li><a href="#growth">How a block grows</a></li>
+        <li><a href="#landvalue">Land value</a></li>
+        <li><a href="#utilities">Water &amp; power</a></li>
+        <li><a href="#services">Services &amp; hazards</a></li>
+        <li><a href="#traffic">Traffic &amp; transit</a></li>
+        <li><a href="#money">The budget</a></li>
+        <li><a href="#region">The region</a></li>
+        <li><a href="#views">Reading the map</a></li>
+        <li><a href="#ranks">Ranks &amp; land</a></li>
+        <li><a href="#unlocks">Unlock ladder</a></li>
+        <li><a href="#costs">Cost reference</a></li>
+        <li><a href="#mistakes">Common mistakes</a></li>
+      </ol>
+    </nav>
+
+    <main>
+
+      <section id="start">
+        <h2>Founding a city</h2>
+        <p class="deck">Three choices, and only one of them is cosmetic.</p>
+
+        <p>A new city starts in <strong>spring 1985</strong> with <strong>$10,000</strong> and a paused clock. One day passes per simulation tick, and a year is 360 days — about twelve minutes at normal speed.</p>
+
+        <h3>Map size</h3>
+        <p>32×32 is a town, 48×48 a city, 64×64 a metropolis. Size decides how far up the unlock ladder you can realistically climb: a 32×32 map tops out near 800 residents and earns everything but the stadium.</p>
+        <figure>
+          <img src="img/map.jpg" alt="A whole 64x64 city seen from far enough away to fit the map" loading="lazy" decoding="async">
+          <figcaption><b>The whole of that same city.</b> 64×64, 3,072 residents, a river through it — and still building at this point, which is why the block heights are uneven. A city takes about five months of game time to settle and far longer to finish.</figcaption>
+        </figure>
+
+        <h3>The land you start with</h3>
+        <p>You do not own the map. The map you found is the <strong>region</strong>; the city begins on the <strong>central four parcels</strong> — a 16×16 square, a quarter of a small map and a sixteenth of a large one — and you buy the rest a parcel at a time.</p>
+        <p>A parcel is <strong>8×8 tiles</strong>. The first costs <strong>$2,500</strong>, a quarter of your starting treasury, so buying land is something you do early rather than save up for; every parcel after it costs $2,500 more than the last. Buying out a whole 64×64 region runs to about $4.6M.</p>
+        <p>Two rules shape it. Land has to <strong>touch land you already own</strong>, so which parcel you take next is a decision about direction — toward the river, the coast, the edge a rail line needs to reach. And your <strong>rank</strong> caps how much you may own at all: see <a href="#ranks">Ranks</a>.</p>
+        <div class="note park">
+          <p><strong>Buy land in the Land view.</strong> Pick it from the view picker and click a parcel. The cursor tells you whether it is for sale, out of reach, beyond your rank, or simply more than you can afford.</p>
+        </div>
+
+        <h3>Terrain</h3>
+        <div class="scroller">
+          <table>
+            <caption>Terrain types</caption>
+            <thead><tr><th>Shape</th><th>What it means for you</th></tr></thead>
+            <tbody>
+              <tr><td class="name">Flat</td><td>Open ground, nothing in the way. No seaport — you will buy your freight connection as an airport instead.</td></tr>
+              <tr><td class="name">Coastal</td><td>A shoreline along one edge. Waterfront land is worth more, and a seaport has somewhere to berth.</td></tr>
+              <tr><td class="name">Lakes</td><td>Scattered lakes to build around. Waterfront value without a coast, and a dock if a lake reaches your quay.</td></tr>
+              <tr><td class="name">River</td><td>A river splits the map. You will need bridges, and only roads can cross one.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure>
+          <img src="img/terrain.jpg" alt="A coastal city with a seaport on the shoreline" loading="lazy" decoding="async">
+          <figcaption><b>The same size map, founded coastal.</b> The sea takes a third of the buildable land and gives it back as waterfront value — and as the one place a seaport can berth, which is the green quay on the right-hand shore.</figcaption>
+        </figure>
+
+        <p>The seed is saved with the map, so a coastline you like can be written down and found again.</p>
+
+        <div class="note water">
+          <p><strong>Water is a real constraint.</strong> Only <span class="chip c-road"><span class="dot"></span>roads</span> cross it, at a surcharge of $150 a span ($300 for a highway). Pipes and power lines cross <em>under</em> a bridge, never through open water — so a bridge is the route for everything, not just the cars.</p>
+        </div>
+      </section>
+
+      <section id="first">
+        <h2>Your first city</h2>
+        <p class="deck">The game will walk you through this in-game if you leave the guide switched on at founding. Here it is written down.</p>
+        <p>Everything below happens on the four parcels you start with. When you run out of room, buy another — see <a href="#start">the land you start with</a>.</p>
+
+        <ol class="steps">
+          <li>
+            <h4>Lay a road</h4>
+            <p>Everything in a city hangs off its streets. Pick Road and drag a line across the map.</p>
+          </li>
+          <li>
+            <h4>Zone housing beside it</h4>
+            <p>Drag <span class="chip c-res"><span class="dot"></span>Residential</span> along the road. A lot with nothing beside it never grows — access is the first gate, and it is checked before anything else.</p>
+          </li>
+          <li>
+            <h4>Give them somewhere to work</h4>
+            <p>Zone some <span class="chip c-com"><span class="dot"></span>Commercial</span> and some <span class="chip c-ind"><span class="dot"></span>Industrial</span> too. People move in for work, so housing on its own empties out. A city with no jobs does not stall — it dies.</p>
+          </li>
+          <li>
+            <h4>Start the clock</h4>
+            <p>The city is paused when it is founded. Press Play, or <kbd>Space</kbd>, and it starts building what you zoned.</p>
+          </li>
+          <li>
+            <h4>Watch it grow</h4>
+            <p><span class="chip c-scf"><span class="dot"></span>Amber scaffolds</span> are construction in progress. A storey takes days of real work, and it only rises while the city wants more of that kind of building.</p>
+          </li>
+          <li>
+            <h4>Bring water</h4>
+            <p>Past the second storey a block needs water. A <strong>water pump</strong> serves everything within four tiles with no pipe at all — put it next to the houses and it works.</p>
+          </li>
+          <li>
+            <h4>Switch the power on</h4>
+            <p>Higher still needs power. A <strong>generator</strong> works exactly the way the pump does, over the same radius.</p>
+          </li>
+          <li>
+            <h4>Find what's stuck</h4>
+            <p>The <strong>Problems</strong> view lights up every block that wants something, ranked. Hover one and the inspector names the fix in its first line.</p>
+          </li>
+          <li>
+            <h4>Protect it</h4>
+            <p>Fires and crime arrive with a bigger city — though nothing burns for the first 90 days. A fire station unlocks at 40 residents and stops a fire spreading.</p>
+          </li>
+          <li>
+            <h4>Visit City Hall</h4>
+            <p><kbd>⌘B</kbd>. Taxes, service funding, ordinances and loans all live there, and the budget is what decides how big the city can get.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section id="controls">
+        <h2>Controls</h2>
+        <p class="deck">Everything you do to the map is a click or a drag; everything you do to the city is in the rail above it.</p>
+
+        <h3>Mouse</h3>
+        <dl class="defs">
+          <div><dt>Left click / drag</dt><dd>Place the selected tool. Dragging paints a run of roads, pipe or zoning.</dd></div>
+          <div><dt>Right click / drag</dt><dd>Bulldoze, whatever tool is selected. Always available, never locked — it is the way out of every mistake.</dd></div>
+          <div><dt>Hover</dt><dd>Opens the inspector for that block: what it is, what it needs, and how long the commute is.</dd></div>
+          <div><dt>Scroll / pinch</dt><dd>Zoom, anchored on the cursor — the thing under the pointer stays under the pointer.</dd></div>
+        </dl>
+
+        <h3>Keyboard</h3>
+        <dl class="defs">
+          <div><dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows</dt><dd>Pan. Works while paused — looking around a stopped city is most of what pausing is for.</dd></div>
+          <div><dt><kbd>Space</kbd></dt><dd>Pause and resume.</dd></div>
+          <div><dt><kbd>⌘→</kbd></dt><dd>Advance exactly one day.</dd></div>
+          <div><dt><kbd>⌘1</kbd> – <kbd>⌘9</kbd></dt><dd>Jump to a view.</dd></div>
+          <div><dt><kbd>⌘B</kbd></dt><dd>City Hall — tax, funding, ordinances, bonds.</dd></div>
+          <div><dt><kbd>⌘,</kbd></dt><dd>Settings — visuals, reduce motion, this key list.</dd></div>
+          <div><dt><kbd>⌘N</kbd> / <kbd>⌘O</kbd> / <kbd>⌘S</kbd></dt><dd>New city, open, save. The city also <strong>autosaves every two minutes</strong> when something has changed, and if the last session ended badly the title screen offers the rescued city back.</dd></div>
+          <div><dt><kbd>⇧⌘K</kbd> / <kbd>⇧⌘P</kbd></dt><dd>Screenshot mode (hides all chrome), then capture a PNG.</dd></div>
+        </dl>
+
+        <h3>Speed</h3>
+        <p>Three settings, next to Play: <strong>Slow</strong> is four seconds a day, <strong>Normal</strong> two, <strong>Fast</strong> three quarters of a second. The city's slow systems — maintenance, the regional cycle — run over hundreds of days, so Slow is a genuine watch-it-breathe speed rather than a nuisance.</p>
+
+        <h3>Tools that are not buildings</h3>
+        <p>Pipes, power lines and transit routes are laid by clicking the map <em>while their own view is up</em>. Picking one of those tools raises its view for you; picking a zoning tool drops it again, so the two modes can never be confused. If a drag is not painting, check which view you are in.</p>
+      </section>
+
+      <section id="growth">
+        <h2>How a block grows</h2>
+        <p class="deck">The single most important mechanic in the game. A zoned lot climbs five levels, and each one has a gate.</p>
+
+        <p>Zoning a lot does not build anything. It marks the land; the city builds on it when — and only when — every gate below is open. <span class="chip c-res"><span class="dot"></span>Residential</span> houses <strong>4 people per level</strong>, so a full tower is 20 residents. <span class="chip c-com"><span class="dot"></span>Commercial</span> and <span class="chip c-ind"><span class="dot"></span>Industrial</span> each provide <strong>3 jobs per level</strong>.</p>
+
+        <h3>The gates, in order</h3>
+        <p>Before any level at all, a lot needs <strong>road or transit access</strong>, must not be <strong>on fire or damaged</strong>, and the city has to actually <strong>want more of that zone</strong>. Then:</p>
+
+        <ol class="ladder">
+          <li style="--rung: #6b5a91"><span class="lvl">1</span><span><span class="gate">Access and demand</span><span class="why">Nothing else required. A road beside it and a city that wants housing.</span></span></li>
+          <li style="--rung: #8d54c4"><span class="lvl">2</span><span><span class="gate">Land value 0.30</span><span class="why">Plain road frontage alone gets close; a park or any service nearby clears it comfortably.</span></span></li>
+          <li style="--rung: var(--water)"><span class="lvl">3</span><span><span class="gate">Land value 0.50 &nbsp;+&nbsp; water</span><span class="why">The first utility gate. A pump or tower in range, or a live pipe.</span></span></li>
+          <li style="--rung: var(--power)"><span class="lvl">4</span><span><span class="gate">Land value 0.65 &nbsp;+&nbsp; power</span><span class="why">Water is still required. A generator or plant in range, or a live line.</span></span></li>
+          <li style="--rung: var(--commercial)"><span class="lvl">5</span><span><span class="gate">Land value 0.80 &nbsp;+&nbsp; a school in range</span><span class="why">The top tier is something you go and build for, not something you stumble into.</span></span></li>
+        </ol>
+
+
+      <figure>
+        <img src="img/growth.png" alt="One residential lot drawn at three stages of growth" loading="lazy" decoding="async">
+        <figcaption><b>One lot, as it grows.</b> The drawing changes at level 3 and again at level 5 — levels 1 and 2 share a look, as do 3 and 4 — so what you see on the map is the tier, and the inspector is where the exact level lives.</figcaption>
+      </figure>
+
+        <h3>Building takes time</h3>
+        <p>An approved level is not an instant one. Construction costs <strong>8 days for the first storey and 40 for the fifth</strong> — roughly four months to climb from bare ground to a finished tower, and a whole district takes about five months to settle. The amber wireframe on a lot is the volume that is coming; the bright deck climbing it is the work being done.</p>
+        <p>Work stops if the block is damaged, and losing road access cancels it outright. A site nobody can reach is not a site under construction.</p>
+
+        <h3>And it runs backwards</h3>
+        <p>Every gate is bidirectional. A lot that can no longer support the level it has <strong>loses one level at a time, slowly</strong> — about fifty days per level, so a district visibly rots rather than collapsing, and decline stops the moment you fix the cause. Defund your power, let a district choke on pollution, or let traffic seize up, and the towers come down a storey at a time.</p>
+
+        <div class="note alarm">
+          <p><strong>Oversupply empties the worst blocks first.</strong> If you zone far more housing than the city wants, lots do not empty evenly — the marginal ones give way while desirable ones hold. Bad neighbourhoods are a real thing here, and they are the ones next to the factories.</p>
+        </div>
+      </section>
+
+      <section id="landvalue">
+        <h2>Land value</h2>
+        <p class="deck">The number behind three of the five growth gates. Everything good near a lot competes to be the best thing near it; the bad things stack.</p>
+
+        <p>Land value runs 0 to 1. <strong>Positives are a "best nearby" contest</strong> — a second police station beside the first adds nothing — with one exception. <strong>Penalties stack.</strong></p>
+
+        <div class="scroller">
+          <table>
+            <caption>What moves land value</caption>
+            <thead><tr><th>Source</th><th class="num">Reach</th><th>Effect</th></tr></thead>
+            <tbody>
+              <tr><td class="name">Road frontage</td><td class="num">4</td><td>The baseline. Tops out around 0.75 on its own — enough for level 4, not level 5.</td></tr>
+              <tr><td class="name">Transit stop</td><td class="num">6</td><td>An amenity as well as a way to work.</td></tr>
+              <tr><td class="name">Subway Entrance</td><td class="num">14</td><td>The widest transit reach.</td></tr>
+              <tr><td class="name">Any service building</td><td class="num">12</td><td>Police, fire, school, hospital, water tower — all desirable to live near.</td></tr>
+              <tr><td class="name">Stadium</td><td class="num">16</td><td>The single widest civic amenity.</td></tr>
+              <tr><td class="name">Waterfront</td><td class="num">3</td><td>Worth 0.82 on its own. On a coastal map, the shore is where a city wants to start.</td></tr>
+              <tr><td class="name"><span class="chip c-park"><span class="dot"></span>Park</span></td><td class="num">4</td><td><strong>Adds +0.18 on top</strong> of whatever is already best — one of only two positives that add rather than compete.</td></tr>
+              <tr><td class="name">Neon Arcade</td><td class="num">7</td><td><strong>Adds +0.28 on top</strong>, over a wider reach than a park. A Town's reward — see <a href="#ranks">Ranks</a>.</td></tr>
+              <tr><td class="name">Pollution</td><td class="num">6</td><td>Subtracts. Accumulates — a district of factories is far worse than one factory.</td></tr>
+              <tr><td class="name">Power plant</td><td class="num">8</td><td>Subtracts up to 0.5. Nobody wants to live next to it.</td></tr>
+              <tr><td class="name">Congestion</td><td class="num">—</td><td>Subtracts up to 0.25 on the lot's own traffic.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note park">
+          <p><strong>Parks are the tool for "this block is grim."</strong> They cost $120, occupy a single tile, and are available from the first day. Because they add rather than compete, a park is what carries an ordinary street over the 0.80 line for the top tier. They do <em>not</em> stack with each other, though — a wall of parks is worth one park, so paving the map in them buys nothing.</p>
+        </div>
+
+        <h3>Pollution, and why <em>where</em> matters</h3>
+        <p>Industry emits pollution in proportion to its density, over six tiles, and it accumulates. Crucially, <strong>not everyone minds equally</strong>: residents mind it fully, shops somewhat, factories barely. That asymmetry is the whole reason to plan a city rather than zone one homogeneous blob — put your industry together and downwind of your housing and both sides win. A planned layout measurably beats a mixed one with the identical zone mix.</p>
+      </section>
+
+      <section id="utilities">
+        <h2>Water and power</h2>
+        <p class="deck">Two networks with identical rules, gating levels 3 and 4. Both have a <em>capacity</em>, not just a reach.</p>
+
+        <h3>Three ways to be supplied</h3>
+        <ul class="body-list">
+          <li><strong>Near a source.</strong> Any pump, tower, generator or plant serves everything within <strong>4 tiles</strong> of its footprint, with no pipe at all. This is the obvious move and it works.</li>
+          <li><strong>Near a live conduit.</strong> A pipe or power line supplies everything within <strong>3 tiles</strong> of it — provided that conduit traces back to a source through a connected run. Conduits cost $40 a tile.</li>
+          <li><strong>Not at all.</strong> An orphaned run supplies nothing. In the Water and Power views, live conduits glow and dead ones are unlit wire.</li>
+        </ul>
+
+        <p>So a source is for covering a neighbourhood and a trunk main is for reaching across a city. Run mains about seven tiles apart and their bands meet.</p>
+
+        <h3>Capacity is the other half</h3>
+        <p>Demand is the city's <strong>total built density</strong> across all growable zones. Each source supplies a fixed amount, scaled by its funding level:</p>
+
+        <div class="scroller">
+          <table>
+            <caption>Supply per building, at full funding</caption>
+            <thead><tr><th>Source</th><th class="num">Capacity</th><th class="num">Cost</th><th class="num">Upkeep/day</th></tr></thead>
+            <tbody>
+              <tr><td class="name"><span class="chip c-wat"><span class="dot"></span>Water pump</span></td><td class="num">60</td><td class="num">$250</td><td class="num">$8</td></tr>
+              <tr><td class="name"><span class="chip c-wat"><span class="dot"></span>Water tower</span></td><td class="num">200</td><td class="num">$700</td><td class="num">$20</td></tr>
+              <tr><td class="name"><span class="chip c-pow"><span class="dot"></span>Generator</span></td><td class="num">120</td><td class="num">$500</td><td class="num">$15</td></tr>
+              <tr><td class="name"><span class="chip c-pow"><span class="dot"></span>Power plant</span></td><td class="num">400</td><td class="num">$2,000</td><td class="num">$50</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note alarm">
+          <p><strong>Over capacity, the whole network drops.</strong> Not the far end — all of it, city-wide, the way a blackout works. Growth stalls everywhere, the meter in the dashboard turns red, and one more plant fixes it. A city running on a single tower and a single plant reaches roughly half the population of one with enough utilities.</p>
+          <p>Leaving a grid overloaded also <em>eats the lines carrying it</em>, five times faster than normal wear. An overload is not a stable state you can ignore; it gets worse.</p>
+        </div>
+
+        <h3>Maintenance</h3>
+        <p>Roads, pipes and power lines wear out, and the <strong>public works</strong> budget is what holds them together. A quiet street wears slowly and full funding covers it comfortably; a <em>saturated</em> street wears five times faster and full funding does not. So what wears your city out is its own traffic — the arterials rot and the back streets do not — and a congested corridor has two honest answers: pay for it, or fix the congestion with a highway or a transit line.</p>
+        <p>A worn road carries less traffic, which makes it more congested. A conduit worn past three quarters <strong>stops conducting entirely</strong>, cutting the network exactly as a missing tile would. Neglect is dominated on both axes: a city that stops paying for public works ends up smaller <em>and</em> poorer.</p>
+      </section>
+
+      <section id="services">
+        <h2>Services and hazards</h2>
+        <p class="deck">Coverage is a radius, not a connection. Funding scales it.</p>
+
+        <p>Every service building — police, fire, school, hospital — protects a <strong>14-tile radius at full funding</strong>, scaling linearly with its budget: at half funding it reaches seven. That is a real dial, not a cliff. A 64×64 map wants roughly ten police and ten fire stations for full cover; a 40×40 wants about four of each.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>What each service does</caption>
+            <thead><tr><th>Building</th><th>Its job</th></tr></thead>
+            <tbody>
+              <tr><td class="name">Police station</td><td>Prevents crime strikes inside its radius, and repairs the damage they cause.</td></tr>
+              <tr><td class="name">Fire station</td><td>Prevents fires, and — the bigger half — puts them out three times faster and makes them about seven times less likely to spread.</td></tr>
+              <tr><td class="name">School</td><td>Required for any lot to reach level 5. The mid-game's objective.</td></tr>
+              <tr><td class="name">Hospital</td><td>Halves what a hazard takes out of the blocks it covers. It does not prevent strikes — coverage by the relevant service does that.</td></tr>
+              <tr><td class="name">Stadium</td><td>Pure land value, over the widest radius in the game.</td></tr>
+              <tr><td class="name">Park</td><td>Pure land value, additive, one tile.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Fire</h3>
+        <p><strong>Nothing burns for the first 90 days.</strong> A new city has neither built a fire station nor unlocked one, so the game does not raise a problem you cannot answer.</p>
+        <p>After that, a fire is a genuine disaster rather than an event: a struck block stays alight, and a block that is alight reaches for its neighbours each day. It only spreads to growable zones — your services are not kindling — and it cannot cross a street, which makes <strong>roads firebreaks</strong> without anyone designing them as such.</p>
+        <p>You have an answer right now: <strong>bulldozing a burning lot puts the fire out</strong>, at the cost of the building. That is a firebreak, and it is the trade the game intends you to make. Red streaks crossing the map are fire engines running from the station that covers the fire — if none appears, nothing covers it.</p>
+        <p>Measured: a row of eight adjacent industrial blocks with one alight loses <strong>26 blocks over 25 runs with no fire station, and 1 with one</strong>.</p>
+
+        <h3>Damage, and why it persists</h3>
+        <p>A struck building records which service's absence let it happen, and it neither grows nor decays until that service covers it. Get a station in range and it repairs on the next day. Leave it uncovered and it rebuilds on its own eventually, at about 1% a day — so an unprotected district settles around half-broken: visibly blighted, permanently worse off, but alive.</p>
+        <p>Bulldozing and rebuilding clears damage too. That is the expensive escape hatch.</p>
+      </section>
+
+      <section id="traffic">
+        <h2>Traffic and transit</h2>
+        <p class="deck">Everyone who lives somewhere tries to reach a job, and the journey is measured in minutes.</p>
+
+        <p>Each day the simulation routes every home to a job with room in it, weighing the trip in minutes. Congestion slows driving; a transit line that is genuinely faster wins the trip. <strong>Driving takes an exact tie</strong> — a journey that is no faster is not worth a walk and a wait.</p>
+        <p>That closes the loop the game runs on: roads fill, driving slows, trips move onto the lines, roads empty. Congestion also subtracts from land value and wears out the street.</p>
+
+        <h3>Drawing a line</h3>
+        <p>Stations carry the cost; the <em>route</em> is free. Pick a route tool, which raises its own view, then <strong>click the stations that are on the line</strong>. Click the last stop again to take it off. A line needs at least two working stops to carry anybody.</p>
+        <p>There is no track to draw and no vehicles to place — a bus runs on the roads you already have, a subway tunnels. Trams are the exception: they lay rails along the shortest road run between their stops, and that takes a quarter of the street's capacity.</p>
+
+
+      <figure>
+        <img src="img/transit-steps.png" alt="Three states of the route panel while a bus line is drawn" loading="lazy" decoding="async">
+        <figcaption><b>The panel talks you through it.</b> Finish stays dark until the line has two stops on it.</figcaption>
+      </figure>
+
+      <figure>
+        <img src="img/transit.jpg" alt="The bus view with one finished route and one being drawn" loading="lazy" decoding="async">
+        <figcaption><b>A second line going in.</b> The finished route is solid cyan with a ring at every station it calls at; the line being drawn is the amber dashed one. Both are schematic — a straight run between stations rather than a trace of the streets a bus would use.</figcaption>
+      </figure>
+
+        <div class="scroller">
+          <table>
+            <caption>The four modes</caption>
+            <thead>
+              <tr><th>Mode</th><th class="num">Catchment</th><th class="num">Riders/stop</th><th class="num">Wait</th><th class="num">Min/tile</th><th class="num">Upkeep/stop</th><th class="num">Unlocks</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="name">Bus</td><td class="num">4</td><td class="num">30</td><td class="num">3 min</td><td class="num">0.8</td><td class="num">$3</td><td class="num">200</td></tr>
+              <tr><td class="name">Tram</td><td class="num">5</td><td class="num">60</td><td class="num">3 min</td><td class="num">0.6</td><td class="num">$6</td><td class="num">450</td></tr>
+              <tr><td class="name">Subway</td><td class="num">8</td><td class="num">120</td><td class="num">4 min</td><td class="num">0.4</td><td class="num">$12</td><td class="num">700</td></tr>
+              <tr><td class="name">Regional rail</td><td class="num">10</td><td class="num">300</td><td class="num">9 min</td><td class="num">0.2</td><td class="num">$25</td><td class="num">1,500</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>What separates them</h3>
+        <ul class="body-list">
+          <li><strong>A bus shares the street.</strong> Park a line along a jammed arterial and it crawls, exactly when the city needs it most.</li>
+          <li><strong>A tram has its own rails</strong> down the middle, so traffic barely touches it — but it <em>takes a quarter of the lane</em>. It is the only transit building in the game that costs the road something, and on a busy corridor it can genuinely make traffic worse. Measured on a mixed-use city, a tram carried twice a bus's riders and came out worse on congestion; on a city with long commutes, it beat the bus on both.</li>
+          <li><strong>A subway is in a tunnel</strong> and does not care about traffic at all. Expensive, wide-reaching, and worth building before the city that justifies it.</li>
+          <li><strong>Regional rail points off the map.</strong> Run a line so that a station sits within two tiles of the map edge and the whole line becomes regional — every stop on it is a way out, and residents can work outside the city.</li>
+        </ul>
+
+        <h3>Transfers</h3>
+        <p>Two stations within <strong>3 tiles</strong> of each other are an interchange, so you build one by siting stations near each other. A change costs 5 minutes plus a second wait — which is what makes not having to change worth something. Every leg counts a boarding, so a feeder line's ridership reflects the work it does.</p>
+
+        <div class="note">
+          <p><strong>Transit is worth what the commute is long.</strong> In a city where housing, shops and factories are interleaved every other lot, nearly every journey is three blocks and a bus's walk and wait swamp it. Separate your industry — which you want to do anyway, for the pollution — and transit starts earning its keep outright.</p>
+        </div>
+
+        <h3>The bedroom-community trade</h3>
+        <p>Outside jobs raise residential demand, because there is work to move here for, and lower commercial and industrial demand, because those residents are not filling a local job. A rail connection buys population and costs local business — and it is the only thing in the game that lets a city grow past what it can employ itself. It also ties you harder to the regional cycle: the region now reaches you twice.</p>
+      </section>
+
+      <section id="money">
+        <h2>The budget</h2>
+        <p class="deck">Four levers, all in City Hall (<kbd>⌘B</kbd>), and all of them are tradeoffs rather than free wins.</p>
+
+        <h3>Tax</h3>
+        <p>Revenue is <strong>$1 per resident plus $2 per job, per day, multiplied by your rate</strong> — adjustable from 0 to 2.0 in quarter steps. A higher rate suppresses growth: measured over 1,500 days, rates of 0.0 / 1.0 / 2.0 produced 3,348 / 3,156 / 2,720 residents against a treasury of bankrupt / +$2.6M / +$14.0M. A real choice, not a slider to max out.</p>
+
+        <h3>Funding</h3>
+        <p>Each service has its own dial, 0 to 2.0. Funding buys <em>reach</em> for services, <em>throughput</em> for utilities, and <em>repair</em> for public works — it is never merely cosmetic. Over-funding genuinely over-delivers, and it will also bankrupt you: doubling every service's funding buys the most people of any strategy measured and sends the city broke.</p>
+
+        <h3>Ordinances</h3>
+        <p>Three city-wide policies, each costing <strong>$30 a day plus 5¢ per resident</strong> — so they scale with the city they cover.</p>
+        <dl class="defs">
+          <div><dt>Neighbourhood Watch</dt><dd>Halves the city-wide crime rate.</dd></div>
+          <div><dt>Fire Inspections</dt><dd>Halves the city-wide fire rate.</dd></div>
+          <div><dt>Business Tax Break</dt><dd>Nudges commercial demand up.</dd></div>
+        </dl>
+
+        <h3>What the money is for</h3>
+        <p>Beyond upkeep, the treasury's real job is <strong>land</strong>. Every parcel costs more than the last, so expansion is a sink that grows with you rather than a purchase you finish — and the three rank rewards, at $3,000, $8,000 and $25,000, are the only other things worth saving for.</p>
+
+        <h3>Bonds</h3>
+        <p>$5,000 at a time, up to a cap of <strong>$15,000 plus $10 per resident</strong>, at 0.25% of the balance per day. Borrowing early is close to pointless — the cap is at its floor when nobody lives there — and borrowing once the city exists costs a real but modest slice of revenue. The whole cost of a bond is the interest; the debt does not feed back into the tax base servicing it.</p>
+
+        <h3>What you are paying for</h3>
+        <p>Beyond building upkeep, a city pays <strong>75¢ per day per resident and per job</strong> in civic costs. That is deliberately charged on the same axis tax is collected on, so it scales with the city instead of going flat the moment you stop building. It is also kept under $1, so every resident and job stays worth having.</p>
+      </section>
+
+      <section id="region">
+        <h2>The region outside</h2>
+        <p class="deck">Your city is not a closed system. The region booms and busts on its own clock.</p>
+
+        <p>Residential, commercial and industrial demand each rise and fall on cycles of roughly <strong>ten to fourteen months</strong>, independently of anything you do. It is a clock, not a dice roll, so you can learn it and plan against it — and the three sectors are decoupled, which is the part that makes it a decision. Your city can be short of jobs while housing is oversupplied, and the answer is to <em>re-zone</em>, using the demand meter you already have.</p>
+        <p>The swing is smaller than your own tax lever, on purpose: the region can make a bad tax rate hurt, but it cannot overrule a good one. In a slump, the marginal lots — the ones already at the bottom — cross into abandonment while the desirable ones hold.</p>
+
+        <h3>Freight: ports and airports</h3>
+        <p>Late-game, and the only things in the game that raise a whole sector's demand by themselves. A <strong>seaport</strong> ($1,800, 3×3, must touch water) raises industrial demand; an <strong>airport</strong> ($2,600, 3×3, needs nine tiles of dry ground) raises commercial.</p>
+        <p>Each gives diminishing returns — the first port is the one that connects the city at all, and every one after only widens a connection that already exists — and each is among the heaviest things in the game to run. An airport costs $75 a day, more than a hospital — beaten only by the Arcology, which a Metropolis earns.</p>
+      </section>
+
+      <section id="views">
+        <h2>Reading the map</h2>
+        <p class="deck">Fourteen views, and everything on the map is either saying what it is or saying what it wants.</p>
+
+        <h3>Views</h3>
+        <div class="scroller">
+          <table>
+            <caption>The view picker, above the map</caption>
+            <thead><tr><th>View</th><th>Answers</th></tr></thead>
+            <tbody>
+              <tr><td class="name">Normal</td><td>The city as it is.</td></tr>
+              <tr><td class="name">Problems</td><td><strong>Start here.</strong> Every block that wants something, ranked by severity. Healthy lots are drawn as nothing at all, so the only marks on screen are the ones asking for help.</td></tr>
+              <tr><td class="name">Land Value</td><td>Desirability, the number behind three growth gates.</td></tr>
+              <tr><td class="name">Traffic</td><td>Congestion — and the one heatmap that keeps the streets and the cars visible, because the streets are the subject.</td></tr>
+              <tr><td class="name">Water / Power</td><td>Three answers, not two: <span class="chip c-wat"><span class="dot"></span>lit in the utility's own colour</span> is supplied, <span class="chip c-alm"><span class="dot"></span>hot red</span> is wants-it-and-hasn't-got-it, and quiet means it does not need any yet. The ground shows the network's reach; a soft halo is a source's free radius and the brighter field is pipe coverage.</td></tr>
+              <tr><td class="name">Pollution</td><td>Where industry has made the ground worse.</td></tr>
+              <tr><td class="name">Crime / Fire Risk</td><td>Named for the problem, not the building. The ground carries how strongly the service reaches; the buildings carry whether they are actually at risk — a factory outside every police catchment is perfectly safe, because crime does not threaten industry.</td></tr>
+              <tr><td class="name">Land</td><td>What you own, what is for sale, and what the next parcel costs. Clicking a parcel here buys it.</td></tr>
+              <tr><td class="name">Bus / Tram / Subway / Regional Rail</td><td>One per network, each showing its catchment on the ground and its route diagram over the top.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+
+      <figure>
+        <img src="img/views.jpg" alt="The same city drawn under the Normal, Problems and Water views" loading="lazy" decoding="async">
+        <figcaption><b>One city, three views.</b> Normal, then Problems — which draws nothing at all for a healthy lot, so the only marks are the ones asking for something — then Water, where the cyan run is a live main, blue buildings are supplied and red ones want water and have not got it.</figcaption>
+      </figure>
+
+        <h3>Marks on the city</h3>
+        <dl class="defs">
+          <div><dt><span class="chip c-wat"><span class="dot"></span>Drop badge</span></dt><dd>This building wants water and has not got it.</dd></div>
+          <div><dt><span class="chip c-pow"><span class="dot"></span>Bolt badge</span></dt><dd>Wants power. The glyph carries the meaning, so the two are distinguishable regardless of how you see colour.</dd></div>
+          <div><dt><span class="chip c-scf"><span class="dot"></span>Amber wireframe</span></dt><dd>Construction. The lit deck climbing it is the work in progress.</dd></div>
+          <div><dt>Flame plume</dt><dd>Alight. A sunset gradient standing above the roofline — height is the one dimension a building cannot compete on.</dd></div>
+          <div><dt><span class="chip c-alm"><span class="dot"></span>Red streaks</span></dt><dd>Fire engines, running from the station covering that fire.</dd></div>
+          <div><dt>Traffic colour</dt><dd>Pale cyan is ordinary cars, <span class="chip c-ind"><span class="dot"></span>amber</span> is freight near industry, blue is a patrol car. A long bright streak is free-flowing; a short dim one is a jam.</dd></div>
+          <div><dt>Dim lane lines</dt><dd>A worn road. The public works budget is what brightens them again.</dd></div>
+          <div><dt>Unlit conduit</dt><dd>A pipe or line that reaches no source. It supplies nothing.</dd></div>
+        </dl>
+
+
+      <figure>
+        <img src="img/marks.jpg" alt="Three buildings showing utility badges, a construction scaffold and a fire" loading="lazy" decoding="async">
+        <figcaption><b>Three blocks, three complaints.</b> Left: a drop and a bolt, so it wants both utilities. Middle: the amber wireframe of the storey being built, with the lit deck climbing it. Right: alight — the flame stands above the roofline because height is the one dimension a building cannot compete on.</figcaption>
+      </figure>
+
+        <h3>Zone colours</h3>
+        <p>Hue says which zone, and it shifts with density rather than merely brightening:</p>
+        <ul class="body-list">
+          <li><span class="chip c-res"><span class="dot"></span>Residential</span> — violet at low density, orchid in the middle, pale lavender for towers.</li>
+          <li><span class="chip c-com"><span class="dot"></span>Commercial</span> — pink retail, hot rose offices, amber entertainment.</li>
+          <li><span class="chip c-ind"><span class="dot"></span>Industrial</span> — orange manufacturing, red-orange heavy industry, brick red for the worst polluters.</li>
+          <li><span class="chip c-park"><span class="dot"></span>Parks</span> are the one green in the game, because a park is the thing that is <em>not</em> built.</li>
+        </ul>
+        <p>The silhouettes differ too, not just the colour: industry is wide and low with sawtooth roofs and chimneys, housing is stepped with punched window grids and balconies, commerce has continuous glazing bands and lit crowns. You can tell the three apart with the colour taken away.</p>
+
+      <figure>
+        <img src="img/zones.png" alt="Residential, commercial and industrial buildings at low and full density" loading="lazy" decoding="async">
+        <figcaption><b>The three zones at level 1 and level 5.</b> Low density is where most of a map's area sits, and it is where the vocabularies are furthest apart — a row of houses, a strip of shops, a wide shed.</figcaption>
+      </figure>
+
+        <h3>Landmarks</h3>
+        <p>About <strong>one top-tier lot in twelve</strong> is drawn as a landmark instead of an ordinary building — a slender crowned spire for commerce, a point block on a podium for housing, a works with one enormous stack for industry. It is purely visual, with no effect on the simulation, and it is what stops a built-out downtown reading as a bar chart. Which lots get one is fixed, so a landmark stays a landmark across saves and launches.</p>
+
+      <figure>
+        <img src="img/landmarks.png" alt="Landmark buildings beside ordinary top-tier buildings" loading="lazy" decoding="async">
+        <figcaption><b>Each zone's landmark, next to an ordinary building of the same zone and level.</b> The two on the right are the stadium and the power plant, which are 3×3 and tall enough to be visible across a city.</figcaption>
+      </figure>
+
+        <h3>Zoomed in</h3>
+
+      <figure>
+        <img src="img/close.jpg" alt="A close view of a dense neon district" loading="lazy" decoding="async">
+        <figcaption><b>The same city, at the closest the camera gets.</b> At this range the buildings put back detail they leave out further away — glazing mullions and storey lines — because a mark too small to resolve is not detail, it is noise. The amber clock tower is a school, the roof with a cross is a hospital, and the river runs along the left.</figcaption>
+      </figure>
+
+        <h3>The inspector</h3>
+        <p>Hover any block. The first line names <strong>a fix, not a mechanism</strong> — "Needs water", then "put a tower or a pump within a few tiles" — and everything below it is supporting evidence: density, residents, coverage, and how long the commute is and by what mode. If a lot says nothing is wrong, nothing is: it is waiting on demand.</p>
+      </section>
+
+      <section id="ranks">
+        <h2>Ranks</h2>
+        <p class="deck">Five of them, earned in order. A rank is the only thing that decides how much land you may own, and it is what three buildings are gated behind.</p>
+
+        <p>A rank is not a population threshold with a nicer name. Each one asks for a city that is <strong>working</strong>, not merely large — served, schooled, solvent, and not choking on its own traffic — and the requirements are checked together, so you cannot trade one away against another.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>The ladder</caption>
+            <thead><tr><th>Rank</th><th>What it asks for</th><th class="num">Land</th></tr></thead>
+            <tbody>
+              <tr><td class="name">—</td><td>Where a new city starts.</td><td class="num">6</td></tr>
+              <tr><td class="name">Hamlet</td><td>100 residents.</td><td class="num">10</td></tr>
+              <tr><td class="name">Village</td><td>400 residents, and <strong>90% of them on the water network</strong>.</td><td class="num">20</td></tr>
+              <tr><td class="name">Town</td><td>900 residents, 90% watered, 90% powered, and <strong>half of them in a school's catchment</strong>.</td><td class="num">42</td></tr>
+              <tr><td class="name">City</td><td>2,000 residents, 90% watered and powered, <strong>home pollution at most 0.15</strong>, and a city that is <strong>solvent</strong> — earning more than it spends.</td><td class="num">no limit</td></tr>
+              <tr><td class="name">Metropolis</td><td>3,500 residents, pollution still at most 0.15, <strong>congestion at most 0.10</strong>, and <strong>no more than 5% of the city in rubble</strong>.</td><td class="num">no limit</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The Land column is the <em>total</em> parcels you may own at that rank, and each allowance is sized to hold the <em>next</em> rank's population with room to spare — so the ladder can never deadlock you into needing land a rank you cannot reach would unlock. From City upward the cap comes off entirely.</p>
+
+        <div class="note">
+          <p><strong>Read the ladder as a checklist for what to fix.</strong> Village asks for water, Town adds power and schools, City adds pollution and a balanced budget, Metropolis adds traffic and repair. That is the same order the systems in this manual bite in — the ranks are the game telling you which one to look at next.</p>
+        </div>
+
+        <h3>What each rank rewards</h3>
+        <p>Three buildings exist only as rank rewards. They are not on the population ladder at all: no amount of growth unlocks them, and each does something nothing else in the game does.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>Reward buildings</caption>
+            <thead><tr><th>Earned at</th><th>Building</th><th class="num">Cost</th><th class="num">Upkeep</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td class="name">Town</td><td class="name">Neon Arcade</td><td class="num">$3,000</td><td class="num">$30</td><td>Adds <strong>+0.28</strong> to land value over 7 tiles, additively — a park, but stronger and further. Town is where the land-value gate starts biting across a whole district.</td></tr>
+              <tr><td class="name">City</td><td class="name">Broadcast Tower</td><td class="num">$8,000</td><td class="num">$60</td><td>Raises <strong>commercial demand city-wide</strong> by 0.22, the way an airport does. A lever for steering the whole economy.</td></tr>
+              <tr><td class="name">Metropolis</td><td class="name">Arcology</td><td class="num">$25,000</td><td class="num">$120</td><td>Houses <strong>500 residents</strong> in one 3×3 building. Self-contained: they live, work and shop inside, so they are taxed and counted toward the ladder but put <strong>nothing on the roads, no load on the water network and no pollution anywhere</strong>. The answer to a Metropolis that has run out of land.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="unlocks">
+        <h2>The unlock ladder</h2>
+        <p class="deck">Most tools are earned by population, measured against your city's <em>highest ever</em> — a city knocked back by fire keeps what it earned. Three are earned by <a href="#ranks">rank</a> instead.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>Unlocks by peak population</caption>
+            <thead><tr><th class="num">At</th><th>Unlocks</th></tr></thead>
+            <tbody>
+              <tr><td class="num">Start</td><td>Residential, Commercial, Industrial, Road, Water pump, Generator, Park — and the bulldozer, which is never locked</td></tr>
+              <tr><td class="num">40</td><td>Police station, Fire station</td></tr>
+              <tr><td class="num">100</td><td>Water tower</td></tr>
+              <tr><td class="num">200</td><td>Transit Stop — the bus stop</td></tr>
+              <tr><td class="num">250</td><td>School</td></tr>
+              <tr><td class="num">300</td><td>Power plant</td></tr>
+              <tr><td class="num">450</td><td>Tram stop</td></tr>
+              <tr><td class="num">500</td><td>Highway</td></tr>
+              <tr><td class="num">600</td><td>Hospital</td></tr>
+              <tr><td class="num">700</td><td>Subway</td></tr>
+              <tr><td class="num">1,000</td><td>Stadium</td></tr>
+              <tr><td class="num">1,500</td><td>Rail station</td></tr>
+              <tr><td class="num">2,000</td><td>Seaport</td></tr>
+              <tr><td class="num">2,800</td><td>Airport</td></tr>
+              <tr><td class="num">rank</td><td>Neon Arcade (Town), Broadcast Tower (City), Arcology (Metropolis) — see <a href="#ranks">Ranks</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The thresholds are shaped by the gates that already exist. Water is needed to pass level 2, so the tower arrives while a city is still capped there; power gates level 4, so the plant lands just past where water-only growth tops out; a school has to arrive before you are pressing on the ceiling it opens.</p>
+        <p>Locked tools are shown greyed with the population they need, rather than hidden. The next rung has to be visible for it to be something to aim at.</p>
+      </section>
+
+      <section id="costs">
+        <h2>Cost reference</h2>
+        <p class="deck">Everything placeable, what it costs once, and what it costs every day after.</p>
+
+        <div class="scroller">
+          <table>
+            <caption>All tools</caption>
+            <thead><tr><th>Tool</th><th class="num">Size</th><th class="num">Cost</th><th class="num">Upkeep/day</th></tr></thead>
+            <tbody>
+              <tr><td class="name"><span class="chip c-res"><span class="dot"></span>Residential</span></td><td class="num">2×2</td><td class="num">$100</td><td class="num">—</td></tr>
+              <tr><td class="name"><span class="chip c-com"><span class="dot"></span>Commercial</span></td><td class="num">2×2</td><td class="num">$150</td><td class="num">—</td></tr>
+              <tr><td class="name"><span class="chip c-ind"><span class="dot"></span>Industrial</span></td><td class="num">2×2</td><td class="num">$120</td><td class="num">—</td></tr>
+              <tr><td class="name">Road</td><td class="num">1×1</td><td class="num">$50</td><td class="num">$0.50</td></tr>
+              <tr><td class="name">Highway</td><td class="num">1×1</td><td class="num">$200</td><td class="num">$1.20</td></tr>
+              <tr><td class="name">Pipe / Power line</td><td class="num">1×1</td><td class="num">$40</td><td class="num">—</td></tr>
+              <tr><td class="name"><span class="chip c-park"><span class="dot"></span>Park</span></td><td class="num">1×1</td><td class="num">$120</td><td class="num">$4</td></tr>
+              <tr><td class="name">Water pump</td><td class="num">1×1</td><td class="num">$250</td><td class="num">$8</td></tr>
+              <tr><td class="name">Generator</td><td class="num">2×2</td><td class="num">$500</td><td class="num">$15</td></tr>
+              <tr><td class="name">Water tower</td><td class="num">2×2</td><td class="num">$700</td><td class="num">$20</td></tr>
+              <tr><td class="name">Power plant</td><td class="num">3×3</td><td class="num">$2,000</td><td class="num">$50</td></tr>
+              <tr><td class="name">Police station</td><td class="num">2×2</td><td class="num">$800</td><td class="num">$20</td></tr>
+              <tr><td class="name">Fire station</td><td class="num">2×2</td><td class="num">$800</td><td class="num">$20</td></tr>
+              <tr><td class="name">School</td><td class="num">2×2</td><td class="num">$900</td><td class="num">$35</td></tr>
+              <tr><td class="name">Hospital</td><td class="num">2×2</td><td class="num">$1,400</td><td class="num">$55</td></tr>
+              <tr><td class="name">Stadium</td><td class="num">3×3</td><td class="num">$2,500</td><td class="num">$40</td></tr>
+              <tr><td class="name">Transit Stop</td><td class="num">1×1</td><td class="num">$150</td><td class="num">$5</td></tr>
+              <tr><td class="name">Tram stop</td><td class="num">1×1</td><td class="num">$250</td><td class="num">$9</td></tr>
+              <tr><td class="name">Subway Entrance</td><td class="num">1×1</td><td class="num">$400</td><td class="num">$15</td></tr>
+              <tr><td class="name">Rail station</td><td class="num">2×2</td><td class="num">$700</td><td class="num">$25</td></tr>
+              <tr><td class="name">Seaport</td><td class="num">3×3</td><td class="num">$1,800</td><td class="num">$60</td></tr>
+              <tr><td class="name">Airport</td><td class="num">3×3</td><td class="num">$2,600</td><td class="num">$75</td></tr>
+              <tr><td class="name">Neon Arcade</td><td class="num">2×2</td><td class="num">$3,000</td><td class="num">$30</td></tr>
+              <tr><td class="name">Broadcast Tower</td><td class="num">2×2</td><td class="num">$8,000</td><td class="num">$60</td></tr>
+              <tr><td class="name">Arcology</td><td class="num">3×3</td><td class="num">$25,000</td><td class="num">$120</td></tr>
+              <tr><td class="name">Land parcel (8×8)</td><td class="num">—</td><td class="num">$2,500 ×n</td><td class="num">—</td></tr>
+              <tr><td class="name">Bulldoze</td><td class="num">—</td><td class="num">free</td><td class="num">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+
+      <figure>
+        <img src="img/services.png" alt="Every service building in the game, labelled" loading="lazy" decoding="async">
+        <figcaption><b>Everything that does not grow, at the same scale.</b> The 1×1 tools really are that much smaller than the 2×2 and 3×3 ones — a park or a bus shelter threads between blocks, a seaport takes nine tiles of shoreline. The last three are the <a href="#ranks">rank rewards</a>.</figcaption>
+      </figure>
+
+        <p>Transit <em>stops</em> carry the cost of a line; drawing the route itself is free, but each stop adds an operating cost on top of the building's own upkeep. Bridges add $150 a span for a road and $300 for a highway.</p>
+      </section>
+
+      <section id="mistakes">
+        <h2>Common mistakes</h2>
+        <p class="deck">Measured on real cities, over 1,500 days each. Best to worst strategy is a 33× spread in population, so these matter.</p>
+
+        <dl class="defs">
+          <div>
+            <dt>Zoning only housing</dt>
+            <dd>The worst thing you can do. With no jobs, demand pins at the floor and every lot empties regardless of how nice it is: <strong>100 residents and bankrupt</strong>. Oversupply is not a stall here, it is a collapse.</dd>
+          </div>
+          <div>
+            <dt>Building services before utilities</dt>
+            <dd>Services unlock the growth that utilities have to support. A city with services and no water or power measured <strong>1,740 residents and bankrupt</strong>, against 3,320 and solvent once the utilities arrived.</dd>
+          </div>
+          <div>
+            <dt>One tower and one plant</dt>
+            <dd>Capacity, not connection, is what limits a utility. A 64×64 city on a single tower and plant reaches <strong>1,976 people against 3,580</strong> with enough of them, and spends every day overloaded.</dd>
+          </div>
+          <div>
+            <dt>Mixing industry into housing</dt>
+            <dd>Pollution accumulates and residents mind it most. Zoning industry apart is the single best measured layout decision: <strong>3,760 residents against 3,320</strong> for the same zone mix, and more money too.</dd>
+          </div>
+          <div>
+            <dt>Maxing every funding dial</dt>
+            <dd>It does buy the most people of any strategy — and it bankrupts you. Normal spacing plus the utilities to support it beats dense, over-funded services on both axes.</dd>
+          </div>
+          <div>
+            <dt>Ignoring public works</dt>
+            <dd>A city that stops paying for maintenance loses <strong>40% of its built density and ends up with less money</strong> than one that pays. It is dominated on both axes, which is what makes it a lever rather than a tax.</dd>
+          </div>
+          <div>
+            <dt>Laying a tram down your busiest street</dt>
+            <dd>It takes a quarter of that street's capacity. On a short-commute city that cancels out everything it carries. Trams are for long corridors.</dd>
+          </div>
+          <div>
+            <dt>Panicking at a fire</dt>
+            <dd>Bulldoze the burning block. You lose one building and stop a district burning.</dd>
+          </div>
+        </dl>
+
+        <div class="note park">
+          <p><strong>If you only remember one thing:</strong> open the <strong>Problems</strong> view, find the loudest block, hover it, and do what the first line says. The whole simulation is designed so that every warning it raises has an answer you can act on immediately.</p>
+        </div>
+      </section>
+
+      <footer>
+        <hr class="hr-glow">
+        <p style="margin-top:1.4rem"><strong style="color:var(--ink)">Alpha++</strong> — a native Mac city builder in the spirit of SimCity 2000, built for Apple Silicon.</p>
+        <p>Every figure in this manual is read from the game's own constants, and every measured result comes from its playtest harness rather than from an estimate.</p>
+      </footer>
+
+    </main>
+  </div>
+</div>

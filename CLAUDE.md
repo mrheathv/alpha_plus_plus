@@ -7688,6 +7688,68 @@ xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
 open ./build/ContactSheet/close-zoom-detail.png
 ```
 
+**`GuideFiguresTests` — what does this look like to somebody who has never
+seen it?** The figures the player-facing manual is illustrated with, and a
+different question from every sheet above. Those exist to *review* the art;
+this one has to make a building recognisable on a stranger's own map, so it
+shows one of each rather than many and captions everything with the name the
+**toolbar** uses rather than the `ZoneType` case — a guide that teaches
+vocabulary the game does not use has taught the wrong thing.
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Debug -derivedDataPath ./build test \
+           -only-testing:AlphaPlusPlusTests/GuideFiguresTests
+
+open ./build/ContactSheet/guide-cover-70.png
+```
+
+Three of its figures are worth knowing about beyond the manual:
+
+- **`guide-transit` is the first picture in this project showing the chrome
+  over the city.** Neither renderer can do it alone — `ImageRenderer` cannot
+  draw the hosted `SKView` (which is why the live cockpit render comes out
+  with a blank rectangle where the map is), and `SKView.texture(from:)` knows
+  nothing about SwiftUI. It composes both halves into one bitmap at the offset
+  `GameView` actually puts the panel at, so both are real.
+- **The cover frames the most *varied* neighbourhood, not the busiest.**
+  `CityPortraitTests.busiestBlock` finds downtown, which is a wall of towers
+  in one hue — the opposite of what sells this game. `mostVariedNeighbourhood`
+  scores windows on distinct zones, distinct civic kinds, density spread and a
+  little water, rejecting anything over 40% water. Scored rather than
+  hand-picked because a hand-picked coordinate silently stops meaning anything
+  the moment the city is re-minted.
+- **The growth ladder is three cells for five levels**, because `ZoneMassing`
+  draws from `RenderPalette.growthTier`, which pairs 1 with 2 and 3 with 4. A
+  five-cell figure renders two pairs of identical buildings, which reads as a
+  broken render rather than as the truth it is. The test pins that pairing, so
+  splitting the tiers later fails here rather than quietly under-reporting.
+
+### The manual is downstream of the constants, and it rots
+
+`Docs/Manual/` holds the player guide the figures above illustrate: a page
+whose every number — costs, unlock thresholds, the density gates, catchments,
+hazard rates — is read out of this codebase rather than estimated.
+
+**It went stale within ninety minutes of being written.** Ranks, land
+ownership and the three rank-reward buildings landed while it was being
+built, and between them they falsified six separate claims in it: the unlock
+table, the cost table, "the only additive positive in the game", "an airport
+costs more than a hospital", the count of views, and the whole premise that
+you can build anywhere on the map you founded.
+
+So the rule is the same one this file keeps arriving at from other
+directions: **a second copy of a fact drifts, and prose is a second copy.**
+What makes it survivable is that the source is in the repository, so a
+change to `ZoneType`, `Unlocks`, `Milestone` or `OverlayMode` is a change
+somebody can grep the manual for. Anything that adds a `ZoneType` case, moves
+an unlock threshold or adds an `OverlayMode` should assume the manual is now
+wrong until checked.
+
+The figures are **not** committed. They are regenerable build output and
+`build/` is gitignored; the app icon is the standing exception, and it is
+committed because the app needs it to compile.
+
 The app ships an icon (`Assets.xcassets/AppIcon.appiconset`, wired up via
 `ASSETCATALOG_COMPILER_APPICON_NAME`). It predates the retirement of the
 grayboxing rule, and was an explicit exception to it at the time, on the
