@@ -62,6 +62,7 @@ struct GameView: View {
             .frame(minWidth: 760, minHeight: 420)
             .overlay(alignment: .topTrailing) { if !controller.isScreenshotMode { inspector } }
             .overlay(alignment: .topLeading) { if !controller.isScreenshotMode { transitEditor } }
+            .overlay(alignment: .bottomLeading) { if !controller.isScreenshotMode { guidePanel } }
             // **Focus on the map, not on the window.** `onKeyPress` needs a
             // focusable view, and putting it here rather than on the whole
             // `VStack` is what makes the City Hall sheet behave: a sheet takes
@@ -371,6 +372,29 @@ struct GameView: View {
                 onUndo: { controller.undoLastStop() },
                 onCommit: { controller.commitTransitRoute() },
                 onCancel: { controller.cancelTransitRoute() }
+            )
+            .padding(RetroMetrics.gutter)
+            .transition(.opacity)
+        }
+    }
+
+    /// The first-city guide, over the map's bottom-left. See `GuidePanel`.
+    ///
+    /// The only lock a step's shortcut can hit is an unlock, so that is the
+    /// only reason worded here — and it is worded the way a locked toolbar
+    /// chip words it, so the two say the same thing about the same tool.
+    @ViewBuilder private var guidePanel: some View {
+        if let guide = controller.guide {
+            let locked: String? = {
+                guard case .selectTool(let zone)? = guide.current?.shortcut,
+                      !controller.isUnlocked(zone) else { return nil }
+                return "\(controller.residentsNeeded(for: zone)) more residents"
+            }()
+            GuidePanel(
+                guide: guide,
+                lockedReason: locked,
+                onShortcut: { controller.perform($0) },
+                onDismiss: { controller.dismissGuide() }
             )
             .padding(RetroMetrics.gutter)
             .transition(.opacity)

@@ -25,7 +25,9 @@ final class GameController: ObservableObject {
     /// `private(set)`: the *only* sanctioned way to change the map is
     /// `place(at:)` below, so every mutation goes through one rule-checked
     /// path instead of scattered `map[position].zone = ...` call sites.
-    @Published private(set) var map: CityMap
+    @Published private(set) var map: CityMap {
+        didSet { updateGuide() }
+    }
 
     /// Which `ZoneType` the next click will paint. `.empty` doubles as the
     /// bulldoze tool — clicking with it clears a tile back to unzoned land,
@@ -110,7 +112,9 @@ final class GameController: ObservableObject {
     /// to it — the City menu and the cockpit's own button — and the sheet has
     /// one owner. The document's copy of this predated the cockpit, when the
     /// menu bar was the only way in.
-    @Published var isShowingCityPanel = false
+    @Published var isShowingCityPanel = false {
+        didSet { updateGuide() }
+    }
 
     /// Whether the founding panel is open. Same reasoning as
     /// `isShowingCityPanel`: two routes in (the City menu and, later, a title
@@ -233,7 +237,9 @@ final class GameController: ObservableObject {
     /// Starts `false`: a freshly opened city is paused, matching how the
     /// old manual-only "Advance" button behaved — nothing grows until you
     /// deliberately start it.
-    @Published var isRunning = false
+    @Published var isRunning = false {
+        didSet { updateGuide() }
+    }
 
     /// How fast `isRunning` ticks — see `SimulationSpeed`. Same "shared flag,
     /// not two copies" reasoning as `isRunning`: the toolbar's speed picker
@@ -244,7 +250,9 @@ final class GameController: ObservableObject {
     /// colors. Lives here rather than as private `GameScene` state for the
     /// same reason `isRunning` does: the toolbar's picker and the scene's
     /// rendering need to agree on one value, not risk two copies drifting.
-    @Published var overlayMode: OverlayMode = .none
+    @Published var overlayMode: OverlayMode = .none {
+        didSet { updateGuide() }
+    }
 
     /// Size the *next* `resetMap()` starts at — changing this doesn't touch
     /// the current city, only what a following Reset builds. Kept separate
@@ -769,7 +777,14 @@ final class GameController: ObservableObject {
     /// contents — `GameScene` needs to rebuild its sprites from scratch for
     /// this one (`rebuildEntireGrid()`), not just `refreshAll()` the ones it
     /// already has.
-    func resetMap() {
+    ///
+    /// `guided` starts `FirstCityGuide` on the new city. Off by default so
+    /// every existing caller — tests, the menu's reset — founds exactly the
+    /// city it always did; the founding panel is the one place that asks.
+    func resetMap(guided: Bool = false) {
+        // Dropped *first*: assigning `map` below runs the guide's update, and
+        // the old city's guide must not see the new city at all.
+        guide = nil
         let size = selectedMapSize.dimension
         map = CityMap(width: size, height: size) // a fresh CityMap's serviceFunding already defaults to 1.0 for everything
         TerrainGenerator.apply(selectedTerrain, to: &map, seed: selectedTerrainSeed)
@@ -787,6 +802,7 @@ final class GameController: ObservableObject {
         history.removeAll()
         lastHazardStrikes = []
         isPowerOutageActive = false
+        if guided { startGuide() }
     }
 
     /// Picks a zoning tool, dropping out of a network overlay if one is up.
@@ -827,6 +843,53 @@ final class GameController: ObservableObject {
 
     func requestManualAdvance() {
         manualAdvanceRequests += 1
+    }
+
+    // MARK: - First-city guide
+
+    /// The guide, while one is running. See `FirstCityGuide`.
+    @Published private(set) var guide: FirstCityGuide?
+
+    func startGuide() {
+        guide = FirstCityGuide()
+        updateGuide()
+    }
+
+    /// Skip it, or put it away once it is finished — the same thing to the
+    /// player, and deliberately the same one call.
+    func dismissGuide() {
+        guide = nil
+    }
+
+    /// Does what the current step's button says.
+    ///
+    /// Here rather than in the view for the reason `selectTool` is: it is a
+    /// rule about what the game does, and a rule in a view is one no test can
+    /// reach. `FirstCityGuideTests` performs every shortcut and checks it
+    /// actually finishes — or equips the tool that finishes — its own step.
+    func perform(_ shortcut: FirstCityGuide.Shortcut) {
+        switch shortcut {
+        case .selectTool(let zone): selectTool(zone)
+        case .play: isRunning = true
+        case .showView(let mode): overlayMode = mode
+        case .openCityHall: isShowingCityPanel = true
+        }
+    }
+
+    /// Re-reads the city for the guide. Called from the `didSet` of every
+    /// property a step looks at.
+    ///
+    /// Cheap enough to run on every map write — one pass over the tiles — but
+    /// only while a guide is actually running, and it only publishes when a
+    /// step really completed, so a tick does not announce eight changes to a
+    /// panel that did not move.
+    private func updateGuide() {
+        guard var next = guide, !next.isFinished else { return }
+        let state = FirstCityGuide.State(
+            map: map, population: population, isRunning: isRunning,
+            overlay: overlayMode, isShowingCityPanel: isShowingCityPanel
+        )
+        if next.update(with: state) { guide = next }
     }
 
     // MARK: - Unlocks
@@ -910,6 +973,11 @@ final class GameController: ObservableObject {
     ///   in would briefly show fires on a map that never had them.
     func restore(from save: CitySave) throws {
         try save.validateFormatVersion()
+
+        // A loaded city is somebody's city already. The guide is for a first
+        // one, and it is not saved: it is a record of what *this session's*
+        // player has been shown, not a fact about the map.
+        guide = nil
 
         map = save.map
         // **Recomputed, not restored.** Supply is a pure function of the map,

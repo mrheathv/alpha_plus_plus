@@ -7353,6 +7353,54 @@ change three node-level animations. Knowingly heavier than needed: it is a rare
 action, and given the two failures above, guaranteed-correct beat proportionate.
 
 
+### A guided first city
+
+The second P0 on the product-gap list. A new city opened on an empty map with
+seventeen tools, thirteen views and nothing saying where to start.
+
+`FirstCityGuide` (App/) is ten ordered steps — road, housing, jobs, Play,
+growth, water, power, the Problems view, a fire station, City Hall — each
+**finished by doing it**, never by clicking Next. It watches the city and
+moves on when the road exists. `GuidePanel` shows one step at a time over the
+map's bottom-left, and `GuideText` holds every word, for the reason
+`InspectorText` does.
+
+Four decisions worth keeping:
+
+- **Progress is a record, not a reading.** Every step is checked on every
+  update, not just the current one, so a pump put down before Play has
+  already done the water step. And a done step stays done: bulldozing the
+  road does not un-teach roads.
+- **Every step has a button that does it**, or equips the tool that does.
+  That is the standing rule, *every warning has an answer the player can act
+  on right now*, applied to instructions. `testEveryShortcutAnswersItsOwnStep`
+  performs each one and checks it really finishes its own step. The fire
+  station is the one step whose tool is still locked on a fresh city; the
+  button is shown disabled with the shortfall rather than hidden, and a test
+  pins it as the only such step.
+- **It watches state, not events.** "Opened the Problems view" is read as
+  `overlayMode == .problems` from the `didSet` of every property a step looks
+  at (`map`, `isRunning`, `overlayMode`, `isShowingCityPanel`). Hooking the
+  picker instead would miss every other way into the same view: the menu,
+  the guide's own button, a future shortcut.
+- **Offered at founding, not forced.** `NewCityPanel` carries the choice,
+  remembered with `@AppStorage` and on by default. It lives in the panel so
+  the controller, and every test that builds one, never touches
+  `UserDefaults`. `resetMap(guided:)` defaults to `false`, so every existing
+  caller founds exactly the city it always did. The guide is not saved:
+  loading a city ends it, because it is a record of what this session's
+  player has been shown, not a fact about the map.
+
+Cost: one pass over the tiles per map write, and only while a guide is
+running and unfinished. It publishes only when a step actually completes, so
+a tick does not announce eight changes to a panel that did not move.
+
+`testAFirstCityCanBeWalkedThroughByDoingWhatEachStepSays` uses a real
+controller with real placements and real ticks. A guide whose steps can only be
+finished by a test that hands it a `State` is a guide nobody can finish.
+`RetroUIContactSheetTests.testRenderGuidePanelStates` renders an open step, a
+locked step and the closing card side by side.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

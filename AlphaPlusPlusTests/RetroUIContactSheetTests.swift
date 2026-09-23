@@ -144,6 +144,40 @@ final class RetroUIContactSheetTests: XCTestCase {
             NewCityPanel(controller: controller, dismiss: {}))
     }
 
+    /// **The guide's three kinds of card, side by side**: a step with a
+    /// button, a step whose tool is still locked, and the closing card.
+    ///
+    /// The locked one is the reason this exists. It is the only card whose
+    /// button must *look* unavailable, and a neon button that looks identical
+    /// disabled and enabled is a failure this project has already shipped
+    /// once — the route editor's Finish button, found by rendering it.
+    func testRenderGuidePanelStates() throws {
+        var early = FirstCityGuide()
+        var state = FirstCityGuide.State()
+        state.roadTiles = 8
+        early.update(with: state)
+
+        var late = early
+        state.residentialLots = 2; state.commercialLots = 1; state.industrialLots = 1
+        state.isRunning = true; state.population = 12
+        state.hasWaterSource = true; state.hasPowerSource = true; state.overlay = .problems
+        late.update(with: state)
+
+        var finished = late
+        state.hasEmergencyService = true; state.isShowingCityPanel = true
+        finished.update(with: state)
+
+        try render(name: "retro-guide", content:
+            HStack(alignment: .top, spacing: 14) {
+                GuidePanel(guide: early, lockedReason: nil, onShortcut: { _ in }, onDismiss: {})
+                GuidePanel(guide: late, lockedReason: "28 more residents", onShortcut: { _ in }, onDismiss: {})
+                GuidePanel(guide: finished, lockedReason: nil, onShortcut: { _ in }, onDismiss: {})
+            }
+            .padding(16)
+            .background(RetroUITheme.background)
+        )
+    }
+
     /// **Every state the inspector can be in, side by side.**
     ///
     /// The panel's whole job is telling states apart, so reviewing it one

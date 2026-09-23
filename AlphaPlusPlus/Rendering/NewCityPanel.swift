@@ -16,6 +16,15 @@ struct NewCityPanel: View {
     @ObservedObject var controller: GameController
     let dismiss: () -> Void
 
+    /// Whether to found this city with the guide running.
+    ///
+    /// Remembered, so a player who has turned it off once is not asked to turn
+    /// it off every time — and on for a first launch, because the player who
+    /// most needs it is the one least likely to go looking for a checkbox.
+    /// Stored by the panel rather than the controller so the controller, and
+    /// every test that builds one, never touches `UserDefaults`.
+    @AppStorage("foundWithGuide") private var guided = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             RetroSectionLabel(text: "Found a city", accent: RetroUITheme.primaryAccent)
@@ -26,6 +35,7 @@ struct NewCityPanel: View {
             land.frame(maxWidth: .infinity, alignment: .leading)
             size.frame(maxWidth: .infinity, alignment: .leading)
             seed.frame(maxWidth: .infinity, alignment: .leading)
+            guide.frame(maxWidth: .infinity, alignment: .leading)
             actions
         }
         .padding(18)
@@ -87,13 +97,29 @@ struct NewCityPanel: View {
 
     }
 
+    private var guide: some View {
+        RetroPanel(title: "Guide") {
+            VStack(alignment: .leading, spacing: 8) {
+                RetroToolChip(
+                    title: "Walk me through my first city",
+                    accent: RetroUITheme.primaryAccent,
+                    isSelected: guided
+                ) { guided.toggle() }
+                Text("Ten short steps, each finished by doing it. Skip it any time.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(RetroUITheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private var actions: some View {
         HStack(spacing: 10) {
             Spacer()
             Button("Cancel", action: dismiss)
                     .buttonStyle(RetroButtonStyle(accent: RetroUITheme.textSecondary))
             Button("Found") {
-                controller.resetMap()
+                controller.resetMap(guided: guided)
                 dismiss()
             }
             .buttonStyle(RetroButtonStyle(accent: RetroUITheme.primaryAccent))
