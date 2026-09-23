@@ -193,8 +193,12 @@ final class MetalMotionTests: XCTestCase {
             ("raining", Self.centre(Self.exposedBusiestStreet(in: map)), Float(0.8)),
             ("the waterfront — ship at the quay, the airport", Isometric().project(25, 17, 0), Float(0)),
             ("the fire, the light it throws, its engine", Isometric().project(12, 7, 1.5), Float(0)),
+            // Past the close-up threshold, where a car stops being a streak
+            // and becomes a lit body with head and tail lights.
+            ("up close — vehicles as bodies", Self.centre(Self.exposedBusiestStreet(in: map)), Float(0)),
         ] as [(String, CGPoint, Float)] {
-            let camera = MetalCityRenderer.Camera(centre: centre, scale: 0.45, size: Self.size)
+            let scale: CGFloat = label.hasPrefix("up close") ? 0.22 : 0.45
+            let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: Self.size)
             let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: rain > 0 ? 1 : 0,
                                                       time: 2, motionClock: 1.3, rainfall: rain))
             frames.append((label, NSImage(cgImage: frame.image, size: Self.size)))

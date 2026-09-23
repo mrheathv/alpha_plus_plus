@@ -910,7 +910,7 @@ final class MetalCityRenderer {
         guard chunks.contains(where: { $0.vertexCount > 0 }), let targets = targets(for: camera.size) else { return nil }
         let matrix = viewProjection(for: camera, mapExtent: mapExtent)
         lastMotionClock = motionClock
-        let moving = motion.frame(at: motionClock)
+        let moving = motion.frame(at: motionClock, near: nearDetail)
         let lights = diagnostics.skipPointLights ? []
             : visibleLights([moving.lights, allLights], through: matrix, camera: camera)
         let lightCount = lights.count / GPULight.floatCount

@@ -127,6 +127,123 @@ enum CityMotion {
         return false
     }
 
+    // MARK: - Continuous streets (the Metal renderer)
+
+    /// **A street, driven end to end.** The per-tile cars above cross one tile,
+    /// fade and start again, which is why a street read as a row of short
+    /// dashes blinking in step rather than as traffic. Here every straight run
+    /// of road is one street with two lanes, one each way, and a car drives
+    /// the whole of it without resetting, fading only where the street ends.
+    ///
+    /// Still aggregate, not agents: how many cars a lane carries and how fast
+    /// they go come from the same per-tile congestion `Traffic.carCount`
+    /// reads, so a jammed street is still visibly crowded and slow. SpriteKit
+    /// keeps the per-tile cars until it is retired.
+    struct Street: Equatable {
+        /// In order along +x (horizontal) or +y.
+        let tiles: [GridPosition]
+        let horizontal: Bool
+        /// Tiles per second.
+        let speed: Double
+        let lanes: [Lane]
+    }
+
+    struct Lane: Equatable {
+        /// Driving toward the end of `tiles`, or back toward its start.
+        let forward: Bool
+        let cars: [StreetCar]
+    }
+
+    struct StreetCar: Equatable {
+        /// Where along the loop it is at clock 0, in tiles.
+        let offset: Double
+        let vehicle: IsoTextureCache.Vehicle
+        let length: CGFloat
+        let alpha: CGFloat
+    }
+
+    /// Which side of the street a lane keeps to, as a fraction of the tile —
+    /// the same 0.16 either side of the centre line the per-tile cars used.
+    static let laneOffset: CGFloat = 0.16
+
+    /// How many ambient cars a lane carries per tile of street when nothing is
+    /// routed down it, on a street that fronts buildings. A quiet
+    /// neighbourhood is quiet, not dead.
+    static let ambientCarsPerTile = 0.2
+
+    /// Every street in the city.
+    static func streets(in map: CityMap, anyFire: Bool? = nil) -> [Street] {
+        let anyFire = anyFire ?? (Fire.count(in: map) > 0)
+        var streets: [Street] = []
+        func collect(horizontal: Bool) {
+            let outer = horizontal ? map.height : map.width
+            let inner = horizontal ? map.width : map.height
+            for a in 0 ..< outer {
+                var run: [GridPosition] = []
+                func flush() {
+                    if run.count >= 2, let street = street(run, horizontal: horizontal, in: map, anyFire: anyFire) {
+                        streets.append(street)
+                    }
+                    run = []
+                }
+                for b in 0 ..< inner {
+                    let p = horizontal ? GridPosition(x: b, y: a) : GridPosition(x: a, y: b)
+                    if Traffic.isRoadLike(map[p].zone) { run.append(p) } else { flush() }
+                }
+                flush()
+            }
+        }
+        collect(horizontal: true)
+        collect(horizontal: false)
+        return streets
+    }
+
+    private static func street(_ tiles: [GridPosition], horizontal: Bool, in map: CityMap,
+                               anyFire: Bool) -> Street? {
+        let congestion = tiles.map { Traffic.congestion(at: $0, in: map) }
+        let mean = congestion.reduce(0, +) / Double(tiles.count)
+        // Routed traffic, split between the two directions, and never less
+        // than the ambient floor where the street has buildings on it.
+        let routed = congestion.reduce(0) { $0 + Traffic.carCount(forCongestion: $1) }
+        let fronted = tiles.contains { tile in
+            tile.orthogonalNeighbors().contains { map.contains($0) && map[$0].zone.maxDensity > 0 && map[$0].density > 0 }
+        }
+        let ambient = fronted ? Int((Double(tiles.count) * ambientCarsPerTile).rounded(.up)) : 0
+        let perLane = min(tiles.count, max((routed + 1) / 2, ambient))
+        guard perLane > 0 else { return nil }
+        let speedFactor = CGFloat(1 - mean)
+        let loop = Double(tiles.count + 1)
+        let lanes = [true, false].map { forward -> Lane in
+            var random = BuildingRandom(seed: tiles[0], salt: (forward ? 1301 : 1302) + (horizontal ? 0 : 7))
+            let cars = (0 ..< perLane).map { index -> StreetCar in
+                let jitter = random.value(in: -0.3 ... 0.3)
+                let offset = (loop * (Double(index) + 0.5 + jitter) / Double(perLane))
+                let at = tiles[min(tiles.count - 1, max(0, Int(offset)))]
+                return StreetCar(offset: offset,
+                                 vehicle: vehicleKind(at: at, in: map, anyFire: anyFire, random: &random),
+                                 length: 0.18 + speedFactor * 0.8,
+                                 alpha: 0.3 + speedFactor * 0.35)
+            }
+            return Lane(forward: forward, cars: cars)
+        }
+        return Street(tiles: tiles, horizontal: horizontal, speed: 1 / (1.2 + mean * 1.8), lanes: lanes)
+    }
+
+    /// Where a car is at `clock`: how far along its street (0 at the end it
+    /// enters from, in tiles), and how visible — it fades in over the first
+    /// few tenths of a tile and out over the last, and spends one tile of its
+    /// loop off the street entirely, which is it turning off at the junction.
+    static func along(_ car: StreetCar, on street: Street, at clock: TimeInterval) -> (distance: CGFloat, visibility: CGFloat) {
+        let length = Double(street.tiles.count)
+        let loop = length + 1
+        var s = (car.offset + clock * street.speed).truncatingRemainder(dividingBy: loop)
+        if s < 0 { s += loop }
+        guard s < length else { return (CGFloat(length), 0) }
+        let fade = 0.35
+        let visibility = min(1, s / fade, (length - s) / fade)
+        return (CGFloat(s), CGFloat(max(0, visibility)))
+    }
+
     // MARK: - Vehicles on real paths
 
     /// A vehicle whose route is real ground: a tram on its rails, a ship on

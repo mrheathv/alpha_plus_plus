@@ -8320,6 +8320,27 @@ rerun after any change to how a view looks, however unrelated it seems.
 building's own neon is thin, so there is little for the recolour to carry.
 Look again once the building-variety work lands.
 
+### The cars pass (Metal)
+
+**A street is driven end to end now.** Each road tile used to carry its own
+one-tile car that crossed, faded and started again, so a street read as a
+row of short dashes blinking in step. `CityMotion.streets` makes every
+straight run of road one street with two lanes, one each way. A car drives
+the whole length and fades only where the street ends, spending one tile of
+its loop off the map, as if turning off at the junction. It is still
+aggregate, not agents: a lane's car count and speed come from the same
+per-tile congestion `Traffic.carCount` reads. A street fronting buildings
+keeps an ambient floor (`ambientCarsPerTile`, 0.2) so a quiet neighbourhood
+is not dead. SpriteKit keeps its per-tile cars until it is retired.
+
+**Up close a vehicle is a body; further out it stays light.** Past the
+near-detail threshold a car is a small dark box edged in its kind's colour,
+with a cabin, twin headlights and red tail lights (traces, bright enough to
+bloom), a short red trail and a headlight wash on the road ahead. Further
+out it stays a streak, because a body a few pixels across stops being a
+shape. `MetalMotion.block` now builds both vehicles and the ship's hull.
+Apex holds at 8.0 ms, since bodies are only drawn when zoomed in.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
