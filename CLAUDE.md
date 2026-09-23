@@ -7220,6 +7220,11 @@ integration, and **none of it is simulation work**.
 Two findings from that pass belong here because they are facts about the
 repository rather than opinions about the plan:
 
+- **Update: the music plays now.** `SoundtrackConductor` (App/) owns the
+  player and the director, ticks ten times a second on the title screen and
+  in the game, and Settings has a Music row (Off / Low / Medium / High),
+  stored once in `UserDefaults`. Only the app constructs one, so the tests
+  never open an audio device. What follows is how it stood before.
 - **The game is silent, and the soundtrack keeps getting more finished.**
   `Audio/` now holds a band-limited synthesiser, a score, a mixer, a
   **`MusicDirector`** that decides which track a city has earned, and a

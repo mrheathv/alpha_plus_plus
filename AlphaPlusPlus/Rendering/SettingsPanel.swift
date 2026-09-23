@@ -16,12 +16,16 @@ struct SettingsPanel: View {
     @ObservedObject var controller: GameController
     let dismiss: () -> Void
 
+    /// Where the conductor reads it from — one copy, in `UserDefaults`.
+    @AppStorage(SoundtrackConductor.volumeKey) private var musicVolume = SoundtrackConductor.defaultVolume
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             RetroSectionLabel(text: "Settings", accent: RetroUITheme.primaryAccent)
             visuals.frame(maxWidth: .infinity, alignment: .leading)
             renderer.frame(maxWidth: .infinity, alignment: .leading)
             motion.frame(maxWidth: .infinity, alignment: .leading)
+            sound.frame(maxWidth: .infinity, alignment: .leading)
             keyboard.frame(maxWidth: .infinity, alignment: .leading)
             actions
         }
@@ -77,6 +81,28 @@ struct SettingsPanel: View {
                 Text("Stops the rain, the factory smoke and the slow pulse in a building's "
                      + "light. Traffic, transit and fire keep moving — those are the city "
                      + "telling you something, not atmosphere.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(RetroUITheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// **The volume arrived with the sound, as promised.** This panel had no
+    /// volume control on purpose — a slider that moved nothing is the failure
+    /// this project has shipped twice — and it lands in the same change that
+    /// makes the music play.
+    private var sound: some View {
+        RetroPanel(title: "Music") {
+            VStack(alignment: .leading, spacing: 8) {
+                RetroSegmentedPicker(
+                    options: MusicLevel.allCases,
+                    label: \.displayName,
+                    selection: Binding(get: { MusicLevel.nearest(to: musicVolume) },
+                                       set: { musicVolume = $0.rawValue })
+                )
+                Text("A synthesised soundtrack that follows the city: founding, growing, "
+                     + "settled, under pressure, in decline, and quieter when paused.")
                     .font(.system(size: 11))
                     .foregroundStyle(RetroUITheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

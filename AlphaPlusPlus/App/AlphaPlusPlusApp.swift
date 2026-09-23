@@ -18,6 +18,11 @@ struct AlphaPlusPlusApp: App {
     /// nothing else passes one.
     @StateObject private var document = CityDocument(autosave: CityAutosave.standard())
 
+    /// The music — see `SoundtrackConductor`. Made once, on first appearance,
+    /// for the reason autosave is only switched on here: the tests build
+    /// documents without it and never open an audio device.
+    @State private var soundtrack: SoundtrackConductor?
+
     /// A binding onto one ordinance, so the City menu can show it as a
     /// checkmarked toggle.
     private func ordinance(_ keyPath: WritableKeyPath<Ordinances, Bool>) -> Binding<Bool> {
@@ -30,6 +35,12 @@ struct AlphaPlusPlusApp: App {
     var body: some Scene {
         WindowGroup("Alpha++") {
             RootView(document: document)
+                .onAppear {
+                    guard soundtrack == nil else { return }
+                    let conductor = SoundtrackConductor(document: document)
+                    conductor.start()
+                    soundtrack = conductor
+                }
         }
         .commands {
             // The city commands *replace* the New-Window group rather than
