@@ -460,8 +460,7 @@ final class MetalCityRenderer {
         let key = MetalCityMesh.Cache.Key(zone: zone, density: density,
                                           variant: IsoTextureCache.variant(for: position))
         if let known = heights[key] { return known }
-        let built = cache.entries[key] ?? MetalCityMesh.building(key)
-        cache.entries[key] = built
+        let built = cache.built(for: key)
         var height: Float = 0
         var z = 2
         while z < built.vertices.count { height = max(height, built.vertices[z]); z += GPUVertex.floatCount }
@@ -565,6 +564,51 @@ final class MetalCityRenderer {
     /// is noticed rather than silently drawing nothing.
     var hasSignAtlas: Bool { signAtlas != nil }
 
+    /// Whether changed chunks are rebuilt off the main thread. The live view
+    /// turns it on (`MetalMapView`); a test takes a picture straight after an
+    /// update and needs the update to be finished, so it stays off there.
+    var rebuildsInBackground = false
+    private let rebuildQueue = DispatchQueue(label: "MetalCityRenderer.chunks", qos: .userInitiated,
+                                             attributes: .concurrent)
+    /// The signature each chunk is being rebuilt for, off the main thread.
+    private var inFlight: [Int: Int] = [:]
+
+    /// Swaps a rebuilt chunk in, if it is still the one wanted: a chunk that
+    /// changed again while it was being built has a newer job, and a map of
+    /// a different size has different chunks altogether.
+    private func land(_ built: MetalCityMesh.Built, at index: Int, signature: Int, tier: DetailTier,
+                      grid: (Int, Int, Int, Int)) {
+        guard inFlight[index] == signature else { return }
+        inFlight[index] = nil
+        guard chunkGrid == grid, chunks.indices.contains(index), tier == detailTier else {
+            // Discarded, and nothing else will ask for this chunk again until
+            // the map next changes — which, paused, may be never. Look again
+            // on the next frame.
+            builtRevision = nil
+            return
+        }
+        install(built, at: index, signature: signature, tier: tier)
+        allLights = chunks.flatMap(\.lights)
+    }
+
+    private func install(_ built: MetalCityMesh.Built, at index: Int, signature: Int, tier: DetailTier) {
+        let count = built.vertices.count / GPUVertex.floatCount
+        var height: Float = 0
+        var z = 2
+        while z < built.vertices.count { height = max(height, built.vertices[z]); z += GPUVertex.floatCount }
+        chunks[index] = Chunk(
+            signature: signature,
+            buffer: count == 0 ? nil : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4),
+            vertexCount: count, groundCount: built.groundFloats / GPUVertex.floatCount,
+            lights: built.lights, height: height, region: chunks[index].region)
+        chunks[index].tier = tier
+        storeSigns(built.signs, at: index)
+    }
+
+    /// Whether a background rebuild is still on its way, for the test that
+    /// waits for one to land.
+    var isRebuildingInBackground: Bool { !inFlight.isEmpty }
+
     private func storeSigns(_ signs: [Float], at index: Int) {
         chunks[index].signs = signs
         chunks[index].signBuffer = signs.isEmpty ? nil
@@ -575,7 +619,7 @@ final class MetalCityRenderer {
     private(set) var chunksRebuiltLastUpdate = 0
     /// How many building variants have been generated so far — a miss on the
     /// cache is massing generated on the frame that needed it.
-    var cachedBuildingCount: Int { cache.entries.count }
+    var cachedBuildingCount: Int { cache.count }
 
     /// Everything about a chunk's tiles that decides what it draws — and
     /// nothing that does not. Read one tile past the edge, because a lane
@@ -630,22 +674,35 @@ final class MetalCityRenderer {
             }
         }
         var rebuilt = 0
-        for index in chunks.indices {
+        let dirty = chunks.indices.compactMap { index -> (Int, Int)? in
             let signature = Self.signature(of: chunks[index].region, in: map)
-            guard signature != chunks[index].signature || chunks[index].buffer == nil else { continue }
-            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, tier: detailTier)
-            let count = built.vertices.count / GPUVertex.floatCount
-            var height: Float = 0
-            var z = 2
-            while z < built.vertices.count { height = max(height, built.vertices[z]); z += GPUVertex.floatCount }
-            chunks[index] = Chunk(
-                signature: signature,
-                buffer: count == 0 ? nil : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4),
-                vertexCount: count, groundCount: built.groundFloats / GPUVertex.floatCount,
-                lights: built.lights, height: height, region: chunks[index].region)
-            chunks[index].tier = detailTier
-            storeSigns(built.signs, at: index)
+            return signature != chunks[index].signature || chunks[index].buffer == nil ? (index, signature) : nil
+        }
+        // A click changes a chunk or two, and rebuilding those here costs
+        // about 1.6 ms on Apex — sending them away would only make the
+        // player's own building appear a frame late. A day that changes many
+        // is the case worth moving off the main thread.
+        let deferLarge = rebuildsInBackground && dirty.count > 2
+        for (index, signature) in dirty {
             rebuilt += 1
+            // **Off the main thread, when the live game asks for it** and
+            // there is something already on screen to show meanwhile. A
+            // chunk with nothing yet — a city just loaded — is built here,
+            // so the map never appears empty.
+            if deferLarge, chunks[index].vertexCount > 0 {
+                guard inFlight[index] != signature else { continue }
+                inFlight[index] = signature
+                let region = chunks[index].region, tier = detailTier, cache = cache, grid = chunkGrid
+                rebuildQueue.async { [weak self] in
+                    let built = MetalCityMesh.build(map, cache: cache, region: region, tier: tier)
+                    DispatchQueue.main.async {
+                        self?.land(built, at: index, signature: signature, tier: tier, grid: grid)
+                    }
+                }
+                continue
+            }
+            install(MetalCityMesh.build(map, cache: cache, region: chunks[index].region, tier: detailTier),
+                    at: index, signature: signature, tier: detailTier)
         }
         chunksRebuiltLastUpdate = rebuilt
         if rebuilt > 0 { allLights = chunks.flatMap(\.lights) }
@@ -1385,7 +1442,32 @@ enum MetalCityMesh {
             var near: Bool { tier >= .near }
             var street: Bool { tier >= .street }
         }
-        var entries: [Key: Built] = [:]
+        /// **Locked**, because the renderer rebuilds chunks off the main
+        /// thread and asks for building heights on it: a dictionary read on
+        /// one thread while another writes it is a crash waiting to happen.
+        private var entries: [Key: Built] = [:]
+        private let lock = NSLock()
+
+        /// The building for `key`, generated on first use. Generated outside
+        /// the lock, so two threads can race to make the same variant; the
+        /// second result is identical and simply discarded.
+        func built(for key: Key) -> Built {
+            lock.lock()
+            let hit = entries[key]
+            lock.unlock()
+            if let hit { return hit }
+            let made = MetalCityMesh.building(key)
+            lock.lock()
+            let kept = entries[key] ?? made
+            entries[key] = kept
+            lock.unlock()
+            return kept
+        }
+
+        var count: Int {
+            lock.lock(); defer { lock.unlock() }
+            return entries.count
+        }
     }
 
     /// sRGB colour to linear light. Every colour in this project was picked
@@ -1713,13 +1795,7 @@ enum MetalCityMesh {
         for tile in tilesInRegion where tile.isBuildingAnchor {
             let key = Cache.Key(zone: tile.zone, density: tile.density,
                                 variant: IsoTextureCache.variant(for: tile.position), tier: tier)
-            let local: Built
-            if let hit = cache.entries[key] {
-                local = hit
-            } else {
-                local = building(key)
-                cache.entries[key] = local
-            }
+            let local = cache.built(for: key)
             let dx = Float(tile.position.x), dy = Float(tile.position.y)
             let rise = heightScale(zone: tile.zone, density: tile.density, at: tile.position, in: map)
             var vertices = local.vertices

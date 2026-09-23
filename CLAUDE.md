@@ -8749,6 +8749,34 @@ glass catching the sky at glancing angles, since in this fixed isometric
 camera every wall is seen at the same angle. The sky on dark panes is the
 version of it that reads.
 
+### Changed chunks rebuild off the main thread
+
+The last big-city cost on the main thread after the day moved there: the
+Metal renderer rebuilding the chunks a day changed, up to 22 ms on a large
+growing city in Release (`BackgroundChunkTests`, ten days at a time).
+
+- **A day that changes more than two chunks** rebuilds them on a concurrent
+  queue and swaps each in when it lands, while the old one stays on screen
+  a frame or two. A chunk that changes again meanwhile gets a newer job, and
+  the older result is discarded on arrival. Worst update on the main thread:
+  22.65 → 5.73 ms.
+- **A click stays synchronous.** One or two chunks cost about 1.6 ms, and
+  deferring them would only draw the player's own building a frame late.
+- **A city just loaded builds here**, so the map never appears empty.
+- **Opt-in for the live view** (`rebuildsInBackground`, set by
+  `MetalMapView`), for the reason the background day is: a test pictures the
+  city straight after an update.
+- **The building cache is locked** (`Cache.built(for:)`), since the queue
+  writes it while the main thread reads heights from it.
+- A result discarded for a changed detail tier forces a re-check on the next
+  frame, or a paused city would never rebuild that chunk.
+
+`BackgroundChunkTests` pins that background rebuilds land byte for byte
+where synchronous ones would, that a newer change wins, and that a click is
+drawn at once. **Still on the main thread** after a changed day, about 5 ms
+on the growing city: the signature pass, the motion plan, the view layer's
+rebuild and its uploads.
+
 ### Building detail, P2: shapes beyond boxes
 
 `MassingShape` (Rendering/MassingShapes.swift) is one more kind of `Volume`,
