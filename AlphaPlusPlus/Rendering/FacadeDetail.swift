@@ -21,7 +21,7 @@ import SpriteKit
 /// consumes that stream in a fixed order, and one more draw would redesign
 /// every building after it — a change to the whole city smuggled inside a
 /// detail pass. Where a part needs a choice it hashes its own geometry
-/// (`chance`), so a lot's look is still stable and still differs from its
+/// (`roll`), so a lot's look is still stable and still differs from its
 /// neighbour's.
 enum FacadeDetail {
 
@@ -123,5 +123,81 @@ enum FacadeDetail {
             massing.add(.box(Box(x: x + reach - 0.015, y: y + offset, z: box.z + 0.3, width: 0.015, depth: 0.015,
                                  height: box.height - 0.35 + extra)), from: tier)
         }
+    }
+
+    // MARK: - Windows up close
+
+    /// **The marks every window gains up close, moved out of the renderer.**
+    /// They used to be drawn by `MetalCityMesh.building` directly: the
+    /// mullions and slab lines at the near tier, and at the street tier a
+    /// frame round each lit pane with a sill under it. As parts of the
+    /// massing they are tagged, measured and tested like everything else, and
+    /// the renderer is back to drawing what it is given.
+    ///
+    /// Marks sit off the wall by their own `standoff` (0.013 for mullions and
+    /// slab lines, 0.015 for frames), in front of the lit pane at 0.009,
+    /// which is where the renderer drew them.
+    static func windowDetail(_ massing: inout BuildingMassing, accent: SKColor) {
+        var ledged: Set<String> = []
+        let panels = massing.panels
+        for panel in panels {
+            for var mark in IsometricBuilding.nearDetail(on: panel, accent: accent, in: Isometric(), ledged: &ledged) {
+                mark.standoff = 0.013
+                mark.isMark = true
+                massing.panels.append(mark.at(.near))
+            }
+            let color = MetalCityMesh.linear(panel.color) * Float(panel.color.alphaComponent)
+            if MetalCityMesh.luminance(color) > 0.08 { frame(panel, accent: accent, into: &massing) }
+        }
+    }
+
+    /// The street-tier frame: four strips round the pane, standing proud of
+    /// it, and a ledge under it that catches the street's light.
+    ///
+    /// **Tinted with the building's accent, faintly, so it glows.** The
+    /// renderer's frames were dark with a rim of accent light on their edges,
+    /// which is what gave a window its pale surround. A mark has no rim, and
+    /// a plain dark frame read as a black border round every pane — the first
+    /// render after the move showed it at once. At 28% of the accent a frame
+    /// clears the mark's glow threshold for every zone's colour, and lands at
+    /// about the brightness that rim had.
+    static let frameStrength: CGFloat = 0.28
+
+    private static func frame(_ pane: Panel, accent: SKColor, into massing: inout BuildingMassing) {
+        let box = pane.box
+        let t: CGFloat = 0.016
+        let across = pane.face == .right ? box.depth : box.width
+        let du = t / max(across, 0.01), dv = t / max(box.height, 0.01)
+        let strips: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (pane.u0 - du, pane.u1 + du, pane.v1, pane.v1 + dv),   // head
+            (pane.u0 - du, pane.u1 + du, pane.v0 - dv, pane.v0),   // foot
+            (pane.u0 - du, pane.u0, pane.v0, pane.v1),              // left jamb
+            (pane.u1, pane.u1 + du, pane.v0, pane.v1),              // right jamb
+        ]
+        for (u0, u1, v0, v1) in strips {
+            var strip = pane
+            strip.u0 = max(0, u0); strip.u1 = min(1, u1)
+            strip.v0 = max(0, v0); strip.v1 = min(1, v1)
+            strip.color = accent.withAlphaComponent(frameStrength)
+            strip.standoff = 0.015
+            strip.isMark = true
+            massing.panels.append(strip.at(.street))
+        }
+        // The sill: a thin ledge the width of the frame, 0.04 deep.
+        let z = box.z + box.height * max(0, pane.v0 - dv) - 0.012
+        // A pane that starts at the ground is a door or a loading bay, and
+        // has no sill; one there would sink below the street.
+        guard z >= 0.02 else { return }
+        let a0 = max(0, pane.u0 - du), a1 = min(1, pane.u1 + du)
+        let sill: Box
+        switch pane.face {
+        case .right:
+            sill = Box(x: box.x + box.width, y: box.y + box.depth * a0, z: z,
+                       width: 0.04, depth: box.depth * (a1 - a0), height: 0.012)
+        case .left:
+            sill = Box(x: box.x + box.width * a0, y: box.y + box.depth, z: z,
+                       width: box.width * (a1 - a0), depth: 0.04, height: 0.012)
+        }
+        massing.add(.box(sill), from: .street)
     }
 }

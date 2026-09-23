@@ -1377,12 +1377,10 @@ enum MetalCityMesh {
     final class Cache {
         struct Key: Hashable {
             let zone: ZoneType; let density: Int; let variant: Int
-            /// With the marks a building gains up close — mullions and slab
-            /// lines, `IsometricBuilding.nearDetail`.
             /// The detail tier it is built at (`DetailTier`): which tagged
-            /// parts it carries, and whether the renderer's own close-up
-            /// marks (mullions and slab lines from `.near`, window frames
-            /// from `.street`) are added.
+            /// parts of the massing it carries. The close-up marks (mullions
+            /// and slab lines at `.near`, frames and sills at `.street`) are
+            /// such parts now, from `FacadeDetail.windowDetail`.
             var tier: DetailTier = .standard
             var near: Bool { tier >= .near }
             var street: Bool { tier >= .street }
@@ -1922,10 +1920,23 @@ enum MetalCityMesh {
             // so they do not fight it for the depth test. Dark panels —
             // recesses, mullions, cladding — stay surface, not light.
             var lightPerFace: [Panel.Face: (sum: SIMD3<Float>, area: Float, centre: SIMD3<Float>, n: Float)] = [:]
-            var ledged: Set<String> = []
             for panel in massing.panels {
                 let normal: SIMD3<Float> = panel.face == .right ? SIMD3(1, 0, 0) : SIMD3(0, 1, 0)
                 let color = linear(panel.color) * Float(panel.color.alphaComponent)
+                // **A mark** — a frame, a mullion, a slab line — is neither a
+                // window nor a wall: no window tag, no share of the wall's
+                // light, emissive when bright and dark otherwise. They used
+                // to be drawn right here from `key.near` and `key.street`;
+                // they are parts of the massing now (`FacadeDetail`).
+                if panel.isMark {
+                    let corners = panel.corners.map { world($0) + normal * Float(panel.standoff ?? 0.004) }
+                    if luminance(color) > 0.03 {
+                        polygon(corners, normal: normal, albedo: .zero, emissive: color * 1.3)
+                    } else {
+                        polygon(corners, normal: normal, albedo: color)
+                    }
+                    continue
+                }
                 let lit = luminance(color) > 0.08
                 // **Lit panels stand further out than dark ones.** Both used
                 // to sit 0.004 off the wall, so wherever a window crossed the
@@ -1950,48 +1961,8 @@ enum MetalCityMesh {
                     entry.centre += corners.reduce(.zero, +) / 4
                     entry.n += 1
                     lightPerFace[panel.face] = entry
-                    if key.street {
-                        // **Street level: a frame and a sill.** A window you
-                        // can walk up to has depth — a dark frame standing
-                        // proud of the glass and a ledge under it that catches
-                        // the street's light. At any other zoom it is a smudge
-                        // round the pane, which is why it is only drawn here.
-                        let ux = simd_normalize(corners[1] - corners[0])
-                        let vz = simd_normalize(corners[3] - corners[0])
-                        let t: Float = 0.016
-                        let out = normal * 0.006
-                        let c = corners.map { $0 + out }
-                        let frameAlbedo = body * 0.6, frameRim = accent * 0.35 * role.rim
-                        polygon([c[0] - ux * t - vz * t, c[1] + ux * t - vz * t, c[1] + ux * t, c[0] - ux * t],
-                                normal: normal, albedo: frameAlbedo, rim: frameRim)
-                        polygon([c[3] - ux * t, c[2] + ux * t, c[2] + ux * t + vz * t, c[3] - ux * t + vz * t],
-                                normal: normal, albedo: frameAlbedo, rim: frameRim)
-                        polygon([c[0] - ux * t, c[0], c[3], c[3] - ux * t],
-                                normal: normal, albedo: frameAlbedo)
-                        polygon([c[1], c[1] + ux * t, c[2] + ux * t, c[2]],
-                                normal: normal, albedo: frameAlbedo)
-                        // The sill: a ledge the width of the frame.
-                        let sill0 = c[0] - ux * t - vz * t, sill1 = c[1] + ux * t - vz * t
-                        polygon([sill0, sill1, sill1 + normal * 0.035, sill0 + normal * 0.035],
-                                normal: SIMD3(0, 0, 1), albedo: body * 1.4, rim: frameRim)
-                    }
                 } else {
                     polygon(corners, normal: normal, albedo: color)
-                }
-                // **Up close, the facade comes apart into panes** — the same
-                // marks, from the same derivation, SpriteKit's near tier
-                // draws. Standing proud of the panel they mark, for the
-                // reason lit panels stand proud of the cladding.
-                guard key.near else { continue }
-                for mark in IsometricBuilding.nearDetail(on: panel, accent: accentColor, in: Isometric(),
-                                                         ledged: &ledged) {
-                    let markColor = linear(mark.color) * Float(mark.color.alphaComponent)
-                    let markCorners = mark.corners.map { world($0) + normal * 0.013 }
-                    if luminance(markColor) > 0.03 {
-                        polygon(markCorners, normal: normal, albedo: .zero, emissive: markColor * 1.3)
-                    } else {
-                        polygon(markCorners, normal: normal, albedo: SIMD3(0.02, 0.015, 0.03))
-                    }
                 }
             }
             // One light per lit wall: its windows, together, spilling onto

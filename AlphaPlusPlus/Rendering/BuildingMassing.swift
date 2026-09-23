@@ -309,6 +309,13 @@ struct Panel {
     /// mullion stand in front of the lit glass it borders rather than behind.
     var standoff: CGFloat? = nil
 
+    /// Drawn as a *mark* rather than as a window or a wall: no window tag,
+    /// no share of the wall's light, and emissive (×1.3) above luminance 0.03
+    /// or dark otherwise. Frames, mullions and slab lines are marks. Kept
+    /// apart from `standoff`, which says where a panel sits, not how it is
+    /// shaded, so a lit pane with a custom offset stays a window.
+    var isMark = false
+
     /// This panel, tagged for `tier`: `massing.panels.append(panel.at(.near))`.
     func at(_ tier: DetailTier) -> Panel {
         var copy = self

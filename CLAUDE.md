@@ -8801,6 +8801,31 @@ did (Apex: 115,600 triangles, about 8.3 ms, 2,128 lights, unchanged).
   after the facades and 77,760 after the roofs; 5.40 → 5.75 ms; lights 282
   → 285, from the lit pools and helipads.
 
+### Building detail, P3 part 2: the close-up marks move into the massing
+
+The mullions and slab lines (near tier) and the window frames and sills
+(street tier) were drawn by `MetalCityMesh.building` itself. They are parts
+of the massing now, made by `FacadeDetail.windowDetail` for every building,
+and the two renderer blocks are gone.
+
+- **`Panel.isMark`** (agreed with the visuals session): a mark has no window
+  tag, no share of the wall's light, and is emissive (×1.3) above luminance
+  0.03, dark otherwise. It is a flag of its own rather than inferred from
+  `standoff`, since a lit pane with a custom offset must stay a window.
+  `FacadeDetailTests` pins both halves against a control window.
+- **The frames lost their glow in the move, and had to get it back.** The
+  renderer drew them dark with a rim of accent light, which gave each
+  window its pale surround; a mark has no rim, and the first render showed
+  plain black borders. They are 28% of the building's accent now, which a
+  mark draws as a faint glow at about the old rim's brightness.
+- **Sills are boxes**, so they cost more than the flat quad the renderer drew:
+  Apex at the closest camera went 77,760 → 100,110 triangles, 5.75 → 5.66 ms
+  (noise), lights unchanged. None under a pane that starts at the ground,
+  which is a door and would sink its sill below the street.
+- **One colour difference**: slab lines use the zone's accent, not the Metal
+  renderer's per-variant variation of it (`MetalCityMesh.varied`), which
+  the massing cannot see. The difference is a few degrees of hue.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

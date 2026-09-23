@@ -19,6 +19,9 @@ enum ZoneMassing {
         if zone.maxDensity > 0 {
             RoofDetail.dress(&massing, zone: zone, footprint: CGFloat(zone.footprintSize))
         }
+        // Frames, sills, mullions and slab lines for every building, as the
+        // renderer used to draw them — see `FacadeDetail.windowDetail`.
+        FacadeDetail.windowDetail(&massing, accent: accent(for: zone, density: density))
         return massing
     }
 
