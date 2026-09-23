@@ -1,5 +1,4 @@
 import XCTest
-import SpriteKit
 @testable import AlphaPlusPlus
 
 /// The isometric contact sheet: every zone `ZoneMassing` can build, at every
@@ -157,159 +156,62 @@ final class IsometricContactSheetTests: XCTestCase {
     /// than six. The elevation path is gone now, so there is nothing to compare
     /// against and the comparison would only measure itself.
     ///
-    /// What is still worth guarding is the *absolute* number, because it is
-    /// what the texture cache has to rasterise and what would come straight
-    /// back as draw calls if that cache were ever bypassed. A generator that
-    /// quietly grew to two hundred nodes a building would still look fine on a
-    /// contact sheet.
+    /// What is still worth guarding is the *absolute* number, in the Metal
+    /// renderer's own currency: triangles at the resting camera's tier, over
+    /// the variants the game actually draws. A generator that quietly grew
+    /// to several thousand triangles a building would still look fine on a
+    /// contact sheet, and would come straight back as frame time on Apex.
     func testABuildingsGeometryStaysBounded() {
         var worst = (label: "", count: 0)
         var total = 0
         var buildings = 0
-
-        for entry in Self.catalog() {
-            guard let massing = ZoneMassing.make(for: entry.zone, density: entry.density, seed: entry.seed) else {
-                continue
+        for zone in ZoneType.allCases {
+            let densities = zone.maxDensity > 0 ? Self.tierDensities.values.filter { $0 <= zone.maxDensity } : [0]
+            for density in densities {
+                for variant in 0 ..< IsoTextureCache.variantCount {
+                    let built = MetalCityMesh.building(.init(zone: zone, density: density, variant: variant,
+                                                             tier: .standard))
+                    let count = built.vertices.count / MetalCityRenderer.GPUVertex.floatCount / 3
+                    guard count > 0 else { continue }
+                    total += count
+                    buildings += 1
+                    if count > worst.count { worst = ("\(zone.rawValue) L\(density) v\(variant)", count) }
+                }
             }
-            let node = IsometricBuilding.node(
-                for: massing,
-                accent: ZoneMassing.accent(for: entry.zone, density: entry.density),
-                tier: max(1, entry.tier),
-                in: Self.projection
-            )
-            let count = Self.nodeCount(node)
-            total += count
-            buildings += 1
-            if count > worst.count { worst = (entry.label, count) }
         }
-
         let average = Double(total) / Double(max(buildings, 1))
-        print("🧮 nodes per building — average \(String(format: "%.1f", average)), worst \(worst.count) (\(worst.label))")
-        XCTAssertLessThan(average, 90, "average building geometry has grown")
-        XCTAssertLessThan(worst.count, 220, "\(worst.label) is far heavier than anything else")
-    }
-
-    private static func nodeCount(_ node: SKNode) -> Int {
-        1 + node.children.reduce(0) { $0 + nodeCount($1) }
+        print("🧮 triangles per building — average \(String(format: "%.0f", average)), worst \(worst.count) (\(worst.label))")
+        XCTAssertLessThan(average, 300, "average building geometry has grown")
+        XCTAssertLessThan(worst.count, 1_000, "\(worst.label) is far heavier than anything else")
     }
 
     // MARK: - The render
 
+    /// Every zone at every tier, eight variants each, drawn by the Metal
+    /// renderer the game uses (`MetalSheet`) — the variants a player sees,
+    /// rather than arbitrary seeds the cache would never hand out.
+    @MainActor
     func testRenderIsometricContactSheet() throws {
-        let entries = Self.catalog()
-        let columns = 6
-        let cell = CGSize(width: 190, height: 190)
-        let captionHeight: CGFloat = 20
-        let rows = Int((Double(entries.count) / Double(columns)).rounded(.up))
-        let margin: CGFloat = 20
-        let sheetSize = CGSize(
-            width: CGFloat(columns) * cell.width + margin * 2,
-            height: CGFloat(rows) * (cell.height + captionHeight) + margin * 2 + 34
-        )
-
-        let view = SKView(frame: NSRect(origin: .zero, size: cell))
-        var cells: [NSImage] = []
-        for entry in entries {
-            cells.append(try renderCell(entry, size: cell, view: view))
-        }
-
-        let sheet = try XCTUnwrap(
-            Self.compose(cells: cells, entries: entries, columns: columns,
-                         cell: cell, captionHeight: captionHeight, margin: margin, sheetSize: sheetSize),
-            "failed to compose the isometric contact sheet"
-        )
-        let destination = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/ContactSheet/isometric-zones.png")
-        try FileManager.default.createDirectory(
-            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try sheet.write(to: destination)
-        print("📐 Isometric zones: \(destination.path) (\(entries.count) buildings, \(sheet.count) bytes)")
-        XCTAssertGreaterThan(sheet.count, 0)
-    }
-
-    private func renderCell(_ entry: Entry, size: CGSize, view: SKView) throws -> NSImage {
-        let projection = Self.projection
-        let footprint = CGFloat(entry.zone.footprintSize)
-        let scene = SKScene(size: size)
-        scene.backgroundColor = RenderPalette.background
-
-        // Anchor the lot, not the building — see the type's doc comment.
-        let lotCentre = projection.project(footprint / 2, footprint / 2, 0)
-        let origin = CGPoint(x: size.width / 2 - lotCentre.x, y: size.height * 0.34 - lotCentre.y)
-
-        for x in 0 ..< entry.zone.footprintSize {
-            for y in 0 ..< entry.zone.footprintSize {
-                let tile = SKShapeNode(path: projection.tileDiamond(x: CGFloat(x), y: CGFloat(y), inset: 0.015))
-                tile.fillColor = RenderPalette.color(for: entry.zone, density: entry.density)
-                tile.strokeColor = RenderPalette.ground.blended(withFraction: 0.3, of: .white) ?? .clear
-                tile.lineWidth = 0.6
-                tile.position = origin
-                scene.addChild(tile)
+        var cells: [MetalSheet.Cell] = []
+        for zone in ZoneType.allCases {
+            let cases: [(tier: Int, density: Int)] = zone.maxDensity > 0
+                ? Self.tierDensities.keys.sorted().map { ($0, Self.tierDensities[$0]!) }.filter { $0.density <= zone.maxDensity }
+                : [(0, 0)]
+            for (tier, density) in cases {
+                for variant in 0 ..< Self.variantCount {
+                    guard ZoneMassing.make(for: zone, density: density,
+                                           seed: IsoTextureCache.canonicalSeed(for: variant)) != nil else { continue }
+                    cells.append(.init(label: zone.maxDensity > 0 ? "\(zone.rawValue) T\(tier).\(variant)"
+                                                                   : "\(zone.rawValue).\(variant)",
+                                       zone: zone, density: density, variant: variant))
+                }
             }
         }
-
-        if let massing = ZoneMassing.make(for: entry.zone, density: entry.density, seed: entry.seed) {
-            let node = IsometricBuilding.node(
-                for: massing,
-                accent: ZoneMassing.accent(for: entry.zone, density: entry.density),
-                tier: entry.tier,
-                in: projection
-            )
-            node.position = origin
-            scene.addChild(node)
-        }
-
-        view.presentScene(scene)
-        let texture = try XCTUnwrap(
-            view.texture(from: scene, crop: CGRect(origin: .zero, size: size)),
-            "\(entry.label): SKView produced no texture"
-        )
-        return NSImage(cgImage: texture.cgImage(), size: size)
-    }
-
-    private static func compose(
-        cells: [NSImage], entries: [Entry], columns: Int,
-        cell: CGSize, captionHeight: CGFloat, margin: CGFloat, sheetSize: CGSize
-    ) -> Data? {
-        let scale: CGFloat = 2
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(sheetSize.width * scale), pixelsHigh: Int(sheetSize.height * scale),
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-        ) else { return nil }
-        rep.size = sheetSize
-        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        RenderPalette.background.setFill()
-        NSRect(origin: .zero, size: sheetSize).fill()
-
-        "Isometric massing — \(entries.count) buildings".draw(
-            at: NSPoint(x: margin, y: sheetSize.height - margin - 20),
-            withAttributes: [
-                .font: NSFont(name: "Menlo-Bold", size: 16) ?? NSFont.boldSystemFont(ofSize: 16),
-                .foregroundColor: NSColor.white,
-            ]
-        )
-        let captionAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont(name: "Menlo", size: 9) ?? NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
-            .foregroundColor: NSColor(white: 0.78, alpha: 1),
-        ]
-
-        for (index, entry) in entries.enumerated() {
-            let column = index % columns, row = index / columns
-            let x = margin + CGFloat(column) * cell.width
-            let y = sheetSize.height - margin - 34 - CGFloat(row + 1) * (cell.height + captionHeight)
-            cells[index].draw(in: NSRect(x: x, y: y + captionHeight, width: cell.width, height: cell.height))
-            let caption = entry.label
-            let captionSize = caption.size(withAttributes: captionAttributes)
-            caption.draw(at: NSPoint(x: x + (cell.width - captionSize.width) / 2, y: y + 4),
-                         withAttributes: captionAttributes)
-        }
-        NSGraphicsContext.restoreGraphicsState()
-        return rep.representation(using: .png, properties: [:])
+        // Two sheets, because one is taller than a bitmap may be (16,384
+        // pixels) and comes out blank: the growable zones, then everything else.
+        let growable = cells.filter { $0.zone.maxDensity > 0 }
+        try MetalSheet.write(growable, columns: 8, cell: CGSize(width: 220, height: 220), named: "isometric-zones")
+        try MetalSheet.write(cells.filter { $0.zone.maxDensity == 0 }, columns: 8, cell: CGSize(width: 220, height: 220),
+                             named: "isometric-services")
     }
 }
