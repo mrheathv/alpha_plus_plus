@@ -8997,6 +8997,61 @@ cut-off utilities. Level 6 is not the cause: the scenario measures
 identically before and after it. Whether that trade is the intended design
 is a balance call for the player.
 
+### M8, the input and test half: SpriteKit leaves the harness and the sheets
+
+M8 was split between two sessions. This half moved everything that decided
+or checked things through `GameScene` onto renderer-neutral code, so the
+scene could be deleted.
+
+- **`MapInteraction`** (App/) is what a click means, in tiles:
+  - strokes and fast-drag interpolation;
+  - bulldozing;
+  - the conduit views, with supply recomputed once per stroke;
+  - route stops and buying land;
+  - the cursor and the flashes.
+
+  It was ported from `GameScene` with the rules unchanged, conforms to
+  `CityMTKView`'s `MapInput`, and is unit-tested with no scene
+  (`MapInteractionTests`). `MapInteraction.cursor(at:controller:)` is a pure
+  static, so the cursor sweep (every cell of a river map, four tools, cursor
+  against what `place` returns) asks the rule directly.
+- **`CityPlaytest`** is the playtest with no scene. It sends clicks through
+  `MapInteraction` and days through `CityClock`, and a `MetalCityRenderer`
+  reads the controller every frame, the way the Metal view does.
+  `RandomScenePlayer` plays any `PlaytestSession`. Six random sessions of
+  300 steps run clean under `PLAYTEST_FULL`, and planting a bug (density
+  dropped from the chunk signature) fails the first scripted check.
+- **`MetalSheet`** draws contact sheets through the game's renderer. Each
+  cell is one lot on a plumbed 48×48 map, with the camera framed on it. A lot
+  draws variant `v` from `canonicalSeed(for: v)` at a position whose
+  `variant(for:)` is `v`, so a sheet asks for variants by searching
+  positions. `drawForTesting` hands the renderer a massing no lot generates.
+  Every building sheet, the portraits and the manual's figures use it now.
+- **The shared statics moved out of the SpriteKit files**, under the same
+  names:
+  - `OverlayPaint.swift`: `paint`, `missingUtilities`, `occlusionStep`;
+  - `BuildingVariants.swift`: `variant`, `canonicalSeed`, `Vehicle`, the
+    badge glyphs;
+  - `NearDetail.swift`: `nearDetail`.
+
+Three things the move found:
+
+- **Faces of five or more corners had no neon rim in Metal.** A tank's cap,
+  a dome's crown and a bevelled or hexagonal roof got a constant uv, so the
+  rim shader found no edge. Their far edge then lost the depth test to the
+  far walls, so the cap read as a hole. `appendPolygon` now fans such faces
+  from their centre, with uvs measuring distance to the outer edge. Apex
+  went from about 8.3 to 8.38 ms, and from 115.6k to 117.4k triangles.
+- **A contact sheet taller than 16,384 pixels comes out blank white**, with
+  nothing failing. The zones sheet is split into zones and services.
+- **The terrain fixture had zoned everything as industry**: `(x + y) % 3` is
+  constant on a grid that steps by three.
+
+**Budgets are in triangles now, not nodes.** The average building costs
+169 triangles at the resting tier, and the worst is 610 (housing L6 v4).
+Each skyscraper form is held to three times the median form, not to an
+absolute number that would move whenever the vocabulary grew.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
