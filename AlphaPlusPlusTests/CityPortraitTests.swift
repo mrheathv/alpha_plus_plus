@@ -1,28 +1,20 @@
 import XCTest
-import SpriteKit
+import AppKit
 @testable import AlphaPlusPlus
 
 /// **A photograph of a real city, at the two zooms it is actually played at.**
 ///
 /// Not a contact sheet and not a fixture render: this opens one of the
-/// `CityMinterTests` saves in a real `GameScene` on a real `SKView` — the same
-/// path `GameScene.captureImage()` takes for Capture Screenshot — and
-/// photographs it wide and close. It exists because this project is usually
-/// driven over a remote session where `screencapture` and accessibility
-/// scripting both fail, so a picture of the running game is otherwise not
-/// obtainable at all.
+/// `CityMinterTests` saves and photographs it wide and close through
+/// `MetalCityRenderer.render`, the renderer the game draws with (M8). It
+/// exists because this project is usually driven over a remote session where
+/// `screencapture` and accessibility scripting both fail, so a picture of the
+/// running game is otherwise not obtainable at all.
 ///
-/// Two things it has to do that a naive capture would not:
-///
-/// - **Call `update(_:)` after moving the camera.** Culling and the
-///   `IsometricBuilding.Detail` tier both live there and both are driven off
-///   the camera, so a capture that only sets a scale and shoots gets the far
-///   textures at close range — a picture of a frame the game never draws.
-/// - **Pump a few frames before shooting.** Traffic, trams and the contact
-///   light are all built on the first `update`, and the emitters need a
-///   moment. `SKAction`s still do not advance in a headless capture, which is
-///   the standing limit recorded for the traffic render: a still cannot catch
-///   a bus part-way along its route.
+/// `render` settles the detail tier for the camera before drawing, which is
+/// what the SpriteKit version had to remember to pump `update` for. Moving
+/// things are drawn where the motion clock puts them at `time`, so a still
+/// can catch a bus part-way along its route now.
 @MainActor
 final class CityPortraitTests: XCTestCase {
 
@@ -38,53 +30,32 @@ final class CityPortraitTests: XCTestCase {
         return directory
     }
 
-    /// Opens a saved city and hands back a scene already drawn.
-    private func open(_ name: String) throws -> (GameScene, SKView, GameController) {
+    /// Opens a saved city.
+    private func open(_ name: String) throws -> GameController {
         let url = try CitySaveFile.defaultDirectory()
             .appendingPathComponent("\(name).alphacity")
         let save = try CitySaveFile.read(from: url)
-
         let controller = GameController(map: save.map,
                                         rng: SeededRNG(seed: 1),
                                         peakPopulation: Unlocks.everythingUnlocked)
         try controller.restore(from: save)
-
-        let scene = GameScene(controller: controller)
-        scene.size = frame
-        let view = SKView(frame: NSRect(origin: .zero, size: frame))
-        view.presentScene(scene)
-        scene.rebuildEntireGrid()
-        scene.refreshAll()
-        return (scene, view, controller)
+        return controller
     }
 
-    private func shoot(_ scene: GameScene, _ view: SKView, to url: URL) throws {
-        // Frames, not one: the scene builds its traffic and its weather on
-        // `update`, and the detail tier and the culling both decide there.
-        for step in 0 ..< 4 { scene.update(TimeInterval(step) / 60) }
-        // **And one throwaway capture**, because the first `texture(from:)`
-        // after a scene is built comes back different from the second with
-        // nothing changed in between. `GradeAcrossZoomTests` measures that
-        // drift at **0.024** mean brightness at the closest camera — larger
-        // than the entire film-grain term — which is enough to matter in a
-        // picture anybody is going to look at and draw conclusions from.
-        _ = view.texture(from: scene, crop: CGRect(origin: .zero, size: scene.size))
-        let texture = try XCTUnwrap(
-            view.texture(from: scene, crop: CGRect(origin: .zero, size: scene.size)),
-            "the scene rendered nothing"
-        )
-        let bitmap = NSBitmapImageRep(cgImage: texture.cgImage())
-        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    /// One frame through the Metal renderer the game draws with, at
+    /// `scale` points per pixel. `render` settles the detail tier for the
+    /// camera before it draws, so the close shot is the frame a player sees
+    /// there rather than the far tier caught mid-swap.
+    private func shoot(_ map: CityMap, with renderer: MetalCityRenderer, centre: CGPoint,
+                       scale: CGFloat, to url: URL) throws {
+        let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: frame)
+        let image = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 0, time: 2)?.image,
+                                  "the city rendered nothing")
+        let png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
         try png.write(to: url)
         print("📸 \(url.lastPathComponent)")
     }
 
-    /// Where the city is busiest, so the close shot lands on something worth
-    /// looking at rather than on whatever happens to be at the middle.
-    ///
-    /// Density rather than population, and summed over a window rather than
-    /// taken per lot, because the question is "where is the downtown" and one
-    /// tall tower on its own is not one.
     private func busiestBlock(in map: CityMap) -> GridPosition {
         let radius = 4
         var best = GridPosition(x: map.width / 2, y: map.height / 2)
@@ -126,8 +97,9 @@ final class CityPortraitTests: XCTestCase {
 
         let directory = try portraitDirectory()
 
-        let (scene, view, controller) = try open(name)
+        let controller = try open(name)
         let map = controller.map
+        let renderer = try XCTUnwrap(MetalCityRenderer(), "no Metal device")
 
         let lots = map.tiles.filter { $0.isBuildingAnchor }.count
         let growable: Set<ZoneType> = [.residential, .commercial, .industrial]
@@ -155,35 +127,18 @@ final class CityPortraitTests: XCTestCase {
         print(String(format: "ground: %d road + %d bare of %d tiles (%.0f%% of the map)",
                      roads, bare, all, Double(roads + bare) * 100 / Double(all)))
 
-        // **Wide.** `centerCameraOnMap` only sets the camera's *position* —
-        // it says nothing about zoom, which is the trap `ScenePlaytest`'s
-        // filmstrip already recorded: most of every frame came back empty
-        // night. The scale has to be worked out from the ground diamond.
-        scene.centerCameraOnMap()
-        let content = scene.contentBoundsForTesting
-        scene.setCameraScaleForTesting(
-            max(content.width / frame.width, content.height / frame.height) * 1.04
-        )
-        try shoot(scene, view, to: directory.appendingPathComponent("\(name)-wide.png"))
+        // **Wide**, framed on the ground diamond: the whole city in shot.
+        let projection = Isometric()
+        let content = projection.contentBounds(of: map)
+        try shoot(map, with: renderer, centre: CGPoint(x: content.midX, y: content.midY),
+                  scale: max(content.width / frame.width, content.height / frame.height) * 1.04,
+                  to: directory.appendingPathComponent("\(name)-wide.png"))
 
-        // **Close**, at the nearest camera the game allows, over the downtown.
-        // This is where the near-detail tier engages, so it is also the only
-        // picture in this project that shows what zooming in actually buys.
+        // **Close**, over the downtown, at the camera where the near detail
+        // tier draws (0.3 points a pixel in the renderer's units).
         let downtown = busiestBlock(in: map)
-        scene.centerCameraForTesting(on: downtown)
-        scene.setCameraScaleForTesting(0.5)
-        try shoot(scene, view, to: directory.appendingPathComponent("\(name)-close.png"))
-
-        XCTAssertEqual(scene.buildingDetailForTesting, .near,
-                       "the close shot did not reach the near-detail tier")
-
-        // The same frame with the post-process off, which is the only way to
-        // tell a *drawing* problem from a *grading* one. Reported from play as
-        // buildings looking translucent where they crowd together, and a
-        // picture of the graded frame alone cannot say whether that is the
-        // geometry or the shader on top of it.
-        scene.setPostProcessEnabledForTesting(false)
-        try shoot(scene, view, to: directory.appendingPathComponent("\(name)-close-raw.png"))
-        scene.setPostProcessEnabledForTesting(true)
+        try shoot(map, with: renderer,
+                  centre: projection.project(CGFloat(downtown.x), CGFloat(downtown.y), 1.5), scale: 0.3,
+                  to: directory.appendingPathComponent("\(name)-close.png"))
     }
 }
