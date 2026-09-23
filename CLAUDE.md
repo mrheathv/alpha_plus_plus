@@ -7681,6 +7681,55 @@ touches. It crashed on its first run, and the crash was the *test*: an
 `NSWindow` made in code frees itself on close, and it was also released at
 the end of the test. `isReleasedWhenClosed = false`.
 
+### M1 (done): a 64×64 city inside the frame budget
+
+Measured on Apex (the densest 64×64 fixture) at 2880×1800, with the GPU warm,
+by `MetalMapTests.testApexFitsTheFrameBudget` in the Full plan:
+
+| | |
+|---|---|
+| GPU, resting camera | **7.7 ms** (target 8) |
+| GPU, whole city | 4.0 ms |
+| CPU to prepare a frame | 0.1 ms |
+| a day that changes nothing drawn | 0.18 ms, 0 chunks rebuilt |
+| one building placed | 0.33 ms, 1 chunk rebuilt |
+
+- **The city is 8×8-tile chunks, each with its own buffer.** A chunk is
+  rebuilt only when a fingerprint of its tiles changes: zone, density,
+  water, anchor and ownership, read one tile past its edge because a lane
+  line depends on its neighbours. Traffic, wear and supply change every day
+  without changing a triangle, so most days rebuild nothing. A chunk off
+  screen is never sent to the GPU. **Chosen over instancing**, which the
+  plan named: a building is a couple of hundred triangles copied out of the
+  variant cache, so instancing buys little, where chunks buy both dirty
+  rebuilds and culling in one mechanism.
+- **SpriteKit does no tile work in Metal mode.** No per-tick diff, no
+  redraws, no culling, no rebuilt regions: `GameScene` records what it owes
+  and catches up in one pass when the city is handed back. What it still
+  draws (routes, the rain, the cursor) keeps updating.
+- **The main-pass shader never discards.** Apple GPUs skip shading pixels a
+  nearer opaque surface covers, but not for shaders that can discard, so the
+  reflection pass has its own entry point. Correct practice; it measured as
+  no gain here.
+
+**Three measurement traps, each of which made a wrong number first:**
+
+- **Apple GPUs ramp their clock under load.** The first budget run measured
+  12.5 ms for a frame that costs 7.65 once the GPU is awake. The test warms
+  up with 30 frames first. A running game never draws from cold.
+- **This machine's timing noise is ±50% between runs**, so a stage's cost
+  comes from switching stages off and measuring in one process, interleaved
+  (`MetalFrameBreakdownTests`, opt-in), never from comparing two runs.
+- **The test's bound is 9 ms, not 8.** The target is 8 and it measures 7.7;
+  a bound that holds by 4% is a coin toss.
+
+**Where the frame goes** (resting camera, warm): point lights about 4.5 ms
+(60%), bloom 0.8, reflection 0.4, everything else 1.8. Halving the
+light-culling tile to 16 pixels changed nothing, because a light's reach at
+this zoom is about 450 pixels, far bigger than either tile. The cost is how
+many neon sources a dense downtown genuinely overlaps. If M2–M4 need room,
+the lever is merging each building's several lights into fewer.
+
 ### Two test plans: Quick and Full
 
 A full run took about 23 minutes in Debug, which is too long to run before

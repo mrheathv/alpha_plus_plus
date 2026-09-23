@@ -28,8 +28,9 @@
         "JourneyLookupCostTests",
         "HarnessTimingTests",
         "MetalSpikeTests",
-        "MetalMapTests/testWhatApexCostsToDraw()",
-        "MetalAutosaveDiagnosticTests"
+        "MetalAutosaveDiagnosticTests",
+        "MetalMapTests/testApexFitsTheFrameBudget()",
+        "MetalFrameBreakdownTests"
       ]
     }
   ],

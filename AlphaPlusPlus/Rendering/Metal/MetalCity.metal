@@ -148,16 +148,11 @@ float rimAmount(float2 uv, float2 size) {
     return 1 - smoothstep(width - aa, width + aa, d);
 }
 
-fragment float4 sceneFragment(Varyings in [[stage_in]],
-                              constant Uniforms &u [[buffer(1)]],
-                              const device Light *lights [[buffer(2)]],
-                              const device uint *tileCounts [[buffer(3)]],
-                              const device uint *tileLights [[buffer(4)]],
-                              texture2d<float> reflection [[texture(0)]]) {
-    // Nothing below the street in the mirrored pass — a reflection of
-    // something that is itself underground is not a reflection of anything.
-    if (u.frame.w > 0.5 && in.ground > 0.5) discard_fragment();
-
+/// The city, shaded. Shared by both passes; the entry points below decide
+/// what each one discards.
+static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *lights,
+                         const device uint *tileCounts, const device uint *tileLights,
+                         texture2d<float> reflection) {
     float3 n = normalize(in.normal);
     // The reflection gets moonlight and neon but no point lights: it is
     // blurred by the street and mostly emissive anyway, and its fragments sit
@@ -256,6 +251,33 @@ fragment float4 sceneFragment(Varyings in [[stage_in]],
     // The reflection pass keeps each fragment's height in alpha, which is
     // what the street reads to decide how blurred that point's reflection is.
     return float4(color, u.frame.w > 0.5 ? max(in.world.z, 0.0) : 1.0);
+}
+
+/// **The main pass never discards**, and that is a performance rule rather
+/// than a style one. Apple's GPUs skip shading any pixel a nearer opaque
+/// surface will cover — hidden surface removal — but only for shaders that
+/// cannot discard. With the reflection pass's `discard` sharing this shader,
+/// every wall hidden behind another building was lit in full and thrown
+/// away: Apex spent 14.4 ms a frame at the resting camera.
+fragment float4 sceneFragment(Varyings in [[stage_in]],
+                              constant Uniforms &u [[buffer(1)]],
+                              const device Light *lights [[buffer(2)]],
+                              const device uint *tileCounts [[buffer(3)]],
+                              const device uint *tileLights [[buffer(4)]],
+                              texture2d<float> reflection [[texture(0)]]) {
+    return shadeScene(in, u, lights, tileCounts, tileLights, reflection);
+}
+
+/// The mirrored pass: nothing below the street — a reflection of something
+/// that is itself underground is not a reflection of anything.
+fragment float4 reflectionFragment(Varyings in [[stage_in]],
+                                   constant Uniforms &u [[buffer(1)]],
+                                   const device Light *lights [[buffer(2)]],
+                                   const device uint *tileCounts [[buffer(3)]],
+                                   const device uint *tileLights [[buffer(4)]],
+                                   texture2d<float> reflection [[texture(0)]]) {
+    if (in.ground > 0.5) discard_fragment();
+    return shadeScene(in, u, lights, tileCounts, tileLights, reflection);
 }
 
 // MARK: - Light culling

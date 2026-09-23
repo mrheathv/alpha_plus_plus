@@ -507,11 +507,15 @@ final class GameScene: SKScene {
         // Before the pause check, with the panning: the backdrop follows the
         // camera, and looking around a stopped city is most of what pausing
         // is for.
-        showVisibleSliceOfBackground()
-        cullTilesOutsideTheView()
-        matchBuildingDetailToTheCamera()
-        matchBloomReachToTheCamera()
-        drainPendingRefreshes()
+        // All of it is about drawing the city, which the Metal renderer does
+        // in Metal mode — see `setDrawsCity`.
+        if drawsCity {
+            showVisibleSliceOfBackground()
+            cullTilesOutsideTheView()
+            matchBuildingDetailToTheCamera()
+            matchBloomReachToTheCamera()
+            drainPendingRefreshes()
+        }
 
         guard controller.isRunning else {
             // Paused: forget when we last ticked, so resuming waits a full
@@ -1319,9 +1323,28 @@ final class GameScene: SKScene {
     /// until this scene has nothing left to draw.
     private(set) var drawsCity = true
 
+    /// What the scene skipped while it was not drawing the city, and so owes
+    /// when it takes the city back. **It does no tile work at all in Metal
+    /// mode** — no per-tick diff, no redraws, no culling, no rebuilt regions —
+    /// because every one of those is CPU spent on sprites nobody can see, on
+    /// exactly the frames that already stutter. It catches up in one pass.
+    private var cityOwedWhileHidden = false
+    private var gridOwedWhileHidden = false
+
     func setDrawsCity(_ draws: Bool) {
         guard draws != drawsCity else { return }
         drawsCity = draws
+        if draws, hasBuiltScene {
+            if gridOwedWhileHidden {
+                rebuildEntireGrid()
+            }
+            if gridOwedWhileHidden || cityOwedWhileHidden {
+                culledFor = nil
+                refreshAll()
+            }
+            gridOwedWhileHidden = false
+            cityOwedWhileHidden = false
+        }
         tileLayer.isHidden = !draws
         sunGlowNode.isHidden = !draws
         backdropNode.isHidden = !draws
@@ -1447,6 +1470,11 @@ final class GameScene: SKScene {
     /// *locally*: nothing outside the clicked neighbourhood can change anchor
     /// status, so the same work over a small window is correct and bounded.
     func rebuildRegion(around position: GridPosition) {
+        // Remade in one pass when the city is handed back — see `setDrawsCity`.
+        guard drawsCity else {
+            gridOwedWhileHidden = true
+            return
+        }
         let radius = Self.rebuildRadius
         for dy in -radius ... radius {
             for dx in -radius ... radius {
@@ -1805,6 +1833,16 @@ final class GameScene: SKScene {
     /// a tick — so anything this misses shows up there as a cache key that
     /// disagrees, rather than as a stale map nobody notices.
     private func refreshTilesChanged(from before: CityMap) {
+        // In Metal mode the diff below is work for a city nobody sees: a
+        // compare of every tile and every street's traffic, every tick. What
+        // the scene still draws — routes, trams' paths, the rain — is kept.
+        guard drawsCity else {
+            cityOwedWhileHidden = true
+            syncPathVehicles()
+            syncTransitDiagram()
+            _ = syncWeather()
+            return
+        }
         let after = controller.map
         guard before.width == after.width, before.height == after.height else {
             refreshAll()   // the map itself changed shape; nothing is comparable
@@ -2214,6 +2252,10 @@ final class GameScene: SKScene {
     }
 
     func refresh(_ position: GridPosition) {
+        guard drawsCity else {
+            cityOwedWhileHidden = true
+            return
+        }
         // **A covered tile has no node of its own.** One node exists per
         // *building*, so the three cells of a 2×2 that are not its anchor
         // refresh nothing — which is invisible for anything drawn from the
