@@ -283,4 +283,32 @@ final class MetalLookTests: XCTestCase {
         }
         try MetalSpikeTests.writeGrid(frames, columns: 2, cell: size, named: "metal-suburb")
     }
+
+    /// **A city grown by the simulation, not placed by hand.** The playtest
+    /// harness zones a 32×32 map with utilities and services, and the city is
+    /// photographed early — mostly suburb, the first hour of play — and once
+    /// it has grown. The hand-built suburb above says what each lot looks
+    /// like; this says what the simulation actually makes of them together.
+    func testRenderAGrownCity() throws {
+        var spec = PlaytestHarness.CitySpec()
+        spec.size = 32
+        let controller = GameController(map: PlaytestHarness.buildCity(spec), rng: SeededRNG(seed: 0xA1F4))
+        let size = CGSize(width: 1400, height: 875)
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        var frames: [(String, NSImage)] = []
+        var day = 0
+        for until in [45, 200] {
+            _ = PlaytestHarness.run(controller, ticks: until - day)
+            day = until
+            let map = controller.map
+            let bounds = Isometric().contentBounds(of: map)
+            for (label, scale) in [("resting", CGFloat(0.5)), ("wide", 1.2)] {
+                let camera = MetalCityRenderer.Camera(centre: CGPoint(x: bounds.midX, y: bounds.midY),
+                                                      scale: scale, size: size)
+                let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 0, time: 2))
+                frames.append(("day \(day) · \(label)", NSImage(cgImage: frame.image, size: size)))
+            }
+        }
+        try MetalSpikeTests.writeGrid(frames, columns: 2, cell: size, named: "metal-grown-city")
+    }
 }

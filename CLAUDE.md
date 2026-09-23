@@ -8388,6 +8388,26 @@ Every existing form is still in each list, so nothing was removed.
   `MetalLookTests.testRenderTheSuburb` renders a small town of tiers 1–2 in
   Metal (`metal-suburb.png`, Full plan).
 
+### Industry's colour, and the first look at a grown city
+
+- **Industry's colour family is wider in Metal, leaning to amber.**
+  `MetalCityRenderer.varied` shifts each variant's hue by −0.03…+0.075 for
+  industry, against ±0.045 elsewhere, and saturation further. It leans away
+  from red because red is the direction of shops' magenta.
+- **Every stack carries a red aviation beacon** (`NeonStyle.beaconColor`),
+  and warehouses and container yards a sodium floodlight
+  (`NeonStyle.sodiumColor`): working light rather than neon, the one light
+  an industrial skyline has that no other zone does. Apex at the resting
+  camera: 7.98 → 8.13 ms, 2,101 → 2,128 lights, inside the 9 ms bound.
+- **`MetalLookTests.testRenderAGrownCity`** grows a 32×32 harness city and
+  photographs it at day 45 and day 200 (`metal-grown-city.png`, Full plan) —
+  the first render of a city the simulation made rather than one placed by
+  hand. **It found that the first hour is scaffolding**: at day 45 nearly
+  every lot is under construction, and the amber wireframes, bloomed, swamp
+  the buildings they stand on. By day 200 the suburb reads as designed. The
+  harness zones a whole map at once, which overstates it, but a player
+  zoning a district at a time sees the same thing locally.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

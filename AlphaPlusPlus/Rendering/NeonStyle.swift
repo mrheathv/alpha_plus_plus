@@ -96,6 +96,13 @@ enum NeonStyle {
 
     /// Warm orange, for hazard marks and nothing else — a fixed "attention"
     /// colour rather than a zone accent.
+    /// The red of an aviation beacon, on industry's stacks.
+    static let beaconColor = SKColor(srgbRed: 1.0, green: 0.12, blue: 0.16, alpha: 0.95)
+
+    /// Sodium work light: industry's yards, which are lit to work in rather
+    /// than to be looked at.
+    static let sodiumColor = SKColor(srgbRed: 1.0, green: 0.7, blue: 0.3, alpha: 0.95)
+
     static let emberColor = SKColor(srgbRed: 1.0, green: 0.45, blue: 0.15, alpha: 0.95)
 
     /// Sodium-lamp amber, for construction scaffolding and nothing else.

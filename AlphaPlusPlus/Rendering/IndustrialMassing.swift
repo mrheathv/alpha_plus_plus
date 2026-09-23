@@ -312,6 +312,10 @@ enum IndustrialMassing {
         let radius = CGFloat(random.value(in: 0.1 ... 0.145))
         let height = CGFloat(random.value(in: tier >= 3 ? 1.0 ... 1.6 : (tier == 2 ? 0.75 ... 1.15 : 0.5 ... 0.85)))
         massing.add(.cylinder(Cylinder(x: point.x, y: point.y, z: base, radius: radius, height: height)))
+        // An aviation beacon at the lip: a red point on every stack, which is
+        // the one light an industrial skyline has that no other zone does.
+        massing.add(.cylinder(Cylinder(x: point.x, y: point.y, z: base + height - 0.06, radius: radius + 0.02,
+                                       height: 0.05, sides: 8)), .lit(NeonStyle.beaconColor))
         // The elevation version banded the cap so a chimney didn't read as a
         // plain post. Not carried over: a band on a stack six points wide is
         // under two points tall, which is below anything the camera resolves,
@@ -345,6 +349,16 @@ enum IndustrialMassing {
         }
         chimney(at: CGPoint(x: plan.point(1.5, 0.3).0, y: plan.point(1.5, 0.3).1), base: hall.height,
                 tier: tier, into: &massing, random: &random)
+        floodlight(at: plan.point(1.72, 1.72), into: &massing)
+    }
+
+    /// A yard floodlight: a mast with a sodium head. Industry works at night
+    /// under working light, not neon, and the amber pools are what tell a
+    /// yard from a car park.
+    private static func floodlight(at point: (CGFloat, CGFloat), into massing: inout BuildingMassing) {
+        massing.add(.cylinder(Cylinder(x: point.0, y: point.1, z: 0, radius: 0.025, height: 0.7, sides: 6)))
+        massing.add(.box(Box(x: point.0 - 0.07, y: point.1 - 0.04, z: 0.7, width: 0.14, depth: 0.08, height: 0.06)),
+                    .lit(NeonStyle.sodiumColor))
     }
 
     /// A trailer and cab, backed up square to a dock.
@@ -400,6 +414,7 @@ enum IndustrialMassing {
                 massing.add(.box(plan.box(0.92, b + 0.27, 0.66, 0.2, z: 0, height: 0.18 + CGFloat(row) * 0.004)))
             }
         }
+        floodlight(at: plan.point(1.8, 1.0), into: &massing)
         guard crane else { return }
         let top: CGFloat = 1.2
         for (a, b) in [(0.84, 0.14), (1.72, 0.14), (0.84, 1.8), (1.72, 1.8)] as [(CGFloat, CGFloat)] {

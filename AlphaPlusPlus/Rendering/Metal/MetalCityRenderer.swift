@@ -1604,8 +1604,14 @@ enum MetalCityMesh {
         c.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
         let zoneIndex = ZoneType.allCases.firstIndex(of: key.zone) ?? 0
         var random = BuildingRandom(seed: GridPosition(x: key.variant, y: key.density), salt: 5_000 + zoneIndex)
-        let hue = (h + CGFloat(random.value(in: -0.045 ... 0.045)) + 1).truncatingRemainder(dividingBy: 1)
-        let saturation = min(1, sat * CGFloat(random.value(in: 0.82 ... 1.1)))
+        // **Industry gets a wider family, leaning to amber.** Its tiers are
+        // one orange and one red-orange, so a district read as one block from
+        // afar. The spread runs further toward amber than toward red, since
+        // red is the direction of shops' magenta and zone identity is the one
+        // thing this colour must still say.
+        let spread: ClosedRange<Double> = key.zone == .industrial ? -0.03 ... 0.075 : -0.045 ... 0.045
+        let hue = (h + CGFloat(random.value(in: spread)) + 1).truncatingRemainder(dividingBy: 1)
+        let saturation = min(1, sat * CGFloat(random.value(in: key.zone == .industrial ? 0.7 ... 1.1 : 0.82 ... 1.1)))
         let brightness = min(1, b * CGFloat(random.value(in: 0.82 ... 1.08)))
         return SKColor(hue: hue, saturation: saturation, brightness: brightness, alpha: a)
             .usingColorSpace(.sRGB) ?? color
