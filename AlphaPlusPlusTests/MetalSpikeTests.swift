@@ -340,6 +340,29 @@ final class MetalFrameBreakdownTests: XCTestCase {
                              round, full, noReflection, noLights, noBloom, bare)
         }
         renderer.diagnostics = .init()
+
+        // **What the skyline costs**, on the same city in the same process:
+        // every level-6 lot drawn as level 5 instead, against the real thing.
+        var capped = map
+        for position in capped.tiles.map(\.position) where capped[position].density > 5 {
+            capped[position].density = 5
+        }
+        let cappedRenderer = try XCTUnwrap(MetalCityRenderer())
+        func bestOf(_ r: MetalCityRenderer, _ m: CityMap) -> (Double, Int, Int) {
+            for _ in 0 ..< 20 { _ = r.render(m, camera: camera, wetness: 1) }
+            var gpu = Double.infinity, lights = 0, triangles = 0
+            for _ in 0 ..< 10 {
+                guard let frame = r.render(m, camera: camera, wetness: 1) else { continue }
+                gpu = min(gpu, frame.gpuMilliseconds); lights = frame.lights; triangles = frame.triangles
+            }
+            return (gpu, lights, triangles)
+        }
+        for round in 1 ... 2 {
+            let real = bestOf(renderer, map)
+            let five = bestOf(cappedRenderer, capped)
+            report += String(format: "round %d: skyline %.2f ms (%d lights, %d tris) · capped at 5 %.2f ms (%d lights, %d tris)\n",
+                             round, real.0, real.1, real.2, five.0, five.1, five.2)
+        }
         try report.write(to: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("build/ContactSheet/metal-breakdown.txt"),
                          atomically: true, encoding: .utf8)

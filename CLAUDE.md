@@ -8095,6 +8095,14 @@ measured on the harness), large clean neon signage, rain reworked to sit on
 the gloss, and **a repetition pass**. Up close the city looks good; zoomed
 out it reads as a repeating pattern.
 
+**Also agreed: a redraw-hitch pass.** Reported from play: the screen stops
+for a moment when a building redraws on an upgrade or a downgrade. Measure
+first, frame by frame around one growth, in both renderers. Suspects: in
+Metal, one growth rebuilds every chunk whose three-tile signature reach
+covers it, and a new variant or level generates its massing on that frame;
+in SpriteKit, a cache miss rasterises a texture on that frame; and in both,
+the growth lands on the same frame as the tick.
+
 ### Retrowave step 1 (done): the sky and the sun
 
 The sky is a pass of its own behind everything, in the same sunset gradient
@@ -8223,6 +8231,43 @@ shops and housing in separate rows.
 **Not yet measured in Metal.** The fixture cities were minted before level 6
 existed, so the Apex budget does not include any skyscrapers yet. Step 3d
 re-mints Apex and measures it.
+
+### Retrowave step 3c: skipped
+
+The agreed 3×3 merge does not fit a city of 2×2 lots: any 3×3 holding one
+lot takes part of the lots beside it. A 4×4 merge of four level-6 lots would
+fit, either drawn by the renderer only or as a real simulation change (a
+footprint that is fixed per zone is read in 67 places). The player chose to
+skip it.
+
+### Retrowave step 3d: measured
+
+**Apex was rebuilt** (`MINT_ONLY=Apex`) now that level 6 exists: 4,208
+residents against 4,080, and 79 lots at level 6 (34 housing, 45 shops) out
+of about 480.
+
+**The skyline put Apex over its frame budget**: 10.1–10.3 ms against a 9 ms
+bound at the resting camera. `MetalFrameBreakdownTests` now also draws the
+same city with every level-6 lot capped at 5, in the same process. That
+comparison found the skyscrapers cost about 0.5 ms; the rest is a denser
+city. Two fixes:
+
+- **At most two lights per building from its lit volumes**, merged low and
+  high in massing order. A round tower's dozen rings had each been a light.
+  Worth about 1 ms.
+- **The light loop is skipped where albedo is zero.** Lit surfaces (windows,
+  neon, lit volumes) multiplied the tile's lighting by zero, and the skyline
+  is mostly lit glass. The picture is identical. Worth about 1.3 ms.
+
+Apex is **7.8–8.0 ms** now, back under the 8 ms target.
+
+**The balance harness cannot see level 6.** Its default cities have no subway
+or rail stations, so no lot there reaches level 6, and the full-size design
+playtest (all 14 tests pass) measures the city without it. A scenario with
+rapid transit, compared with and without level 6, is the honest next
+measurement. One thing the run showed that predates this work: planned and
+mixed layouts now finish level (3,276 against 3,272 people) where this file
+records planning winning clearly. That is worth checking separately.
 
 ## Looking at the art without playing to it
 

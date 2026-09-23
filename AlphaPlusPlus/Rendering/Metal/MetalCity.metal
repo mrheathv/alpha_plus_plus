@@ -179,6 +179,12 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
     if (u.frame.w > 0.5) {
         color = in.albedo * (float3(0.035, 0.03, 0.06)
             + float3(0.20, 0.19, 0.34) * max(0.0, dot(n, u.moonAndTime.xyz)) * 0.6);
+    } else if (max(in.albedo.r, max(in.albedo.g, in.albedo.b)) <= 0.0) {
+        // **A lit surface has no albedo, so light falling on it is multiplied
+        // by zero.** Windows, lit volumes and neon are all such surfaces, and
+        // the level-6 skyline is mostly lit glass: running the tile's light
+        // loop only to throw the answer away was what put Apex over budget.
+        color = float3(0);
     } else {
         color = in.albedo * lighting(in.world, n, u, lights, uint2(in.clip.xy), tileCounts, tileLights);
     }

@@ -1660,6 +1660,10 @@ enum MetalCityMesh {
             let role = prominence(key)
             let footprint = Float(key.zone.footprintSize)
 
+            // Lit volumes' lights, gathered rather than added one by one: a
+            // level-6 drum carries a dozen lit rings, and a light each put
+            // Apex 1.5 ms over its budget (point lights are most of a frame).
+            var litSources: [(centre: SIMD3<Float>, glow: SIMD3<Float>)] = []
             for solid in massing.solids {
                 let faces = solid.volume.faces
                 switch solid.style {
@@ -1683,7 +1687,26 @@ enum MetalCityMesh {
                     let centre = faces.reduce(SIMD3<Float>.zero) { sum, face in
                         sum + face.points.map(world).reduce(.zero, +) / Float(face.points.count)
                     } / Float(max(1, faces.count))
-                    addLight(centre, glow * 0.9, radius: 2.6)
+                    litSources.append((centre, glow))
+                }
+            }
+            // **Two lights at most per building, one low and one high.** A
+            // building with one or two lit parts keeps exactly what it had.
+            // More than that are merged by height, in massing order, so a
+            // rebuilt chunk lists them identically (the M5 ordering lesson).
+            if litSources.count <= 2 {
+                for source in litSources { addLight(source.centre, source.glow * 0.9, radius: 2.6) }
+            } else {
+                let middle = litSources.map(\.centre.z).sorted()[litSources.count / 2]
+                for high in [false, true] {
+                    let group = litSources.filter { ($0.centre.z >= middle) == high }
+                    guard !group.isEmpty else { continue }
+                    let n = Float(group.count)
+                    let centre = group.reduce(SIMD3<Float>.zero) { $0 + $1.centre } / n
+                    let glow = group.reduce(SIMD3<Float>.zero) { $0 + $1.glow } / n
+                    // A little brighter than one part's light, not
+                    // the sum of them all, which would blow out to white.
+                    addLight(centre, glow * 1.1, radius: 2.6)
                 }
             }
 
