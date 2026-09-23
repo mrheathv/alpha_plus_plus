@@ -39,7 +39,17 @@ struct Uniforms {
     float4 moonAndTime;       // xyz: direction moonlight comes from · w: seconds
     uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels · w: map width | height << 16
     float4 overlay;           // x: 1 when a view washes buildings toward its colours · y: motion clock
+    float4 fog;               // x: low fog · y: its height in tiles · z: distance haze · w: street gloss
+    float4 zenith;            // rgb: the air overhead, near the viewer · w: how far out the camera is, 0…1
+    float4 horizon;           // rgb: the far air and the sky past the map · w: gloss on open ground
 };
+
+// The colour of the air at a point on screen: the sky's colour toward the
+// top of the frame, which in this projection is the far side of the city,
+// and the overhead colour toward the bottom, which is nearest.
+static float3 airColor(float screenY, constant Uniforms &u) {
+    return mix(u.horizon.rgb, u.zenith.rgb, smoothstep(0.0, 1.0, screenY));
+}
 
 // Most lights a single screen tile can carry. A tile over the densest block
 // on Apex sees about twenty; the rest is headroom.
@@ -226,7 +236,9 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         float line = 1 - smoothstep(0.0, lineWidth, min(cell.x, cell.y));
         color += float3(0.045, 0.032, 0.085) * line * 0.7;
         float fade = 1 - smoothstep(3.0, 30.0, d);
-        color = mix(float3(0.012, 0.008, 0.03), color, fade);
+        // Past the map the land fades into the sky's colour rather than into
+        // black: in a retrowave frame the edge of the world is a sunset.
+        color = mix(airColor(in.clip.y / u.frame.y, u), color, fade);
     }
 
     // **The wet street**, done the way wet asphalt actually behaves.
@@ -244,7 +256,7 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
     bool road = in.ground > 1.5 && in.ground < 2.5;
     bool water = in.ground > 2.5 && in.ground < 3.5;
     bool beyond = in.ground > 3.5;
-    float dryGloss = road ? 0.16 : 0.0;
+    float dryGloss = road ? u.fog.w : 0.0;
 
     // **Water is a dark mirror moved by waves**, not a colour with noise on
     // it. The first version painted lavender noise over the river and it
@@ -287,8 +299,9 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         } else if (road) {
             strength = wet * (0.4 + 0.4 * puddles);
         } else if (!beyond) {
-            // Land only catches the light in its puddles, and only in rain.
-            strength = u.frame.z * 0.22 * puddles;
+            // Land catches the light in its puddles in rain, and — when the
+            // look asks for it — a faint polished sheen when dry.
+            strength = max(u.frame.z * 0.22 * puddles, u.horizon.w * (0.4 + 0.6 * puddles));
         }
     }
     if (strength > 0.01) {
@@ -322,6 +335,19 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         mirrored /= total;
         float darken = water ? 0.5 : 0.3 * u.frame.z * (road ? 1.0 : 0.3);
         color = color * (1 - darken) + mirrored * strength;
+    }
+
+    // **The air.** Low fog pooling in the streets, thinning with height so
+    // the towers rise out of it, and a distance haze toward the far side of
+    // the frame that grows as the camera pulls back — both tinted with the
+    // sky, so depth reads as colour rather than as grey. Light still cuts
+    // through: fog takes at most two thirds of what is behind it.
+    if (u.frame.w < 0.5 && !beyond) {
+        float screenY = in.clip.y / u.frame.y;
+        float low = u.fog.x * exp(-max(in.world.z, 0.0) / max(u.fog.y, 0.01));
+        float far = u.fog.z * u.zenith.w * (1.0 - screenY);
+        float haze = min(0.66, low + far);
+        color = mix(color, airColor(screenY, u), haze);
     }
 
     // The reflection pass keeps each fragment's height in alpha, which is
@@ -456,7 +482,8 @@ struct CompositeSettings {
     float grain;
     float saturation;   // 1 leaves colour alone
     float toe;          // how hard the shadows are pressed toward black
-    float pad0, pad1;
+    float scanlines;    // 0 for none; a light tube texture otherwise
+    float pad1;
 };
 
 // ACES filmic curve (Narkowicz's fit). Highlights roll off rather than clip,
@@ -494,6 +521,8 @@ kernel void composite(texture2d<float, access::sample> scene [[texture(0)]],
     // Vignette, lighter than the SpriteKit one: the haze already frames it.
     float2 centred = uv - 0.5;
     c *= 1 - 0.45 * dot(centred, centred);
+    // A light tube texture, alternate rows of two pixels, when the look asks.
+    c *= 1 - settings.scanlines * step(0.5, fract(float(gid.y) * 0.25));
     // Grain, strongest in the shadows where film grain lives.
     float g = hash21(float2(gid) * 0.731) - 0.5;
     c += g * settings.grain * (1 - saturate(dot(c, float3(0.33))));

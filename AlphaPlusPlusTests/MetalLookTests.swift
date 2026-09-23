@@ -123,4 +123,36 @@ final class MetalLookTests: XCTestCase {
         print(String(format: "🟪 close-detail swap on Apex: worst frame %.1f ms over %d frames", worst, frames))
         XCTAssertLessThan(worst, 12, "crossing into close-up detail hitches a frame")
     }
+
+    /// **Mood frames: the candidate looks side by side**, so a direction is
+    /// picked from pictures rather than argued. One row per look: Apex at rest,
+    /// Apex from the widest camera, and the river city close in light rain.
+    func testRenderTheMoodFrames() throws {
+        let size = CGSize(width: 1000, height: 625)
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let apex = try CitySaveFile.read(from: url).map
+        let river = MetalMotionTests.tickedCity()
+        let apexRenderer = try XCTUnwrap(MetalCityRenderer())
+        let riverRenderer = try XCTUnwrap(MetalCityRenderer())
+        let bounds = Isometric().contentBounds(of: apex)
+        let street = MetalMotionTests.centre(MetalMotionTests.exposedBusiestStreet(in: apex))
+        var frames: [(String, NSImage)] = []
+        for look in MetalCityRenderer.Look.candidates {
+            apexRenderer.look = look
+            riverRenderer.look = look
+            let shots: [(String, MetalCityRenderer, CityMap, CGPoint, CGFloat, Float)] = [
+                ("resting", apexRenderer, apex, street, 0.5, 0),
+                ("widest", apexRenderer, apex, CGPoint(x: bounds.midX, y: bounds.midY), 1.5, 0),
+                ("close, light rain", riverRenderer, river, Isometric().project(12, 12, 0), 0.3, 0.5),
+            ]
+            for (label, renderer, map, centre, scale, rain) in shots {
+                let camera = MetalCityRenderer.Camera(centre: centre, scale: scale * 1.2, size: size)
+                let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: rain, time: 2,
+                                                          motionClock: 1.3, rainfall: rain * 0.6))
+                frames.append(("\(look.name) · \(label)", NSImage(cgImage: frame.image, size: size)))
+            }
+        }
+        try MetalSpikeTests.writeGrid(frames, columns: 3, cell: size, named: "metal-mood-frames")
+    }
 }

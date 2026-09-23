@@ -63,7 +63,48 @@ final class MetalCityRenderer {
         var moonAndTime: SIMD4<Float>
         var counts: SIMD4<UInt32>
         var overlay: SIMD4<Float> = .zero
+        var fog: SIMD4<Float> = .zero
+        var zenith: SIMD4<Float> = .zero
+        var horizon: SIMD4<Float> = .zero
     }
+
+    /// **The look, as data**: the air, the sky, the gloss and the grade, all in
+    /// one value so a whole direction can be swapped — which is what the mood
+    /// frames are for. `neonNoir` is exactly the look M6 ended on; the others
+    /// are candidates for the retrowave direction. Colours are linear.
+    struct Look: Equatable {
+        var name: String
+        var lowFog: Float = 0
+        var fogHeight: Float = 1
+        var distanceHaze: Float = 0
+        var streetGloss: Float = 0.16
+        var groundGloss: Float = 0
+        var zenith = SIMD3<Float>(0.012, 0.008, 0.03)
+        var horizon = SIMD3<Float>(0.012, 0.008, 0.03)
+        var grain: Float = 0.035
+        var toe: Float = 0.35
+        var saturation: Float = 1.15
+        var exposure: Float = 1
+        var scanlines: Float = 0
+
+        static let neonNoir = Look(name: "Neon noir (now)")
+        static let sunsetHaze = Look(name: "Sunset haze", lowFog: 0.3, fogHeight: 1.2, distanceHaze: 0.45,
+                                     streetGloss: 0.3, groundGloss: 0.08,
+                                     zenith: SIMD3(0.018, 0.01, 0.055), horizon: SIMD3(0.3, 0.06, 0.2),
+                                     grain: 0, toe: 0.12, saturation: 1.1)
+        static let chromeNight = Look(name: "Chrome night", lowFog: 0.18, fogHeight: 0.8, distanceHaze: 0.25,
+                                      streetGloss: 0.55, groundGloss: 0.22,
+                                      zenith: SIMD3(0.01, 0.012, 0.05), horizon: SIMD3(0.1, 0.035, 0.2),
+                                      grain: 0, toe: 0.15, saturation: 1.2)
+        static let miamiDusk = Look(name: "Miami dusk", lowFog: 0.28, fogHeight: 1.6, distanceHaze: 0.55,
+                                    streetGloss: 0.35, groundGloss: 0.12,
+                                    zenith: SIMD3(0.04, 0.018, 0.09), horizon: SIMD3(0.5, 0.15, 0.22),
+                                    grain: 0, toe: 0, saturation: 1.05, exposure: 1.1, scanlines: 0.06)
+        static let candidates: [Look] = [.neonNoir, .sunsetHaze, .chromeNight, .miamiDusk]
+    }
+
+    /// The look the frame is drawn in.
+    var look = Look.neonNoir
 
     /// Mirrors `MotionUniforms` in MetalCity.metal.
     struct MotionUniforms {
@@ -80,7 +121,7 @@ final class MetalCityRenderer {
         var grain: Float = 0.035
         var saturation: Float = 1.15
         var toe: Float = 0.35
-        var pad0: Float = 0
+        var scanlines: Float = 0
         var pad1: Float = 0
 
         /// **Classic and Cinematic carried across.** Classic is the ungraded
@@ -139,7 +180,20 @@ final class MetalCityRenderer {
     let projection: Isometric
     /// `nil` follows `VisualStyle.current`; a test can pin its own.
     var settingsOverride: CompositeSettings?
-    var settings: CompositeSettings { settingsOverride ?? .for(VisualStyle.current) }
+    var settings: CompositeSettings {
+        if let settingsOverride { return settingsOverride }
+        var settings = CompositeSettings.for(VisualStyle.current)
+        // Classic stays the ungraded frame whatever the look; the look is
+        // Cinematic's.
+        if VisualStyle.current == .cinematic {
+            settings.grain = look.grain
+            settings.toe = look.toe
+            settings.saturation = look.saturation
+            settings.exposure = look.exposure
+            settings.scanlines = look.scanlines
+        }
+        return settings
+    }
 
     static let sampleCount = 4
 
@@ -797,7 +851,10 @@ final class MetalCityRenderer {
             moonAndTime: SIMD4(SIMD3<Float>(-0.35, 0.55, 0.76), time),
             counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), mapSizePacked),
             overlay: SIMD4(overlayMode != .none && overlayTint != nil ? 1 : 0,
-                           Float(motionClock.truncatingRemainder(dividingBy: 10_000)), 0, 0)
+                           Float(motionClock.truncatingRemainder(dividingBy: 10_000)), 0, 0),
+            fog: SIMD4(look.lowFog, look.fogHeight, look.distanceHaze, look.streetGloss),
+            zenith: SIMD4(look.zenith, min(1, max(0, 64 / Float(projection.tileWidth / camera.scale)))),
+            horizon: SIMD4(look.horizon, look.groundGloss)
         )
         let lightData = lights.isEmpty ? [Float](repeating: 0, count: GPULight.floatCount) : lights
         guard let lightBuffer = device.makeBuffer(bytes: lightData, length: lightData.count * 4) else { return nil }
@@ -869,7 +926,8 @@ final class MetalCityRenderer {
             pass.colorAttachments[0].loadAction = .clear
             // Alpha is height in the reflection pass, so empty sky clears to
             // zero — at one it would blur like the top of a tower.
-            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0.012, green: 0.008, blue: 0.03,
+            pass.colorAttachments[0].clearColor = MTLClearColor(red: Double(look.zenith.x), green: Double(look.zenith.y),
+                                                                blue: Double(look.zenith.z),
                                                                 alpha: mirrored ? 0 : 1)
             if let resolve {
                 pass.colorAttachments[0].resolveTexture = resolve
