@@ -34,7 +34,13 @@ struct MetalMapView: NSViewRepresentable {
     final class Coordinator: NSObject, MTKViewDelegate {
         let controller: GameController
         let scene: GameScene
-        let renderer = MetalCityRenderer()
+        /// The live view rebuilds changed chunks off the main thread, so a
+        /// day that grows half a city does not stop the frame it lands on.
+        let renderer: MetalCityRenderer? = {
+            let renderer = MetalCityRenderer()
+            renderer?.rebuildsInBackground = true
+            return renderer
+        }()
         private let started = CACurrentMediaTime()
         private var motionClock = MotionClock()
 
