@@ -78,19 +78,6 @@ enum SuburbMassing {
     /// did, and a lot's ground fills in as the camera comes down to it.
     static let groundTier: DetailTier = .near
 
-    /// A parked car, the size of the ones driving past (0.34 by 0.15): a low
-    /// body and a cabin set back. `alongA` says which way it points.
-    static func parkedCar(_ plan: LotPlan, a: CGFloat, b: CGFloat, alongA: Bool,
-                          into massing: inout BuildingMassing) {
-        let (length, width): (CGFloat, CGFloat) = (0.34, 0.15)
-        let body = alongA ? plan.box(a, b, length, width, z: 0.012, height: 0.055)
-                          : plan.box(a, b, width, length, z: 0.012, height: 0.055)
-        let cabin = alongA ? plan.box(a + 0.1, b + 0.015, 0.17, 0.12, z: 0.067, height: 0.045)
-                           : plan.box(a + 0.015, b + 0.1, 0.12, 0.17, z: 0.067, height: 0.045)
-        massing.add(.box(body), from: groundTier)
-        massing.add(.box(cabin), from: groundTier)
-    }
-
     /// A painted parking stripe: a faint lit line lying on the ground, the
     /// only paint that reads at night.
     static func stripe(_ plan: LotPlan, a: CGFloat, b0: CGFloat, b1: CGFloat,

@@ -8942,12 +8942,13 @@ spots each form already keeps clear:
 
 | family | on its ground |
 |---|---|
-| housing | a car on the drive and a front hedge (detached house, duplex), loungers and an umbrella (pool bungalow, garden court), a car out front (walk-up) |
-| shops | marked stalls with parked cars (diner, mini-mall), a car at the pump, a car at the motel |
+| housing | a front hedge (detached house, duplex), loungers and an umbrella (pool bungalow, garden court) |
+| shops | marked parking stalls (diner, mini-mall) |
 | industry | pallets and a forklift (warehouse, sheds), yard fences (warehouse, container yard, tank farm, refinery) |
 
-- **Parked cars are the moving cars' size** (0.34 by 0.15, from
-  `MetalMotion`), so the ones on the drives match the ones on the street.
+- **Parked cars were tried and taken out** at the player's request. They
+  were plain boxes at the moving cars' size, and read as a different object
+  from the detailed sports cars driving past them.
 - **Stripes are faint lit lines**, since at night the only paint that reads
   is paint that glows. They join a building's merged lights rather than
   adding any: Apex's light count is unchanged.

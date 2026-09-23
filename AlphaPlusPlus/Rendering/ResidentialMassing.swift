@@ -279,8 +279,7 @@ enum ResidentialMassing {
             SuburbMassing.palm(at: plan.point(0.5, 1.58).0, plan.point(0.5, 1.58).1,
                                height: CGFloat(random.value(in: 0.8 ... 1.1)), into: &massing)
         }
-        // Up close: the car on the drive, and a hedge along the front.
-        SuburbMassing.parkedCar(plan, a: 0.16 + long + 0.1, b: 0.74, alongA: false, into: &massing)
+        // Up close: a hedge along the front.
         SuburbMassing.hedge(plan, a0: 0.06, a1: 1.1, b: 1.88, into: &massing)
     }
 
@@ -339,8 +338,7 @@ enum ResidentialMassing {
                                  axis: plan.alongX ? .x : .y)))
         SuburbMassing.palm(at: plan.point(1.56, 1.52).0, plan.point(1.56, 1.52).1,
                            height: CGFloat(random.value(in: 1.0 ... 1.35)), into: &massing)
-        // Up close: a car out front, and a hedge along the street.
-        SuburbMassing.parkedCar(plan, a: 0.9, b: 1.24, alongA: false, into: &massing)
+        // Up close: a hedge along the street.
         SuburbMassing.hedge(plan, a0: 0.06, a1: 0.8, b: 1.88, into: &massing)
     }
 
@@ -404,7 +402,6 @@ enum ResidentialMassing {
             SuburbMassing.palm(at: plan.point(1.4, 1.62).0, plan.point(1.4, 1.62).1,
                                height: CGFloat(random.value(in: 0.9 ... 1.2)), into: &massing)
         }
-        SuburbMassing.parkedCar(plan, a: 0.8, b: 1.34, alongA: false, into: &massing)
     }
 
     /// Three or four narrow three-storey townhouses side by side, each its

@@ -291,10 +291,8 @@ enum CommercialMassing {
         SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.0 ... 1.3)),
                                color: NeonStyle.signColor(for: seed, salt: 1), stacked: random.chance(0.5),
                                footprint: footprint, into: &massing)
-        // Up close: two stalls with cars in them, nose to the diner.
+        // Up close: marked stalls, nose to the diner.
         for a in [0.24, 0.52, 0.8] as [CGFloat] { SuburbMassing.stripe(plan, a: a, b0: 1.02, b1: 1.48, into: &massing) }
-        SuburbMassing.parkedCar(plan, a: 0.305, b: 1.06, alongA: false, into: &massing)
-        SuburbMassing.parkedCar(plan, a: 0.585, b: 1.1, alongA: false, into: &massing)
     }
 
     /// A petrol station: a kiosk at the back, a canopy over the pumps with its
@@ -320,8 +318,6 @@ enum CommercialMassing {
         SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.1 ... 1.4)),
                                color: NeonStyle.signColor(for: seed, salt: 4), stacked: false,
                                footprint: footprint, into: &massing)
-        // Up close: a car filling up.
-        SuburbMassing.parkedCar(plan, a: 0.98, b: 1.28, alongA: true, into: &massing)
     }
 
     /// A mini-mall: a low L of shops along the back of the lot, each wing
@@ -354,10 +350,8 @@ enum CommercialMassing {
         SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.2 ... 1.5)),
                                color: NeonStyle.signColor(for: seed, salt: 5), stacked: true,
                                footprint: footprint, into: &massing)
-        // Up close: marked stalls along the shops, two of them taken.
+        // Up close: marked stalls along the shops.
         for a in [0.74, 1.02, 1.3] as [CGFloat] { SuburbMassing.stripe(plan, a: a, b0: 0.78, b1: 1.2, into: &massing) }
-        SuburbMassing.parkedCar(plan, a: 0.8, b: 0.82, alongA: false, into: &massing)
-        SuburbMassing.parkedCar(plan, a: 1.08, b: 0.84, alongA: false, into: &massing)
     }
 
     /// A store under a sign bigger than it is — a video store, an arcade —
@@ -415,7 +409,6 @@ enum CommercialMassing {
         SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.3 ... 1.6)),
                                color: NeonStyle.signColor(for: seed, salt: 9), stacked: true,
                                footprint: footprint, into: &massing)
-        SuburbMassing.parkedCar(plan, a: 0.7, b: 1.42, alongA: true, into: &massing)
     }
 
     /// A glass office box standing on a narrow lit lobby, overhanging it on
