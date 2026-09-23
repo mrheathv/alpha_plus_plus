@@ -527,6 +527,9 @@ final class MetalCityRenderer {
 
     /// What the last `update` did, for the timing tests.
     private(set) var chunksRebuiltLastUpdate = 0
+    /// How many building variants have been generated so far — a miss on the
+    /// cache is massing generated on the frame that needed it.
+    var cachedBuildingCount: Int { cache.entries.count }
 
     /// Everything about a chunk's tiles that decides what it draws — and
     /// nothing that does not. Read one tile past the edge, because a lane
