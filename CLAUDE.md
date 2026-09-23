@@ -8109,9 +8109,11 @@ player's 48×48 city a day costs 71 ms of tick in Debug against 1.4 ms in
 Release; on a large city about 450 ms against 29 ms. The redraw is the
 smaller part (Release: 0.6 ms on the player's city, up to 12 ms on a large
 growing one). Two further fixes remain for large cities: run the tick off
-the main thread, and rebuild chunks off it or spread over frames. Also,
-`ENABLE_CODE_COVERAGE` defaults to YES, which instruments even a Release
-build; pass `ENABLE_CODE_COVERAGE=NO` for a build meant to be played.
+the main thread, and rebuild chunks off it or spread over frames. Also, every
+build was instrumented for code coverage, Release included: a test plan with
+empty default options means coverage on, and the scheme's plans apply it to
+plain builds too. Both plans now say `"codeCoverage": false`, and a Debug
+build names itself in the window title ("Debug build (slow)").
 
 **Also agreed: the utility glow in Metal.** Reported from play: *"I miss how
 in the old SpriteKit version we could see the glow of the buildings for power
@@ -8312,6 +8314,11 @@ changed colour, and each one threw a pool of it on the ground.
 
 The colour-vision test on rendered pixels still passes. That test has to be
 rerun after any change to how a view looks, however unrelated it seems.
+
+**To revisit.** The player's verdict: a subtle glow, fine for now, and
+*"more of a sprite problem than a glow problem"*. At a whole-city zoom a
+building's own neon is thin, so there is little for the recolour to carry.
+Look again once the building-variety work lands.
 
 ## Looking at the art without playing to it
 

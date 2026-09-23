@@ -6,7 +6,9 @@
       "options": {}
     }
   ],
-  "defaultOptions": {},
+  "defaultOptions": {
+    "codeCoverage": false
+  },
   "testTargets": [
     {
       "target": {

@@ -200,9 +200,19 @@ struct AlphaPlusPlusApp: App {
 struct RootView: View {
     @ObservedObject var document: CityDocument
 
+    /// **Which build this is, in the title bar — but only when it matters.**
+    /// Cmd-R in Xcode gives a Debug build, 10–20× slower, and a whole
+    /// session was spent chasing "the screen stops" before anyone noticed
+    /// that was the build rather than the game. A Release build says nothing.
+    #if DEBUG
+    static let buildLabel = " — Debug build (slow)"
+    #else
+    static let buildLabel = ""
+    #endif
+
     var body: some View {
         content
-            .navigationTitle(document.isShowingTitle ? "Alpha++" : document.displayName)
+            .navigationTitle((document.isShowingTitle ? "Alpha++" : document.displayName) + Self.buildLabel)
             .alert(
                 "Couldn't open that city",
                 isPresented: Binding(
