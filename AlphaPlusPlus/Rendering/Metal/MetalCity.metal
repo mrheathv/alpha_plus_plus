@@ -38,6 +38,7 @@ struct Uniforms {
     float4 frame;             // x, y: viewport in pixels · z: wetness 0…1 · w: 1 when mirrored
     float4 moonAndTime;       // xyz: direction moonlight comes from · w: seconds
     uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels · w: map width | height << 16
+    float4 overlay;           // x: 1 when a view washes buildings toward its colours
 };
 
 // Most lights a single screen tile can carry. A tile over the densest block
@@ -152,7 +153,7 @@ float rimAmount(float2 uv, float2 size) {
 /// what each one discards.
 static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *lights,
                          const device uint *tileCounts, const device uint *tileLights,
-                         texture2d<float> reflection) {
+                         texture2d<float> reflection, texture2d<float> overlayTint) {
     float3 n = normalize(in.normal);
     // The reflection gets moonlight and neon but no point lights: it is
     // blurred by the street and mostly emissive anyway, and its fragments sit
@@ -173,6 +174,23 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
 
     color += in.emissive;
     color += in.rim * rimAmount(in.uv, in.size);
+
+    // **A view washes each building toward its answer** — supplied, wanting,
+    // safe, served — the job SpriteKit's `colorBlendFactor` did. What is lit
+    // on the building stays brighter than what is not, so it keeps its form:
+    // "I cannot see it" is not the same message as "it has no water".
+    if (u.overlay.x > 0.5 && in.ground < 0.5) {
+        uint2 mapSize = uint2(u.counts.w & 0xFFFF, u.counts.w >> 16);
+        uint2 cell = uint2(clamp(floor(in.world.xy), float2(0), float2(mapSize) - 1));
+        float4 wash = overlayTint.read(cell);
+        if (wash.a > 0) {
+            float l = dot(color, float3(0.2126, 0.7152, 0.0722));
+            // Mostly the answer's colour, with only a little of the
+            // building's own light left in it: enough to keep the form, not
+            // so much that a lit facade reads as a different answer.
+            color = mix(color, wash.rgb * (0.7 + 0.5 * min(l, 1.0)), wash.a);
+        }
+    }
 
     // Grain in the ground, so a field of it is a surface and not plastic —
     // applied before the reflection, so the mirrored city stays clean.
@@ -249,7 +267,8 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         color = float3(0.006, 0.011, 0.028)
             + float3(0.02, 0.018, 0.045) * (1 - waveNormal.z) * 10
             + float3(0.55, 0.5, 0.8) * glint;
-    }    float wet = max(u.frame.z, dryGloss);
+    }
+    float wet = max(u.frame.z, dryGloss);
     // Strength first, sampling only where it is worth something: most land
     // in rain has no puddle under it, and nine taps of a texture for a
     // reflection weighted zero was measured costing Apex 4 ms a frame.
@@ -311,8 +330,9 @@ fragment float4 sceneFragment(Varyings in [[stage_in]],
                               const device Light *lights [[buffer(2)]],
                               const device uint *tileCounts [[buffer(3)]],
                               const device uint *tileLights [[buffer(4)]],
-                              texture2d<float> reflection [[texture(0)]]) {
-    return shadeScene(in, u, lights, tileCounts, tileLights, reflection);
+                              texture2d<float> reflection [[texture(0)]],
+                              texture2d<float> overlayTint [[texture(1)]]) {
+    return shadeScene(in, u, lights, tileCounts, tileLights, reflection, overlayTint);
 }
 
 /// The mirrored pass: nothing below the street — a reflection of something
@@ -322,9 +342,10 @@ fragment float4 reflectionFragment(Varyings in [[stage_in]],
                                    const device Light *lights [[buffer(2)]],
                                    const device uint *tileCounts [[buffer(3)]],
                                    const device uint *tileLights [[buffer(4)]],
-                                   texture2d<float> reflection [[texture(0)]]) {
+                                   texture2d<float> reflection [[texture(0)]],
+                                   texture2d<float> overlayTint [[texture(1)]]) {
     if (in.ground > 0.5) discard_fragment();
-    return shadeScene(in, u, lights, tileCounts, tileLights, reflection);
+    return shadeScene(in, u, lights, tileCounts, tileLights, reflection, overlayTint);
 }
 
 // MARK: - Light culling
@@ -622,4 +643,78 @@ fragment float4 smokeFragment(TraceVaryings in [[stage_in]]) {
     float r2 = dot(in.uv, in.uv);
     float a = in.alpha * pow(saturate(1 - r2), 2.0);
     return float4(in.color * a, a);   // premultiplied
+}
+
+// MARK: - What the map tells you (migration M4)
+
+// One tile of a view: its colour as light on the ground. Mode 0 fills the
+// tile, with its edge a little darker so a field of them still reads as
+// tiles; mode 1 is a soft pool centred on the point, for a lot that must be
+// found from across the map.
+struct OverlayTile {
+    float4 place;   // x, y, size in tiles, z
+    float4 color;   // rgb linear · w: mode
+};
+
+vertex TraceVaryings overlayTileVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                                       const device OverlayTile *tiles [[buffer(0)]],
+                                       constant MotionUniforms &u [[buffer(1)]]) {
+    const float2 corners[6] = { float2(0, 0), float2(1, 0), float2(1, 1),
+                                float2(0, 0), float2(1, 1), float2(0, 1) };
+    OverlayTile t = tiles[iid];
+    float2 c = corners[vid];
+    bool pool = t.color.w > 0.5;
+    float2 xy = pool ? t.place.xy + (c - 0.5) * t.place.z : t.place.xy + c * t.place.z;
+    TraceVaryings out;
+    out.clip = u.viewProjection * float4(mirrorIfNeeded(float3(xy, t.place.w), u), 1);
+    out.uv = c * 2 - 1;
+    out.color = t.color.rgb;
+    out.alpha = 1;
+    out.mode = t.color.w;
+    return out;
+}
+
+fragment float4 overlayTileFragment(TraceVaryings in [[stage_in]]) {
+    float shape;
+    if (in.mode > 0.5) {
+        float r2 = dot(in.uv, in.uv);
+        shape = pow(saturate(1 - r2), 2.0);
+    } else {
+        float edge = max(abs(in.uv.x), abs(in.uv.y));
+        shape = 1 - 0.45 * smoothstep(0.82, 1.0, edge);
+    }
+    return float4(in.color * shape, 0);
+}
+
+// A badge: a glyph that stands over its building and faces the camera, a
+// fixed number of pixels across however far out the camera is — a warning
+// that shrinks with the zoom is a warning nobody sees from across the map.
+struct Billboard {
+    float4 place;   // xyz world · w: pixels across
+    float4 tint;    // rgb · w: which glyph
+};
+
+vertex TraceVaryings billboardVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                                     const device Billboard *boards [[buffer(0)]],
+                                     constant MotionUniforms &u [[buffer(1)]]) {
+    const float2 corners[6] = { float2(-1, -1), float2(1, -1), float2(1, 1),
+                                float2(-1, -1), float2(1, 1), float2(-1, 1) };
+    Billboard b = boards[iid];
+    float2 c = corners[vid];
+    float4 clip = u.viewProjection * float4(b.place.xyz, 1);
+    TraceVaryings out;
+    out.clip = float4(clip.xy + c * b.place.w * 0.5 / (u.frame.xy * 0.5), 0, 1);
+    // Three glyphs across one texture.
+    out.uv = float2((b.tint.w + c.x * 0.5 + 0.5) / 3.0, 0.5 - c.y * 0.5);
+    out.color = b.tint.rgb;
+    out.alpha = 1;
+    out.mode = b.tint.w;
+    return out;
+}
+
+fragment float4 billboardFragment(TraceVaryings in [[stage_in]],
+                                  texture2d<float> atlas [[texture(0)]]) {
+    constexpr sampler s(filter::linear, address::clamp_to_edge);
+    float4 texel = atlas.sample(s, in.uv);
+    return float4(texel.rgb * in.color, texel.a);   // premultiplied
 }

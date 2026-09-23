@@ -51,6 +51,7 @@ struct MetalMapView: NSViewRepresentable {
             motionClock.tick(at: now, running: controller.isRunning)
 
             renderer.showsTraffic = controller.overlayMode.showsRoadNetwork
+            renderer.overlayMode = controller.overlayMode
             renderer.update(controller.map, revision: controller.mapRevision)
             // Scene points per pixel: the camera's scale is per *view* point,
             // and a Retina drawable has two pixels to each.

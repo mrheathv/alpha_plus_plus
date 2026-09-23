@@ -847,7 +847,7 @@ final class IsoTextureCache {
     }
 
     /// A lightning bolt: the zigzag everybody already reads as power.
-    private static func boltPath(_ radius: CGFloat) -> CGPath {
+    static func boltPath(_ radius: CGFloat) -> CGPath {
         let path = CGMutablePath()
         let w = radius * 0.42, h = radius * 0.62
         path.move(to: CGPoint(x: w * 0.35, y: h))
@@ -861,7 +861,7 @@ final class IsoTextureCache {
     }
 
     /// A teardrop: a circle with its top drawn out to a point.
-    private static func dropPath(_ radius: CGFloat) -> CGPath {
+    static func dropPath(_ radius: CGFloat) -> CGPath {
         let path = CGMutablePath()
         let r = radius * 0.42
         let tip = CGPoint(x: 0, y: r * 1.75)

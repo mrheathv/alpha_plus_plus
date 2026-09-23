@@ -7892,6 +7892,53 @@ The plan is rebuilt only when the city moves: a new day, a chunk rebuilt, a
 tram line drawn or a fire started. An unchanged city asked again rebuilds
 nothing. Apex still draws in 8.5 ms at the resting camera.
 
+### M4 (done): what the map tells you
+
+Every view, and every mark a building wears, on the Metal renderer
+(`MetalOverlay`). **The decision is not made here**: which colour a tile gets
+under which view, and what happens to its building, is still
+`IsoTileRenderer.paint`, the one call SpriteKit and the city render make.
+Metal only decides how that answer looks when light is real:
+
+- **The ground is lit, not tinted.** A view's colour is added to the street
+  as light, at a third of its strength. At full strength every heatmap was a
+  glaring plate: the palette was picked as paint, and as light it goes
+  further.
+- **A heatmap removes the buildings.** Each chunk's buffer is ground first
+  and buildings after (`Built.groundFloats`), so a view draws the first part
+  alone. A network view washes each building toward its answer in the shader,
+  one texel a tile, using SpriteKit's own blend factors (0.78/0.92). A source
+  the player is hunting for is left alone.
+- **What a player came to find is drawn over everything**: pipe and power
+  runs, lit where they reach a source and dim where they do not, tram rails in
+  the Tram view, and badges. Badges are billboards a fixed number of pixels
+  across, drawn from the same `dropPath`/`boltPath` the SpriteKit badges use.
+  **Scaffolds and damage** are Normal view's, as they are in SpriteKit, and
+  the badge condition is `IsoTileRenderer.missingUtilities`, shared.
+
+**Colour vision was measured on rendered pixels**, not palette entries,
+because a lit renderer changes what a colour looks like
+(`testTheRenderedViewsKeepTheirMeaningsApart`). Under the three deficiencies
+the result matches SpriteKit exactly: the only pair that collapses is
+Power's served/wanting (0.13), and that view carries the bolt. Its fixture
+needed three corrections before it measured anything, all the usual lesson:
+a "wanting water" block that had water, one pump short of the city's demand
+(an overloaded network serves nobody), and a pump one tile too far away.
+`hasSupply` asks about the tile itself, not the building.
+
+**A view costs up to 13 ms to rebuild on Apex, in Release**, and it is rebuilt
+on every change of the map, so a click with a view up can hitch a frame. It
+is the shared decision itself (land value, congestion and coverage per
+tile), which SpriteKit pays too. It was measured before guessing: the
+obvious suspect, colour conversion, changed nothing when removed. It stays
+under the 16 ms bound, and moving it off the drawing path is M7's job.
+
+**The placement cursor, the land cursor and the route diagrams stay in
+SpriteKit for now**, although the plan put them here. They already draw
+correctly over Metal through the transparent scene, and they belong with
+input and the camera, which the plan moves at M8. Moving them now would mean
+a second copy of cursor logic living beside the first until then.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

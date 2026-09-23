@@ -32,7 +32,10 @@
         "MetalMapTests/testApexFitsTheFrameBudget()",
         "MetalFrameBreakdownTests",
         "MetalMotionTests/testRecordTheCity()",
-        "MetalMotionTests/testRenderTheMovingCityCloseUp()"
+        "MetalMotionTests/testRenderTheMovingCityCloseUp()",
+        "MetalOverlayTests/testRenderEveryView()",
+        "MetalOverlayTests/testRenderTheBuildingMarks()",
+        "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()"
       ]
     }
   ],

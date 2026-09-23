@@ -52,6 +52,10 @@ final class MetalMotion {
     /// `OverlayMode.showsRoadNetwork` states for SpriteKit.
     var showsTraffic = true
 
+    /// Whether a view is up. A view hides what describes a building — its
+    /// flames and its smoke among them — as `applyOverlay` does in SpriteKit.
+    var overlayActive = false
+
     // MARK: - The plan, rebuilt when the city changes
 
     private struct Car {
@@ -147,6 +151,7 @@ final class MetalMotion {
         for tile in map.tiles where tile.isBuildingAnchor {
             let size = Float(tile.zone.footprintSize)
             let x = Float(tile.position.x) + size / 2, y = Float(tile.position.y) + size / 2
+            if overlayActive { continue }
             if tile.isBurning {
                 fires.append(Burning(top: SIMD3(x, y, max(0.3, buildingHeight(tile))), footprint: size,
                                      seed: Float(tile.position.x * 31 + tile.position.y * 17)))

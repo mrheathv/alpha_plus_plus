@@ -1076,13 +1076,22 @@ struct IsoTileRenderer {
     /// always landed clear of it; here a tier-3 tower is three times the height
     /// of a tier-1 shed, and a fixed offset would bury the warning inside the
     /// building it is about.
+    /// Which utility badges a building wears: one short of water or power
+    /// from the level before the one that needs it, so the warning arrives
+    /// while there is still time to answer it. Shared by both renderers.
+    static func missingUtilities(of tile: Tile, hasWaterSupply: Bool,
+                                 hasPowerSupply: Bool) -> (water: Bool, power: Bool) {
+        (tile.density >= CitySimulator.waterRequiredFromLevel - 1 && !hasWaterSupply,
+         tile.density >= CitySimulator.powerRequiredFromLevel - 1 && !hasPowerSupply)
+    }
+
     func syncUtilityWarning(on node: SKNode, tile: Tile, hasWaterSupply: Bool, hasPowerSupply: Bool) {
         let key = "\(tile.zone.rawValue)|\(tile.density)|\(hasWaterSupply)|\(hasPowerSupply)"
         guard !isUpToDate(node, Self.warningNodeName, key) else { return }
         markUpToDate(node, Self.warningNodeName, key)
         node.childNode(withName: Self.warningNodeName)?.removeFromParent()
-        let missingWater = tile.density >= CitySimulator.waterRequiredFromLevel - 1 && !hasWaterSupply
-        let missingPower = tile.density >= CitySimulator.powerRequiredFromLevel - 1 && !hasPowerSupply
+        let (missingWater, missingPower) = Self.missingUtilities(
+            of: tile, hasWaterSupply: hasWaterSupply, hasPowerSupply: hasPowerSupply)
         guard missingWater || missingPower else { return }
 
         let size = CGFloat(tile.zone.footprintSize)

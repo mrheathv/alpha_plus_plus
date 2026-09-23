@@ -62,6 +62,7 @@ final class MetalCityRenderer {
         var frame: SIMD4<Float>
         var moonAndTime: SIMD4<Float>
         var counts: SIMD4<UInt32>
+        var overlay: SIMD4<Float> = .zero
     }
 
     /// Mirrors `MotionUniforms` in MetalCity.metal.
@@ -106,6 +107,11 @@ final class MetalCityRenderer {
     private let rainPipeline: MTLRenderPipelineState
     private let smokePipeline: MTLRenderPipelineState
     private let flamePipeline: MTLRenderPipelineState
+    private let overlayTilePipeline: MTLRenderPipelineState
+    private let billboardPipeline: MTLRenderPipelineState
+    /// Drawn over everything: a mark the player came to a view to find.
+    private let alwaysDepthState: MTLDepthStencilState
+    private let glyphAtlas: MTLTexture?
     /// Depth-tested against the city, never written: a trace behind a tower
     /// is hidden, and two traces crossing add up rather than one winning.
     private let readOnlyDepthState: MTLDepthStencilState
@@ -130,7 +136,11 @@ final class MetalCityRenderer {
               let rainVertex = library.makeFunction(name: "rainVertex"),
               let traceFragment = library.makeFunction(name: "traceFragment"),
               let smokeVertex = library.makeFunction(name: "smokeVertex"),
-              let smokeFragment = library.makeFunction(name: "smokeFragment")
+              let smokeFragment = library.makeFunction(name: "smokeFragment"),
+              let overlayTileVertex = library.makeFunction(name: "overlayTileVertex"),
+              let overlayTileFragment = library.makeFunction(name: "overlayTileFragment"),
+              let billboardVertex = library.makeFunction(name: "billboardVertex"),
+              let billboardFragment = library.makeFunction(name: "billboardFragment")
         else { return nil }
         self.cullPipeline = cullPipeline
         self.device = device
@@ -176,6 +186,10 @@ final class MetalCityRenderer {
               let rainPipeline = blended(rainVertex, traceFragment, samples: Self.sampleCount, additive: true),
               let smokePipeline = blended(smokeVertex, smokeFragment, samples: Self.sampleCount, additive: false),
               let flamePipeline = blended(traceVertex, traceFragment, samples: Self.sampleCount, additive: false),
+              let overlayTilePipeline = blended(overlayTileVertex, overlayTileFragment,
+                                                samples: Self.sampleCount, additive: true),
+              let billboardPipeline = blended(billboardVertex, billboardFragment,
+                                              samples: Self.sampleCount, additive: false),
               let readOnlyDepthState = device.makeDepthStencilState(descriptor: readOnly)
         else { return nil }
         self.tracePipeline = tracePipeline
@@ -183,6 +197,16 @@ final class MetalCityRenderer {
         self.rainPipeline = rainPipeline
         self.smokePipeline = smokePipeline
         self.flamePipeline = flamePipeline
+        self.overlayTilePipeline = overlayTilePipeline
+        self.billboardPipeline = billboardPipeline
+        let always = MTLDepthStencilDescriptor()
+        always.depthCompareFunction = .always
+        always.isDepthWriteEnabled = false
+        guard let alwaysDepthState = device.makeDepthStencilState(descriptor: always) else { return nil }
+        self.alwaysDepthState = alwaysDepthState
+        self.glyphAtlas = MetalOverlay.glyphAtlas().flatMap {
+            try? MTKTextureLoader(device: device).newTexture(cgImage: $0, options: [.SRGB: false])
+        }
         self.readOnlyDepthState = readOnlyDepthState
 
         guard let scene = pipeline(samples: Self.sampleCount, fragment: fragment),
@@ -237,6 +261,19 @@ final class MetalCityRenderer {
     /// Everything that moves — see `MetalMotion`.
     let motion = MetalMotion()
 
+    /// What the map tells you — see `MetalOverlay`.
+    let overlay = MetalOverlay()
+    private var overlayTint: MTLTexture?
+
+    /// The view up: `GameController.overlayMode`.
+    var overlayMode: OverlayMode = .none {
+        didSet {
+            guard overlayMode != oldValue else { return }
+            builtRevision = nil
+            plannedMotion = nil
+        }
+    }
+
     /// The running-time clock the motion was last planned at, so a tram line
     /// that is rebuilt starts from where the city's clock actually is.
     private var lastMotionClock: Double = 0
@@ -255,8 +292,12 @@ final class MetalCityRenderer {
 
     /// How tall the building on an anchor tile stands, from its mesh.
     private func buildingHeight(_ tile: Tile) -> Float {
-        let key = MetalCityMesh.Cache.Key(zone: tile.zone, density: tile.density,
-                                          variant: IsoTextureCache.variant(for: tile.position))
+        buildingHeight(zone: tile.zone, density: tile.density, at: tile.position)
+    }
+
+    private func buildingHeight(zone: ZoneType, density: Int, at position: GridPosition) -> Float {
+        let key = MetalCityMesh.Cache.Key(zone: zone, density: density,
+                                          variant: IsoTextureCache.variant(for: position))
         if let known = heights[key] { return known }
         let built = cache.entries[key] ?? MetalCityMesh.building(key)
         cache.entries[key] = built
@@ -271,6 +312,7 @@ final class MetalCityRenderer {
     private struct MotionKey: Equatable {
         let day: Int
         let showsTraffic: Bool
+        let overlay: OverlayMode
         let reduceMotion: Bool
         let fires: Int
         let routes: Int
@@ -296,6 +338,8 @@ final class MetalCityRenderer {
         var signature: Int
         var buffer: MTLBuffer?
         var vertexCount: Int
+        /// Vertices that are ground; the rest are buildings.
+        var groundCount: Int
         var lights: [Float]
         /// The tallest thing in it, for deciding whether it is on screen.
         var height: Float
@@ -368,7 +412,7 @@ final class MetalCityRenderer {
             chunkGrid = (across, down, map.width, map.height)
             chunks = (0 ..< across * down).map { index in
                 let cx = index % across, cy = index / across
-                return Chunk(signature: 0, buffer: nil, vertexCount: 0, lights: [], height: 0,
+                return Chunk(signature: 0, buffer: nil, vertexCount: 0, groundCount: 0, lights: [], height: 0,
                              region: .init(x0: cx * size, y0: cy * size,
                                            x1: min(map.width, (cx + 1) * size),
                                            y1: min(map.height, (cy + 1) * size)))
@@ -386,7 +430,8 @@ final class MetalCityRenderer {
             chunks[index] = Chunk(
                 signature: signature,
                 buffer: count == 0 ? nil : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4),
-                vertexCount: count, lights: built.lights, height: height, region: chunks[index].region)
+                vertexCount: count, groundCount: built.groundFloats / GPUVertex.floatCount,
+                lights: built.lights, height: height, region: chunks[index].region)
             rebuilt += 1
         }
         chunksRebuiltLastUpdate = rebuilt
@@ -399,14 +444,22 @@ final class MetalCityRenderer {
         var routes = Hasher()
         for route in map.transit.routes(mode: .tram) { for stop in route.stops { routes.combine(stop) } }
         let motionKey = MotionKey(day: map.elapsedDays, showsTraffic: motion.showsTraffic,
+                                  overlay: overlayMode,
                                   reduceMotion: VisualStyle.reduceMotion,
                                   fires: map.tiles.reduce(0) { $0 + ($1.isBurning ? 1 : 0) },
                                   routes: routes.finalize())
         if rebuilt > 0 || motionKey != plannedMotion {
             plannedMotion = motionKey
             motion.buildingHeight = { [unowned self] in self.buildingHeight($0) }
+            motion.overlayActive = overlayMode != .none
             motion.update(map, clock: lastMotionClock, reduceMotion: VisualStyle.reduceMotion)
         }
+        // The view is rebuilt on every change of the map, because anything
+        // can change what a view says — a pipe laid while paused, a building
+        // finishing a storey.
+        overlay.height = { [unowned self] in self.buildingHeight(zone: $0, density: $1, at: $2) }
+        overlay.update(map, mode: overlayMode)
+        overlayTint = makeTint(width: map.width, height: map.height)
     }
 
     /// Is any of this chunk on screen? Its box, top to bottom, projected — or
@@ -553,6 +606,20 @@ final class MetalCityRenderer {
         return made
     }
 
+    /// The view's building wash as a small texture, one texel a tile.
+    private func makeTint(width: Int, height: Int) -> MTLTexture? {
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba32Float, width: max(1, width), height: max(1, height), mipmapped: false)
+        descriptor.usage = .shaderRead
+        guard overlay.tint.count == width * height * 4,
+              let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        overlay.tint.withUnsafeBytes {
+            texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
+                            withBytes: $0.baseAddress!, bytesPerRow: width * 16)
+        }
+        return texture
+    }
+
     // MARK: - Drawing
 
     /// The ground the camera can see, as a rectangle in tile units — where
@@ -597,7 +664,8 @@ final class MetalCityRenderer {
             viewProjection: matrix,
             frame: SIMD4(Float(camera.size.width), Float(camera.size.height), wetness, 0),
             moonAndTime: SIMD4(SIMD3<Float>(-0.35, 0.55, 0.76), time),
-            counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), mapSizePacked)
+            counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), mapSizePacked),
+            overlay: SIMD4(overlayMode != .none && overlayTint != nil ? 1 : 0, 0, 0, 0)
         )
         let lightData = lights.isEmpty ? [Float](repeating: 0, count: GPULight.floatCount) : lights
         guard let lightBuffer = device.makeBuffer(bytes: lightData, length: lightData.count * 4) else { return nil }
@@ -607,6 +675,14 @@ final class MetalCityRenderer {
         let traceCount = moving.traces.count / MetalMotion.traceFloatCount
         let traceBuffer = traceCount == 0 ? nil
             : device.makeBuffer(bytes: moving.traces, length: moving.traces.count * 4)
+        let hideBuildings = overlayMode != .none && overlay.hidesBuildings
+        func buffer(_ floats: [Float], per: Int) -> (MTLBuffer?, Int) {
+            floats.isEmpty ? (nil, 0) : (device.makeBuffer(bytes: floats, length: floats.count * 4), floats.count / per)
+        }
+        let (overlayTileBuffer, overlayTileCount) = buffer(overlay.tiles, per: MetalOverlay.tileFloatCount)
+        let (scaffoldBuffer, scaffoldCount) = buffer(overlay.traces, per: MetalMotion.traceFloatCount)
+        let (schematicBuffer, schematicCount) = buffer(overlay.schematic, per: MetalMotion.traceFloatCount)
+        let (billboardBuffer, billboardCount) = buffer(overlay.billboards, per: MetalOverlay.billboardFloatCount)
         let flameCount = moving.flames.count / MetalMotion.traceFloatCount
         let flameBuffer = flameCount == 0 ? nil
             : device.makeBuffer(bytes: moving.flames, length: moving.flames.count * 4)
@@ -686,6 +762,7 @@ final class MetalCityRenderer {
             encoder.setFragmentBuffer(targets.tileCounts, offset: 0, index: 3)
             encoder.setFragmentBuffer(targets.tileLights, offset: 0, index: 4)
             encoder.setFragmentTexture(mirrored ? nil : targets.reflection, index: 0)
+            encoder.setFragmentTexture(overlayTint, index: 1)
             if !mirrored, let backdrop {
                 encoder.setVertexBuffer(backdrop.buffer, offset: 0, index: 0)
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: backdrop.vertexCount)
@@ -695,9 +772,12 @@ final class MetalCityRenderer {
             for chunk in chunks where chunk.vertexCount > 0 {
                 guard let buffer = chunk.buffer, isVisible(chunk, through: matrix, mirrored: mirrored)
                 else { continue }
+                // A heatmap's data is on the ground, and a tower would hide it.
+                let count = hideBuildings ? chunk.groundCount : chunk.vertexCount
+                guard count > 0 else { continue }
                 encoder.setVertexBuffer(buffer, offset: 0, index: 0)
-                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: chunk.vertexCount)
-                if !mirrored { drawn += chunk.vertexCount / 3 }
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: count)
+                if !mirrored { drawn += count / 3 }
             }
             // Ships are lit geometry like the city they sail through.
             if let solidBuffer {
@@ -731,6 +811,37 @@ final class MetalCityRenderer {
             if !mirrored, drops > 0 {
                 encoder.setRenderPipelineState(rainPipeline)
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: drops)
+            }
+            if !mirrored {
+                // The view's light on the ground, under what is standing on it.
+                if let overlayTileBuffer {
+                    encoder.setRenderPipelineState(overlayTilePipeline)
+                    encoder.setVertexBuffer(overlayTileBuffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                           instanceCount: overlayTileCount)
+                }
+                if let scaffoldBuffer {
+                    encoder.setRenderPipelineState(tracePipeline)
+                    encoder.setVertexBuffer(scaffoldBuffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                           instanceCount: scaffoldCount)
+                }
+                // Over everything: a pipe run in the Water view and a badge
+                // are what the player came to find.
+                encoder.setDepthStencilState(alwaysDepthState)
+                if let schematicBuffer {
+                    encoder.setRenderPipelineState(tracePipeline)
+                    encoder.setVertexBuffer(schematicBuffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                           instanceCount: schematicCount)
+                }
+                if let billboardBuffer, let glyphAtlas {
+                    encoder.setRenderPipelineState(billboardPipeline)
+                    encoder.setVertexBuffer(billboardBuffer, offset: 0, index: 0)
+                    encoder.setFragmentTexture(glyphAtlas, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                           instanceCount: billboardCount)
+                }
             }
             encoder.endEncoding()
         }
@@ -843,6 +954,10 @@ enum MetalCityMesh {
     struct Built {
         var vertices: [Float] = []
         var lights: [Float] = []
+        /// How many of `vertices`' floats are ground — streets, land, water —
+        /// with the buildings after them, so a view that hides buildings can
+        /// draw the first part alone.
+        var groundFloats = 0
     }
 
     /// Every distinct building, turned into triangles once.
@@ -859,9 +974,14 @@ enum MetalCityMesh {
     /// sRGB colour to linear light. Every colour in this project was picked
     /// as an sRGB value on a screen; lighting maths has to happen in linear,
     /// or every blend and every falloff comes out wrong.
+    ///
+    /// Almost every colour in the palette is built with `srgbRed:` already,
+    /// and asking AppKit to convert one into the space it is in costs a few
+    /// microseconds — which, once per tile, was most of the 13 ms a view took
+    /// to repaint on Apex. Those skip the conversion.
     static func linear(_ color: SKColor) -> SIMD3<Float> {
-        let c = color.usingColorSpace(.sRGB) ?? color
-        func f(_ v: CGFloat) -> Float { Float(pow(max(0, v), 2.2)) }
+        let c = color.colorSpace == .sRGB ? color : (color.usingColorSpace(.sRGB) ?? color)
+        func f(_ v: CGFloat) -> Float { powf(max(0, Float(v)), 2.2) }
         return SIMD3(f(c.redComponent), f(c.greenComponent), f(c.blueComponent))
     }
 
@@ -1108,6 +1228,8 @@ enum MetalCityMesh {
                 }
             }
         }
+
+        built.groundFloats = built.vertices.count
 
         // The buildings, from the variant the texture cache would draw —
         // generated once per variant and copied into place.
