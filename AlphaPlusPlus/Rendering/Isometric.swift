@@ -258,10 +258,10 @@ struct Isometric {
     /// Top-down, every tile sprite can sit at zero because nothing overlaps.
     /// Isometric needs a painter's algorithm, and `x + y` is what decides near
     /// from far. Expressed as a `zPosition` rather than as a sort of the child
-    /// array so that `GameScene.rebuildRegion` can keep working the way it
-    /// does: it adds and removes nodes in a window without touching the rest,
-    /// and re-sorting an entire tile layer on every placement would undo the
-    /// 40x saving that region rebuild exists for.
+    /// array so that `GameScene.rebuildRegion` could keep working the way it
+    /// did: it added and removed nodes in a window without touching the rest,
+    /// and re-sorting an entire tile layer on every placement would have undone
+    /// the 40x saving that region rebuild existed for.
     /// A multi-tile building sorts by its **nearest** corner, not its anchor.
     /// A 3×3 anchored at (1,1) reaches tile (3,3), so it must draw after
     /// everything that tile would draw after — keyed on its anchor it would be
@@ -277,7 +277,7 @@ struct Isometric {
     /// and a top-down one does not.
     ///
     /// Top-down, nothing overlaps, so every tile sprite can sit at
-    /// `zPosition = 0`, which is exactly what `GameScene` does today. In
+    /// `zPosition = 0`, which is exactly what the top-down scene did. In
     /// isometric a near volume must cover a far one, and what decides "near"
     /// is `x + y`. Elevation breaks the tie, so a chimney standing on a hall
     /// draws after the hall it stands on rather than being swallowed by it.

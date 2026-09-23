@@ -721,7 +721,7 @@ enum Traffic {
         return path.reversed()
     }
 
-    /// How many ambient "cars" `GameScene` should animate driving along a
+    /// How many ambient "cars" `CityMotion` should put driving along a
     /// road tile at this congestion level — 0 for an empty road, rising to
     /// 3 for a jammed one. Pure presentation math (no SpriteKit needed),
     /// but the actual thresholds are graybox first guesses same as
@@ -736,8 +736,8 @@ enum Traffic {
     }
 
     /// Does this road tile connect to another road *horizontally* (left or
-    /// right) at least as much as *vertically* (up or down)? `GameScene`
-    /// uses this to orient the ambient traffic animation along the road's
+    /// right) at least as much as *vertically* (up or down)? `CityMotion`
+    /// uses this to orient the ambient traffic along the road's
     /// actual direction — a car should drive along the street it's on, not
     /// across one it doesn't run along. Ties (an isolated road stub with no
     /// neighbors, or a 4-way intersection with both) default to
@@ -810,9 +810,9 @@ struct TrafficLoad: Equatable, Codable, Sendable {
     /// headed north than south. Two independent axes, not one heading,
     /// because a tile can legitimately carry both a horizontal and a
     /// vertical flow at once (a junction) — `netHeading(at:)` collapses
-    /// this to the single dominant axis `GameScene` actually needs for
+    /// this to the single dominant axis `CityMotion` actually needs for
     /// its (already axis-picked, via `Traffic.isHorizontallyOriented`)
-    /// car animation.
+    /// cars.
     private var netHeadingXByTile: [GridPosition: Int] = [:]
     private var netHeadingYByTile: [GridPosition: Int] = [:]
 

@@ -18,7 +18,7 @@ import XCTest
 /// handles noise.
 ///
 /// Seeded, so a failure is reproducible from its seed alone, and
-/// `ScenePlaytest.log` prints the run that produced it — because "step 147 of
+/// `CityPlaytest.log` prints the run that produced it — because "step 147 of
 /// a random walk" is otherwise a failure nobody can act on. It is the same
 /// requirement `PlaytestHarness` already states for balance numbers: a result
 /// nobody can re-derive is the thing these harnesses exist to stop producing.

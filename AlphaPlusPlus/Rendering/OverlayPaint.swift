@@ -63,8 +63,8 @@ extension IsoTileRenderer {
         /// `OverlayMode.showsRoadNetwork`.
         ///
         /// On the paint rather than read from the mode at each call site, for
-        /// the reason `paint` itself exists: `GameScene` and the render both
-        /// have to reach the same answer, and the last time that decision
+        /// the reason `paint` itself exists: the Metal renderer and the tests
+        /// both have to reach the same answer, and the last time that decision
         /// lived in two places three heatmaps silently painted nothing while
         /// the render cheerfully reported they were fine.
         var showsRoads = false
@@ -302,35 +302,4 @@ extension IsoTileRenderer {
 
     // MARK: - Enclosure
 
-    /// **Occlusion, quantised before it is ever used.**
-    ///
-    /// Every mark it touches is cached on a key, and enclosure is a continuous
-    /// number that a neighbour three lots away growing a storey can nudge by a
-    /// thousandth. A raw key would miss on every tile every tick and rebuild
-    /// the whole city once a second — precisely the churn this file records as
-    /// "why the map blinked", and the same reason road wear is quantised into
-    /// five steps before it reaches a lane line's key.
-    ///
-    /// Six steps, which is more gradation than the eye finds in how dark a
-    /// pool of light is.
-    ///
-    /// **Cut at `fullyEnclosed` rather than at 1**, and that number came from
-    /// measuring rather than from reasoning. `GameScene.occlusion` returns an
-    /// honest physical fraction — what share of a lot's perimeter is blocked —
-    /// and on Apex, the largest and densest city this project ships, **it
-    /// never once exceeds 0.5**. It cannot: every lot in a city with streets
-    /// fronts onto one, and a street is open sky. Scaled against 1 the top
-    /// three sixths of this range were dead weight and a whole built-out
-    /// downtown resolved into three shades.
-    ///
-    /// So the fraction stays true and the *scale* is calibrated to the range
-    /// the game can actually produce. Anything past it — a lot walled in on
-    /// every side, which only a hand-built fixture manages — simply sits at
-    /// the bottom.
-    static func occlusionStep(_ occlusion: Double) -> Int {
-        Swift.max(0, Swift.min(5, Int(occlusion / fullyEnclosed * 5.999)))
-    }
-
-    /// The enclosure a real city tops out at. See `occlusionStep`.
-    static let fullyEnclosed = 0.5
 }

@@ -6,8 +6,8 @@ import SwiftUI
 /// game opens on something that tells you what it is — and for the App Store
 /// it is also the one screen that has to survive being a thumbnail.
 ///
-/// **Drawn rather than photographed.** The obvious move is to put a live
-/// `GameScene` behind the title, and it was tempting: the game already
+/// **Drawn rather than photographed.** The obvious move is to put the live
+/// city behind the title, and it was tempting: the game already
 /// renders a city and it looks good. But a title screen has to be *composed*
 /// — a horizon at a chosen height, a sun in a chosen place — and a real city
 /// is an isometric diamond that sits wherever the map is. This is the one
@@ -72,7 +72,7 @@ struct TitleScreen: View {
 
     /// The sun: a disc cut by slats that widen toward the bottom.
     ///
-    /// The right way up, here. `NeonStyle.sunsetFlameTexture` runs the same
+    /// The right way up, here. The Metal fire runs the same
     /// motif *upside down* for fire, where the gaps widen toward the top
     /// because that is what a flame does as it breaks apart. Same idea, two
     /// readings — which is the sort of thing that makes a look feel authored

@@ -1,4 +1,4 @@
-import SpriteKit
+import AppKit
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -106,7 +106,7 @@ final class RewardBuildingsTests: XCTestCase {
     /// **The three rewards beside the city they are rewards for.** A reward
     /// is only worth having if it stands out, so it is judged next to a
     /// top-tier block rather than on its own.
-    func testRenderTheRewards() {
+    func testRenderTheRewards() throws {
         var map = CityMap(width: 22, height: 14)
         for x in 0 ..< 22 { map[GridPosition(x: x, y: 5)].zone = .road }
         for x in 0 ..< 22 { map[GridPosition(x: x, y: 10)].zone = .road }
@@ -129,13 +129,14 @@ final class RewardBuildingsTests: XCTestCase {
         }
         map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 19, y: 6))
         map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 18, y: 11))
-        let game = ScenePlaytest(map: map)
+        let game = try XCTUnwrap(CityPlaytest(map: map))
         game.controller.setFundingLevel(4, for: .waterTower)
         game.controller.setFundingLevel(4, for: .powerPlant)
         game.tick(1)
-        game.frameTheWholeMap()
-        game.frame()
-        game.capture("arcade · tower · arcology, among top-tier blocks")
-        game.writeFilmstrip(named: "rewards")
+        let size = CGSize(width: 1200, height: 800)
+        let image = try XCTUnwrap(game.picture(size: size))
+        try MetalSpikeTests.writeGrid([("arcade · tower · arcology, among top-tier blocks",
+                                        NSImage(cgImage: image, size: size))],
+                                      columns: 1, cell: size, named: "rewards")
     }
 }

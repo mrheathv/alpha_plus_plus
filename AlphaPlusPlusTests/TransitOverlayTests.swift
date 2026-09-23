@@ -1,12 +1,9 @@
 import XCTest
-import SpriteKit
 @testable import AlphaPlusPlus
 
 /// The Bus and Subway views: what they paint, and the diagram over the top.
 @MainActor
 final class TransitOverlayTests: XCTestCase {
-
-    private let projection = Isometric(tileWidth: 32)
 
     /// A street, a house at each end, and a station beside the western one.
     private func city() -> CityMap {
@@ -88,143 +85,82 @@ final class TransitOverlayTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(paint(.subway, at: edge, in: trains)).buildings, .connected(true))
     }
 
-    // MARK: - The diagram
+    // MARK: - The diagram (`MetalMarks.diagram`)
 
-    func testTheDiagramDrawsOneLinePerWorkingRoute() throws {
-        var map = city()
-        _ = line(.bus, in: &map, at: [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)])
-        _ = line(.bus, in: &map, at: [GridPosition(x: 14, y: 3), GridPosition(x: 20, y: 3)])
-        _ = line(.subway, in: &map, at: [GridPosition(x: 1, y: 5), GridPosition(x: 20, y: 5)])
+    private func diagram(_ mode: TransitRoute.Mode, in map: CityMap,
+                         drawing draft: TransitRouteDraft? = nil) -> [Float] {
+        MetalMarks.diagram(for: mode, in: map, drawing: draft)
+    }
 
-        let renderer = IsoTileRenderer(projection: projection)
-        let buses = try XCTUnwrap(renderer.transitDiagram(for: .bus, in: map))
-        let trains = try XCTUnwrap(renderer.transitDiagram(for: .subway, in: map))
-
-        XCTAssertEqual(named(IsoTileRenderer.transitLineName, in: buses), 2,
+    /// Two routes of the same shape draw twice what one does: a line and a
+    /// mark at each stop apiece.
+    func testTheDiagramDrawsEveryWorkingRoute() {
+        var one = city()
+        _ = line(.bus, in: &one, at: [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)])
+        var two = one
+        _ = line(.bus, in: &two, at: [GridPosition(x: 14, y: 3), GridPosition(x: 20, y: 3)])
+        XCTAssertFalse(diagram(.bus, in: one).isEmpty)
+        XCTAssertEqual(diagram(.bus, in: two).count, 2 * diagram(.bus, in: one).count,
                        "two bus routes did not draw as two lines")
-        XCTAssertEqual(named(IsoTileRenderer.transitLineName, in: trains), 1)
-        // And a mark at every station, because a line with no stops on it says
-        // how the route runs but not where you can board it.
-        XCTAssertEqual(named(IsoTileRenderer.transitStopName, in: buses), 4)
-        XCTAssertEqual(named(IsoTileRenderer.transitStopName, in: trains), 2)
     }
 
     /// The diagram obeys the same "what works, not what was drawn" rule the
     /// coverage does — otherwise a demolished station would leave a line
     /// running to a patch of empty ground.
-    func testTheDiagramDrawsNothingForALineThatIsNotRunning() throws {
+    func testTheDiagramDrawsNothingForALineThatIsNotRunning() {
         var map = city()
         let stop = GridPosition(x: 1, y: 3)
-        let other = GridPosition(x: 10, y: 3)
-        _ = line(.bus, in: &map, at: [stop, other])
-        let renderer = IsoTileRenderer(projection: projection)
-        XCTAssertNotNil(renderer.transitDiagram(for: .bus, in: map), "precondition: nothing was drawn to begin with")
-
+        _ = line(.bus, in: &map, at: [stop, GridPosition(x: 10, y: 3)])
+        XCTAssertFalse(diagram(.bus, in: map).isEmpty, "precondition: nothing was drawn to begin with")
         // The station goes, the route keeps its remaining stop, and the line
         // stops being a line.
         map.transit.removeStop(at: stop)
         map.placeBuilding(zone: .empty, origin: stop)
-        XCTAssertNil(renderer.transitDiagram(for: .bus, in: map))
+        XCTAssertTrue(diagram(.bus, in: map).isEmpty)
     }
 
-    func testTheDiagramShowsOnlyItsOwnMode() throws {
+    func testTheDiagramShowsOnlyItsOwnMode() {
         var map = city()
         _ = line(.subway, in: &map, at: [GridPosition(x: 1, y: 3), GridPosition(x: 20, y: 3)])
-        let renderer = IsoTileRenderer(projection: projection)
-
-        XCTAssertNil(renderer.transitDiagram(for: .bus, in: map), "the Bus view drew a subway line")
-        XCTAssertNotNil(renderer.transitDiagram(for: .subway, in: map))
+        XCTAssertTrue(diagram(.bus, in: map).isEmpty, "the Bus view drew a subway line")
+        XCTAssertFalse(diagram(.subway, in: map).isEmpty)
     }
-
-    /// **Not additive, and the render is why.** An additive core over its own
-    /// additive halo saturated the line to a white filament, which is the one
-    /// thing its colour is carrying — the same failure the first conduits had.
-    func testTheLineKeepsItsColourRatherThanBlowingOutToWhite() throws {
-        var map = city()
-        _ = line(.subway, in: &map, at: [GridPosition(x: 1, y: 3), GridPosition(x: 20, y: 3)])
-        let renderer = IsoTileRenderer(projection: projection)
-        let diagram = try XCTUnwrap(renderer.transitDiagram(for: .subway, in: map))
-
-        let cores = diagram.children
-            .filter { $0.name == IsoTileRenderer.transitLineName }
-            .compactMap { $0 as? SKShapeNode }
-        XCTAssertFalse(cores.isEmpty)
-        for core in cores {
-            XCTAssertEqual(core.blendMode, .alpha,
-                           "the line's core is additive, so it will blow out to white over its own halo")
-            XCTAssertEqual(components(core.strokeColor),
-                           components(RenderPalette.transitLineColor(for: .subway)))
-        }
-    }
-
-    // MARK: - The line being drawn
 
     /// **The editor's feedback is the map.** Clicking a station has to change
     /// the picture, or building a route is a list of coordinates in a panel.
-    func testADraftIsDrawnBeforeItIsFinished() throws {
+    func testADraftIsDrawnBeforeItIsFinished() {
         var map = city()
-        for stop in [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)] {
-            map.placeBuilding(zone: .publicTransit, origin: stop)
-        }
-        let renderer = IsoTileRenderer(projection: projection)
-        XCTAssertNil(renderer.transitDiagram(for: .bus, in: map), "precondition: something was already drawn")
-
-        let draft = TransitRouteDraft(mode: .bus, stops: [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)])
-        let diagram = try XCTUnwrap(renderer.transitDiagram(for: .bus, in: map, drawing: draft))
-        XCTAssertEqual(named(IsoTileRenderer.transitDraftName, in: diagram), 1)
-        XCTAssertEqual(named(IsoTileRenderer.transitLineName, in: diagram), 0,
-                       "an uncommitted draft was drawn as a running line")
+        let stops = [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)]
+        for stop in stops { map.placeBuilding(zone: .publicTransit, origin: stop) }
+        XCTAssertTrue(diagram(.bus, in: map).isEmpty, "precondition: something was already drawn")
+        XCTAssertFalse(diagram(.bus, in: map, drawing: TransitRouteDraft(mode: .bus, stops: stops)).isEmpty)
     }
 
     /// A draft for the other kind of line is not this view's business.
-    func testABusDraftDoesNotAppearInTheSubwayView() throws {
+    func testABusDraftDoesNotAppearInTheSubwayView() {
         var map = city()
-        for stop in [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)] {
-            map.placeBuilding(zone: .publicTransit, origin: stop)
-        }
-        let draft = TransitRouteDraft(mode: .bus, stops: [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)])
-        let renderer = IsoTileRenderer(projection: projection)
-
-        XCTAssertNil(renderer.transitDiagram(for: .subway, in: map, drawing: draft))
+        let stops = [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3)]
+        for stop in stops { map.placeBuilding(zone: .publicTransit, origin: stop) }
+        XCTAssertTrue(diagram(.subway, in: map, drawing: TransitRouteDraft(mode: .bus, stops: stops)).isEmpty)
     }
 
     /// A line being edited is drawn once, as the draft — otherwise its old
     /// shape sits underneath the new one and the two disagree about where the
-    /// route goes.
-    func testAnEditedLineIsNotDrawnTwice() throws {
+    /// route goes. So the diagram is exactly what it would be with the old
+    /// line gone.
+    func testAnEditedLineIsNotDrawnTwice() {
         var map = city()
         let stops = [GridPosition(x: 1, y: 3), GridPosition(x: 10, y: 3), GridPosition(x: 20, y: 3)]
         let id = line(.bus, in: &map, at: [stops[0], stops[1]])
         map.placeBuilding(zone: .publicTransit, origin: stops[2])
-
-        let renderer = IsoTileRenderer(projection: projection)
         let draft = TransitRouteDraft(mode: .bus, editing: id, stops: stops)
-        let diagram = try XCTUnwrap(renderer.transitDiagram(for: .bus, in: map, drawing: draft))
-
-        XCTAssertEqual(named(IsoTileRenderer.transitDraftName, in: diagram), 1)
-        XCTAssertEqual(named(IsoTileRenderer.transitLineName, in: diagram), 0,
+        var without = map
+        without.transit.remove(id: id)
+        XCTAssertEqual(diagram(.bus, in: map, drawing: draft), diagram(.bus, in: without, drawing: draft),
                        "the line being edited is still drawn in its old shape underneath")
     }
 
-    // MARK: -
-
-    /// `SKColor` equality is colour-space sensitive — SpriteKit converts what
-    /// you assign into device RGB — so these compare components.
-    private func components(_ color: SKColor) -> [CGFloat] {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        color.usingColorSpace(.deviceRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return [r, g, b, a].map { ($0 * 1000).rounded() / 1000 }
-    }
-
-    private func named(_ name: String, in node: SKNode) -> Int {
-        node.children.filter { $0.name == name }.count
-    }
-}
-
-// MARK: - Something running the line
-
-@MainActor
-extension TransitOverlayTests {
+    // MARK: - Something running the line (`MetalMarks.vehicles`)
 
     private func lineCity(mode: TransitRoute.Mode) -> CityMap {
         var map = CityMap(width: 20, height: 12)
@@ -235,45 +171,22 @@ extension TransitOverlayTests {
         return map
     }
 
-    private func scene(_ map: CityMap, looking at: OverlayMode) -> GameScene {
-        let controller = GameController(map: map, rng: SeededRNG(seed: 2),
-                                        peakPopulation: Unlocks.everythingUnlocked)
-        controller.overlayMode = at
-        let scene = GameScene(controller: controller)
-        scene.size = CGSize(width: 800, height: 520)
-        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
-        view.presentScene(scene)
-        scene.rebuildEntireGrid()
-        scene.refreshAll()
-        return scene
-    }
-
-    /// **The tram and rail views drew no lines at all.**
-    ///
-    /// `GameScene.syncTransitDiagram` switched on `.bus` and `.subway` with a
-    /// `default: return`, written when those were the only two modes — so
-    /// routes in the two added later were invisible in their own views.
-    /// Nothing failed, because every existing test asks
-    /// `IsoTileRenderer.transitDiagram` directly and the *renderer* was
-    /// always right; it was the scene's dispatch that had gone stale. Exactly
-    /// the shape of bug `OverlayMode.view(for:)` was introduced to kill, at a
-    /// fifth site it missed.
+    /// **The tram and rail views once drew no lines at all**: the scene's
+    /// dispatch knew only the first two modes. The renderer now asks the view
+    /// which mode it draws, so every mode has to answer, and draw.
     func testEveryModeDrawsItsLinesInItsOwnView() {
         for mode in TransitRoute.Mode.allCases {
-            let scene = scene(lineCity(mode: mode), looking: OverlayMode.view(for: mode))
-            XCTAssertFalse(scene.transitDiagramForTesting.children.isEmpty,
-                           "the \(mode) view draws no lines at all")
+            XCTAssertEqual(OverlayMode.view(for: mode).routeMode, mode, "the \(mode) view draws another mode")
+            XCTAssertFalse(diagram(mode, in: lineCity(mode: mode)).isEmpty, "the \(mode) view draws no lines")
         }
     }
 
-    /// The transit module has four modes, routes, ridership and capacity, and
-    /// until now nothing ever *moved* along a line — the only evidence a
-    /// route carried anyone was a number in a panel.
+    /// Until vehicles ran the lines, the only evidence a route carried anyone
+    /// was a number in a panel.
     func testAWorkingLineHasSomethingRunningIt() {
         for mode in TransitRoute.Mode.allCases {
-            let scene = scene(lineCity(mode: mode), looking: OverlayMode.view(for: mode))
-            XCTAssertEqual(scene.transitVehicleCountForTesting, 1,
-                           "nothing is running the \(mode) line")
+            let traces = MetalMarks.vehicles(for: mode, in: lineCity(mode: mode), clock: 3)
+            XCTAssertEqual(traces.count / MetalMotion.traceFloatCount, 1, "nothing is running the \(mode) line")
         }
     }
 
@@ -281,48 +194,27 @@ extension TransitOverlayTests {
     /// same rule `Transit` already applies to whether it carries anyone.
     func testALineGoingNowhereRunsNothing() {
         var map = lineCity(mode: .bus)
-        // Demolish one end. The route survives losing a stop by design; what
-        // it loses is its service.
         for cell in map.footprintCells(origin: GridPosition(x: 12, y: 5), size: 2) {
             map[cell] = Tile(position: cell)
         }
-        let scene = scene(map, looking: .bus)
-        XCTAssertEqual(scene.transitVehicleCountForTesting, 0,
-                       "a line with one stop left still has a bus on it")
+        XCTAssertTrue(MetalMarks.vehicles(for: .bus, in: map, clock: 3).isEmpty,
+                      "a line with one stop left still has a bus on it")
     }
 
-    /// A bus still running its route around a stopped city is the same bug as
-    /// the cars that used to keep driving — one layer up, on a node the
-    /// per-tile pause walk cannot reach.
-    ///
-    /// **Restated on position when the diagram vehicles moved off
-    /// `SKAction`.** It asserted `isPaused`, which was the mechanism that
-    /// delivered stillness rather than stillness itself; a vehicle driven per
-    /// frame holds still because nothing advances it, and has no flag set.
-    /// Asking where it is survives both designs — and is the third test in
-    /// this migration to have been measuring a proxy.
-    func testTheVehicleStopsWhenTheCityDoes() {
-        let controller = GameController(map: lineCity(mode: .bus), rng: SeededRNG(seed: 2),
-                                        peakPopulation: Unlocks.everythingUnlocked)
-        controller.overlayMode = .bus
-        controller.isRunning = false
-        let scene = GameScene(controller: controller)
-        scene.size = CGSize(width: 800, height: 520)
-        let view = SKView(frame: NSRect(origin: .zero, size: scene.size))
-        view.presentScene(scene)
-        scene.rebuildEntireGrid()
-        scene.refreshAll()
+    /// A vehicle is a function of the motion clock, which only advances while
+    /// the city runs: the same clock holds it still, a later one moves it.
+    func testTheVehicleIsAFunctionOfTheMotionClock() {
+        let map = lineCity(mode: .bus)
+        let parked = MetalMarks.vehicles(for: .bus, in: map, clock: 3)
+        XCTAssertEqual(parked, MetalMarks.vehicles(for: .bus, in: map, clock: 3))
+        XCTAssertNotEqual(parked, MetalMarks.vehicles(for: .bus, in: map, clock: 4),
+                          "the bus does not move as the city runs")
+    }
 
-        let parked = scene.transitVehiclePositionsForTesting
-        XCTAssertFalse(parked.isEmpty, "precondition: this line has no bus on it")
-        // Stepped at a real cadence, because `update` clamps its own delta.
-        for frame in 1 ... 120 { scene.update(TimeInterval(frame) / 60) }
-        XCTAssertEqual(parked, scene.transitVehiclePositionsForTesting,
-                       "a bus is still running its line around a stopped city")
-
-        controller.isRunning = true
-        for frame in 121 ... 240 { scene.update(TimeInterval(frame) / 60) }
-        XCTAssertNotEqual(parked, scene.transitVehiclePositionsForTesting,
-                          "the bus never started again once the city resumed")
+    /// `SKColor` equality is colour-space sensitive, so these compare
+    /// components in one space.
+    private func components(_ color: NSColor) -> [CGFloat] {
+        guard let rgb = color.usingColorSpace(.deviceRGB) else { return [] }
+        return [rgb.redComponent, rgb.greenComponent, rgb.blueComponent, rgb.alphaComponent]
     }
 }

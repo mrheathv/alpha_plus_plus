@@ -177,11 +177,11 @@ final class MetalCityRenderer {
         }
     }
 
-    /// Where the camera looks and how close, in the same terms `GameScene`'s
-    /// camera uses: a point in isometric screen space, and points per pixel.
+    /// Where the camera looks and how close, in the same terms `CityCamera`
+    /// uses: a point in isometric screen space, and points per pixel.
     struct Camera {
         var centre: CGPoint
-        /// Screen points per output pixel — `SKCameraNode`'s scale divided by
+        /// Screen points per output pixel — `CityCamera`'s scale divided by
         /// the display's backing scale.
         var scale: CGFloat
         /// Output size in pixels.

@@ -40,7 +40,7 @@ enum CityHazards {
     /// fully-grown city (the same one the balance-tuning pass upstream of
     /// this used), fire and crime together struck an *average of 4.5-5.6
     /// tiles every single tick*, spiking as high as 8 in one tick, forever,
-    /// for as long as the city stood. Each strike triggers `GameScene`'s
+    /// for as long as the city stood. Each strike triggered `GameScene`'s
     /// `flashHazard`, an 0.08s colorize-and-0.35s-fade animation — several
     /// of those overlapping on the map every tick reads exactly as
     /// "flickering," not as the occasional, noticeable "oh no, a fire"
@@ -74,7 +74,7 @@ enum CityHazards {
     static let all = [fire, crime]
 
     /// One hazard actually striking one tile — what `apply` reports back so
-    /// a caller that cares (`GameScene`, for a visible flash) can react to
+    /// a caller that cares (`MetalMapView`, for a visible flash) can react to
     /// *which* tiles were hit and by what, instead of the event being
     /// silent (a density number quietly dropping next refresh, with no cue
     /// why). `coveringService` identifies the risk that struck (`.fireStation`
@@ -88,8 +88,7 @@ enum CityHazards {
 
     /// Apply every risk in `risks` to `map` once, returning the result and
     /// every building it struck (reported at the building's *anchor*
-    /// position, the one cell that actually has a visible sprite for
-    /// `GameScene` to flash). Called with the map from *before* this step's
+    /// position, the cell `MetalMapView` flashes the building from). Called with the map from *before* this step's
     /// growth (`GameController.advanceSimulation()` runs hazards, then
     /// growth, in that order) — so a tile can't grow from 0 to 1 and burn
     /// down in the same tick it was first zoned; it has to survive at least

@@ -5,7 +5,7 @@ import Foundation
 /// Lives in `App/`, not `Simulation/`: like `GameController` itself, this is
 /// about *pacing the player's view* of the simulation, not a rule the
 /// simulation follows — `CitySimulator.advance(_:)` has no concept of real
-/// time at all, it just computes "the next step." Only `GameScene`'s clock
+/// time at all, it just computes "the next step." Only `CityClock`
 /// cares how often "next step" gets called.
 enum SimulationSpeed: String, CaseIterable, Identifiable, Hashable {
     case slow

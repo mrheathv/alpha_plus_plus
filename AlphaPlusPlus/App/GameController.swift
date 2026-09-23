@@ -4,8 +4,8 @@ import Foundation
 /// system, and is the one place that turns a click into a rule ("clicking
 /// applies the selected tool").
 ///
-/// `GameView` (toolbar, population/money readout) and `GameScene` (click
-/// handling, sprite refresh) both hold a reference to the *same*
+/// `GameView` (toolbar, population/money readout), `MapInteraction` (click
+/// handling) and `MetalMapView` (drawing) all hold a reference to the *same*
 /// `GameController` instance, so there is exactly one `CityMap` in memory —
 /// no separate copies for "the UI's idea of the city" and "the scene's idea
 /// of the city" to drift out of sync.
@@ -16,8 +16,8 @@ import Foundation
 /// frameworks." `CityMap` itself stays UI-agnostic; this is the adapter on
 /// top of it.
 ///
-/// `@MainActor` because every reader (SwiftUI's view body, GameScene's mouse
-/// handling) already runs on the main thread — this just makes that
+/// `@MainActor` because every reader (SwiftUI's view body, `MapInteraction`'s
+/// mouse handling) already runs on the main thread — this just makes that
 /// assumption explicit and checked, rather than an unstated convention.
 @MainActor
 final class GameController: ObservableObject {
@@ -109,9 +109,9 @@ final class GameController: ObservableObject {
 
     /// Bumped when something outside the view asks for a capture.
     ///
-    /// The same shape `manualAdvanceRequests` and `restyleRequests` already
-    /// use, and for the same reason: the scene is private to `GameView`, and
-    /// menus are built out where a view's state is out of reach.
+    /// The same shape `manualAdvanceRequests` uses, and for the same reason:
+    /// the map view's renderer is private to it, and menus are built out
+    /// where a view's state is out of reach.
     @Published private(set) var screenshotRequests = 0
 
     func requestScreenshot() {
@@ -239,11 +239,11 @@ final class GameController: ObservableObject {
         treasury -= payment
     }
 
-    /// Whether the simulation clock is running. `GameScene`'s per-frame
-    /// `update(_:)` reads this to decide whether it's time to call
+    /// Whether the simulation clock is running. `CityClock`, advanced every
+    /// frame, reads this to decide whether it's time to call
     /// `advanceSimulation()` again; it lives here rather than as private
-    /// state on `GameScene` so the Play/Pause toggle in `GameView`'s toolbar
-    /// and the scene's clock are looking at the exact same flag, not two
+    /// state on the clock so the Play/Pause toggle in `GameView`'s toolbar
+    /// and the clock are looking at the exact same flag, not two
     /// copies that could disagree about whether the city is running.
     ///
     /// Starts `false`: a freshly opened city is paused, matching how the
@@ -255,13 +255,13 @@ final class GameController: ObservableObject {
 
     /// How fast `isRunning` ticks — see `SimulationSpeed`. Same "shared flag,
     /// not two copies" reasoning as `isRunning`: the toolbar's speed picker
-    /// and `GameScene`'s clock both read this one value.
+    /// and `CityClock` both read this one value.
     @Published var simulationSpeed: SimulationSpeed = .normal
 
-    /// Which overlay (if any) `GameScene` draws instead of normal zone
-    /// colors. Lives here rather than as private `GameScene` state for the
-    /// same reason `isRunning` does: the toolbar's picker and the scene's
-    /// rendering need to agree on one value, not risk two copies drifting.
+    /// Which overlay (if any) the Metal renderer draws instead of normal zone
+    /// colors. Lives here rather than as private renderer state for the
+    /// same reason `isRunning` does: the toolbar's picker and the renderer
+    /// need to agree on one value, not risk two copies drifting.
     @Published var overlayMode: OverlayMode = .none {
         didSet { updateGuide() }
     }
@@ -293,15 +293,14 @@ final class GameController: ObservableObject {
     /// Which look the map is drawn in.
     ///
     /// Lives on the controller rather than only as `VisualStyle.current` so
-    /// SwiftUI can bind a picker to it and the scene can be told to redraw;
-    /// the static is what the renderer's free functions actually read. Two
+    /// SwiftUI can bind a picker to it; the static is what the renderer
+    /// actually reads, every frame. Two
     /// copies of one fact is the thing this project keeps paying for, so the
     /// setter is the only writer of both and nothing else assigns the static.
     @Published var visualStyle: VisualStyle = VisualStyle.current {
         didSet {
             guard visualStyle != oldValue else { return }
             VisualStyle.current = visualStyle
-            restyleRequests += 1
         }
     }
 
@@ -322,21 +321,11 @@ final class GameController: ObservableObject {
     @Published var reduceMotion: Bool = VisualStyle.reduceMotion {
         didSet {
             guard reduceMotion != oldValue else { return }
+            // The Metal renderer notices the static move and replans its
+            // motion itself (`MetalCityRenderer.update`).
             VisualStyle.reduceMotion = reduceMotion
-            // Heavier than it needs to be — this purges every cached texture
-            // to change three node-level animations — and taken deliberately.
-            // It is a rare action, and this project has twice shipped a
-            // control that compiled and changed nothing on screen. Guaranteed
-            // correct beats proportionate here.
-            restyleRequests += 1
         }
     }
-
-    /// Bumped when the map needs redrawing in a new style — the same shape
-    /// `cityGeneration` uses to get "rebuild your sprites" from here to the
-    /// scene, and deliberately *not* `cityGeneration` itself, which also
-    /// means "the tile count changed" and recentres the camera.
-    @Published private(set) var restyleRequests = 0
 
     /// Headline stats recorded after every `advanceSimulation()` step, so
     /// `GameView` can show a trend (`Sparkline`) instead of just the current
@@ -400,7 +389,7 @@ final class GameController: ObservableObject {
     ///
     /// `place(at:)` used to just silently do nothing on failure, which is
     /// indistinguishable from "nothing needed to happen" at the call site.
-    /// Returning *why* lets `GameScene` react only to the cases a player
+    /// Returning *why* lets `MapInteraction` react only to the cases a player
     /// should actually notice: `insufficientFunds` and `blocked` both get a
     /// flash; `unchanged` (already this zone, or off-map) doesn't, because
     /// nothing about the tile's own state was wrong.
@@ -711,7 +700,7 @@ final class GameController: ObservableObject {
 
     /// Lay a pipe at `position`, charging `pipePlacementCost` — unless
     /// there's already one there, in which case this is a free no-op
-    /// (`GameScene` calls this on every tile a drag stroke crosses, the
+    /// (`MapInteraction` calls this on every tile a drag stroke crosses, the
     /// same way painting a road works, and a stroke that re-crosses
     /// already-piped ground shouldn't charge twice). Reuses
     /// `PlacementOutcome` as-is: a pipe has no footprint to not fit and no
@@ -789,16 +778,15 @@ final class GameController: ObservableObject {
     /// rather than whatever size the previous city happened to be —
     /// changing the size picker only takes effect on the *next* reset.
     /// Grayboxing needs to iterate on a clean map often, and rebuilding the
-    /// whole controller (and with it the `GameScene` that holds a reference
-    /// to it) is more disruptive than resetting the state in place. Also
+    /// whole controller (and with it every view that holds a reference to
+    /// it) is more disruptive than resetting the state in place. Also
     /// pauses the clock and clears `history` — a fresh map should sit still
     /// until you deliberately start it again, with no trend line left over
     /// from the city it replaced.
     ///
     /// A size change means the *number of tiles* changed, not just their
-    /// contents — `GameScene` needs to rebuild its sprites from scratch for
-    /// this one (`rebuildEntireGrid()`), not just `refreshAll()` the ones it
-    /// already has.
+    /// contents — so this bumps `cityGeneration`, and `MetalMapView`
+    /// recentres the camera on the new map.
     ///
     /// `guided` starts `FirstCityGuide` on the new city. Off by default so
     /// every existing caller — tests, the menu's reset — founds exactly the
@@ -863,12 +851,12 @@ final class GameController: ObservableObject {
     /// Bumped when something outside the view asks for a single simulation
     /// step — the Simulation menu's Advance command.
     ///
-    /// The menu cannot call `GameScene.runSimulationTick()` directly (the
-    /// scene is private to `GameView`, and menus are built above it), and
+    /// The menu cannot call `CityClock.runSimulationTick()` directly (the
+    /// clock is private to the map view, and menus are built above it), and
     /// calling `advanceSimulation()` straight from the menu would skip the
-    /// hazard flashes the scene adds. So the menu bumps this and the view
+    /// hazard flashes the view adds. So the menu bumps this and `MetalMapView`
     /// turns it into a real tick, the same shape `cityGeneration` already uses
-    /// to get "the whole map changed" from the controller to the scene.
+    /// to get "the whole map changed" from the controller to the view.
     @Published private(set) var manualAdvanceRequests = 0
 
     func requestManualAdvance() {
@@ -1017,11 +1005,9 @@ final class GameController: ObservableObject {
     /// to a tile changing.
     ///
     /// `map` is already `@Published`, so an ordinary edit redraws fine. A
-    /// load is different in kind: the tile *count* can change, which means
-    /// `GameScene`'s sprites no longer correspond one-to-one with the map and
-    /// `refreshAll()` isn't enough — it needs `rebuildEntireGrid()` plus a
-    /// recentre, the same path `GameView`'s Reset button already takes for a
-    /// map-size change. Watching this counter is how the rendering layer
+    /// load is different in kind: the tile *count* can change, and the
+    /// camera needs recentring on the new map, the same path `GameView`'s
+    /// Reset button already takes for a map-size change. Watching this counter is how the rendering layer
     /// learns that happened without the controller needing to know a scene
     /// exists.
     @Published private(set) var cityGeneration = 0
@@ -1106,9 +1092,9 @@ final class GameController: ObservableObject {
     }
 
     /// Every tile a hazard struck on the most recent `advanceSimulation()`
-    /// call — empty most ticks. `GameScene` reads this right after calling
-    /// `advanceSimulation()` to flash the tiles that got hit, the same
-    /// "controller reports what happened, scene decides how to show it"
+    /// call — empty most ticks. `MetalMapView` reads this once each day has
+    /// been applied, to flash the tiles that got hit, the same
+    /// "controller reports what happened, view decides how to show it"
     /// split `PlacementOutcome` uses for the insufficient-funds flash.
     @Published private(set) var lastHazardStrikes: [CityHazards.Strike] = []
 
@@ -1158,9 +1144,8 @@ final class GameController: ObservableObject {
     /// Advance the city by one simulation step: hazards first (see
     /// `CityHazards`), then growth (see `CitySimulator`), then tax revenue
     /// on the result, then a snapshot into `history`. Unlike `place`/`bulldoze`,
-    /// this touches every tile at once rather than one — callers need to
-    /// follow it with a full-scene refresh (`GameScene.refreshAll()`), the
-    /// same requirement `resetMap()` already has, for the same reason.
+    /// this touches every tile at once rather than one; the renderer finds
+    /// what changed through `mapRevision`, as it does for every map write.
     ///
     /// Hazards run against the map *before* this step's growth, not after —
     /// so a tile that grows from 0 to 1 this very step can't also burn down
