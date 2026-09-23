@@ -6,7 +6,9 @@
       "options": {}
     }
   ],
-  "defaultOptions": {},
+  "defaultOptions": {
+    "codeCoverage": false
+  },
   "testTargets": [
     {
       "target": {
@@ -34,6 +36,8 @@
         "MetalMotionTests/testRecordTheCity()",
         "MetalMotionTests/testRenderTheMovingCityCloseUp()",
         "MetalOverlayTests/testRenderEveryView()",
+        "UtilityGlowTests/testRenderTheUtilityViewsBothWays()",
+        "NeonSignTests/testRenderTheSigns()",
         "MetalOverlayTests/testRenderTheBuildingMarks()",
         "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()",
         "MetalLookTests",

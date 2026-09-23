@@ -33,7 +33,7 @@ final class MetalOverlay {
     /// `mode` 0 is a flat tile, 1 a soft pool centred on `x, y`.
     static let tileFloatCount = 8
     /// One badge: where, how many pixels across, its tint, and which glyph.
-    static let billboardFloatCount = 8
+    static let billboardFloatCount = 12
 
     enum Glyph: Float { case water = 0, power = 1, damage = 2 }
 
@@ -103,6 +103,15 @@ final class MetalOverlay {
                     // never read as one picture at two brightnesses.
                     fillTint(map, at: position, size: size, color: paint.buildingColor,
                              amount: yes ? 0.78 : 0.92)
+                    // **And the building throws its answer on the ground**, a
+                    // pool spilling well past its lot, which is what made a
+                    // served district glow as one field in SpriteKit
+                    // (`syncGroundGlow`, recoloured). Scaled by the answer's
+                    // own brightness, so a building that does not need the
+                    // utility yet — washed toward unlit — casts almost none.
+                    let c = Float(size) / 2
+                    tiles += [x + c, y + c, 1.9 * Float(size), 0.05]
+                        + Self.rgb(paint.buildingColor, yes ? 0.2 : 0.22) + [1]
                 case .highlighted:
                     break
                 }
@@ -120,7 +129,7 @@ final class MetalOverlay {
             }
             if mode == .none, let service = tile.damagedBy {
                 billboards += [x + size / 2, y + size / 2, roof * 0.6 + 0.1, 30]
-                    + Self.rgb(RenderPalette.fullColor(for: service), 1.6) + [Glyph.damage.rawValue]
+                    + Self.rgb(RenderPalette.fullColor(for: service), 1.6) + [Glyph.damage.rawValue, 0, 0, 0, 0]
             }
             if badges, tile.zone.maxDensity > 0 {
                 let missing = IsoTileRenderer.missingUtilities(
@@ -130,9 +139,12 @@ final class MetalOverlay {
                 // state that most wants reading.
                 let glyphs = (missing.water ? [Glyph.water] : []) + (missing.power ? [Glyph.power] : [])
                 for (index, glyph) in glyphs.enumerated() {
-                    let shift = (Float(index) - Float(glyphs.count - 1) / 2) * 0.45
-                    billboards += [x + size / 2 + shift, y + size / 2 - shift, roof + 0.4, 34,
-                                   1.3, 1.3, 1.3, glyph.rawValue]
+                    // Shifted on the screen, not in the world: a world offset
+                    // shrinks with the camera, and zoomed out the two badges
+                    // landed on each other and only the bolt showed.
+                    let shift = (Float(index) - Float(glyphs.count - 1) / 2) * 36
+                    billboards += [x + size / 2, y + size / 2, roof + 0.4, 34,
+                                   1.3, 1.3, 1.3, glyph.rawValue, shift, 0, 0, 0]
                 }
             }
         }

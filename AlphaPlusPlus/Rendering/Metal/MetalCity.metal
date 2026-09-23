@@ -200,25 +200,30 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
     // the form. Full strength at rest, half from the widest camera.
     float farAway = saturate((u.zenith.w - 0.5) * 2.0);
     bool window = in.ground > 0.2 && in.ground < 0.3;
-    color += in.emissive * (window ? mix(1.0, 0.5, farAway) : 1.0);
-    color += in.rim * rimAmount(in.uv, in.size);
+    float3 glow = in.emissive * (window ? mix(1.0, 0.5, farAway) : 1.0)
+        + in.rim * rimAmount(in.uv, in.size);
 
-    // **A view washes each building toward its answer** — supplied, wanting,
-    // safe, served — the job SpriteKit's `colorBlendFactor` did. What is lit
-    // on the building stays brighter than what is not, so it keeps its form:
-    // "I cannot see it" is not the same message as "it has no water".
+    // **A view recolours each building's light toward its answer** —
+    // supplied, wanting, safe, served — and leaves its walls dark. The first
+    // Metal version repainted the whole building in the answer's colour, and
+    // it came back as a city of plastic blocks that were simply on or off
+    // (reported from play: "they just light up or they don't"). SpriteKit
+    // never did that: its buildings stayed night silhouettes whose *neon*
+    // changed colour. So the walls are only dimmed, and the neon edges and
+    // lit windows take the answer's hue at their own brightness, with a floor
+    // so a dark facade still says something.
     if (u.overlay.x > 0.5 && in.ground < 0.5) {
         uint2 mapSize = uint2(u.counts.w & 0xFFFF, u.counts.w >> 16);
         uint2 cell = uint2(clamp(floor(in.world.xy), float2(0), float2(mapSize) - 1));
         float4 wash = overlayTint.read(cell);
         if (wash.a > 0) {
-            float l = dot(color, float3(0.2126, 0.7152, 0.0722));
-            // Mostly the answer's colour, with only a little of the
-            // building's own light left in it: enough to keep the form, not
-            // so much that a lit facade reads as a different answer.
-            color = mix(color, wash.rgb * (0.7 + 0.5 * min(l, 1.0)), wash.a);
+            float l = dot(glow, float3(0.2126, 0.7152, 0.0722));
+            color *= mix(1.0, 0.3, wash.a);
+            color += wash.rgb * 0.06 * wash.a;
+            glow = mix(glow, wash.rgb * (0.15 + 1.4 * min(l, 1.5)), wash.a);
         }
     }
+    color += glow;
 
     // Grain in the ground, so a field of it is a surface and not plastic —
     // applied before the reflection, so the mirrored city stays clean.
@@ -620,6 +625,46 @@ vertex TraceVaryings traceVertex(uint vid [[vertex_id]], uint iid [[instance_id]
     return out;
 }
 
+// Neon signs: a quad in the world carrying one word from the sign atlas,
+// added to the frame as light. `MetalSigns` plans them; see its doc comment.
+struct Sign {
+    float4 origin;   // xyz: bottom-left corner in world tiles
+    float4 u;        // xyz: along the text
+    float4 v;        // xyz: up the text
+    float4 tint;     // rgb: the tube's colour
+    float4 rect;     // the word in the atlas: u0, v top, u1, v bottom
+};
+
+struct SignVaryings {
+    float4 clip [[position]];
+    float2 uv;
+    float3 color;
+};
+
+vertex SignVaryings signVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                               const device Sign *signs [[buffer(0)]],
+                               constant MotionUniforms &u [[buffer(1)]]) {
+    const float2 corners[6] = { float2(0, 0), float2(1, 0), float2(1, 1),
+                                float2(0, 0), float2(1, 1), float2(0, 1) };
+    Sign sign = signs[iid];
+    float2 c = corners[vid];
+    float3 world = sign.origin.xyz + sign.u.xyz * c.x + sign.v.xyz * c.y;
+    SignVaryings out;
+    out.clip = u.viewProjection * float4(mirrorIfNeeded(world, u), 1);
+    out.uv = float2(mix(sign.rect.x, sign.rect.z, c.x), mix(sign.rect.w, sign.rect.y, c.y));
+    out.color = sign.tint.rgb;
+    return out;
+}
+
+fragment float4 signFragment(SignVaryings in [[stage_in]], texture2d<float> atlas [[texture(0)]]) {
+    constexpr sampler s(filter::linear, mip_filter::linear, address::clamp_to_edge);
+    float glow = atlas.sample(s, in.uv).r;
+    // The tube's core burns past white so it blooms; the halo around it keeps
+    // the colour.
+    float3 light = in.color * glow * 3.2 + float3(1.0) * pow(glow, 6.0) * 0.8;
+    return float4(light, 0);
+}
+
 // Rain: nothing on the CPU but a count. Each drop's place and fall come from
 // its index and the clock, so a downpour of thousands costs no more to plan
 // than a drizzle. It falls over the ground the camera can see, from a fixed
@@ -759,6 +804,8 @@ fragment float4 overlayTileFragment(TraceVaryings in [[stage_in]]) {
 struct Billboard {
     float4 place;   // xyz world · w: pixels across
     float4 tint;    // rgb · w: which glyph
+    float4 offset;  // xy: shift on screen in pixels, so two badges on one roof
+                    // sit side by side at any zoom rather than overlapping
 };
 
 vertex TraceVaryings billboardVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
@@ -770,7 +817,7 @@ vertex TraceVaryings billboardVertex(uint vid [[vertex_id]], uint iid [[instance
     float2 c = corners[vid];
     float4 clip = u.viewProjection * float4(b.place.xyz, 1);
     TraceVaryings out;
-    out.clip = float4(clip.xy + c * b.place.w * 0.5 / (u.frame.xy * 0.5), 0, 1);
+    out.clip = float4(clip.xy + (c * b.place.w * 0.5 + b.offset.xy * float2(1, -1)) / (u.frame.xy * 0.5), 0, 1);
     // Three glyphs across one texture.
     out.uv = float2((b.tint.w + c.x * 0.5 + 0.5) / 3.0, 0.5 - c.y * 0.5);
     out.color = b.tint.rgb;

@@ -58,11 +58,15 @@ final class MetalMotion {
 
     // MARK: - The plan, rebuilt when the city changes
 
-    private struct Car {
-        let start: SIMD3<Float>
-        let end: SIMD3<Float>
-        let motion: CityMotion.Car
-        let color: SIMD3<Float>
+    /// A street, in world units: where it starts, which way it runs, and the
+    /// deck height of each of its tiles (a bridge stands over the water).
+    private struct Street {
+        let motion: CityMotion.Street
+        let origin: SIMD3<Float>
+        let along: SIMD3<Float>
+        let across: SIMD3<Float>
+        let decks: [Float]
+        let colors: [[SIMD3<Float>]]
     }
 
     private struct Run {
@@ -87,7 +91,7 @@ final class MetalMotion {
         let seed: Float
     }
 
-    private var cars: [Car] = []
+    private var streets: [Street] = []
     private var runs: [Run] = []
     private struct RunKey: Hashable {
         let vehicle: IsoTextureCache.Vehicle
@@ -101,19 +105,21 @@ final class MetalMotion {
     /// Brings the plan up to date with `map`. Called when the map's revision
     /// moves, so about once a day and once per placement.
     func update(_ map: CityMap, clock: Double, reduceMotion: Bool) {
-        cars = []
+        streets = []
         let anyFire = Fire.count(in: map) > 0
         if showsTraffic {
-            for tile in map.tiles where tile.zone == .road || tile.zone == .highway {
-                let deck = Self.deck(of: tile)
-                let x = Float(tile.position.x), y = Float(tile.position.y)
-                for car in CityMotion.cars(at: tile.position, in: map, anyFire: anyFire) {
-                    cars.append(Car(
-                        start: SIMD3(x + Float(car.start.x), y + Float(car.start.y), deck),
-                        end: SIMD3(x + Float(car.end.x), y + Float(car.end.y), deck),
-                        motion: car,
-                        color: MetalCityMesh.linear(RenderPalette.vehicleColor(for: car.vehicle))))
-                }
+            for street in CityMotion.streets(in: map, anyFire: anyFire) {
+                let first = street.tiles[0]
+                let along: SIMD3<Float> = street.horizontal ? SIMD3(1, 0, 0) : SIMD3(0, 1, 0)
+                let across: SIMD3<Float> = street.horizontal ? SIMD3(0, 1, 0) : SIMD3(1, 0, 0)
+                streets.append(Street(
+                    motion: street,
+                    origin: SIMD3(Float(first.x), Float(first.y), 0) + across * 0.5,
+                    along: along, across: across,
+                    decks: street.tiles.map { Self.deck(of: map[$0]) },
+                    colors: street.lanes.map { lane in
+                        lane.cars.map { MetalCityMesh.linear(RenderPalette.vehicleColor(for: $0.vehicle)) }
+                    }))
             }
         }
 
@@ -176,25 +182,51 @@ final class MetalMotion {
     }
 
     /// Everything that moves, where it is at `clock` seconds of running time.
-    func frame(at clock: Double) -> Frame {
+    func frame(at clock: Double, near: Bool = false) -> Frame {
         var frame = Frame()
-        frame.traces.reserveCapacity(cars.count * Self.traceFloatCount + 512)
+        frame.traces.reserveCapacity(carCount * Self.traceFloatCount * (near ? 2 : 1) + 512)
 
         // **Traffic.** Brighter than white on purpose: a trace has to be light
         // rather than paint, and in HDR "light" means past the bloom threshold.
-        for car in cars {
-            let (f, visibility) = CityMotion.progress(of: car.motion, at: clock)
-            guard visibility > 0.01 else { continue }
-            let direction = simd_normalize(car.end - car.start)
-            let head = car.start + (car.end - car.start) * Float(f)
-            let tail = head - direction * Float(car.motion.length)
-            // **Seven times the car's colour**, found by rendering rather than
-            // reasoning: at 2.2 a trace on a lit street sat under what the tone
-            // map and the bloom lift off it, and the cars were simply absent.
-            // Past about ten they bleach toward white, which is the saturation
-            // this project has walked into four times; seven keeps the hue.
-            frame.traces += Self.trace(from: tail, to: head, width: 0.04, mode: 0, color: car.color * 7,
-                                       alpha: Float(car.motion.alpha * visibility))
+        for street in streets {
+            let length = Float(street.motion.tiles.count)
+            for (laneIndex, lane) in street.motion.lanes.enumerated() {
+                // Keep to the right: the lane driving toward the street's end
+                // sits on one side of the centre line, the other lane on the
+                // other side, as the per-tile cars' lanes did.
+                let side = Float(CityMotion.laneOffset) * (lane.forward ? 1 : -1) * (street.motion.horizontal ? 1 : -1)
+                let heading = street.along * (lane.forward ? 1 : -1)
+                for (carIndex, car) in lane.cars.enumerated() {
+                    let (d, visibility) = CityMotion.along(car, on: street.motion, at: clock)
+                    guard visibility > 0.01 else { continue }
+                    let distance = lane.forward ? Float(d) : length - Float(d)
+                    let tile = min(street.decks.count - 1, max(0, Int(distance)))
+                    var head = street.origin + street.along * distance + street.across * side
+                    head.z = street.decks[tile]
+                    let color = street.colors[laneIndex][carIndex]
+                    if near, car.vehicle == .car {
+                        // A stable pick per car: its street, lane and place in
+                        // the lane, so it keeps its paint from frame to frame.
+                        let first = street.motion.tiles[0]
+                        let paint = Self.paints[abs(first.x &* 73 &+ first.y &* 151 &+ laneIndex &* 37
+                                                    &+ carIndex &* 11) % Self.paints.count]
+                        sportsCar(at: head, heading: heading, paint: paint,
+                                  visibility: Float(visibility), into: &frame)
+                    } else if near {
+                        vehicle(at: head, heading: heading, kind: car.vehicle, color: color,
+                                visibility: Float(visibility), into: &frame)
+                    } else {
+                        // **Seven times the car's colour**, found by rendering
+                        // rather than reasoning: at 2.2 a trace on a lit street
+                        // sat under what the tone map and the bloom lift off
+                        // it, and the cars were simply absent. Past about ten
+                        // they bleach toward white; seven keeps the hue.
+                        frame.traces += Self.trace(from: head - heading * Float(car.length), to: head,
+                                                   width: 0.04, mode: 0, color: color * 7,
+                                                   alpha: Float(car.alpha * visibility))
+                    }
+                }
+            }
         }
 
         for run in runs {
@@ -242,26 +274,178 @@ final class MetalMotion {
         return frame
     }
 
+    /// **A vehicle up close**: a small dark body edged in its kind's colour,
+    /// white headlights at the front, red tail lights at the back, a short
+    /// red trail behind it and the headlights' wash on the road ahead.
+    ///
+    /// Only up close, past the zoom where buildings gain their near detail.
+    /// Further out a body is a few pixels and stops being a shape — the streak
+    /// lesson from SpriteKit — so there a vehicle stays a trace of light.
+    private func vehicle(at front: SIMD3<Float>, heading: SIMD3<Float>, kind: IsoTextureCache.Vehicle,
+                         color: SIMD3<Float>, visibility: Float, into frame: inout Frame) {
+        let big = kind == .lorry || kind == .fire
+        let length: Float = big ? 0.42 : 0.28, width: Float = big ? 0.15 : 0.13
+        let height: Float = big ? 0.16 : 0.09
+        let centre = front - heading * length / 2
+        Self.block(centre, along: heading, length: length, width: width, z0: front.z, z1: front.z + height,
+                   albedo: SIMD3(0.09, 0.08, 0.12), emissive: .zero, rim: color * 1.3 * visibility,
+                   into: &frame.solids)
+        // A cabin on a car, set back; a lorry is one box.
+        if !big {
+            Self.block(centre - heading * 0.02, along: heading, length: length * 0.5, width: width * 0.8,
+                       z0: front.z + height, z1: front.z + height + 0.05,
+                       albedo: SIMD3(0.07, 0.07, 0.1), emissive: SIMD3(0.35, 0.45, 0.6) * 0.25 * visibility,
+                       rim: color * 0.8 * visibility, into: &frame.solids)
+        }
+        let across = SIMD3<Float>(-heading.y, heading.x, 0)
+        let lamp = front.z + height * 0.55
+        for side: Float in [-1, 1] {
+            let offset = across * width * 0.32 * side
+            // Headlights and tail lights are traces: points of light, brighter
+            // than white so they bloom.
+            let headlight = SIMD3(front.x, front.y, lamp) + offset
+            frame.traces += Self.trace(from: headlight, to: headlight + heading * 0.02, width: 0.035, mode: 1,
+                                       color: SIMD3(1, 0.95, 0.85) * 6, alpha: visibility)
+            let tail = SIMD3(front.x, front.y, lamp) - heading * length + offset
+            frame.traces += Self.trace(from: tail - heading * 0.02, to: tail, width: 0.035, mode: 1,
+                                       color: SIMD3(1, 0.08, 0.1) * 6, alpha: visibility)
+        }
+        // The tail-light trail, and the headlights' wash on the street ahead.
+        let back = SIMD3(front.x, front.y, front.z + 0.02) - heading * length
+        frame.traces += Self.trace(from: back - heading * 0.45, to: back, width: 0.05, mode: 0,
+                                   color: SIMD3(1, 0.1, 0.12) * 2.5, alpha: 0.45 * visibility)
+        let road = SIMD3(front.x, front.y, front.z + 0.01)
+        frame.traces += Self.trace(from: road, to: road + heading * 0.4, width: 0.12, mode: 1,
+                                   color: SIMD3(1, 0.92, 0.75) * 0.9, alpha: 0.35 * visibility)
+    }
+
+    /// **The paint a sports car can wear**, in linear light: Ferrari red,
+    /// hot magenta, white, electric cyan, sunset orange and black — the
+    /// retrowave set, from the reference the player brought (an F40 under a
+    /// slatted sun).
+    static let paints: [SIMD3<Float>] = [
+        SIMD3(0.92, 0.04, 0.06), SIMD3(0.95, 0.08, 0.55), SIMD3(0.82, 0.82, 0.86),
+        SIMD3(0.05, 0.62, 0.9), SIMD3(1.0, 0.36, 0.06), SIMD3(0.025, 0.025, 0.035),
+    ].map { SIMD3(powf($0.x, 2.2), powf($0.y, 2.2), powf($0.z, 2.2)) * 1.6 }
+
+    /// **An 80s wedge, up close.** A car here is 30–60 pixels long, so what
+    /// makes it read is the silhouette and the lights, not detail: a long low
+    /// body with a sloping nose and the cabin set well back, a wing on two
+    /// posts, twin round tail lights each side, and real paint that the
+    /// street's light falls on. Lorries, patrols and engines keep their boxes,
+    /// so the ordinary car is the one that looks like the poster.
+    private func sportsCar(at front: SIMD3<Float>, heading: SIMD3<Float>, paint: SIMD3<Float>,
+                           visibility: Float, into frame: inout Frame) {
+        let length: Float = 0.34, width: Float = 0.15
+        let across = SIMD3<Float>(-heading.y, heading.x, 0)
+        let rear = front - heading * length
+        let z0 = front.z + 0.012
+        // The side profile, rear to nose along the top: (distance from the
+        // rear, height). Star-shaped from the rear-bottom corner, so a fan
+        // from there triangulates it.
+        let profile: [(Float, Float)] = [
+            (0, 0.052), (0.24, 0.056), (0.34, 0.098), (0.58, 0.1), (0.72, 0.06), (1.0, 0.032),
+        ]
+        func point(_ t: Float, _ h: Float, _ side: Float) -> SIMD3<Float> {
+            var p = rear + heading * (t * length) + across * (width / 2 * side)
+            p.z = z0 + h
+            return p
+        }
+        let rim = paint * 0.9 + SIMD3(0.1, 0.1, 0.12)
+        let glass = SIMD3<Float>(0.04, 0.05, 0.08)
+        // Sides.
+        for side: Float in [-1, 1] {
+            let outline = [point(0, 0, side), point(1, 0, side)]
+                + profile.reversed().map { point($0.0, $0.1, side) }
+            MetalCityMesh.appendPolygon(outline, normal: across * side, albedo: paint * visibility,
+                                        emissive: paint * 0.08 * visibility, rim: rim * 0.6 * visibility,
+                                        ground: 0, into: &frame.solids)
+        }
+        // The top, one strip per segment of the profile: glass where the
+        // cabin is, paint everywhere else.
+        for index in 0 ..< profile.count - 1 {
+            let (t0, h0) = profile[index], (t1, h1) = profile[index + 1]
+            let a = point(t0, h0, -1), b = point(t1, h1, -1), c = point(t1, h1, 1), d = point(t0, h0, 1)
+            let slope = simd_normalize(simd_cross(c - b, a - b))
+            let normal = slope.z < 0 ? -slope : slope
+            let isGlass = index == 1 || index == 3
+            MetalCityMesh.appendPolygon([a, b, c, d], normal: normal,
+                                        albedo: (isGlass ? glass : paint) * visibility,
+                                        emissive: (isGlass ? SIMD3(0.2, 0.3, 0.45) * 0.3 : paint * 0.08) * visibility,
+                                        // A faint edge only: a full neon rim on
+                                        // every panel striped the body, and
+                                        // what sells a sports car is one
+                                        // continuous sweep of paint.
+                                        rim: rim * 0.25 * visibility, ground: 0, into: &frame.solids)
+        }
+        // Tail and nose.
+        MetalCityMesh.appendPolygon([point(0, 0, -1), point(0, 0, 1), point(0, 0.052, 1), point(0, 0.052, -1)],
+                                    normal: -heading, albedo: paint * 0.6 * visibility, emissive: .zero,
+                                    rim: rim * 0.5 * visibility, ground: 0, into: &frame.solids)
+        MetalCityMesh.appendPolygon([point(1, 0, 1), point(1, 0, -1), point(1, 0.032, -1), point(1, 0.032, 1)],
+                                    normal: heading, albedo: paint * 0.6 * visibility, emissive: .zero,
+                                    rim: rim * 0.5 * visibility, ground: 0, into: &frame.solids)
+        // The wing, on two posts.
+        let wing = rear + heading * 0.03
+        for side: Float in [-0.6, 0.6] {
+            Self.block(wing + across * (width / 2 * side), along: heading, length: 0.02, width: 0.012,
+                       z0: z0 + 0.05, z1: z0 + 0.085, albedo: paint * 0.5 * visibility, emissive: .zero,
+                       rim: rim * 0.4 * visibility, into: &frame.solids)
+        }
+        Self.block(wing, along: heading, length: 0.05, width: width * 1.05, z0: z0 + 0.085, z1: z0 + 0.097,
+                   albedo: paint * visibility, emissive: paint * 0.08 * visibility, rim: rim * visibility,
+                   into: &frame.solids)
+
+        // Twin round tail lights each side — the mark from the poster — and
+        // pop-up-era headlights, as points of light bright enough to bloom.
+        let lamp = z0 + 0.034
+        for side: Float in [-1, 1] {
+            for k: Float in [0.26, 0.4] {
+                let tail = SIMD3(rear.x, rear.y, lamp) + across * (width * k * side) - heading * 0.004
+                frame.traces += Self.trace(from: tail - heading * 0.012, to: tail, width: 0.03, mode: 1,
+                                           color: SIMD3(1, 0.1, 0.08) * 7, alpha: visibility)
+            }
+            let headlight = SIMD3(front.x, front.y, z0 + 0.024) + across * (width * 0.34 * side)
+            frame.traces += Self.trace(from: headlight, to: headlight + heading * 0.015, width: 0.03, mode: 1,
+                                       color: SIMD3(1, 0.95, 0.85) * 6, alpha: visibility)
+        }
+        let back = SIMD3(rear.x, rear.y, front.z + 0.02)
+        frame.traces += Self.trace(from: back - heading * 0.5, to: back, width: 0.06, mode: 0,
+                                   color: SIMD3(1, 0.1, 0.12) * 2.5, alpha: 0.45 * visibility)
+        let road = SIMD3(front.x, front.y, front.z + 0.01)
+        frame.traces += Self.trace(from: road, to: road + heading * 0.4, width: 0.12, mode: 1,
+                                   color: SIMD3(1, 0.92, 0.75) * 0.9, alpha: 0.35 * visibility)
+    }
+
+    /// A box standing on the ground, oriented along `along`: its top and four
+    /// sides, as lit geometry.
+    static func block(_ c: SIMD3<Float>, along: SIMD3<Float>, length: Float, width: Float,
+                      z0: Float, z1: Float, albedo: SIMD3<Float>, emissive: SIMD3<Float>,
+                      rim: SIMD3<Float>, into solids: inout [Float]) {
+        let across = SIMD3<Float>(-along.y, along.x, 0)
+        let l = along * length / 2, w = across * width / 2
+        let corners = [c - l - w, c + l - w, c + l + w, c - l + w]
+        func at(_ p: SIMD3<Float>, _ z: Float) -> SIMD3<Float> { SIMD3(p.x, p.y, z) }
+        MetalCityMesh.appendPolygon(corners.map { at($0, z1) }, normal: SIMD3(0, 0, 1), albedo: albedo,
+                                    emissive: emissive * 0.4, rim: rim, ground: 0, into: &solids)
+        for index in 0 ..< 4 {
+            let p = corners[index], q = corners[(index + 1) % 4]
+            let mid = (p + q) / 2 - SIMD3(c.x, c.y, p.z)
+            let normal = simd_normalize(SIMD3(mid.x, mid.y, 0))
+            MetalCityMesh.appendPolygon([at(p, z0), at(q, z0), at(q, z1), at(p, z1)], normal: normal,
+                                        albedo: albedo, emissive: emissive, rim: rim, ground: 0,
+                                        into: &solids)
+        }
+    }
+
     /// A ship: a dark hull with a lit deckhouse and its lights on the water.
     private func ship(at centre: SIMD3<Float>, heading: SIMD3<Float>, color: SIMD3<Float>,
                       into frame: inout Frame) {
         let along = abs(heading.x) > abs(heading.y) ? SIMD3<Float>(1, 0, 0) : SIMD3<Float>(0, 1, 0)
-        let across = SIMD3<Float>(-along.y, along.x, 0)
         func block(_ c: SIMD3<Float>, _ length: Float, _ width: Float, _ z0: Float, _ z1: Float,
                    albedo: SIMD3<Float>, emissive: SIMD3<Float>, rim: SIMD3<Float>) {
-            let l = along * length / 2, w = across * width / 2
-            let corners = [c - l - w, c + l - w, c + l + w, c - l + w]
-            func at(_ p: SIMD3<Float>, _ z: Float) -> SIMD3<Float> { SIMD3(p.x, p.y, z) }
-            MetalCityMesh.appendPolygon(corners.map { at($0, z1) }, normal: SIMD3(0, 0, 1), albedo: albedo,
-                                        emissive: emissive * 0.4, rim: rim, ground: 0, into: &frame.solids)
-            for index in 0 ..< 4 {
-                let p = corners[index], q = corners[(index + 1) % 4]
-                let mid = (p + q) / 2 - c
-                let normal = simd_normalize(SIMD3(mid.x, mid.y, 0))
-                MetalCityMesh.appendPolygon([at(p, z0), at(q, z0), at(q, z1), at(p, z1)], normal: normal,
-                                            albedo: albedo, emissive: emissive, rim: rim, ground: 0,
-                                            into: &frame.solids)
-            }
+            Self.block(c, along: along, length: length, width: width, z0: z0, z1: z1,
+                       albedo: albedo, emissive: emissive, rim: rim, into: &frame.solids)
         }
         let hull = SIMD3<Float>(0.08, 0.075, 0.1)
         block(centre, 1.3, 0.42, centre.z - 0.02, centre.z + 0.1, albedo: hull, emissive: .zero, rim: color * 1.2)
@@ -323,10 +507,17 @@ final class MetalMotion {
 
     var planForTesting: PlanSnapshot {
         var plan = PlanSnapshot()
-        for car in cars {
-            plan.cars += [car.start.x, car.start.y, car.start.z, car.end.x, car.end.y, car.end.z,
-                          Float(car.motion.crossing), Float(car.motion.phase), Float(car.motion.length),
-                          Float(car.motion.alpha), car.color.x, car.color.y, car.color.z]
+        for street in streets {
+            plan.cars += [Float(street.motion.tiles[0].x), Float(street.motion.tiles[0].y),
+                          Float(street.motion.tiles.count), street.motion.horizontal ? 1 : 0,
+                          Float(street.motion.speed)]
+            for (laneIndex, lane) in street.motion.lanes.enumerated() {
+                for (carIndex, car) in lane.cars.enumerated() {
+                    let color = street.colors[laneIndex][carIndex]
+                    plan.cars += [Float(car.offset), Float(car.length), Float(car.alpha),
+                                  color.x, color.y, color.z]
+                }
+            }
         }
         plan.runs = runs.map(\.motion.tiles)
         for airport in airports { plan.airports += [airport.start.x, airport.start.y, Float(airport.phase)] }
@@ -335,7 +526,7 @@ final class MetalMotion {
         return plan
     }
 
-    var carCount: Int { cars.count }
+    var carCount: Int { streets.reduce(0) { $0 + $1.motion.lanes.reduce(0) { $0 + $1.cars.count } } }
     /// When each run started, for the test that a line keeps its place.
     var runStartsForTesting: [Double] { runs.map(\.startedAt) }
     var runCount: Int { runs.count }

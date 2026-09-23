@@ -208,6 +208,9 @@ final class MetalCityRenderer {
     private let sunPipeline: MTLRenderPipelineState
     private let overlayTilePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
+    private let signPipeline: MTLRenderPipelineState
+    private let signReflectionPipeline: MTLRenderPipelineState
+    private let signAtlas: MTLTexture?
     /// Drawn over everything: a mark the player came to a view to find.
     private let alwaysDepthState: MTLDepthStencilState
     private let glyphAtlas: MTLTexture?
@@ -313,6 +316,10 @@ final class MetalCityRenderer {
                                                 samples: Self.sampleCount, additive: true),
               let billboardPipeline = blended(billboardVertex, billboardFragment,
                                               samples: Self.sampleCount, additive: false),
+              let signVertex = library.makeFunction(name: "signVertex"),
+              let signFragment = library.makeFunction(name: "signFragment"),
+              let signPipeline = blended(signVertex, signFragment, samples: Self.sampleCount, additive: true),
+              let signReflectionPipeline = blended(signVertex, signFragment, samples: 1, additive: true),
               let readOnlyDepthState = device.makeDepthStencilState(descriptor: readOnly)
         else { return nil }
         self.tracePipeline = tracePipeline
@@ -333,6 +340,8 @@ final class MetalCityRenderer {
         self.sunPipeline = sunPipeline
         self.overlayTilePipeline = overlayTilePipeline
         self.billboardPipeline = billboardPipeline
+        self.signPipeline = signPipeline
+        self.signReflectionPipeline = signReflectionPipeline
         let always = MTLDepthStencilDescriptor()
         always.depthCompareFunction = .always
         always.isDepthWriteEnabled = false
@@ -345,6 +354,10 @@ final class MetalCityRenderer {
         placeholder.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0,
                             withBytes: [Float](repeating: 0, count: 4), bytesPerRow: 16)
         self.placeholder = placeholder
+        // Built from the pixels rather than through `MTKTextureLoader`, which
+        // turned the one-channel grey image down without saying so — and a
+        // missing atlas skips the draw, so every sign quietly vanished.
+        self.signAtlas = Self.makeSignAtlas(device: device, queue: queue)
         self.glyphAtlas = MetalOverlay.glyphAtlas().flatMap {
             try? MTKTextureLoader(device: device).newTexture(cgImage: $0, options: [.SRGB: false])
         }
@@ -495,6 +508,8 @@ final class MetalCityRenderer {
         /// The tallest thing in it, for deciding whether it is on screen.
         var height: Float
         var region: MetalCityMesh.Region
+        var signs: [Float] = []
+        var signBuffer: MTLBuffer?
     }
 
     static let chunkSize = 8
@@ -525,8 +540,41 @@ final class MetalCityRenderer {
         backdrop = (buffer, vertices.count / GPUVertex.floatCount, map.width, map.height)
     }
 
+    private static func makeSignAtlas(device: MTLDevice, queue: MTLCommandQueue) -> MTLTexture? {
+        guard let image = MetalSigns.atlas(), let data = image.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data) else { return nil }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .r8Unorm, width: image.width, height: image.height, mipmapped: true)
+        descriptor.usage = .shaderRead
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        texture.replace(region: MTLRegionMake2D(0, 0, image.width, image.height), mipmapLevel: 0,
+                        withBytes: bytes, bytesPerRow: image.bytesPerRow)
+        // Mipmaps, so a word seen from across the city averages to its glow
+        // rather than sparkling.
+        if let commands = queue.makeCommandBuffer(), let blit = commands.makeBlitCommandEncoder() {
+            blit.generateMipmaps(for: texture)
+            blit.endEncoding()
+            commands.commit()
+            commands.waitUntilCompleted()
+        }
+        return texture
+    }
+
+    /// Whether the sign lettering loaded, for the test that a missing atlas
+    /// is noticed rather than silently drawing nothing.
+    var hasSignAtlas: Bool { signAtlas != nil }
+
+    private func storeSigns(_ signs: [Float], at index: Int) {
+        chunks[index].signs = signs
+        chunks[index].signBuffer = signs.isEmpty ? nil
+            : device.makeBuffer(bytes: signs, length: signs.count * 4)
+    }
+
     /// What the last `update` did, for the timing tests.
     private(set) var chunksRebuiltLastUpdate = 0
+    /// How many building variants have been generated so far — a miss on the
+    /// cache is massing generated on the frame that needed it.
+    var cachedBuildingCount: Int { cache.entries.count }
 
     /// Everything about a chunk's tiles that decides what it draws — and
     /// nothing that does not. Read one tile past the edge, because a lane
@@ -595,6 +643,7 @@ final class MetalCityRenderer {
                 vertexCount: count, groundCount: built.groundFloats / GPUVertex.floatCount,
                 lights: built.lights, height: height, region: chunks[index].region)
             chunks[index].near = nearDetail
+            storeSigns(built.signs, at: index)
             rebuilt += 1
         }
         chunksRebuiltLastUpdate = rebuilt
@@ -672,6 +721,7 @@ final class MetalCityRenderer {
             chunks[index].groundCount = built.groundFloats / GPUVertex.floatCount
             chunks[index].lights = built.lights
             chunks[index].near = nearDetail
+            storeSigns(built.signs, at: index)
         }
         allLights = chunks.flatMap(\.lights)
     }
@@ -684,6 +734,7 @@ final class MetalCityRenderer {
         let vertices: [Float]
         let groundCount: Int
         let lights: [Float]
+        let signs: [Float]
     }
 
     func chunksForTesting() -> [ChunkSnapshot] {
@@ -695,7 +746,7 @@ final class MetalCityRenderer {
             } ?? []
             return ChunkSnapshot(x0: chunk.region.x0, y0: chunk.region.y0, x1: chunk.region.x1,
                                  y1: chunk.region.y1, vertices: floats,
-                                 groundCount: chunk.groundCount, lights: chunk.lights)
+                                 groundCount: chunk.groundCount, lights: chunk.lights, signs: chunk.signs)
         }
     }
 
@@ -907,7 +958,7 @@ final class MetalCityRenderer {
         guard chunks.contains(where: { $0.vertexCount > 0 }), let targets = targets(for: camera.size) else { return nil }
         let matrix = viewProjection(for: camera, mapExtent: mapExtent)
         lastMotionClock = motionClock
-        let moving = motion.frame(at: motionClock)
+        let moving = motion.frame(at: motionClock, near: nearDetail)
         let lights = diagnostics.skipPointLights ? []
             : visibleLights([moving.lights, allLights], through: matrix, camera: camera)
         let lightCount = lights.count / GPULight.floatCount
@@ -1093,6 +1144,20 @@ final class MetalCityRenderer {
                 encoder.setVertexBuffer(traceBuffer, offset: 0, index: 0)
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: traceCount)
             }
+            // Neon lettering, as light: hidden by what stands in front of it,
+            // and reflected in a wet street like any other light. A view hides
+            // it with the flames — it describes the building, not the answer.
+            if !hideBuildings, overlayMode == .none, let signAtlas {
+                encoder.setRenderPipelineState(mirrored ? signReflectionPipeline : signPipeline)
+                encoder.setFragmentTexture(signAtlas, index: 0)
+                for chunk in chunks where !chunk.signs.isEmpty {
+                    guard let buffer = chunk.signBuffer, isVisible(chunk, through: matrix, mirrored: mirrored)
+                    else { continue }
+                    encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                           instanceCount: chunk.signs.count / MetalSigns.floatCount)
+                }
+            }
             if !mirrored, drops > 0 {
                 encoder.setRenderPipelineState(rainPipeline)
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: drops)
@@ -1255,6 +1320,9 @@ enum MetalCityMesh {
         /// with the buildings after them, so a view that hides buildings can
         /// draw the first part alone.
         var groundFloats = 0
+        /// Neon lettering, `MetalSigns.floatCount` floats a sign, drawn as
+        /// light over the city rather than as part of it.
+        var signs: [Float] = []
     }
 
     /// Every distinct building, turned into triangles once.
@@ -1555,6 +1623,12 @@ enum MetalCityMesh {
                 vertices[index + 1] += dy
                 vertices[index + 2] *= rise
                 index += MetalCityRenderer.GPUVertex.floatCount
+            }
+            // Signs, from the building as it actually stands on this lot.
+            if let shape = MetalSigns.shape(of: vertices, stride: MetalCityRenderer.GPUVertex.floatCount) {
+                let signs = MetalSigns.plan(for: tile, shape: shape)
+                vertices += signs.frame
+                built.signs += signs.letters
             }
             built.vertices += vertices
             var lights = local.lights

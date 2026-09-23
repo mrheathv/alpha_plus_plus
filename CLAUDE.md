@@ -8103,6 +8103,28 @@ covers it, and a new variant or level generates its massing on that frame;
 in SpriteKit, a cache miss rasterises a texture on that frame; and in both,
 the growth lands on the same frame as the tick.
 
+**Measured (2026-09-23): the hitch was the Debug build.** `RedrawHitchTests`
+(opt-in) times a day's tick and the Metal catch-up separately. On the
+player's 48×48 city a day costs 71 ms of tick in Debug against 1.4 ms in
+Release; on a large city about 450 ms against 29 ms. The redraw is the
+smaller part (Release: 0.6 ms on the player's city, up to 12 ms on a large
+growing one). Two further fixes remain for large cities: run the tick off
+the main thread, and rebuild chunks off it or spread over frames. Also, every
+build was instrumented for code coverage, Release included: a test plan with
+empty default options means coverage on, and the scheme's plans apply it to
+plain builds too. Both plans now say `"codeCoverage": false`, and a Debug
+build names itself in the window title ("Debug build (slow)").
+
+**Also agreed: the utility glow in Metal.** Reported from play: *"I miss how
+in the old SpriteKit version we could see the glow of the buildings for power
+and water. Now they just light up or they don't."* SpriteKit's Water and
+Power views gave each supplied building a pool of the utility's colour
+spilling past its lot, so a served district glowed as one field, and the
+ground carried three states (a source's radius halo, a brighter pipe field,
+dark). `MetalOverlay` kept the decision but not the pools: a wash on the
+building and a flat ground tint. The Metal version can make the pools real
+light that falls on neighbouring walls and street.
+
 ### Retrowave step 1 (done): the sky and the sun
 
 The sky is a pass of its own behind everything, in the same sunset gradient
@@ -8268,6 +8290,107 @@ rapid transit, compared with and without level 6, is the honest next
 measurement. One thing the run showed that predates this work: planned and
 mixed layouts now finish level (3,276 against 3,272 people) where this file
 records planning winning clearly. That is worth checking separately.
+
+### The utility glow, back in Metal
+
+Reported from play: in the Water and Power views, buildings *"just light up
+or they don't"*. `UtilityGlowTests` renders one half-plumbed city in both
+views, SpriteKit beside Metal. That showed the cause: Metal repainted each
+building in the answer's colour, walls and all, so the views were a city of
+plastic blocks. SpriteKit's buildings stayed night silhouettes whose *neon*
+changed colour, and each one threw a pool of it on the ground.
+
+- **The light is recoloured, not the building.** In a network view the walls
+  are dimmed and the neon edges and lit windows take the answer's hue at
+  their own brightness, with a small floor so a dark facade still reads.
+- **Every building throws its answer on the ground**: a soft pool, 1.9× its
+  footprint, so a served district glows as one field. Overlapping pools at
+  full strength summed to a milky sheet, the additive-saturation lesson
+  again, so they sit at 0.2.
+- **Badges are offset on the screen, not in the world.** A drop and a bolt
+  were shifted 0.45 of a tile apart, which shrinks as the camera pulls back,
+  so at a whole-city view the bolt covered the drop. `Billboard` carries a
+  pixel offset now.
+
+The colour-vision test on rendered pixels still passes. That test has to be
+rerun after any change to how a view looks, however unrelated it seems.
+
+**To revisit.** The player's verdict: a subtle glow, fine for now, and
+*"more of a sprite problem than a glow problem"*. At a whole-city zoom a
+building's own neon is thin, so there is little for the recolour to carry.
+Look again once the building-variety work lands.
+
+### The cars pass (Metal)
+
+**A street is driven end to end now.** Each road tile used to carry its own
+one-tile car that crossed, faded and started again, so a street read as a
+row of short dashes blinking in step. `CityMotion.streets` makes every
+straight run of road one street with two lanes, one each way. A car drives
+the whole length and fades only where the street ends, spending one tile of
+its loop off the map, as if turning off at the junction. It is still
+aggregate, not agents: a lane's car count and speed come from the same
+per-tile congestion `Traffic.carCount` reads. A street fronting buildings
+keeps an ambient floor (`ambientCarsPerTile`, 0.2) so a quiet neighbourhood
+is not dead. SpriteKit keeps its per-tile cars until it is retired.
+
+**Up close a vehicle is a body; further out it stays light.** Past the
+near-detail threshold a car is a small dark box edged in its kind's colour,
+with a cabin, twin headlights and red tail lights (traces, bright enough to
+bloom), a short red trail and a headlight wash on the road ahead. Further
+out it stays a streak, because a body a few pixels across stops being a
+shape. `MetalMotion.block` now builds both vehicles and the ship's hull.
+Apex holds at 8.0 ms, since bodies are only drawn when zoomed in.
+
+**The ordinary car is an 80s sports car.** The player brought the
+reference: an F40 under a slatted sun. At 30–60 pixels long, what carries
+that is the silhouette and the lights, so `sportsCar` is a long low wedge
+with the cabin set back, a wing on two posts, twin round tail lights each
+side, and real paint from a retrowave set (red, magenta, white, cyan,
+orange, black) that the street's light falls on. The top panels carry only
+a faint edge: a full neon rim on every panel striped the body, and what
+sells it is one sweep of paint. Lorries, patrols and engines keep boxes.
+
+**Next, agreed: a closer camera, level of detail, and a richer toolkit.**
+Asked how detailed Metal can draw: the limit is not the GPU (Apex draws
+~110k triangles against a budget of millions) but how close the camera goes
+(a car is under 100 pixels long at the closest zoom, so anything under a few
+pixels is wasted) and how shapes are authored (primitives in code, judged on
+stills). In order: let the camera go nearer to street level, draw detailed
+meshes only when close (the near tier, extended), then widen the procedural
+vocabulary with bevels, curved and lathed profiles, and shader detail such
+as panel lines. Imported 3D models (an artist's or bought) are the route
+past what code can express, and would be the project's first real art
+assets; that is the player's decision and is parked.
+
+### Neon signs (Metal)
+
+`MetalSigns` gives shops, level-6 towers and the arcade real neon signs:
+rooftop billboards on posts, tall blades with stacked letters, and marquees
+round a shop's ground floor. The words (MOTEL, ARCADE, VIDEO, DINER and 20
+more, plus 8 vertical) are drawn once with CoreText as outlined tubes with a
+soft halo into one grey atlas. Each sign is a world-space quad that samples
+a word and adds its colour as light: hidden by what stands in front of it,
+reflected in a wet street, hidden in views.
+
+**Planned per lot, not per building design.** The sign is seeded by the
+lot's position, so two lots drawing the same cached tower carry different
+signs, which is variety the 32-variant cache cannot give. The frame (dark
+backing board, posts) is ordinary chunk geometry; the letters are a
+per-chunk instance buffer, compared by `MetalAgreement` like the rest.
+
+Three things the renders caught, none of which failed a test:
+
+- **`MTKTextureLoader` turned down the one-channel grey atlas without an
+  error**, and a missing atlas skips the draw, so 67 planned signs drew
+  nothing. The atlas is built from its pixels now, and a test asserts it
+  loaded.
+- **"The roof" was the top of the building**, which on nearly every tall one
+  is a mast, so almost no billboard was placed and the signs were blades
+  alone. `testSignsChangeTheFrame` diffs a frame with and without signs and
+  writes `neon-signs-where.png`, which is what showed it. The roof is now the
+  highest level at least most of a tile wide.
+- **Held to the roof's width, billboards read as trim.** They overhang it
+  now, as real ones do.
 
 ### Retrowave step 4: sixteen skyscrapers, and more of level 5
 
