@@ -284,12 +284,17 @@ final class MetalMapTests: XCTestCase {
         // M3. The bound is 9, not 8: a bound that holds by 4% is a coin toss
         // on this machine's timing noise, and this file already records what
         // those cost. `metal-apex.txt` carries the real figure every run.
-        for (label, scale, gpuBudget) in [("resting camera", 0.5, 9.0), ("whole city", 3.0, 8.0)]
-            as [(String, CGFloat, Double)] {
+        // Raining too: the rings on the wet street run per pixel, and a
+        // budget measured with the streets wet and no rain falling never
+        // pays for them.
+        for (label, scale, gpuBudget, rainfall) in [("resting camera", 0.5, 9.0, Float(0)),
+                                                    ("resting camera, raining", 0.5, 9.0, Float(1)),
+                                                    ("whole city", 3.0, 8.0, Float(0))]
+            as [(String, CGFloat, Double, Float)] {
             let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: size)
             var gpu = Double.infinity, cpu = Double.infinity, drawn = 0, lights = 0
             for _ in 0 ..< 10 {
-                let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 1))
+                let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 1, rainfall: rainfall))
                 gpu = min(gpu, frame.gpuMilliseconds)
                 cpu = min(cpu, renderer.lastEncodeMilliseconds)
                 drawn = frame.triangles

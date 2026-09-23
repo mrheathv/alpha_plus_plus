@@ -38,7 +38,7 @@ struct Uniforms {
     float4 frame;             // x, y: viewport in pixels · z: wetness 0…1 · w: 1 when mirrored
     float4 moonAndTime;       // xyz: direction moonlight comes from · w: seconds
     uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels · w: map width | height << 16
-    float4 overlay;           // x: 1 when a view washes buildings toward its colours · y: motion clock
+    float4 overlay;           // x: 1 when a view washes buildings toward its colours · y: motion clock · z: rainfall 0…1
     float4 fog;               // x: low fog · y: its height in tiles · z: distance haze · w: street gloss
     float4 zenith;            // rgb: the air overhead, near the viewer · w: how far out the camera is, 0…1
     float4 horizon;           // rgb: the far air and the sky past the map · w: gloss on open ground
@@ -164,6 +164,37 @@ float rimAmount(float2 uv, float2 size) {
     // wider than its real width it is being drawn.
     float energy = clamp(0.022 / width, 0.3, 1.0);
     return (1 - smoothstep(width - aa, width + aa, d)) * energy;
+}
+
+/// **Rain rings on the wet street**: small circles spreading and fading
+/// where drops land, the signature of a neon street in the rain. A grid of
+/// cells a quarter of a tile across, each landing one drop per cycle at its
+/// own place and moment; returns how bright the ring is here and which way
+/// it bends the reflection. Runs on the motion clock, so it stops with the
+/// city like the drops that make it.
+static float3 rainRings(float2 p, float t, float rainfall) {
+    const float cells = 4.0;
+    float2 cell = floor(p * cells);
+    float3 result = 0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            float2 c = cell + float2(dx, dy);
+            float seed = hash21(c);
+            float rate = 0.9 + 0.6 * seed;
+            float cycle = t * rate + seed * 7.0;
+            float phase = fract(cycle);
+            // Not every cell rains every cycle: heavier rain, more rings.
+            if (hash21(c + floor(cycle) * 1.37) > rainfall * 0.85) continue;
+            float2 centre = (c + 0.2 + 0.6 * float2(hash21(c + floor(cycle)), hash21(c.yx + floor(cycle) + 3.1))) / cells;
+            float2 to = p - centre;
+            float d = length(to);
+            float radius = phase * 0.15;
+            float ring = exp(-pow((d - radius) / 0.011, 2.0)) * pow(1.0 - phase, 1.5);
+            result.x += ring;
+            result.yz += (d > 1e-4 ? to / d : float2(0)) * ring;
+        }
+    }
+    return result;
 }
 
 /// The city, shaded. Shared by both passes; the entry points below decide
@@ -334,6 +365,10 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         float rain = u.overlay.y;
         float ripple = valueNoise(in.world.xy * 9.0 + float2(rain * 0.35, rain * 0.6)) - 0.5;
         float2 offset = float2(ripple * 0.003, ripple * 0.004);
+        float3 rings = u.overlay.z > 0.01 && !beyond ? rainRings(in.world.xy, rain, u.overlay.z) : float3(0);
+        // A ring bends what the street reflects outward from where the drop
+        // landed, the projection laying x and y out as it does the waves'.
+        offset += float2(rings.y - rings.z, rings.y + rings.z) * 0.004;
         if (water) {
             // The waves bend the mirror: the surface normal, carried into
             // screen space the way the projection lays x and y out.
@@ -344,6 +379,8 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         // How high the reflected point stands decides how blurred it is.
         float height = reflection.sample(s, screen + offset).a;
         float spread = (water ? 0.0008 : 0.0016) + height * (water ? 0.0012 : 0.0028);
+        // Wet tarmac is a sharper mirror than a dry sheen.
+        spread *= mix(1.0, 0.7, u.frame.z);
         float3 mirrored = 0;
         float total = 0;
         for (int i = -4; i <= 4; i++) {
@@ -354,8 +391,16 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
             total += w;
         }
         mirrored /= total;
-        float darken = water ? 0.5 : 0.3 * u.frame.z * (road ? 1.0 : 0.3);
+        // Wet asphalt is darker than dry, which is what lets the reflections
+        // in it read as reflections rather than as a brighter street.
+        float darken = water ? 0.5 : 0.45 * u.frame.z * (road ? 1.0 : 0.3);
         color = color * (1 - darken) + mirrored * strength;
+        // The rings themselves catch light: brightest where the street is
+        // already reflecting something bright, so they sparkle under neon
+        // and all but vanish in the dark.
+        float lit = dot(mirrored, float3(0.2126, 0.7152, 0.0722));
+        color += (mirrored * 2.4 + airColor(in.clip.y / u.frame.y, u) * 0.35) * rings.x
+            * (0.35 + min(lit, 1.0)) * saturate(strength * 2.0);
     }
 
     // **The air.** Low fog pooling in the streets, thinning with height so
@@ -679,9 +724,11 @@ vertex TraceVaryings rainVertex(uint vid [[vertex_id]], uint iid [[instance_id]]
     float z = ceiling * (1 - fall);
     float3 head = float3(ground, z);
     float3 tail = head + float3(0.06, 0.03, 0.45);
-    TraceVaryings out = segmentCorner(vid, tail, head, 0.012, 1.0, u);
-    out.color = float3(0.55, 0.6, 0.95) * 0.9;
-    out.alpha = 0.45 * u.params.y;
+    TraceVaryings out = segmentCorner(vid, tail, head, 0.008, 0.8, u);
+    // Drops catch the city's light rather than being grey scratches on the
+    // lens: some pink, some cyan, as a neon street lights falling rain.
+    out.color = mix(float3(1.0, 0.25, 0.75), float3(0.25, 0.75, 1.0), step(0.5, r.x)) * 0.9;
+    out.alpha = 0.32 * u.params.y;
     out.mode = 1;
     return out;
 }
