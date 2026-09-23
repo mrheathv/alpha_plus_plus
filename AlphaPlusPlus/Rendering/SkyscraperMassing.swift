@@ -155,8 +155,16 @@ enum SkyscraperMassing {
             inset += CGFloat(random.value(in: 0.1 ... 0.15))
             height *= CGFloat(random.value(in: 0.45 ... 0.6))
         }
-        needle(on: top, z: z, height: CGFloat(random.value(in: 0.8 ... 1.2)) * scale,
-               into: &massing)
+        let needleHeight = CGFloat(random.value(in: 0.8 ... 1.2)) * scale
+        // Deco's top: the needle, or on a third of them a dome — both are
+        // the period's, and they are the two tops a skyline is read by.
+        var topRandom = BuildingRandom(seed: seed, salt: 404)
+        if scale == 1, topRandom.chance(0.34), top.width >= 0.6 {
+            dome(on: Box(x: top.x, y: top.y, z: top.z, width: top.width, depth: top.depth,
+                         height: top.height + 0.07), color: ledge, into: &massing)
+        } else {
+            needle(on: top, z: z, height: needleHeight, into: &massing)
+        }
     }
 
     /// A shaft with a stepped pyramid on it: six layers closing to a point,
@@ -228,9 +236,15 @@ enum SkyscraperMassing {
         massing.add(.box(Box(x: blade.x - 0.02, y: blade.y - 0.02, z: top,
                              width: blade.width + 0.04, depth: blade.depth + 0.04, height: 0.08)),
                     .lit(edge))
-        NeonStyle.rooftopPlant(on: Box(x: blade.x, y: blade.y, z: blade.z,
-                                       width: blade.width, depth: blade.depth, height: blade.height + 0.08),
-                               into: &massing, random: &random)
+        var topRandom = BuildingRandom(seed: seed, salt: 405)
+        if topRandom.chance(0.4) {
+            spikeCrown(on: Box(x: blade.x, y: blade.y, z: blade.z, width: blade.width, depth: blade.depth,
+                               height: blade.height + 0.08), color: edge, into: &massing)
+        } else {
+            NeonStyle.rooftopPlant(on: Box(x: blade.x, y: blade.y, z: blade.z,
+                                           width: blade.width, depth: blade.depth, height: blade.height + 0.08),
+                                   into: &massing, random: &random)
+        }
     }
 
     /// Two shafts on a shared podium, joined high up by a lit bridge.
@@ -504,7 +518,9 @@ enum SkyscraperMassing {
                   into: &massing, random: &random)
             z += top.height
         }
-        crown(on: top, seed: seed, into: &massing, random: &random)
+        // Four window-covered blocks already sit near the geometry budget, so
+        // the stacked form takes every top but the dome.
+        crown(on: top, seed: seed, allowDome: false, into: &massing, random: &random)
     }
 
     /// A shaft cut off by a steep single-pitch roof, a lit line along its
@@ -688,7 +704,31 @@ enum SkyscraperMassing {
         _ box: Box, facade: Facade, seed: GridPosition, signed: Bool, footprint: CGFloat,
         into massing: inout BuildingMassing, random: inout BuildingRandom
     ) {
+        // **Sparse windows**, on about a third of towers: the silhouette
+        // reference, where a tower is a dark shape with a scatter of lit
+        // dashes rather than a lit grid. The outline then carries the form,
+        // which is what reads from across the map; and it gives the skyline
+        // darker towers to set the bright ones against.
+        var sparseRandom = BuildingRandom(seed: seed, salt: 402)
+        let sparse = sparseRandom.chance(0.33)
         switch facade {
+        case .bands where sparse:
+            NeonStyle.clad(box, as: CommercialMassing.cladding(for: seed), into: &massing, random: &random)
+            let rows = max(1, Int((box.height / 0.34).rounded()))
+            for face in [Panel.Face.right, .left] {
+                for row in 0 ..< rows where random.chance(0.55) {
+                    let start = CGFloat(random.value(in: 0.1 ... 0.62))
+                    let length = CGFloat(random.value(in: 0.12 ... 0.28))
+                    massing.panels.append(Panel(
+                        box: box, face: face, u0: start, u1: min(0.9, start + length),
+                        v0: (CGFloat(row) + 0.3) / CGFloat(rows), v1: (CGFloat(row) + 0.62) / CGFloat(rows),
+                        color: NeonStyle.windowColor(row: row, column: 0, salt: 7)))
+                }
+            }
+            if signed {
+                CommercialMassing.bladeSign(on: box, color: NeonStyle.signColor(for: seed),
+                                            footprint: footprint, into: &massing, random: &random)
+            }
         case .bands:
             NeonStyle.clad(box, as: CommercialMassing.cladding(for: seed), into: &massing, random: &random)
             CommercialMassing.glazingBands(on: box, into: &massing, random: &random)
@@ -702,7 +742,7 @@ enum SkyscraperMassing {
             // per storey is several hundred nodes of windows on a twin.
             ResidentialMassing.windows(on: box, rows: min(10, max(2, Int((box.height / 0.36).rounded()))),
                                        columns: max(1, Int((box.width / 0.5).rounded())),
-                                       chance: 0.66, salt: 3, into: &massing, random: &random)
+                                       chance: sparse ? 0.22 : 0.66, salt: 3, into: &massing, random: &random)
             guard box.height > 1.2 else { return }
             var fraction = CGFloat(random.value(in: 0.2 ... 0.3))
             while fraction < 0.9 {
@@ -769,10 +809,23 @@ enum SkyscraperMassing {
     /// A top for a form that has no crown of its own: a lit band, a lit
     /// band with a needle, or a stepped cap.
     private static func crown(
-        on box: Box, seed: GridPosition,
+        on box: Box, seed: GridPosition, allowDome: Bool = true,
         into massing: inout BuildingMassing, random: inout BuildingRandom
     ) {
         let color = NeonStyle.signColor(for: seed, salt: 37)
+        // Picked on its own stream so the ledge-and-cap tops already drawn
+        // keep their seeds; a third of tops become one of the two new ones.
+        var topRandom = BuildingRandom(seed: seed, salt: 403)
+        switch topRandom.int(in: 0 ... 5) {
+        case 0:
+            spikeCrown(on: box, color: color, into: &massing)
+            return
+        case 1 where allowDome && min(box.width, box.depth) >= 0.6:
+            dome(on: box, color: color, into: &massing)
+            return
+        default:
+            break
+        }
         switch random.int(in: 0 ... 2) {
         case 0:
             ledge(on: box, color: color, into: &massing)
@@ -787,6 +840,56 @@ enum SkyscraperMassing {
             massing.add(.box(cap))
             ledge(on: cap, color: color, into: &massing)
         }
+    }
+
+    /// **A crown of lit spikes** round the rim, taller at the corners: the
+    /// Hong Kong supertall's top, which the Harbour Tower icon has in full
+    /// and ordinary towers now carry smaller.
+    private static func spikeCrown(on box: Box, color: SKColor, into massing: inout BuildingMassing) {
+        let top = box.z + box.height
+        massing.add(.box(Box(x: box.x - 0.03, y: box.y - 0.03, z: top, width: box.width + 0.06,
+                             depth: box.depth + 0.06, height: 0.06)), .lit(color))
+        let perSide = 3
+        for side in 0 ..< 4 {
+            for index in 0 ..< perSide {
+                let u = CGFloat(index) / CGFloat(perSide)
+                let (x, y): (CGFloat, CGFloat)
+                switch side {
+                case 0: (x, y) = (box.x + box.width * u, box.y)
+                case 1: (x, y) = (box.x + box.width, box.y + box.depth * u)
+                case 2: (x, y) = (box.x + box.width * (1 - u), box.y + box.depth)
+                default: (x, y) = (box.x, box.y + box.depth * (1 - u))
+                }
+                let height = (index == 0 ? CGFloat(0.6) : 0.34) + CGFloat(side * perSide + index) * 0.004
+                massing.add(.box(Box(x: x - 0.025, y: y - 0.025, z: top + 0.06, width: 0.05, depth: 0.05,
+                                     height: height)), .lit(color))
+            }
+        }
+    }
+
+    /// **A dome**: a drum with a lit ring and a quarter-circle of stacked
+    /// rings closing to a lit oculus and a mast — the domed tower in the
+    /// silhouette reference, as an ordinary top rather than only the icon.
+    private static func dome(on box: Box, color: SKColor, into massing: inout BuildingMassing) {
+        let x = box.x + box.width / 2
+        let y = box.y + box.depth / 2
+        let radius = min(box.width, box.depth) * 0.42
+        var z = box.z + box.height
+        massing.add(.cylinder(Cylinder(x: x, y: y, z: z, radius: radius, height: 0.18, sides: 10)))
+        massing.add(.cylinder(Cylinder(x: x, y: y, z: z + 0.07, radius: radius + 0.03, height: 0.05, sides: 10)),
+                    .lit(color))
+        z += 0.18
+        let rings = 3
+        for ring in 0 ..< rings {
+            let a = CGFloat(ring) / CGFloat(rings) * .pi / 2
+            let b = CGFloat(ring + 1) / CGFloat(rings) * .pi / 2
+            let height = radius * (sin(b) - sin(a))
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: z, radius: max(0.06, radius * cos(a)),
+                                           height: height, sides: 10)))
+            z += height
+        }
+        massing.add(.cylinder(Cylinder(x: x, y: y, z: z, radius: 0.07, height: 0.07, sides: 8)), .lit(color))
+        needle(on: Box(x: x, y: y, z: 0, width: 0, depth: 0, height: 0), z: z + 0.07, height: 0.5, into: &massing)
     }
 
     /// A slim mast with a lit tip, centred on `box`.

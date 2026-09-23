@@ -8558,6 +8558,31 @@ Every existing form is still in each list, so nothing was removed.
   built rather than a lattice. SpriteKit's scaffold is unchanged, since
   Metal is the renderer being carried forward.
 
+### Skyline tops, sparse windows, and icons that rise with downtown
+
+The last items from the reference images.
+
+- **Two new tops for ordinary skyscrapers**: a crown of lit spikes, taller
+  at the corners (the Hong Kong supertall's top, which the Harbour Tower
+  icon has in full), and a dome on a drum with a mast (the silhouette
+  image). They come through the shared `crown` helper on about a third of
+  its towers, on Deco towers in place of the needle a third of the time, and
+  as spikes on 40% of slabs. Each is picked on its own random stream, so
+  towers that keep their old top are unchanged.
+- **Sparse windows on about a third of towers**: a dark shaft with a
+  scatter of lit dashes (shops) or a thin punched grid (housing) instead of
+  a full lit grid. From afar the outline carries the tower, and the skyline
+  gets dark towers to set the bright ones against.
+- **The dome is not offered to the stacked form.** Four window-covered
+  blocks already sit near the 220-node geometry bound, and a stacked
+  housing tower with a dome measured 236.
+- **Icons rise with downtown in Metal.** `MetalCityMesh.heightScale` used to
+  scale only housing and shops, by up to about 1.5× in a dense district,
+  which shrank the Sunset Spire's lead in exactly the view it exists for.
+  An icon now takes the same neighbourhood scale, without the per-lot wobble
+  and never below 1.
+- Apex at the resting camera: 8.13 ms, 2,128 lights.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

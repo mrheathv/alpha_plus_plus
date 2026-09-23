@@ -1702,7 +1702,14 @@ enum MetalCityMesh {
     /// per-lot wobble stops a block of equals lining up. Industry keeps its
     /// height: wide and low is its identity.
     static func heightScale(zone: ZoneType, density: Int, at position: GridPosition, in map: CityMap) -> Float {
-        guard zone == .residential || zone == .commercial, density >= 3 else { return 1 }
+        // **An icon rises with downtown too, and never below its drawing.**
+        // Left at 1 while the towers round it stretched by up to half again,
+        // the Sunset Spire's lead over a dense district shrank to a few
+        // percent in the one view that matters. So an icon takes the same
+        // neighbourhood scale, without the wobble (there is one of it) and
+        // without the shrink (an icon standing in a suburb is still an icon).
+        let isIcon = IconBuildings.isIcon(zone)
+        guard isIcon || (zone == .residential || zone == .commercial) && density >= 3 else { return 1 }
         var sum = 0, most = 0
         for dy in -3 ... 3 {
             for dx in -3 ... 3 {
@@ -1715,6 +1722,7 @@ enum MetalCityMesh {
         // Against each lot's own ceiling, since housing and shops reach 6 and
         // industry stops at 5.
         let cluster = most == 0 ? 0 : Float(sum) / Float(most)
+        if isIcon { return max(1, 0.85 + 0.6 * cluster * cluster) }
         let wobble = Float((position.x &* 73_856_093 ^ position.y &* 19_349_663) & 1023) / 1023 * 0.12 - 0.06
         return 0.85 + 0.6 * cluster * cluster + wobble
     }
