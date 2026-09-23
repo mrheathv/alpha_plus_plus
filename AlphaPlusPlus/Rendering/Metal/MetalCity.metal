@@ -37,7 +37,7 @@ struct Uniforms {
     float4x4 viewProjection;
     float4 frame;             // x, y: viewport in pixels · z: wetness 0…1 · w: 1 when mirrored
     float4 moonAndTime;       // xyz: direction moonlight comes from · w: seconds
-    uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels
+    uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels · w: map width | height << 16
 };
 
 // Most lights a single screen tile can carry. A tile over the densest block
@@ -179,6 +179,30 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
     if (in.ground > 0.5) {
         color *= 0.9 + 0.2 * valueNoise(in.world.xy * 3.1);
     }
+    // And on open land, large faint patches of lighter and darker earth, so
+    // a field reads as terrain rather than a flat colour. Large and almost
+    // valueless on purpose: fine detail repeated across a field is a
+    // pattern, the lesson the Classic renderer's bare land already taught.
+    if (in.ground > 0.5 && in.ground < 1.5) {
+        color *= 0.85 + 0.3 * valueNoise(in.world.xy * 0.37 + 11.0);
+    }
+
+    // **The land beyond the map** carries on past the edge, ruled every four
+    // tiles and fading into the night — so the city sits somewhere rather
+    // than floating in a void, and the light it throws has ground to land
+    // on. The same idea as the Classic backdrop, lit instead of painted.
+    if (in.ground > 3.5) {
+        float2 mapSize = float2(u.counts.w & 0xFFFF, u.counts.w >> 16);
+        float2 p = in.world.xy;
+        float2 outside = max(max(-p, p - mapSize), float2(0));
+        float d = length(outside);
+        float2 cell = abs(fract(p / 4.0 + 0.5) - 0.5) * 4.0;
+        float lineWidth = fwidth(p.x) * 1.2 + 0.015;
+        float line = 1 - smoothstep(0.0, lineWidth, min(cell.x, cell.y));
+        color += float3(0.045, 0.032, 0.085) * line * 0.7;
+        float fade = 1 - smoothstep(3.0, 30.0, d);
+        color = mix(float3(0.012, 0.008, 0.03), color, fade);
+    }
 
     // **The wet street**, done the way wet asphalt actually behaves.
     //
@@ -193,22 +217,39 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
     //   street always looks slick; rain turns that into a mirror.
     // - Water mirrors the city always, with ripples, and harder than tarmac.
     bool road = in.ground > 1.5 && in.ground < 2.5;
-    bool water = in.ground > 2.5;
+    bool water = in.ground > 2.5 && in.ground < 3.5;
+    bool beyond = in.ground > 3.5;
     float dryGloss = road ? 0.16 : 0.0;
 
-    // **Water has a surface of its own**, even where nothing is reflected in
-    // it. The first render left the river pure black with reflections
-    // floating on nothing — nothing said "water". Night water carries a faint
-    // tint of the sky and moving bands where the ripples catch the light.
+    // **Water is a dark mirror moved by waves**, not a colour with noise on
+    // it. The first version painted lavender noise over the river and it
+    // read as fabric. Real water shows almost nothing of its own: what makes
+    // it look alive is waves bending what it reflects, and the odd glint
+    // where a wave catches the moon. So four layered waves give a surface
+    // normal, the normal bends the reflection below, and the only colour the
+    // water adds is a deep base and those glints.
+    float3 waveNormal = float3(0, 0, 1);
     if (water && u.frame.w < 0.5) {
         float t = u.moonAndTime.w;
-        float bands = valueNoise(in.world.xy * float2(1.6, 7.0) + float2(t * 0.25, -t * 0.4));
-        float glints = valueNoise(in.world.xy * float2(3.0, 14.0) + float2(-t * 0.5, t * 0.3));
-        color = float3(0.018, 0.024, 0.06)
-            + float3(0.028, 0.02, 0.065) * smoothstep(0.55, 0.95, bands)
-            + float3(0.07, 0.055, 0.13) * smoothstep(0.88, 0.99, glints);
-    }
-    float wet = max(u.frame.z, dryGloss);
+        float2 p = in.world.xy;
+        const float2 directions[4] = { float2(1, 0.3), float2(-0.4, 1), float2(0.7, -0.8), float2(-1, -0.2) };
+        const float frequencies[4] = { 3.1, 4.7, 7.3, 11.0 };
+        const float amplitudes[4] = { 0.05, 0.035, 0.02, 0.012 };
+        const float speeds[4] = { 0.9, 1.3, 1.7, 2.3 };
+        float2 slope = 0;
+        for (int i = 0; i < 4; i++) {
+            float2 d = normalize(directions[i]);
+            float phase = dot(d, p) * frequencies[i] + t * speeds[i];
+            slope += d * cos(phase) * frequencies[i] * amplitudes[i];
+        }
+        waveNormal = normalize(float3(-slope, 1));
+        float3 view = normalize(float3(0.58, 0.58, 0.57));
+        float3 bounced = reflect(-view, waveNormal);
+        float glint = pow(saturate(dot(bounced, normalize(u.moonAndTime.xyz))), 90.0);
+        color = float3(0.006, 0.011, 0.028)
+            + float3(0.02, 0.018, 0.045) * (1 - waveNormal.z) * 10
+            + float3(0.55, 0.5, 0.8) * glint;
+    }    float wet = max(u.frame.z, dryGloss);
     // Strength first, sampling only where it is worth something: most land
     // in rain has no puddle under it, and nine taps of a texture for a
     // reflection weighted zero was measured costing Apex 4 ms a frame.
@@ -219,7 +260,7 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
             strength = 0.75;
         } else if (road) {
             strength = wet * (0.4 + 0.4 * puddles);
-        } else {
+        } else if (!beyond) {
             // Land only catches the light in its puddles, and only in rain.
             strength = u.frame.z * 0.22 * puddles;
         }
@@ -228,8 +269,14 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         constexpr sampler s(filter::linear, address::clamp_to_edge);
         float2 screen = in.clip.xy / u.frame.xy;
         float t = u.moonAndTime.w;
-        float ripple = valueNoise(in.world.xy * (water ? 5.0 : 9.0) + float2(t * 0.35, t * 0.6)) - 0.5;
-        float2 offset = float2(ripple * 0.003, ripple * (water ? 0.008 : 0.004));
+        float ripple = valueNoise(in.world.xy * 9.0 + float2(t * 0.35, t * 0.6)) - 0.5;
+        float2 offset = float2(ripple * 0.003, ripple * 0.004);
+        if (water) {
+            // The waves bend the mirror: the surface normal, carried into
+            // screen space the way the projection lays x and y out.
+            float2 n = waveNormal.xy;
+            offset = float2(n.x - n.y, n.x + n.y) * float2(0.005, 0.007);
+        }
 
         // How high the reflected point stands decides how blurred it is.
         float height = reflection.sample(s, screen + offset).a;

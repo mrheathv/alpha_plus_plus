@@ -180,6 +180,7 @@ final class MetalCityRenderer {
     /// Every light in the city, on the CPU: culled to the view each frame.
     private var allLights: [Float] = []
     private var builtRevision: Int?
+    private var mapSizePacked: UInt32 = 0
     private var mapExtent: Float = 1
 
     /// **The city in 8×8-tile chunks, each with its own buffer.**
@@ -205,6 +206,30 @@ final class MetalCityRenderer {
     static let chunkSize = 8
     private var chunks: [Chunk] = []
     private var chunkGrid: (across: Int, down: Int, width: Int, height: Int) = (0, 0, 0, 0)
+
+    /// The land beyond the map: one quad, remade only when the map's size
+    /// changes, drawn under the chunks in the main pass only (it is ground,
+    /// and ground is not reflected).
+    private var backdrop: (buffer: MTLBuffer, vertexCount: Int, width: Int, height: Int)?
+
+    /// How far the land carries on past the map's edge, in tiles — the same
+    /// margin the Classic backdrop uses.
+    static let backdropMargin: Float = 36
+
+    private func updateBackdrop(for map: CityMap) {
+        guard backdrop?.width != map.width || backdrop?.height != map.height else { return }
+        let m = Self.backdropMargin, w = Float(map.width), h = Float(map.height)
+        var vertices: [Float] = []
+        // Below the water, not just below the land: rivers are sunk behind
+        // quays, and a backdrop at street level would lid them over.
+        let z: Float = -0.2
+        MetalCityMesh.appendPolygon(
+            [SIMD3(-m, -m, z), SIMD3(w + m, -m, z), SIMD3(w + m, h + m, z), SIMD3(-m, h + m, z)],
+            normal: SIMD3(0, 0, 1), albedo: SIMD3(0.15, 0.12, 0.19) * 0.38, emissive: .zero, rim: .zero,
+            ground: 4, into: &vertices)
+        guard let buffer = device.makeBuffer(bytes: vertices, length: vertices.count * 4) else { return }
+        backdrop = (buffer, vertices.count / GPUVertex.floatCount, map.width, map.height)
+    }
 
     /// What the last `update` did, for the timing tests.
     private(set) var chunksRebuiltLastUpdate = 0
@@ -235,7 +260,9 @@ final class MetalCityRenderer {
     func update(_ map: CityMap, revision: Int?) {
         if let revision, revision == builtRevision { return }
         builtRevision = revision
-        mapExtent = Float(map.width + map.height + 20)
+        mapExtent = Float(map.width + map.height + 20 + 4 * Int(Self.backdropMargin))
+        mapSizePacked = UInt32(map.width) | (UInt32(map.height) << 16)
+        updateBackdrop(for: map)
         let size = Self.chunkSize
         let across = (map.width + size - 1) / size, down = (map.height + size - 1) / size
         if chunkGrid != (across, down, map.width, map.height) {
@@ -430,7 +457,7 @@ final class MetalCityRenderer {
             viewProjection: matrix,
             frame: SIMD4(Float(camera.size.width), Float(camera.size.height), wetness, 0),
             moonAndTime: SIMD4(SIMD3<Float>(-0.35, 0.55, 0.76), time),
-            counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), 0)
+            counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), mapSizePacked)
         )
         let lightData = lights.isEmpty ? [Float](repeating: 0, count: GPULight.floatCount) : lights
         guard let lightBuffer = device.makeBuffer(bytes: lightData, length: lightData.count * 4) else { return nil }
@@ -493,6 +520,10 @@ final class MetalCityRenderer {
             encoder.setFragmentBuffer(targets.tileCounts, offset: 0, index: 3)
             encoder.setFragmentBuffer(targets.tileLights, offset: 0, index: 4)
             encoder.setFragmentTexture(mirrored ? nil : targets.reflection, index: 0)
+            if !mirrored, let backdrop {
+                encoder.setVertexBuffer(backdrop.buffer, offset: 0, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: backdrop.vertexCount)
+            }
             // One draw per visible chunk: the ones off screen never reach the
             // GPU at all.
             for chunk in chunks where chunk.vertexCount > 0 {
@@ -677,50 +708,201 @@ enum MetalCityMesh {
                           ground: ground, into: &built.vertices)
         }
 
-        // The ground, one quad per tile.
+        // **The ground and the streets** (migration M2), as real geometry:
+        // a kerb is a step with a face that catches the light, a lamp is a
+        // post with a lit head that casts a real pool, and a bridge is a deck
+        // standing over the water with sides the river reflects.
+        //
         // Real albedos, so light can land on them: asphalt is dark but not
         // black, land a little lighter. The night is the lighting's job.
         let asphalt = SIMD3<Float>(0.09, 0.085, 0.11)
+        let pavement = SIMD3<Float>(0.17, 0.155, 0.21)
         let land = SIMD3<Float>(0.15, 0.12, 0.19)
-        let laneColor = linear(RenderPalette.networkAccentColor(for: .road)) * 0.9
+        let water = SIMD3<Float>(0.01, 0.03, 0.07)
+        let streetLane = linear(RenderPalette.networkAccentColor(for: .road)) * 1.35
+        let highwayLane = linear(RenderPalette.networkAccentColor(for: .highway)) * 1.5
+        let kerbLight = SIMD3<Float>(0.35, 0.3, 0.5)
+        let sodium = SIMD3<Float>(1.0, 0.5, 0.18)
         let up = SIMD3<Float>(0, 0, 1)
+
+        /// A box's top and four sides — no bottom, nothing sees it.
+        func box(_ x0: Float, _ y0: Float, _ z0: Float, _ x1: Float, _ y1: Float, _ z1: Float,
+                 albedo: SIMD3<Float>, emissive: SIMD3<Float> = .zero, rim: SIMD3<Float> = .zero,
+                 topGround: Float = 0) {
+            polygon([SIMD3(x0, y0, z1), SIMD3(x1, y0, z1), SIMD3(x1, y1, z1), SIMD3(x0, y1, z1)],
+                    normal: up, albedo: albedo, emissive: emissive, rim: rim, ground: topGround)
+            polygon([SIMD3(x1, y0, z0), SIMD3(x1, y1, z0), SIMD3(x1, y1, z1), SIMD3(x1, y0, z1)],
+                    normal: SIMD3(1, 0, 0), albedo: albedo, emissive: emissive, rim: rim)
+            polygon([SIMD3(x0, y1, z0), SIMD3(x1, y1, z0), SIMD3(x1, y1, z1), SIMD3(x0, y1, z1)],
+                    normal: SIMD3(0, 1, 0), albedo: albedo, emissive: emissive, rim: rim)
+            polygon([SIMD3(x0, y0, z0), SIMD3(x0, y1, z0), SIMD3(x0, y1, z1), SIMD3(x0, y0, z1)],
+                    normal: SIMD3(-1, 0, 0), albedo: albedo, emissive: emissive, rim: rim)
+            polygon([SIMD3(x0, y0, z0), SIMD3(x1, y0, z0), SIMD3(x1, y0, z1), SIMD3(x0, y0, z1)],
+                    normal: SIMD3(0, -1, 0), albedo: albedo, emissive: emissive, rim: rim)
+        }
+
         for tile in tilesInRegion {
             let x = Float(tile.position.x), y = Float(tile.position.y)
             let isRoad = Traffic.isRoadLike(tile.zone)
-            var albedo = isRoad ? asphalt : land
-            if tile.isWater { albedo = SIMD3(0.01, 0.03, 0.07) }
-            // A zoned lot with nothing on it yet is the first thing a new
-            // player sees, and it was invisible: the ground carries its
-            // zone's colour clearly enough to read as "this is housing".
-            if tile.zone.maxDensity > 0 {
-                let tint = tile.density == 0 ? 0.14 : 0.05
-                albedo = albedo * 0.75 + linear(RenderPalette.fullColor(for: tile.zone)) * Float(tint)
-            }
-            // Land the city does not own, darker — as SpriteKit draws it, so
-            // the edge of what you can build on reads in either renderer.
-            if !map.isOwned(tile.position) { albedo *= 0.4 }
-            // `ground` says how the surface reflects: 2 street (glossy, a
-            // mirror in rain), 3 water (a mirror always), 1 land (only its
-            // puddles, only in rain). A bridge is street, not water.
-            let surface: Float = isRoad ? 2 : (tile.isWater ? 3 : 1)
-            polygon([SIMD3(x, y, 0), SIMD3(x + 1, y, 0), SIMD3(x + 1, y + 1, 0), SIMD3(x, y + 1, 0)],
-                    normal: up, albedo: albedo, ground: surface)
-            guard isRoad else { continue }
+            let owned = map.isOwned(tile.position)
+            // Unowned land sits between owned land and the landscape beyond
+            // the map: the first version dimmed it below the backdrop, and the
+            // map's own edge read inside-out.
+            let dim: Float = owned ? 1 : 0.6
 
-            // The lane line: a thin strip from the centre toward every
-            // neighbour that carries on into street, like `syncLaneLine`.
-            let centre = SIMD3<Float>(x + 0.5, y + 0.5, 0.004)
-            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                let next = GridPosition(x: tile.position.x + dx, y: tile.position.y + dy)
-                guard map.contains(next), Traffic.isRoadLike(map[next].zone) else { continue }
-                let end = centre + SIMD3(Float(dx) * 0.5, Float(dy) * 0.5, 0)
-                let across = SIMD3<Float>(Float(-dy), Float(dx), 0) * 0.025
-                polygon([centre - across, end - across, end + across, centre + across],
-                        normal: up, albedo: .zero, emissive: laneColor, ground: 1)
+            // **Water sits below the street, behind a quay.** Flush with the
+            // land, a river read as a flat line painted on the ground; sunk
+            // and walled, it has a bank, and the city has a waterfront.
+            let waterLevel: Float = -0.14
+            let quayStone = SIMD3<Float>(0.07, 0.065, 0.09)
+            func quayWalls(below top: Float) {
+                for side in [(1, 0), (-1, 0), (0, 1), (0, -1)] as [(Int, Int)] {
+                    let next = GridPosition(x: tile.position.x + side.0, y: tile.position.y + side.1)
+                    guard map.contains(next), !map[next].isWater else { continue }
+                    let face: [SIMD3<Float>]
+                    switch side {
+                    case (1, 0): face = [SIMD3(x + 1, y, waterLevel), SIMD3(x + 1, y + 1, waterLevel), SIMD3(x + 1, y + 1, top), SIMD3(x + 1, y, top)]
+                    case (-1, 0): face = [SIMD3(x, y, waterLevel), SIMD3(x, y + 1, waterLevel), SIMD3(x, y + 1, top), SIMD3(x, y, top)]
+                    case (0, 1): face = [SIMD3(x, y + 1, waterLevel), SIMD3(x + 1, y + 1, waterLevel), SIMD3(x + 1, y + 1, top), SIMD3(x, y + 1, top)]
+                    default: face = [SIMD3(x, y, waterLevel), SIMD3(x + 1, y, waterLevel), SIMD3(x + 1, y, top), SIMD3(x, y, top)]
+                    }
+                    // Facing into the water, with the lit edge along its top
+                    // that makes a quay read from across the map.
+                    polygon(face, normal: -SIMD3(Float(side.0), Float(side.1), 0),
+                            albedo: quayStone * dim, rim: kerbLight * 0.9 * dim)
+                }
             }
-            // Street lamps every few tiles: warm pools the neon sits over.
-            if (tile.position.x + tile.position.y * 3) % 5 == 0 {
-                addLight(SIMD3(x + 0.5, y + 0.5, 0.7), SIMD3(1.0, 0.45, 0.16) * 1.1, radius: 2.6)
+
+            guard isRoad else {
+                if tile.isWater {
+                    polygon([SIMD3(x, y, waterLevel), SIMD3(x + 1, y, waterLevel),
+                             SIMD3(x + 1, y + 1, waterLevel), SIMD3(x, y + 1, waterLevel)],
+                            normal: up, albedo: water * dim, ground: 3)
+                    quayWalls(below: 0)
+                    continue
+                }
+                var albedo = land
+                // A zoned lot with nothing on it yet is the first thing a new
+                // player sees: its ground carries its zone's colour clearly
+                // enough to read as "this is housing".
+                if tile.zone.maxDensity > 0 {
+                    let tint = tile.density == 0 ? 0.14 : 0.05
+                    albedo = albedo * 0.75 + linear(RenderPalette.fullColor(for: tile.zone)) * Float(tint)
+                }
+                // `ground` says how a surface reflects — see the shader: 1
+                // land, only its puddles in rain; 3 water, a mirror always.
+                polygon([SIMD3(x, y, 0), SIMD3(x + 1, y, 0), SIMD3(x + 1, y + 1, 0), SIMD3(x, y + 1, 0)],
+                        normal: up, albedo: albedo * dim, ground: tile.isWater ? 3 : 1)
+                continue
+            }
+
+            // Which of the four sides carry on into more street.
+            let sides: [(dx: Int, dy: Int)] = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+            let continues = sides.map { side -> Bool in
+                let next = GridPosition(x: tile.position.x + side.dx, y: tile.position.y + side.dy)
+                return map.contains(next) && Traffic.isRoadLike(map[next].zone)
+            }
+
+            // **A bridge is a deck over the water**, not asphalt painted on
+            // it: the river runs underneath and mirrors the deck's lit sides.
+            let deck: Float = tile.isWater ? 0.14 : 0
+            if tile.isWater {
+                polygon([SIMD3(x, y, waterLevel), SIMD3(x + 1, y, waterLevel),
+                         SIMD3(x + 1, y + 1, waterLevel), SIMD3(x, y + 1, waterLevel)],
+                        normal: up, albedo: water, ground: 3)
+                quayWalls(below: 0)
+                // The deck's top carries no rim and its sides only where it
+                // meets open water: rimmed all round, every tile of a bridge
+                // drew its own outline and the span read as a row of crates.
+                polygon([SIMD3(x, y, deck), SIMD3(x + 1, y, deck), SIMD3(x + 1, y + 1, deck), SIMD3(x, y + 1, deck)],
+                        normal: up, albedo: asphalt * 0.8, ground: 2)
+                for (index, side) in sides.enumerated() where !continues[index] {
+                    let face: [SIMD3<Float>]
+                    switch (side.dx, side.dy) {
+                    case (1, 0): face = [SIMD3(x + 1, y, deck - 0.1), SIMD3(x + 1, y + 1, deck - 0.1), SIMD3(x + 1, y + 1, deck), SIMD3(x + 1, y, deck)]
+                    case (-1, 0): face = [SIMD3(x, y, deck - 0.1), SIMD3(x, y + 1, deck - 0.1), SIMD3(x, y + 1, deck), SIMD3(x, y, deck)]
+                    case (0, 1): face = [SIMD3(x, y + 1, deck - 0.1), SIMD3(x + 1, y + 1, deck - 0.1), SIMD3(x + 1, y + 1, deck), SIMD3(x, y + 1, deck)]
+                    default: face = [SIMD3(x, y, deck - 0.1), SIMD3(x + 1, y, deck - 0.1), SIMD3(x + 1, y, deck), SIMD3(x, y, deck)]
+                    }
+                    polygon(face, normal: SIMD3(Float(side.dx), Float(side.dy), 0),
+                            albedo: asphalt * 0.6, rim: kerbLight * 1.4)
+                }
+            } else {
+                // `ground` 2: street — glossy dry, a mirror in rain.
+                polygon([SIMD3(x, y, 0), SIMD3(x + 1, y, 0), SIMD3(x + 1, y + 1, 0), SIMD3(x, y + 1, 0)],
+                        normal: up, albedo: asphalt * dim, ground: 2)
+            }
+
+            // **Pavements and kerbs** along every side the street does not
+            // carry on from — so a crossroads has none and a dead end three,
+            // as the Classic renderer draws them. A raised step, whose face
+            // toward the carriageway catches the light as a kerb line.
+            let w: Float = 0.18, kerb: Float = 0.025
+            for (index, side) in sides.enumerated() where !continues[index] {
+                let (x0, y0, x1, y1): (Float, Float, Float, Float)
+                switch (side.dx, side.dy) {
+                case (1, 0): (x0, y0, x1, y1) = (x + 1 - w, y, x + 1, y + 1)
+                case (-1, 0): (x0, y0, x1, y1) = (x, y, x + w, y + 1)
+                case (0, 1): (x0, y0, x1, y1) = (x, y + 1 - w, x + 1, y + 1)
+                default: (x0, y0, x1, y1) = (x, y, x + 1, y + w)
+                }
+                // The top has no rim, and only the kerb face — the one toward
+                // the carriageway — has one. With a rim round every face the
+                // first render drew every pavement tile as its own outlined
+                // box, and a street read as a segmented ladder. The kerb line
+                // is the edge that means something.
+                polygon([SIMD3(x0, y0, deck + kerb), SIMD3(x1, y0, deck + kerb),
+                         SIMD3(x1, y1, deck + kerb), SIMD3(x0, y1, deck + kerb)],
+                        normal: up, albedo: pavement * dim, ground: 1)
+                let face: [SIMD3<Float>]
+                switch (side.dx, side.dy) {
+                case (1, 0): face = [SIMD3(x0, y0, deck), SIMD3(x0, y1, deck), SIMD3(x0, y1, deck + kerb), SIMD3(x0, y0, deck + kerb)]
+                case (-1, 0): face = [SIMD3(x1, y0, deck), SIMD3(x1, y1, deck), SIMD3(x1, y1, deck + kerb), SIMD3(x1, y0, deck + kerb)]
+                case (0, 1): face = [SIMD3(x0, y0, deck), SIMD3(x1, y0, deck), SIMD3(x1, y0, deck + kerb), SIMD3(x0, y0, deck + kerb)]
+                default: face = [SIMD3(x0, y1, deck), SIMD3(x1, y1, deck), SIMD3(x1, y1, deck + kerb), SIMD3(x0, y1, deck + kerb)]
+                }
+                polygon(face, normal: -SIMD3(Float(side.dx), Float(side.dy), 0),
+                        albedo: pavement * dim * 0.7, rim: kerbLight * dim)
+
+                // A lamp on every other footway: a thin post, a lit head, and
+                // a real warm pool — sodium against the neon, the way the
+                // Classic renderer's footway wash reads.
+                guard (tile.position.x + tile.position.y) % 2 == 0 else { continue }
+                let px = (x0 + x1) / 2 + Float(side.dx) * 0.02
+                let py = (y0 + y1) / 2 + Float(side.dy) * 0.02
+                let post: Float = 0.018, height: Float = 0.62
+                box(px - post, py - post, deck + kerb, px + post, py + post, deck + height,
+                    albedo: SIMD3(0.05, 0.045, 0.07), rim: sodium * 0.35)
+                box(px - 0.045, py - 0.045, deck + height, px + 0.045, py + 0.045, deck + height + 0.04,
+                    albedo: .zero, emissive: sodium * 2.2)
+                // A street lamp lights its stretch of street, not the block:
+                // at 2.1 tiles of reach the lamps put Apex over its frame
+                // budget (9.4 ms against 8), because a light's cost is the
+                // pixels it covers and that grows with the square of its
+                // reach. Tighter and a touch brighter reads the same.
+                addLight(SIMD3(px - Float(side.dx) * 0.25, py - Float(side.dy) * 0.25, deck + height),
+                         sodium * 1.15, radius: 1.35)
+            }
+
+            // **Lane lines as glowing tubes**, strong enough to bloom: from
+            // the centre toward every side the street carries on to. A
+            // highway is a dual carriageway — two tubes, brighter and wider —
+            // so an arterial reads as the bigger road from across the map.
+            let isHighway = tile.zone == .highway
+            let glow = isHighway ? highwayLane : streetLane
+            let half: Float = isHighway ? 0.028 : 0.032
+            let offsets: [Float] = isHighway ? [-0.12, 0.12] : [0]
+            let z = deck + 0.006
+            let centre = SIMD3<Float>(x + 0.5, y + 0.5, z)
+            for (index, side) in sides.enumerated() where continues[index] {
+                let along = SIMD3<Float>(Float(side.dx), Float(side.dy), 0)
+                let across = SIMD3<Float>(Float(-side.dy), Float(side.dx), 0)
+                for offset in offsets {
+                    let start = centre + across * offset - along * half
+                    let end = centre + across * offset + along * 0.5
+                    polygon([start - across * half, end - across * half, end + across * half, start + across * half],
+                            normal: up, albedo: .zero, emissive: glow * dim, ground: 1)
+                }
             }
         }
 

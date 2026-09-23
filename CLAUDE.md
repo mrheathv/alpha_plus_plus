@@ -7803,6 +7803,38 @@ frames the whole map, where a reflection is a few pixels across.
 `WetStreetTests` renders the same block dry and in the day-6 downpour at the
 resting camera.
 
+### M2 (done): the ground, the streets and the water
+
+Streets became geometry rather than a flat quad: asphalt, pavements on the
+sides a street does not carry on, a lit kerb face, sodium lamps on every other
+tile and neon lane tubes (two on a highway). Bridges are decks standing over
+the water. The land carries on past the map as a faint, gridded backdrop, and
+bare land has low-frequency patches so a field is not one flat value.
+
+**Rims only where an edge is real.** Rimming every pavement and deck face made
+a street read as a segmented ladder. Only the kerb face and the open-water side
+of a bridge deck carry one now.
+
+**Water went through the same failure the SpriteKit water once did.** The
+first surface was additive noise, and it read as lavender fabric. Water shows
+almost nothing of its own. What makes it look like water is waves bending the
+reflection, plus the odd glint of the moon. So four layered waves give a
+surface normal, the normal offsets the reflection lookup, and the only colour
+the water adds is a deep base and a sharp specular glint.
+
+**Water is sunk 0.14 below the street behind rimmed quay walls.** Flush with
+the land, a river was a line painted on the ground; with a bank, the city has a
+waterfront. That needed the backdrop moved down to −0.2, or it put a lid on
+every river in the city, and nothing failed when it did. The render showed the
+backdrop's grid running straight across the water.
+
+The wave distortion was first set twice as strong as it is now, and
+reflections came back as funhouse smears. Half that reads as moving water.
+
+**Budget, Apex resting camera:** 8.68 ms against the 9 ms bound, with 1,966
+lights. The lamps were what pushed it over (9.36 ms). Radius 2.1 → 1.35 fixed
+it, because light cost goes as the square of radius.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -106,7 +106,8 @@ final class MetalSpikeTests: XCTestCase {
         var map = CityMap(width: 18, height: 16)
         for x in 0 ..< 18 { map[GridPosition(x: x, y: 8)].zone = .road }
         for y in 9 ..< 16 { for x in 0 ..< 18 { map[GridPosition(x: x, y: y)].isWater = true } }
-        for y in 0 ..< 8 { map[GridPosition(x: 8, y: y)].zone = .road }
+        // The avenue runs on across the river as a bridge.
+        for y in 0 ..< 16 { map[GridPosition(x: 8, y: y)].zone = .road }
         let lots: [(ZoneType, GridPosition, Int)] = [
             (.commercial, GridPosition(x: 2, y: 6), 5), (.residential, GridPosition(x: 4, y: 6), 4),
             (.commercial, GridPosition(x: 6, y: 6), 4), (.commercial, GridPosition(x: 9, y: 6), 5),
