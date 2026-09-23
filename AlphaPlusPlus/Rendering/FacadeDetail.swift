@@ -158,10 +158,19 @@ enum FacadeDetail {
     /// renderer's frames were dark with a rim of accent light on their edges,
     /// which is what gave a window its pale surround. A mark has no rim, and
     /// a plain dark frame read as a black border round every pane — the first
-    /// render after the move showed it at once. At 28% of the accent a frame
-    /// clears the mark's glow threshold for every zone's colour, and lands at
-    /// about the brightness that rim had.
-    static let frameStrength: CGFloat = 0.28
+    /// render after the move showed it at once.
+    ///
+    /// **As faint as will still glow.** At 28% of the accent every pane read
+    /// as a framed picture and a tower face got busier than it was (the
+    /// visuals session's review). 20% is the target, but a mark only glows
+    /// above luminance 0.03, and a dark accent such as housing's violet would
+    /// fall under it and go black again. So each accent gets 20%, or just
+    /// enough to clear the threshold if 20% is not.
+    static func frameStrength(for accent: SKColor) -> CGFloat {
+        let luminance = CGFloat(MetalCityMesh.luminance(MetalCityMesh.linear(accent)))
+        guard luminance > 0 else { return 0.2 }
+        return min(0.28, max(0.2, 0.033 / luminance))
+    }
 
     private static func frame(_ pane: Panel, accent: SKColor, into massing: inout BuildingMassing) {
         let box = pane.box
@@ -178,7 +187,7 @@ enum FacadeDetail {
             var strip = pane
             strip.u0 = max(0, u0); strip.u1 = min(1, u1)
             strip.v0 = max(0, v0); strip.v1 = min(1, v1)
-            strip.color = accent.withAlphaComponent(frameStrength)
+            strip.color = accent.withAlphaComponent(frameStrength(for: accent))
             strip.standoff = 0.015
             strip.isMark = true
             massing.panels.append(strip.at(.street))

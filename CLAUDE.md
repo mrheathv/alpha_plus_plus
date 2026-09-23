@@ -8844,8 +8844,10 @@ and the two renderer blocks are gone.
 - **The frames lost their glow in the move, and had to get it back.** The
   renderer drew them dark with a rim of accent light, which gave each
   window its pale surround; a mark has no rim, and the first render showed
-  plain black borders. They are 28% of the building's accent now, which a
-  mark draws as a faint glow at about the old rim's brightness.
+  plain black borders. They are a tint of the building's accent now, which
+  a mark draws as a faint glow: 20%, or just enough to clear the mark's
+  glow threshold for a dark accent like housing's violet. 28% came first,
+  and the visuals session found it loud: every pane a framed picture.
 - **Sills are boxes**, so they cost more than the flat quad the renderer drew:
   Apex at the closest camera went 77,760 → 100,110 triangles, 5.75 → 5.66 ms
   (noise), lights unchanged. None under a pane that starts at the ground,
