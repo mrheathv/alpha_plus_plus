@@ -622,9 +622,9 @@
 
       <section id="growth">
         <h2>How a block grows</h2>
-        <p class="deck">The single most important mechanic in the game. A zoned lot climbs five levels, and each one has a gate.</p>
+        <p class="deck">The single most important mechanic in the game. Housing and shops climb six levels and factories five, and each level has a gate.</p>
 
-        <p>Zoning a lot does not build anything. It marks the land; the city builds on it when — and only when — every gate below is open. <span class="chip c-res"><span class="dot"></span>Residential</span> houses <strong>4 people per level</strong>, so a full tower is 20 residents. <span class="chip c-com"><span class="dot"></span>Commercial</span> and <span class="chip c-ind"><span class="dot"></span>Industrial</span> each provide <strong>3 jobs per level</strong>.</p>
+        <p>Zoning a lot does not build anything. It marks the land; the city builds on it when — and only when — every gate below is open. <span class="chip c-res"><span class="dot"></span>Residential</span> houses <strong>4 people per level</strong>, so a level-5 block is 20 residents and a level-6 skyscraper 24. <span class="chip c-com"><span class="dot"></span>Commercial</span> and <span class="chip c-ind"><span class="dot"></span>Industrial</span> each provide <strong>3 jobs per level</strong>.</p>
 
         <h3>The gates, in order</h3>
         <p>Before any level at all, a lot needs <strong>road or transit access</strong>, must not be <strong>on fire or damaged</strong>, and the city has to actually <strong>want more of that zone</strong>. Then:</p>
@@ -634,17 +634,18 @@
           <li style="--rung: #8d54c4"><span class="lvl">2</span><span><span class="gate">Land value 0.30</span><span class="why">Plain road frontage alone gets close; a park or any service nearby clears it comfortably.</span></span></li>
           <li style="--rung: var(--water)"><span class="lvl">3</span><span><span class="gate">Land value 0.50 &nbsp;+&nbsp; water</span><span class="why">The first utility gate. A pump or tower in range, or a live pipe.</span></span></li>
           <li style="--rung: var(--power)"><span class="lvl">4</span><span><span class="gate">Land value 0.65 &nbsp;+&nbsp; power</span><span class="why">Water is still required. A generator or plant in range, or a live line.</span></span></li>
-          <li style="--rung: var(--commercial)"><span class="lvl">5</span><span><span class="gate">Land value 0.80 &nbsp;+&nbsp; a school in range</span><span class="why">The top tier is something you go and build for, not something you stumble into.</span></span></li>
+          <li style="--rung: var(--commercial)"><span class="lvl">5</span><span><span class="gate">Land value 0.80 &nbsp;+&nbsp; a school in range</span><span class="why">The top tier for factories, and something you go and build for rather than stumble into.</span></span></li>
+          <li style="--rung: #7d6cf2"><span class="lvl">6</span><span><span class="gate">Land value 0.90 &nbsp;+&nbsp; rapid transit in range</span><span class="why">The skyline, for housing and shops only. A subway entrance within 8 tiles or a rail station within 10, and a genuinely good address: road frontage and a park only just clear it.</span></span></li>
         </ol>
 
 
       <figure>
         <img src="img/growth.png" alt="One residential lot drawn at three stages of growth" loading="lazy" decoding="async">
-        <figcaption><b>One lot, as it grows.</b> The drawing changes at level 3 and again at level 5 — levels 1 and 2 share a look, as do 3 and 4 — so what you see on the map is the tier, and the inspector is where the exact level lives.</figcaption>
+        <figcaption><b>One lot, as it grows.</b> The drawing changes at level 3 and again at level 5 — levels 1 and 2 share a look, as do 3 and 4 — and level 6 is a different kind of building altogether, a skyscraper in one of sixteen forms; so what you see on the map is the tier, and the inspector is where the exact level lives.</figcaption>
       </figure>
 
         <h3>Building takes time</h3>
-        <p>An approved level is not an instant one. Construction costs <strong>8 days for the first storey and 40 for the fifth</strong> — roughly four months to climb from bare ground to a finished tower, and a whole district takes about five months to settle. The amber wireframe on a lot is the volume that is coming; the bright deck climbing it is the work being done.</p>
+        <p>An approved level is not an instant one. Construction costs <strong>8 days for the first storey, 40 for the fifth and 48 for a skyscraper's sixth</strong> — roughly four months to climb from bare ground to a level-5 tower and nearly six to a skyscraper, and a whole district takes about five months to settle. The amber wireframe on a lot is the volume that is coming; the bright deck climbing it is the work being done.</p>
         <p>Work stops if the block is damaged, and losing road access cancels it outright. A site nobody can reach is not a site under construction.</p>
 
         <h3>And it runs backwards</h3>
@@ -657,7 +658,7 @@
 
       <section id="landvalue">
         <h2>Land value</h2>
-        <p class="deck">The number behind three of the five growth gates. Everything good near a lot competes to be the best thing near it; the bad things stack.</p>
+        <p class="deck">The number behind most of the growth gates. Everything good near a lot competes to be the best thing near it; the bad things stack.</p>
 
         <p>Land value runs 0 to 1. <strong>Positives are a "best nearby" contest</strong> — a second police station beside the first adds nothing — with one exception. <strong>Penalties stack.</strong></p>
 
@@ -682,7 +683,7 @@
         </div>
 
         <div class="note park">
-          <p><strong>Parks are the tool for "this block is grim."</strong> They cost $120, occupy a single tile, and are available from the first day. Because they add rather than compete, a park is what carries an ordinary street over the 0.80 line for the top tier. They do <em>not</em> stack with each other, though — a wall of parks is worth one park, so paving the map in them buys nothing.</p>
+          <p><strong>Parks are the tool for "this block is grim."</strong> They cost $120, occupy a single tile, and are available from the first day. Because they add rather than compete, a park is what carries an ordinary street over the 0.80 line for level 5, and about as far as 0.90 for the skyline. They do <em>not</em> stack with each other, though — a wall of parks is worth one park, so paving the map in them buys nothing.</p>
         </div>
 
         <h3>Pollution, and why <em>where</em> matters</h3>
@@ -801,7 +802,7 @@
         <ul class="body-list">
           <li><strong>A bus shares the street.</strong> Park a line along a jammed arterial and it crawls, exactly when the city needs it most.</li>
           <li><strong>A tram has its own rails</strong> down the middle, so traffic barely touches it — but it <em>takes a quarter of the lane</em>. It is the only transit building in the game that costs the road something, and on a busy corridor it can genuinely make traffic worse. Measured on a mixed-use city, a tram carried twice a bus's riders and came out worse on congestion; on a city with long commutes, it beat the bus on both.</li>
-          <li><strong>A subway is in a tunnel</strong> and does not care about traffic at all. Expensive, wide-reaching, and worth building before the city that justifies it.</li>
+          <li><strong>A subway is in a tunnel</strong> and does not care about traffic at all. Expensive, wide-reaching, and worth building before the city that justifies it. A subway entrance, or a rail station, is also what lets housing and shops within reach grow to <a href="#growth">level 6</a>, the skyline.</li>
           <li><strong>Regional rail points off the map.</strong> Run a line so that a station sits within two tiles of the map edge and the whole line becomes regional — every stop on it is a way out, and residents can work outside the city.</li>
         </ul>
 
@@ -919,7 +920,7 @@
       </figure>
 
         <h3>Landmarks</h3>
-        <p>About <strong>one top-tier lot in twelve</strong> is drawn as a landmark instead of an ordinary building — a slender crowned spire for commerce, a point block on a podium for housing, a works with one enormous stack for industry. It is purely visual, with no effect on the simulation, and it is what stops a built-out downtown reading as a bar chart. Which lots get one is fixed, so a landmark stays a landmark across saves and launches.</p>
+        <p>About <strong>one top-tier lot in twelve</strong> is drawn as a landmark instead of an ordinary building — a slender crowned spire for commerce, a point block on a podium for housing, a works with one enormous stack for industry, and a supertall Deco tower at level 6. It is purely visual, with no effect on the simulation, and it is what stops a built-out downtown reading as a bar chart. Which lots get one is fixed, so a landmark stays a landmark across saves and launches.</p>
 
       <figure>
         <img src="img/landmarks.png" alt="Landmark buildings beside ordinary top-tier buildings" loading="lazy" decoding="async">
@@ -927,6 +928,7 @@
       </figure>
 
         <h3>Zoomed in</h3>
+        <p>With the Metal renderer (<em>Settings ▸ Renderer ▸ Metal</em>) the camera goes down nearly to street level, and buildings add detail as it comes closer rather than just getting bigger. From the near zoom in: balcony railings, air-conditioning units, shop awnings, cornices, fire escapes, rooftop water tanks, condensers and HVAC units, rooftop pools and helipads, and on the ground hedges, pool loungers, parking stalls, pallets, forklifts and yard fences. Closest of all, every window gains a frame and a sill. None of it changes the simulation; it is there to be looked at.</p>
 
       <figure>
         <img src="img/close.jpg" alt="A close view of a dense neon district" loading="lazy" decoding="async">
