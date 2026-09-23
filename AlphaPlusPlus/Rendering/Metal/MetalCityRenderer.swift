@@ -473,18 +473,28 @@ final class MetalCityRenderer {
         return height
     }
 
-    /// A construction site's coming height, without stopping to generate a
-    /// building nobody has drawn yet. The live game asks the background
-    /// queue for it and gets `nil` meanwhile; when every pending height has
-    /// landed, the next frame rebuilds the view with the real ones. A test,
-    /// which pictures the city straight after an update, waits as before.
-    private func comingHeight(zone: ZoneType, density: Int, at position: GridPosition) -> Float? {
+    /// A building's height, without stopping to generate a building nobody
+    /// has drawn yet: asked by the view's marks and the motion plan on the
+    /// main thread. In the live game a height not yet known is fetched on the
+    /// background queue and this answers `nil` meanwhile; when every pending
+    /// height has landed, the next frame rebuilds the view and the plan with
+    /// the real ones. A test, which pictures the city straight after an
+    /// update, waits as before.
+    private func readyHeight(zone: ZoneType, density: Int, at position: GridPosition) -> Float? {
         let key = MetalCityMesh.Cache.Key(zone: zone, density: density,
                                           variant: IsoTextureCache.variant(for: position))
-        guard rebuildsInBackground, heights[key] == nil else {
-            return buildingHeight(zone: zone, density: density, at: position)
+        if rebuildsInBackground, heights[key] == nil {
+            guard let built = cache.existing(key) else {
+                fetchHeight(key)
+                return nil
+            }
+            heights[key] = Self.top(of: built)
         }
-        guard pendingHeights.insert(key).inserted else { return nil }
+        return buildingHeight(zone: zone, density: density, at: position)
+    }
+
+    private func fetchHeight(_ key: MetalCityMesh.Cache.Key) {
+        guard pendingHeights.insert(key).inserted else { return }
         let cache = cache
         rebuildQueue.async { [weak self] in
             let height = Self.top(of: cache.built(for: key))
@@ -492,10 +502,12 @@ final class MetalCityRenderer {
                 guard let self else { return }
                 self.heights[key] = height
                 self.pendingHeights.remove(key)
-                if self.pendingHeights.isEmpty { self.builtRevision = nil }
+                if self.pendingHeights.isEmpty {
+                    self.builtRevision = nil
+                    self.plannedMotion = nil
+                }
             }
         }
-        return nil
     }
     private var pendingHeights: Set<MetalCityMesh.Cache.Key> = []
 
@@ -622,6 +634,10 @@ final class MetalCityRenderer {
     }
 
     private func install(_ built: MetalCityMesh.Built, at index: Int, signature: Int, tier: DetailTier) {
+        // Whatever is still on its way for this chunk is older than what is
+        // installed now. Left in flight, it passed `land`'s check and put an
+        // edit made meanwhile back the way it was.
+        inFlight[index] = nil
         let count = built.vertices.count / GPUVertex.floatCount
         var height: Float = 0
         var z = 2
@@ -640,6 +656,8 @@ final class MetalCityRenderer {
     var isRebuildingInBackground: Bool { !inFlight.isEmpty || !pendingHeights.isEmpty }
     /// Chunks sent to the background and not yet landed.
     var chunksRebuildingInBackground: Int { inFlight.count }
+    /// Which chunks are on their way back from the background, for tests.
+    var chunksInFlightForTesting: Set<Int> { Set(inFlight.keys) }
 
     private func storeSigns(_ signs: [Float], at index: Int) {
         chunks[index].signs = signs
@@ -752,15 +770,16 @@ final class MetalCityRenderer {
                                   routes: routes.finalize())
         if rebuilt > 0 || motionKey != plannedMotion {
             plannedMotion = motionKey
-            motion.buildingHeight = { [unowned self] in self.buildingHeight($0) }
+            motion.buildingHeight = { [unowned self] in
+                self.readyHeight(zone: $0.zone, density: $0.density, at: $0.position)
+            }
             motion.overlayActive = overlayMode != .none
             motion.update(map, clock: lastMotionClock, reduceMotion: VisualStyle.reduceMotion)
         }
         // The view is rebuilt on every change of the map, because anything
         // can change what a view says — a pipe laid while paused, a building
         // finishing a storey.
-        overlay.height = { [unowned self] in self.buildingHeight(zone: $0, density: $1, at: $2) }
-        overlay.comingHeight = { [unowned self] in self.comingHeight(zone: $0, density: $1, at: $2) }
+        overlay.height = { [unowned self] in self.readyHeight(zone: $0, density: $1, at: $2) }
         overlay.update(map, mode: overlayMode)
         overlayTint = makeTint(width: map.width, height: map.height)
         // Uploaded here, once per change of the map, rather than every frame:
@@ -1495,6 +1514,13 @@ enum MetalCityMesh {
             entries[key] = kept
             lock.unlock()
             return kept
+        }
+
+        /// The building for `key` if it has been generated, without
+        /// generating it: for a caller that must not stop to make one.
+        func existing(_ key: Key) -> Built? {
+            lock.lock(); defer { lock.unlock() }
+            return entries[key]
         }
 
         var count: Int {
