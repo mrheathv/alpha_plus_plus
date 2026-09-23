@@ -168,8 +168,14 @@ final class CivicServicesTests: XCTestCase {
         // and the *new* ordering is asserted below rather than left to be
         // true by accident, which is how this one drifted in the first place.
         let freight: Set<ZoneType> = [.seaport, .airport]
+        // The rank rewards are excluded for the same reason freight is, and
+        // it is the second time the thing has moved rather than the
+        // yardstick: an arcology and a broadcast tower are landmarks a rank
+        // buys, not services residents rely on, and their bills are a sink
+        // aimed at the cities rich enough to earn them.
+        let rewards = Set(ZoneType.allCases.filter { RewardBuildings.requiredRank(for: $0) != nil })
         let heaviestOtherService = ZoneType.allCases
-            .filter { $0 != .hospital && !freight.contains($0) }
+            .filter { $0 != .hospital && !freight.contains($0) && !rewards.contains($0) }
             .map(\.upkeepCost)
             .max() ?? 0
         XCTAssertGreaterThan(ZoneType.hospital.upkeepCost, heaviestOtherService)

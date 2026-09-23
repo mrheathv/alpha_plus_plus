@@ -179,7 +179,10 @@ enum Demand {
                 - taxPressure + region.strength(for: .residential)),
             commercial: clamped(commercialAndIndustrial + commercialBoost
                 - taxPressure + region.strength(for: .commercial)
-                + RegionalTrade.commercialBoost(in: map)),
+                + RegionalTrade.commercialBoost(in: map)
+                // And a Broadcast Tower, if the city has earned one — see
+                // `RewardBuildings.broadcastBoost`.
+                + RewardBuildings.commercialBoost(in: map)),
             industrial: clamped(commercialAndIndustrial
                 - taxPressure + region.strength(for: .industrial)
                 + RegionalTrade.industrialBoost(in: map))

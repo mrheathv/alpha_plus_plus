@@ -38,6 +38,9 @@ enum ServiceMassing {
         case .stadium: stadium(footprint, &massing, &random)
         case .seaport: seaport(footprint, &massing, &random)
         case .airport: airport(footprint, &massing, &random)
+        case .neonArcade: neonArcade(footprint, &massing, &random)
+        case .broadcastTower: broadcastTower(footprint, &massing, &random)
+        case .arcology: arcology(footprint, &massing, &random)
         default: return nil
         }
         return massing
@@ -71,6 +74,142 @@ enum ServiceMassing {
             box: box, face: .left, u0: 0.5 - width / 2, u1: 0.5 + width / 2,
             v0: 0, v1: min(0.4, 0.3 / max(box.height, 0.3)), color: NeonStyle.litAccent
         ))
+    }
+
+    // MARK: - Rank rewards
+
+    /// **The Neon Arcade: a low hall under the biggest sign in the city.**
+    ///
+    /// The identity mark is the sign. Every other building here is lit by its
+    /// windows; this one is lit by its *advertising*, a board standing on the
+    /// roof taller than the hall under it — the silhouette of every arcade and
+    /// cinema on every neon street. The hall stays low so the sign is the
+    /// thing you see first. Two forms: the board across the roof, or a blade
+    /// standing at the corner like a cinema's vertical name.
+    private static func neonArcade(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let accent = RenderPalette.fullColor(for: .neonArcade)
+        let margin: CGFloat = 0.12
+        let hall = Box(x: margin, y: margin, z: 0,
+                       width: footprint - margin * 2, depth: footprint - margin * 2,
+                       height: CGFloat(random.value(in: 0.75 ... 0.95)))
+        massing.add(.box(hall))
+        // A marquee band round both visible walls: the lit strip over the
+        // doors every arcade has, and the reason it reads as open at night.
+        for face in [Panel.Face.right, .left] {
+            massing.panels.append(Panel(box: hall, face: face, u0: 0.06, u1: 0.94,
+                                        v0: 0.52, v1: 0.72, color: accent))
+        }
+        doorway(on: hall, width: 0.34, &massing)
+
+        if random.chance(0.5) {
+            // The board across the roof, set back from the front edge so it
+            // stands on the hall rather than hanging off it.
+            let board = Box(x: hall.x + 0.2, y: hall.y + hall.depth * 0.45, z: hall.height,
+                            width: hall.width - 0.4, depth: 0.14,
+                            height: CGFloat(random.value(in: 0.9 ... 1.2)))
+            massing.add(.box(board), .lit(accent))
+            // Legs, so it reads as a sign on a frame rather than a lit wall.
+            for x in [board.x + 0.1, board.x + board.width - 0.2] {
+                massing.add(.box(Box(x: x, y: board.y, z: hall.height, width: 0.1, depth: 0.1,
+                                     height: 0.2)))
+            }
+        } else {
+            // The blade at the near corner, the cinema's vertical name.
+            let blade = Box(x: hall.x + hall.width - 0.24, y: hall.y + hall.depth - 0.24, z: 0.2,
+                            width: 0.14, depth: 0.14,
+                            height: hall.height + CGFloat(random.value(in: 1.3 ... 1.7)))
+            massing.add(.box(blade), .lit(accent))
+        }
+    }
+
+    /// **The Broadcast Tower: the tallest thing in the game.**
+    ///
+    /// A mast rather than a building. The commercial landmark spire tops out
+    /// at 6.6 and this goes higher, so a City sees its reward from anywhere on
+    /// the map — which is the whole job of a reward building. Tapering
+    /// sections with lit rings between them, a lit tip, and a small studio
+    /// block at its foot so it stands on something.
+    ///
+    /// **Slender, for the reason the industrial landmark's stack is**: the
+    /// first thick version of that read as a post. What makes a mast a mast is
+    /// the ratio, and a thin line far taller than anything round it is the
+    /// one silhouette nothing else in the city can be mistaken for.
+    private static func broadcastTower(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let accent = RenderPalette.fullColor(for: .broadcastTower)
+        let studio = Box(x: 0.14, y: 0.14, z: 0, width: footprint * 0.5, depth: footprint - 0.28,
+                         height: 0.55)
+        massing.add(.box(studio))
+        windows(on: studio, rows: 1, columns: 3, chance: 0.9, &massing, &random)
+
+        let centreX = footprint * 0.68
+        let centreY = footprint * 0.5
+        let sections = 4
+        let total = CGFloat(random.value(in: 7.2 ... 8.0))
+        var z: CGFloat = 0
+        for index in 0 ..< sections {
+            let width = 0.32 - CGFloat(index) * 0.06
+            let height = total / CGFloat(sections)
+            let section = Box(x: centreX - width / 2, y: centreY - width / 2, z: z,
+                              width: width, depth: width, height: height)
+            massing.add(.box(section))
+            z += height
+            // A lit ring at each joint: the beacons a real mast carries, and
+            // what makes the height legible as height rather than as a line.
+            let ring = width + 0.08
+            massing.add(.box(Box(x: centreX - ring / 2, y: centreY - ring / 2, z: z - 0.08,
+                                 width: ring, depth: ring, height: 0.08)), .lit(accent))
+        }
+        // The tip: a thin lit spike above the last ring.
+        massing.add(.box(Box(x: centreX - 0.03, y: centreY - 0.03, z: z,
+                             width: 0.06, depth: 0.06, height: 0.7)), .lit(accent))
+    }
+
+    /// **The Arcology: a stepped megastructure, a small town in one building.**
+    ///
+    /// Tiers that step back as they rise, each wrapped in glazing, with a lit
+    /// terrace band at every setback — the garden decks an arcology is built
+    /// around, and the reason it reads as somewhere people live rather than
+    /// as an office block. Crowned with a lit ring. Broad and tall at once,
+    /// which nothing else in the game is: towers are tall, halls are broad.
+    private static func arcology(
+        _ footprint: CGFloat, _ massing: inout BuildingMassing, _ random: inout BuildingRandom
+    ) {
+        let accent = RenderPalette.fullColor(for: .arcology)
+        let tiers = random.chance(0.5) ? 4 : 5
+        var inset: CGFloat = 0.12
+        var z: CGFloat = 0
+        let step = (footprint / 2 - 0.55) / CGFloat(tiers)
+        for index in 0 ..< tiers {
+            let side = footprint - inset * 2
+            let height = CGFloat(random.value(in: 1.0 ... 1.25)) - CGFloat(index) * 0.08
+            let tier = Box(x: inset, y: inset, z: z, width: side, depth: side, height: height)
+            massing.add(.box(tier))
+            // Continuous glazing, two bands a tier — floor plates, like
+            // commerce, because an arcology is a building people work in too.
+            for face in [Panel.Face.right, .left] {
+                for band in [(0.18, 0.38), (0.58, 0.78)] as [(CGFloat, CGFloat)] {
+                    massing.panels.append(Panel(box: tier, face: face, u0: 0.08, u1: 0.92,
+                                                v0: band.0, v1: band.1, color: NeonStyle.litAccent))
+                }
+            }
+            z += height
+            inset += step
+            // The terrace at the setback: a lit green deck on the roof of the
+            // tier below the next one.
+            if index < tiers - 1 {
+                massing.add(.box(Box(x: tier.x + 0.04, y: tier.y + 0.04, z: z,
+                                     width: side - 0.08, depth: side - 0.08, height: 0.05)),
+                            .lit(accent))
+            }
+        }
+        // The crown.
+        let crown = footprint - inset * 2
+        massing.add(.box(Box(x: inset, y: inset, z: z, width: crown, depth: crown, height: 0.14)),
+                    .lit(accent))
     }
 
     // MARK: - Services

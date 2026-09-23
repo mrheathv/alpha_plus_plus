@@ -22,6 +22,10 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
     case utilities
     case services
     case trade
+    /// The rank rewards — see `RewardBuildings`. Their own group so the next
+    /// one is always visible as something to aim at, the reason locked tools
+    /// are shown rather than hidden.
+    case landmarks
 
     var id: String { rawValue }
 
@@ -32,6 +36,7 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
         case .utilities: return "Water & Power"
         case .services: return "Services"
         case .trade: return "Trade"
+        case .landmarks: return "Landmarks"
         }
     }
 
@@ -99,6 +104,9 @@ enum ToolCategory: String, CaseIterable, Identifiable, Hashable {
             // connect the city to somewhere else, which is the same job the
             // Transport group does for people.
             return [.zone(.seaport), .zone(.airport)]
+        case .landmarks:
+            // In rank order, which is also unlock order.
+            return [.zone(.neonArcade), .zone(.broadcastTower), .zone(.arcology)]
         }
     }
 

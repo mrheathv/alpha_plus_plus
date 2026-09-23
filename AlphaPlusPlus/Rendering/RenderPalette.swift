@@ -387,6 +387,17 @@ enum RenderPalette {
     /// exactly that reason.
     static func fullColor(for zone: ZoneType) -> SKColor {
         switch zone {
+        // The rank rewards. Each picked against its neighbours on this list
+        // rather than for itself: the arcade sits between the stadium's pink
+        // and the subway's violet as the one electric magenta; the tower is
+        // the warm white of a beacon, the only near-white building in the
+        // game; the arcology is a pale aqua no zone uses.
+        case .neonArcade:
+            return SKColor(srgbRed: 0.92, green: 0.22, blue: 1.0, alpha: 1.0)
+        case .broadcastTower:
+            return SKColor(srgbRed: 1.0, green: 0.93, blue: 0.72, alpha: 1.0)
+        case .arcology:
+            return SKColor(srgbRed: 0.40, green: 1.0, blue: 0.92, alpha: 1.0)
         case .park:
             // **The one green in the game**, and deliberately the only one.
             // Every other zone sits somewhere on the magenta-to-cyan
@@ -764,6 +775,9 @@ enum RenderPalette {
     static func displayName(for zone: ZoneType) -> String {
         switch zone {
         case .park: return "Park"
+        case .neonArcade: return "Neon Arcade"
+        case .broadcastTower: return "Broadcast Tower"
+        case .arcology: return "Arcology"
         case .empty: return "Bulldoze"
         case .residential: return "Residential"
         case .commercial: return "Commercial"

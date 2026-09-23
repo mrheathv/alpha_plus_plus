@@ -7500,6 +7500,55 @@ scene and has `ScenePlaytest` check the picture in both views, because a
 purchase repaints a whole parcel at once. That is exactly the kind of change
 where a stale cache key would show up.
 
+### Rank rewards: a building worth earning
+
+The player's call: big ranks unlock "cool buildings". `RewardBuildings`
+(Simulation/) is the single source for which rank earns what, and for what
+each one does:
+
+| reward | rank | does |
+|---|---|---|
+| **Neon Arcade** (2×2) | Town | adds land value like a park, harder (0.28) and further (7) |
+| **Broadcast Tower** (2×2) | City | commercial demand +0.22 city-wide; a second adds nothing |
+| **Arcology** (3×3) | Metropolis | 500 self-contained residents: taxed, counted for the ladder, never in `Demand` or on the roads |
+
+**Gated on rank, not on a headcount.** Their `requiredPopulation` is zero, so
+the population ladder never announces or blocks them, and
+`Unlocks.isUnlocked` asks for the rank as well. A caller that does not say
+what rank the city holds has not earned them. Locked chips say "Reach Town"
+rather than a resident count, and the rank announcement names its reward.
+
+Each has an identity mark nothing else has, checked against the city in
+`RewardBuildingsTests.testRenderTheRewards`. The tower is the tallest thing
+in the game, a mast rather than a building, and slender for the reason the
+industrial landmark's stack is. The arcology is broad and tall at once, with
+lit garden terraces at every setback. The arcade's mark is its sign, which
+is the weakest of the three at a whole-city zoom.
+
+**Every number is a first guess sized by argument** against the constant it
+sits among (`parkBonus`, `boostPerPort`), and none has been playtested.
+Their prices ($3k / $8k / $25k) and upkeeps are sinks aimed at the cities
+rich enough to earn them.
+
+`CivicServicesTests` asserted that the hospital is the costliest service,
+and the rewards broke it. The thing moved rather than the yardstick,
+exactly as freight did before, so it is restated with the rewards excluded:
+they are landmarks a rank buys, not services residents rely on.
+
+### The suite runs in under three minutes in Release
+
+Measured while shipping the above: every test except the four soundtrack
+suites runs in **164 seconds** in Release, against about **23 minutes** for
+the whole suite in Debug. 41 tests carry 91% of the Debug time (playtest
+cities and the synthesiser), and both are the pure arithmetic Release is
+roughly 55× faster at. For a quick check before committing:
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus \
+           -configuration Release -derivedDataPath ./build \
+           ENABLE_TESTABILITY=YES test
+```
+
 ### Wet streets: light, not a mirror
 
 Reported from play: the reflections were "really not landing". The close-up

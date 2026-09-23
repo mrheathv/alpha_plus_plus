@@ -62,8 +62,11 @@ enum MilestoneText {
         }
     }
 
+    /// The announcement, naming the reward when the rank carries one — the
+    /// moment a player earns a building is the moment to tell them it exists.
     static func earned(_ rank: Milestone) -> String {
-        "Now a \(name(rank))"
+        let reward = ZoneType.allCases.first { RewardBuildings.requiredRank(for: $0) == rank }
+        return "Now a \(name(rank))" + (reward.map { " · \(RenderPalette.displayName(for: $0)) unlocked" } ?? "")
     }
 
     static let topOfTheLadder = "Every rank earned"

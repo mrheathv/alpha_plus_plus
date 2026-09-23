@@ -115,6 +115,18 @@ enum ZoneType: String, Codable, CaseIterable, Sendable {
     /// desirability is a real land-use decision, and it only reads as one if
     /// parks are small enough to thread between blocks.
     case park
+
+    /// **The rank rewards** — see `Milestone` and `RewardBuildings`. The only
+    /// buildings earned by *how* a city is run rather than by how many live
+    /// in it: each is gated on a rank, not on a headcount.
+    ///
+    /// A lit entertainment block, earned at Town.
+    case neonArcade
+    /// A mast that owns the skyline, earned at City.
+    case broadcastTower
+    /// A 3×3 megastructure housing a small town inside itself, earned at
+    /// Metropolis.
+    case arcology
 }
 
 extension ZoneType {
@@ -188,6 +200,12 @@ extension ZoneType {
         // than the money. A player should be able to answer "this block is
         // grim" immediately, not save up for it.
         case .park: return 120
+        // Sized for the cities that earn them, which are the ones banking
+        // money with nothing to spend it on. Each is a real purchase for its
+        // rank, not a free gift.
+        case .neonArcade: return 3_000
+        case .broadcastTower: return 8_000
+        case .arcology: return 25_000
         // City-scale infrastructure/civic projects, priced well above even
         // a service station to match sitting on 9 tiles instead of 4.
         case .powerPlant: return 2000
@@ -213,7 +231,7 @@ extension ZoneType {
     /// growable?" check.
     var maxDensity: Int {
         switch self {
-        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park, .seaport, .airport: return 0
+        case .empty, .road, .policeStation, .fireStation, .publicTransit, .powerPlant, .stadium, .highway, .subway, .tramStop, .railStation, .waterTower, .waterPump, .generator, .school, .hospital, .park, .seaport, .airport, .neonArcade, .broadcastTower, .arcology: return 0
         case .residential, .commercial, .industrial: return 5
         }
     }
@@ -286,6 +304,9 @@ extension ZoneType {
         // Small but not nothing: a city that paves itself in parks should feel
         // it, and the ongoing cost is what stops "park everything" being free.
         case .park: return 4
+        case .neonArcade: return 30
+        case .broadcastTower: return 60
+        case .arcology: return 120
         case .powerPlant: return 50
         case .stadium: return 40
         // `.subway` *is* a service, same as `.publicTransit` (staffed
@@ -339,8 +360,8 @@ extension ZoneType {
         // A rail station is 2×2 where every other transit stop is 1×1, and
         // the land is part of the price: a bus shelter threads between
         // blocks, a regional terminus takes a lot.
-        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital, .railStation: return 2
-        case .powerPlant, .stadium, .seaport, .airport: return 3
+        case .residential, .commercial, .industrial, .policeStation, .fireStation, .waterTower, .generator, .school, .hospital, .railStation, .neonArcade, .broadcastTower: return 2
+        case .powerPlant, .stadium, .seaport, .airport, .arcology: return 3
         }
     }
 }

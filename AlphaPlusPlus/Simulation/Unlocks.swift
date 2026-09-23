@@ -99,6 +99,11 @@ enum Unlocks {
             return 2_000
         case .airport:
             return 2_800
+        // The rank rewards are gated on a rank, not a headcount — see
+        // `RewardBuildings.requiredRank`. Zero here so that the population
+        // ladder never announces or blocks them on its own.
+        case .neonArcade, .broadcastTower, .arcology:
+            return 0
         }
     }
 
@@ -112,9 +117,14 @@ enum Unlocks {
         ZoneType.allCases.map(requiredPopulation(for:)).max() ?? 0
     }
 
-    /// Has a city that peaked at `peakPopulation` earned `zone`?
-    static func isUnlocked(_ zone: ZoneType, peakPopulation: Int) -> Bool {
-        peakPopulation >= requiredPopulation(for: zone)
+    /// Has a city that peaked at `peakPopulation`, and earned `rank`, earned
+    /// `zone`? A reward building needs its rank as well — see
+    /// `RewardBuildings.requiredRank` — which a caller that does not say what
+    /// rank the city holds has not earned.
+    static func isUnlocked(_ zone: ZoneType, peakPopulation: Int, rank: Milestone? = nil) -> Bool {
+        guard peakPopulation >= requiredPopulation(for: zone) else { return false }
+        guard let needed = RewardBuildings.requiredRank(for: zone) else { return true }
+        return rank.map { $0 >= needed } ?? false
     }
 
     /// Every zone a city earns at exactly `population`, for announcing it.

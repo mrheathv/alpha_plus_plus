@@ -960,7 +960,7 @@ final class GameController: ObservableObject {
     @Published private(set) var newlyUnlockedZones: [ZoneType] = []
 
     func isUnlocked(_ zone: ZoneType) -> Bool {
-        Unlocks.isUnlocked(zone, peakPopulation: peakPopulation)
+        Unlocks.isUnlocked(zone, peakPopulation: peakPopulation, rank: milestone)
     }
 
     /// How many residents `zone` still needs, or 0 if it is already earned.
@@ -1550,8 +1550,13 @@ final class GameController: ObservableObject {
     /// rather than keeping its own rate — `Demand.compute(for:)` (Simulation/)
     /// needs the exact same number, so it lives on `ZoneType` now as one
     /// shared source instead of two copies that could drift.
+    ///
+    /// Plus whoever lives in an arcology, who are residents in every sense
+    /// the city's books care about but not in `Demand` or on the roads — see
+    /// `RewardBuildings.arcologyResidents`.
     var population: Int {
         map.totalDensity(of: .residential) * ZoneType.residential.populationPerDensityLevel
+            + RewardBuildings.residents(in: map)
     }
 
     /// Same reasoning as `population`: reads `ZoneType.jobsPerDensityLevel`

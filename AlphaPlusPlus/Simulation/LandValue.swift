@@ -245,6 +245,11 @@ enum LandValue {
         // to the *nearest* one, which is what stops a wall of parks being the
         // dominant strategy.
         let parks = falloffValue(nearestZone: .park, falloffDistance: parkFalloffDistance, at: position, in: map, using: field) * parkBonus
+        // The Neon Arcade adds the same way, further and harder — see
+        // `RewardBuildings.arcadeBonus`.
+        let arcade = falloffValue(nearestZone: .neonArcade,
+                                  falloffDistance: RewardBuildings.arcadeFalloffDistance,
+                                  at: position, in: map, using: field) * RewardBuildings.arcadeBonus
 
         // The power plant penalty is subtracted from the combined positive
         // score, not folded into the same `max` — it's not competing to be
@@ -277,7 +282,7 @@ enum LandValue {
         // falloff. A ceiling here would have quietly taken that away as a side
         // effect of an unrelated feature. Only the floor is enforced —
         // "worthless" is as bad as this model represents.
-        return max(0, positives + parks - powerPlantPenalty - pollutionPenalty)
+        return max(0, positives + parks + arcade - powerPlantPenalty - pollutionPenalty)
     }
 
     /// Road frontage value, dampened by whichever adjacent road is most

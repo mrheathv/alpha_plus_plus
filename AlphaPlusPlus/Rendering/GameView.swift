@@ -837,7 +837,7 @@ struct GameView: View {
                 cost: entry.cost,
                 accent: RetroUITheme.accent(for: entry.accentZone),
                 isSelected: controller.selectedTool == zone && controller.overlayMode == .none,
-                lockedBy: unlocked ? nil : "\(controller.residentsNeeded(for: zone)) more residents",
+                lockedBy: unlocked ? nil : lockHint(for: zone),
                 // `selectTool` rather than assigning directly: picking a zone
                 // also leaves a network overlay, so the two stay exclusive.
                 action: { controller.selectTool(zone) }
@@ -921,10 +921,24 @@ struct GameView: View {
         .foregroundStyle(met ? Color.green : RetroUITheme.textSecondary)
     }
 
+    /// What a locked tool is waiting for, in the words the gate uses: a rank
+    /// reward names its rank, everything else the residents it still needs.
+    private func lockHint(for zone: ZoneType) -> String {
+        if let rank = RewardBuildings.requiredRank(for: zone),
+           (controller.milestone.map { $0 < rank } ?? true) {
+            return "Reach \(MilestoneText.name(rank))"
+        }
+        return "\(controller.residentsNeeded(for: zone)) more residents"
+    }
+
     /// The cheapest still-locked tool, by the population it asks for.
+    ///
+    /// Rank rewards are left out: they ask for no residents, so by this
+    /// measure they would always be "next, at 0" — and the Goal panel already
+    /// names what they are waiting for.
     private var nextUnlock: ZoneType? {
         ZoneType.allCases
-            .filter { !controller.isUnlocked($0) }
+            .filter { !controller.isUnlocked($0) && RewardBuildings.requiredRank(for: $0) == nil }
             .min { Unlocks.requiredPopulation(for: $0) < Unlocks.requiredPopulation(for: $1) }
     }
 
