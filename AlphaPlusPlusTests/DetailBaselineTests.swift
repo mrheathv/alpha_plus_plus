@@ -8,7 +8,7 @@ import XCTest
 /// Every change the detail plan makes is judged against two things this file
 /// produces: a picture of the buildings at each camera the game has, drawn by
 /// the Metal renderer the game uses, and the number of triangles each
-/// building costs at each detail tier.
+/// building costs at each detail tier (far, standard, near and street).
 ///
 /// An extension of `MetalLookTests` so it lives in the Full plan with the
 /// other Metal renders: it draws dozens of frames and is not a per-commit
@@ -192,7 +192,7 @@ extension MetalLookTests {
     }
 
     /// **The count.** Triangles per building for every zone and level, at the
-    /// standard tier and at the near tier, over the 32 looks the game caches:
+    /// detail tier, over the 32 looks the game caches:
     /// the mean and the heaviest. Written to `detail-p0-triangles.txt` so the
     /// baseline is a file later phases can diff against, and bounded loosely
     /// so a generator that explodes fails here rather than in a frame budget.
@@ -204,19 +204,20 @@ extension MetalLookTests {
             for density in densities {
                 guard ZoneMassing.make(for: zone, density: density, seed: IsoTextureCache.canonicalSeed(for: 0)) != nil
                 else { continue }
-                for near in [false, true] {
+                for tier in DetailTier.allCases {
+                    let near = tier  // named for the label below
                     let counts = (0 ..< IsoTextureCache.variantCount).map { variant in
                         MetalCityMesh.building(MetalCityMesh.Cache.Key(zone: zone, density: density,
-                                                                        variant: variant, near: near))
+                                                                        variant: variant, tier: tier))
                             .vertices.count / MetalCityRenderer.GPUVertex.floatCount / 3
                     }
                     let mean = counts.reduce(0, +) / counts.count
                     let most = counts.max() ?? 0
-                    let label = "\(zone.rawValue) \(density) \(near ? "near" : "standard")"
+                    let label = "\(zone.rawValue) \(density) \(near)"
                     if most > heaviest.triangles { heaviest = (label, most) }
                     lines.append(String(format: "%-15@ %5d  %-8@ %5d  %6d",
                                         zone.rawValue as NSString, density,
-                                        (near ? "near" : "standard") as NSString, mean, most))
+                                        "\(near)" as NSString, mean, most))
                 }
             }
         }

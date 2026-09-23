@@ -89,12 +89,15 @@ enum Volume {
     case box(Box)
     case ridge(Ridge)
     case cylinder(Cylinder)
+    /// Anything else, with its faces already computed — see `MassingShape`.
+    case shape(MassingShape)
 
     var faces: [Face3] {
         switch self {
         case .box(let box): return box.faces
         case .ridge(let ridge): return ridge.faces
         case .cylinder(let cylinder): return cylinder.faces
+        case .shape(let shape): return shape.faces
         }
     }
 
@@ -109,6 +112,8 @@ enum Volume {
             return (ridge.x + ridge.width / 2 + ridge.y + ridge.depth / 2, ridge.z)
         case .cylinder(let cylinder):
             return (cylinder.x + cylinder.y, cylinder.z)
+        case .shape(let shape):
+            return (shape.centre.x + shape.centre.y, shape.baseZ)
         }
     }
 }

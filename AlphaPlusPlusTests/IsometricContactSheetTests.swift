@@ -126,6 +126,7 @@ final class IsometricContactSheetTests: XCTestCase {
                         case .box: return "b"
                         case .ridge: return "r"
                         case .cylinder: return "c"
+                        case .shape: return "s"
                         }
                     }.joined()
                     let height = massing.solids.reduce(CGFloat(0)) { result, solid in
@@ -133,6 +134,7 @@ final class IsometricContactSheetTests: XCTestCase {
                         case .box(let box): return max(result, box.z + box.height)
                         case .ridge(let ridge): return max(result, ridge.z + ridge.height)
                         case .cylinder(let cylinder): return max(result, cylinder.z + cylinder.height)
+                        case .shape(let shape): return max(result, shape.topZ)
                         }
                     }
                     return "\(kinds)-\(Int(height * 12))-\(massing.panels.count)"

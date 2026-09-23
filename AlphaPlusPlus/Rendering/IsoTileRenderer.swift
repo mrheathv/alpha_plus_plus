@@ -1758,6 +1758,7 @@ struct IsoTileRenderer {
             case .box(let box): return max(result, box.z + box.height)
             case .ridge(let ridge): return max(result, ridge.z + ridge.height)
             case .cylinder(let cylinder): return max(result, cylinder.z + cylinder.height)
+            case .shape(let shape): return max(result, shape.topZ)
             }
         }
     }

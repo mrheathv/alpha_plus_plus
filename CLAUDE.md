@@ -8715,6 +8715,30 @@ P0 is `DetailBaselineTests` (an extension of `MetalLookTests`, Full plan):
   roofs are empty planes with at most a box or two, and the suburb's ground
   is bare between the palms. That is the list P3–P5 exist to answer.
 
+### Building detail, P2: shapes beyond boxes
+
+`MassingShape` (Rendering/MassingShapes.swift) is one more kind of `Volume`,
+`.shape`, holding its faces already computed. Its constructors: `prism` (any
+convex plan raised to a height), `bevelledBox`, `frustum`, `lathe` (a
+profile spun round an axis), `dome`, and `arch`. `MassingShapesTests`
+checks every face points outward and is convex, and writes
+`massing-shapes.png`.
+
+- **One case, not five.** Everything that consumes a volume already works on
+  `faces`, so the only new code outside the file is one branch per `switch`.
+- **Every face must be convex.** Metal fills a face as a fan from its first
+  corner, so a concave face draws wrongly with no error. `prism` refuses a
+  concave plan, an L-shaped building stays two boxes, and an arch is a ring
+  of small convex blocks.
+- **Not called `Shape`.** That is SwiftUI's, and the clash made the compiler
+  crash on SwiftUI views elsewhere in the module rather than report an
+  error.
+- **First ports:** the skyscraper dome top and the Chrome Dome icon are real
+  lathed domes where they were stacked drums, and the Harbour Tower's stages
+  are bevelled boxes with the lit strip on the cut face, where it used to
+  paint a chamfer on a square corner. Apex: 8.27 ms at rest, fewer triangles
+  than before.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

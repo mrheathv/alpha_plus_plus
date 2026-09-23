@@ -115,19 +115,26 @@ enum IconMassing {
 
         var z = podium.height
         var stage = podium
+        var bevel: CGFloat = 0
         for (index, (inset, height)) in [(0.26, 3.4), (0.34, 2.4), (0.42, 1.8), (0.5, 1.2)].enumerated() {
             stage = Box(x: CGFloat(inset), y: CGFloat(inset), z: z,
                         width: footprint - CGFloat(inset) * 2, depth: footprint - CGFloat(inset) * 2,
                         height: CGFloat(height))
-            massing.add(.box(stage))
+            // **Chamfered, now that the corners can be.** The first version
+            // drew a lit strip down a square corner to suggest a chamfer; the
+            // stage is a bevelled box (`MassingShape.bevelledBox`) and the lit
+            // strip runs down the real cut face. The glazing still hangs off
+            // the square box, whose walls the bevel leaves standing between
+            // the cuts; the bevel is kept under the bands' 10% margin.
+            bevel = stage.width * 0.09
+            massing.add(.shape(MassingShape.bevelledBox(stage, bevel: bevel)))
             CommercialMassing.glazingBands(on: stage, into: &massing, random: &random)
-            // The corners the camera can see, lit: a chamfer drawn in light.
             let t: CGFloat = 0.05
-            for (x, y) in [(stage.x + stage.width - t / 2, stage.y - t / 2 + 0.001 * CGFloat(index)),
-                           (stage.x + stage.width - t / 2, stage.y + stage.depth - t / 2),
-                           (stage.x - t / 2 + 0.001 * CGFloat(index), stage.y + stage.depth - t / 2)] {
-                massing.add(.box(Box(x: x, y: y, z: stage.z, width: t, depth: t, height: stage.height)),
-                            .lit(accent))
+            let x0 = stage.x + bevel / 2, x1 = stage.x + stage.width - bevel / 2
+            let y0 = stage.y + bevel / 2, y1 = stage.y + stage.depth - bevel / 2
+            for (x, y) in [(x1, y0 + 0.001 * CGFloat(index)), (x1, y1), (x0 + 0.001 * CGFloat(index), y1)] {
+                massing.add(.box(Box(x: x - t / 2, y: y - t / 2, z: stage.z, width: t, depth: t,
+                                     height: stage.height)), .lit(accent))
             }
             z += stage.height
         }
@@ -137,12 +144,18 @@ enum IconMassing {
             for index in 0 ..< perSide {
                 let u = CGFloat(index) / CGFloat(perSide)
                 let corner = index == 0
-                let (x, y): (CGFloat, CGFloat)
+                var (x, y): (CGFloat, CGFloat)
                 switch side {
                 case 0: (x, y) = (stage.x + stage.width * u, stage.y)
                 case 1: (x, y) = (stage.x + stage.width, stage.y + stage.depth * u)
                 case 2: (x, y) = (stage.x + stage.width * (1 - u), stage.y + stage.depth)
                 default: (x, y) = (stage.x, stage.y + stage.depth * (1 - u))
+                }
+                // A corner spike stands on the chamfer, not on the corner the
+                // bevel has cut away.
+                if corner {
+                    x += x < stage.x + stage.width / 2 ? bevel / 2 : -bevel / 2
+                    y += y < stage.y + stage.depth / 2 ? bevel / 2 : -bevel / 2
                 }
                 let height = (corner ? CGFloat(1.0) : CGFloat(0.55)) + CGFloat(side * perSide + index) * 0.004
                 massing.add(.box(Box(x: min(footprint - 0.06, max(0, x - 0.03)), y: min(footprint - 0.06, max(0, y - 0.03)),
@@ -183,18 +196,10 @@ enum IconMassing {
         massing.add(.cylinder(Cylinder(x: centre, y: centre, z: z + 0.12, radius: 0.66, height: 0.08, sides: 16)),
                     .lit(accent))
         z += 0.34
-        // The dome, as rings closing in: a quarter-circle profile sampled in
-        // five steps.
+        // The dome: a quarter-circle profile, lathed (`MassingShape.dome`).
         let radius: CGFloat = 0.6
-        let rings = 5
-        for ring in 0 ..< rings {
-            let a = CGFloat(ring) / CGFloat(rings) * .pi / 2
-            let b = CGFloat(ring + 1) / CGFloat(rings) * .pi / 2
-            let height = radius * (sin(b) - sin(a))
-            massing.add(.cylinder(Cylinder(x: centre, y: centre, z: z, radius: max(0.08, radius * cos(a)),
-                                           height: height, sides: 16)))
-            z += height
-        }
+        massing.add(.shape(MassingShape.dome(x: centre, y: centre, z: z, radius: radius, rings: 5, sides: 16)))
+        z += radius
         massing.add(.cylinder(Cylinder(x: centre, y: centre, z: z, radius: 0.12, height: 0.1, sides: 10)),
                     .lit(accent))
         let mast = CGFloat(random.value(in: 0.8 ... 1.0))

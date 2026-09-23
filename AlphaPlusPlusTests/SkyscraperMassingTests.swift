@@ -22,6 +22,7 @@ final class SkyscraperMassingTests: XCTestCase {
             case .box(let box): return max(result, box.z + box.height)
             case .ridge(let ridge): return max(result, ridge.z + ridge.height)
             case .cylinder(let cylinder): return max(result, cylinder.z + cylinder.height)
+            case .shape(let shape): return max(result, shape.topZ)
             }
         }
     }
@@ -105,6 +106,7 @@ final class SkyscraperMassingTests: XCTestCase {
                         case .box: return "b"
                         case .ridge: return "r"
                         case .cylinder: return "c"
+                        case .shape: return "s"
                         }
                     }.joined()
                     return "\(kinds)-\(Int(Self.top(of: massing) * 12))-\(massing.panels.count)"

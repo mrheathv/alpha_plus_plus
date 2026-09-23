@@ -25,6 +25,7 @@ final class LowEndMassingTests: XCTestCase {
             case .box: boxes += 1
             case .ridge: ridges += 1
             case .cylinder: cylinders += 1
+            case .shape: cylinders += 1
             }
             if case .lit = solid.style { lit += 1 }
         }

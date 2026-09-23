@@ -879,15 +879,10 @@ enum SkyscraperMassing {
         massing.add(.cylinder(Cylinder(x: x, y: y, z: z + 0.07, radius: radius + 0.03, height: 0.05, sides: 10)),
                     .lit(color))
         z += 0.18
-        let rings = 3
-        for ring in 0 ..< rings {
-            let a = CGFloat(ring) / CGFloat(rings) * .pi / 2
-            let b = CGFloat(ring + 1) / CGFloat(rings) * .pi / 2
-            let height = radius * (sin(b) - sin(a))
-            massing.add(.cylinder(Cylinder(x: x, y: y, z: z, radius: max(0.06, radius * cos(a)),
-                                           height: height, sides: 10)))
-            z += height
-        }
+        // A real dome now (`MassingShape.dome`), where it was stacked drums
+        // with a step at every ring.
+        massing.add(.shape(MassingShape.dome(x: x, y: y, z: z, radius: radius, rings: 3, sides: 10)))
+        z += radius
         massing.add(.cylinder(Cylinder(x: x, y: y, z: z, radius: 0.07, height: 0.07, sides: 8)), .lit(color))
         needle(on: Box(x: x, y: y, z: 0, width: 0, depth: 0, height: 0), z: z + 0.07, height: 0.5, into: &massing)
     }
