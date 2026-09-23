@@ -58,69 +58,111 @@ final class MetalOverlay {
     private(set) var schematic: [Float] = []
     private(set) var billboards: [Float] = []
 
-    /// Rebuilds everything the view shows. Cheap enough to do on every
-    /// change of the map: one call per tile to the shared decision.
+    /// **What a view paints**, apart from the marks on buildings: the ground
+    /// and the building washes, and the buried networks drawn over the city.
+    /// A pure function of the map and the view, so the live game computes it
+    /// off the main thread; it is most of what a view costs (8–14 ms on Apex).
+    struct Layer {
+        var mode: OverlayMode = .none
+        var tiles: [Float] = []
+        var tint: [Float] = []
+        var hidesBuildings = false
+        var schematic: [Float] = []
+    }
+
+    /// Rebuilds everything the view shows, all on this thread.
     func update(_ map: CityMap, mode: OverlayMode) {
-        self.mode = mode
-        tiles = []
-        traces = []
-        schematic = []
-        billboards = []
-        tint = [Float](repeating: 0, count: map.width * map.height * 4)
-        hidesBuildings = false
+        apply(Self.layer(for: map, mode: mode, colours: colours))
+        updateMarks(map, mode: mode)
+    }
 
-        let distances = mode == .none ? nil : ZoneDistanceField.compute(for: map)
-        let transit = mode.routeMode == nil ? nil : Transit.coverage(for: map)
-        var badges = mode == .none
+    /// Puts a layer computed elsewhere on screen.
+    func apply(_ layer: Layer) {
+        mode = layer.mode
+        tiles = layer.tiles
+        tint = layer.tint
+        hidesBuildings = layer.hidesBuildings
+        schematic = layer.schematic
+    }
 
-        if mode != .none {
-            for tile in map.tiles {
-                let position = tile.position
-                guard let paint = IsoTileRenderer.paint(for: mode, at: position, in: map,
-                                                        using: distances, transit: transit)
-                else { continue }
-                badges = paint.showsUtilityBadges
-                let x = Float(position.x), y = Float(position.y)
-                // The ground: the view's colour as light on the street — at
-                // well under full strength. Added at full strength, a field of
-                // it was a glaring plate with nothing to read in it; the
-                // palette was picked as paint, and as light it goes further.
-                tiles += [x, y, 1, 0.035] + Self.rgb(paint.color, Self.groundLight) + [0]
+    /// The layer for `mode`. Safe off the main thread: it reads only the map
+    /// it is handed, and `colours` is locked.
+    static func layer(for map: CityMap, mode: OverlayMode, colours: ColourCache) -> Layer {
+        var layer = Layer(mode: mode, tint: [Float](repeating: 0, count: map.width * map.height * 4))
+        guard mode != .none else { return layer }
+        layer.tiles.reserveCapacity(map.tiles.count * tileFloatCount * 2)
 
-                // The building, once, from its anchor, over its whole footprint.
-                guard tile.isBuildingAnchor else { continue }
-                let size = tile.zone.footprintSize
-                switch paint.buildings {
-                case .hidden:
-                    hidesBuildings = true
-                case .flagged(let flag):
-                    hidesBuildings = true
-                    // A lot that wants something glows from across the map;
-                    // one that is fine gets nothing at all.
-                    if let flag {
-                        let c = Float(size) / 2
-                        tiles += [x + c, y + c, 1.7 * Float(size), 0.05] + Self.rgb(flag, 0.55) + [1]
-                    }
-                case .connected(let yes):
-                    // SpriteKit's numbers: hard both ways, so the two answers
-                    // never read as one picture at two brightnesses.
-                    fillTint(map, at: position, size: size, color: paint.buildingColor,
-                             amount: yes ? 0.78 : 0.92)
-                    // **And the building throws its answer on the ground**, a
-                    // pool spilling well past its lot, which is what made a
-                    // served district glow as one field in SpriteKit
-                    // (`syncGroundGlow`, recoloured). Scaled by the answer's
-                    // own brightness, so a building that does not need the
-                    // utility yet — washed toward unlit — casts almost none.
-                    let c = Float(size) / 2
-                    tiles += [x + c, y + c, 1.9 * Float(size), 0.05]
-                        + Self.rgb(paint.buildingColor, yes ? 0.2 : 0.22) + [1]
-                case .highlighted:
-                    break
-                }
-            }
+        /// One overlay tile, appended in place: building it from three small
+        /// arrays per tile was part of the rebuild's cost.
+        func push(_ x: Float, _ y: Float, _ size: Float, _ lift: Float,
+                  _ color: SKColor, _ scale: Float, _ kind: Float) {
+            let c = colours.linear(color) * scale
+            layer.tiles.append(x); layer.tiles.append(y); layer.tiles.append(size); layer.tiles.append(lift)
+            layer.tiles.append(c.x); layer.tiles.append(c.y); layer.tiles.append(c.z); layer.tiles.append(kind)
         }
 
+        let distances = ZoneDistanceField.compute(for: map)
+        let transit = mode.routeMode == nil ? nil : Transit.coverage(for: map)
+        for tile in map.tiles {
+            let position = tile.position
+            guard let paint = IsoTileRenderer.paint(for: mode, at: position, in: map,
+                                                    using: distances, transit: transit)
+            else { continue }
+            let x = Float(position.x), y = Float(position.y)
+            // The ground: the view's colour as light on the street — at
+            // well under full strength. Added at full strength, a field of
+            // it was a glaring plate with nothing to read in it; the
+            // palette was picked as paint, and as light it goes further.
+            push(x, y, 1, 0.035, paint.color, groundLight, 0)
+
+            // The building, once, from its anchor, over its whole footprint.
+            guard tile.isBuildingAnchor else { continue }
+            let size = tile.zone.footprintSize
+            switch paint.buildings {
+            case .hidden:
+                layer.hidesBuildings = true
+            case .flagged(let flag):
+                layer.hidesBuildings = true
+                // A lot that wants something glows from across the map;
+                // one that is fine gets nothing at all.
+                if let flag {
+                    let c = Float(size) / 2
+                    push(x + c, y + c, 1.7 * Float(size), 0.05, flag, 0.55, 1)
+                }
+            case .connected(let yes):
+                // SpriteKit's numbers: hard both ways, so the two answers
+                // never read as one picture at two brightnesses.
+                let c = colours.linear(paint.buildingColor)
+                for cell in map.footprintCells(origin: position, size: size) where map.contains(cell) {
+                    let i = (cell.y * map.width + cell.x) * 4
+                    layer.tint[i] = c.x; layer.tint[i + 1] = c.y; layer.tint[i + 2] = c.z
+                    layer.tint[i + 3] = yes ? 0.78 : 0.92
+                }
+                // **And the building throws its answer on the ground**, a
+                // pool spilling well past its lot, which is what made a
+                // served district glow as one field in SpriteKit
+                // (`syncGroundGlow`, recoloured). Scaled by the answer's
+                // own brightness, so a building that does not need the
+                // utility yet — washed toward unlit — casts almost none.
+                let half = Float(size) / 2
+                push(x + half, y + half, 1.9 * Float(size), 0.05, paint.buildingColor, yes ? 0.2 : 0.22, 1)
+            case .highlighted:
+                break
+            }
+        }
+        if mode == .water || mode == .power {
+            layer.schematic = conduits(map, isPipe: mode == .water, colours: colours)
+        }
+        if mode == .tram { layer.schematic = rails(map, colours: colours) }
+        return layer
+    }
+
+    /// The marks a building wears: scaffolds, damage, badges. Cheap, and
+    /// asks building heights, which live on the main thread.
+    func updateMarks(_ map: CityMap, mode: OverlayMode) {
+        traces = []
+        billboards = []
+        let badges = mode == .none || mode.showsUtilityBadges
         // Scaffolds and damage are Normal view's; a view hides what
         // describes the building, as `applyOverlay` does.
         for tile in map.tiles where tile.isBuildingAnchor {
@@ -142,33 +184,21 @@ final class MetalOverlay {
                 scaffold(tile, at: SIMD2(x, y), size: size, roof: roof)
             }
             if let service = damage {
-                billboards += [x + size / 2, y + size / 2, roof * 0.6 + 0.1, 30]
-                    + Self.rgb(RenderPalette.fullColor(for: service), 1.6) + [Glyph.damage.rawValue, 0, 0, 0, 0]
+                let c = colours.linear(RenderPalette.fullColor(for: service)) * 1.6
+                billboards += [x + size / 2, y + size / 2, roof * 0.6 + 0.1, 30,
+                               c.x, c.y, c.z, Glyph.damage.rawValue, 0, 0, 0, 0]
             }
-            do {
-                // Side by side when a block is short of both, which is the
-                // state that most wants reading.
-                let glyphs = (missing.water ? [Glyph.water] : []) + (missing.power ? [Glyph.power] : [])
-                for (index, glyph) in glyphs.enumerated() {
-                    // Shifted on the screen, not in the world: a world offset
-                    // shrinks with the camera, and zoomed out the two badges
-                    // landed on each other and only the bolt showed.
-                    let shift = (Float(index) - Float(glyphs.count - 1) / 2) * 36
-                    billboards += [x + size / 2, y + size / 2, roof + 0.4, 34,
-                                   1.3, 1.3, 1.3, glyph.rawValue, shift, 0, 0, 0]
-                }
+            // Side by side when a block is short of both, which is the
+            // state that most wants reading.
+            let glyphs = (missing.water ? [Glyph.water] : []) + (missing.power ? [Glyph.power] : [])
+            for (index, glyph) in glyphs.enumerated() {
+                // Shifted on the screen, not in the world: a world offset
+                // shrinks with the camera, and zoomed out the two badges
+                // landed on each other and only the bolt showed.
+                let shift = (Float(index) - Float(glyphs.count - 1) / 2) * 36
+                billboards += [x + size / 2, y + size / 2, roof + 0.4, 34,
+                               1.3, 1.3, 1.3, glyph.rawValue, shift, 0, 0, 0]
             }
-        }
-
-        if mode == .water || mode == .power { conduits(map, isPipe: mode == .water) }
-        if mode == .tram { rails(map) }
-    }
-
-    private func fillTint(_ map: CityMap, at origin: GridPosition, size: Int, color: SKColor, amount: Float) {
-        let c = Self.linear(color)
-        for cell in map.footprintCells(origin: origin, size: size) where map.contains(cell) {
-            let i = (cell.y * map.width + cell.x) * 4
-            tint[i] = c.x; tint[i + 1] = c.y; tint[i + 2] = c.z; tint[i + 3] = amount
         }
     }
 
@@ -191,7 +221,7 @@ final class MetalOverlay {
         // turned the first hour of play into a lattice of amber boxes over the
         // buildings. The ring at the top is gone, the posts are faint, and the
         // climbing deck carries "under construction" on its own.
-        let amber = Self.linear(NeonStyle.scaffoldColor)
+        let amber = colours.linear(NeonStyle.scaffoldColor)
         let deck = roof + (top - roof) * progress
         for (index, c) in corners.enumerated() {
             let next = corners[(index + 1) % 4]
@@ -205,42 +235,47 @@ final class MetalOverlay {
     /// The network as a network: a run from each conduit's centre to every
     /// neighbour it connects to, lit where it reaches a source and unlit wire
     /// where it does not — the only question a player laying pipe is asking.
-    private func conduits(_ map: CityMap, isPipe: Bool) {
+    private static func conduits(_ map: CityMap, isPipe: Bool, colours: ColourCache) -> [Float] {
+        var traces: [Float] = []
         for tile in map.tiles where isPipe ? tile.hasPipe : tile.hasPowerLine {
             let live = isPipe ? map.waterSupply.isSupplied(at: tile.position)
                               : map.powerSupply.isSupplied(at: tile.position)
-            let color = Self.linear(RenderPalette.conduitColor(isPipe: isPipe, live: live)) * (live ? 2.2 : 1.2)
+            let color = colours.linear(RenderPalette.conduitColor(isPipe: isPipe, live: live)) * (live ? 2.2 : 1.2)
             run(from: tile.position, mask: Infrastructure.conduitMask(at: tile.position, in: map, isPipe: isPipe),
-                color: color, width: 0.07)
+                color: color, width: 0.07, into: &traces)
         }
+        return traces
     }
 
     /// The rails, in the one view with something to say about the ground: a
     /// tram is the only mode that costs the street anything.
-    private func rails(_ map: CityMap) {
-        let color = Self.linear(RenderPalette.transitLineColor(for: .tram)) * 1.8
+    private static func rails(_ map: CityMap, colours: ColourCache) -> [Float] {
+        var traces: [Float] = []
+        let color = colours.linear(RenderPalette.transitLineColor(for: .tram)) * 1.8
         for position in map.tramTracks {
             var mask = 0
             for (bit, dx, dy) in [(1, 1, 0), (2, -1, 0), (4, 0, 1), (8, 0, -1)]
             where map.tramTracks.contains(GridPosition(x: position.x + dx, y: position.y + dy)) { mask |= bit }
-            run(from: position, mask: mask, color: color, width: 0.05)
+            run(from: position, mask: mask, color: color, width: 0.05, into: &traces)
         }
+        return traces
     }
 
-    private func run(from position: GridPosition, mask: Int, color: SIMD3<Float>, width: Float) {
+    private static func run(from position: GridPosition, mask: Int, color: SIMD3<Float>, width: Float,
+                            into traces: inout [Float]) {
         let centre = SIMD3<Float>(Float(position.x) + 0.5, Float(position.y) + 0.5, 0.06)
         var drew = false
         for (bit, dx, dy) in [(1, 1, 0), (2, -1, 0), (4, 0, 1), (8, 0, -1)] as [(Int, Float, Float)]
         where mask & bit != 0 {
-            schematic += MetalMotion.trace(from: centre, to: centre + SIMD3(dx * 0.5, dy * 0.5, 0),
-                                           width: width, mode: 1, color: color, alpha: 1)
+            traces += MetalMotion.trace(from: centre, to: centre + SIMD3(dx * 0.5, dy * 0.5, 0),
+                                        width: width, mode: 1, color: color, alpha: 1)
             drew = true
         }
         if !drew {
             // An isolated length still shows as a stub, so a single tile of
             // pipe is visible rather than nothing.
-            schematic += MetalMotion.trace(from: centre - SIMD3(0.12, 0, 0), to: centre + SIMD3(0.12, 0, 0),
-                                           width: width, mode: 1, color: color, alpha: 1)
+            traces += MetalMotion.trace(from: centre - SIMD3(0.12, 0, 0), to: centre + SIMD3(0.12, 0, 0),
+                                        width: width, mode: 1, color: color, alpha: 1)
         }
     }
 
@@ -248,11 +283,33 @@ final class MetalOverlay {
     static let groundLight: Float = 0.32
 
     static func linear(_ color: SKColor) -> SIMD3<Float> { MetalCityMesh.linear(color) }
-    static func rgb(_ color: SKColor, _ scale: Float = 1) -> [Float] {
-        let c = linear(color) * scale
-        return [c.x, c.y, c.z]
+
+    /// `linear`, remembered. The view colours arrive in Generic RGB, and
+    /// converting one to sRGB goes through the system's colour management:
+    /// 4.6 ms for a map's worth on Apex, a third of a whole view rebuild. A
+    /// view uses a few hundred distinct colours (284 for Land Value on
+    /// Apex), so each is converted once and a rebuild mostly converts
+    /// nothing. The same conversion, so the same result. Locked, because the
+    /// live game computes a view's layer off the main thread.
+    final class ColourCache: @unchecked Sendable {
+        private var converted: [SKColor: SIMD3<Float>] = [:]
+        private let lock = NSLock()
+
+        func linear(_ color: SKColor) -> SIMD3<Float> {
+            lock.lock()
+            let known = converted[color]
+            lock.unlock()
+            if let known { return known }
+            let value = MetalOverlay.linear(color)
+            lock.lock()
+            if converted.count > 20_000 { converted.removeAll(keepingCapacity: true) }
+            converted[color] = value
+            lock.unlock()
+            return value
+        }
     }
 
+    let colours = ColourCache()
     // MARK: - The badge glyphs
 
     /// The badges as one texture, three cells across: the drop, the bolt and

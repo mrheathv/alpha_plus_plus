@@ -8809,10 +8809,52 @@ and smoke match a synchronous renderer's exactly. It starts from day 0: from
 day 20, every variant the city grew into had been drawn already, and the
 test passed with the smoke's heights never landing at all.
 
-Still on the main thread by design: the near and street tier swap, which
-builds four chunks a frame on a zoom. The timing test is Full-plan only now: its
-tighter bound (a third of the synchronous cost) failed in Quick's parallel
-Debug run, where it shares the cores.
+The timing test is Full-plan only now: its tighter bound (a third of the
+synchronous cost) failed in Quick's parallel Debug run, where it shares the
+cores.
+
+### M7 (done): views and the detail swap off the main thread
+
+With a view up, the view was rebuilt on every change of the map, and on
+Apex that cost 10–14 ms. So every click in the Water view hitched. Measured
+before moving anything, it was two halves of about equal weight:
+
+- **The colour conversion was a third of it.** View colours come out of
+  `IsoTileRenderer.paint` in Generic RGB, and converting each one to sRGB
+  goes through the system's colour management: 4.6 ms for a map's worth.
+  A view uses a few hundred distinct colours (284 for Land Value), so
+  `MetalOverlay.ColourCache` converts each colour once. The result is
+  exactly the same conversion. M4's note that colour conversion "changed
+  nothing when removed" was wrong, and this measurement is what showed it.
+- **The rest is the shared decision** (`paint`, 5–8 ms), which SpriteKit
+  pays too. It now runs in the background: `MetalOverlay.layer` is a pure
+  function of the map and the view (the ground, the building washes and the
+  networks). The marks on buildings (scaffolds, damage, badges) stay on the
+  main thread, since they are cheap and read the heights. A counter makes
+  sure only the newest request lands, so a view switched again or put away
+  meanwhile is never overwritten by an older one. The old layer stays on
+  screen for a frame or two until the new one arrives.
+
+**The detail tier swaps in the background too.** It had built four chunks a
+frame on the main thread, affordable until the facade, roof and lot passes
+doubled a close-up building's cost. Every stale chunk is now sent away
+once, visible ones first, and `land` puts it in if the tier is still the
+one wanted.
+
+Measured on the main thread (Release, with another session's tests sharing
+the machine):
+
+| | before | after |
+|---|---|---|
+| a click in the Water view, Apex | 28.4 ms | **1.6 ms** |
+| crossing into street detail | a few ms a frame | **0.11 ms** |
+| a growing day, 64×64 | 7.1 ms | **1.7–1.9 ms** |
+
+Normal view and every test keep the synchronous path
+(`rebuildsInBackground` off). `BackgroundChunkTests` checks that a
+background view and a background tier swap each land byte for byte where a
+synchronous one would, and that only the newest view lands. Each of those
+checks fails on a planted bug. The two timing tests are Full-plan only.
 
 ### Building detail, P2: shapes beyond boxes
 
