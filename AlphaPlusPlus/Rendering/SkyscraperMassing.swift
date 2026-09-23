@@ -647,6 +647,17 @@ enum SkyscraperMassing {
             if width > 0.7 {
                 dress(top, facade: facade, seed: seed, signed: step == 0, footprint: footprint,
                       into: &massing, random: &random)
+            } else {
+                // **The narrow steps get a window a face**, or up close the
+                // top of the obelisk was a stack of blank walls (the P7
+                // review). Chosen by `FacadeDetail.roll`, not the random
+                // stream, so the needle and every later draw are unchanged.
+                for (face, salt) in [(Panel.Face.right, 1), (.left, 2)] {
+                    let roll = FacadeDetail.roll(top.x, z, CGFloat(step), salt: 400 + salt)
+                    let color = NeonStyle.windowColor(row: step, column: salt, salt: 5)
+                    massing.panels.append(Panel(box: top, face: face, u0: 0.3, u1: 0.7, v0: 0.3, v1: 0.72,
+                                                color: roll < 0.75 ? color : NeonStyle.silhouetteFill))
+                }
             }
             z += stepHeight
         }
@@ -768,6 +779,16 @@ enum SkyscraperMassing {
                         lit ? .lit(facade == .bands ? NeonStyle.windowColor(row: index, column: 0, salt: 7)
                                                     : color)
                             : .structure)
+            // **Glass between the rings, for housing.** Only every third ring
+            // of a punched facade is lit, so up close the drum read as a dark
+            // cage (the P7 review). A dim band of glazing on alternate floors
+            // gives it rooms without competing with the rings.
+            if facade != .bands, index % 2 == 0, z + spacing < top - 0.2 {
+                let glass = NeonStyle.windowColor(row: index, column: 1, salt: 9)
+                    .blended(withFraction: 0.72, of: .black) ?? .black
+                massing.add(.cylinder(Cylinder(x: centre, y: centre, z: z + 0.13, radius: radius + 0.012,
+                                               height: 0.17, sides: sides)), .lit(glass))
+            }
             z += spacing
             index += 1
         }
