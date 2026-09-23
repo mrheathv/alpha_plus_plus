@@ -427,7 +427,56 @@ final class MetalCityRenderer {
             guard overlayMode != oldValue else { return }
             builtRevision = nil
             plannedMotion = nil
+            diagramTraces = nil
         }
+    }
+
+    // MARK: - M8: what the input layer asks to be drawn
+
+    /// The placement cursor, set by the view every frame from
+    /// `MapInteraction`. `nil` draws none.
+    var cursor: MapMarks.Cursor?
+
+    /// The route being drawn, so its dashed draft shows on the diagram.
+    var routeDraft: TransitRouteDraft? {
+        didSet { if routeDraft != oldValue { diagramTraces = nil } }
+    }
+
+    /// Flashes waiting to start, and running. A flash starts on the first
+    /// frame that draws it, on the wall clock, so a paused city still answers
+    /// a click.
+    private var flashes: [(flash: MapMarks.Flash, started: Float?)] = []
+
+    func flash(_ flash: MapMarks.Flash) { flashes.append((flash, nil)) }
+
+    /// Flashes still on screen, for tests.
+    var flashesForTesting: [MapMarks.Flash] { flashes.map(\.flash) }
+
+    /// The route diagram for the view up, built when the map, the view or the
+    /// draft changes rather than every frame.
+    private var diagramTraces: [Float]?
+
+    /// The traces and pools of this frame's marks: the diagram, its vehicles,
+    /// the cursor and the flashes. Rebuilt every frame, being a few hundred
+    /// floats at most.
+    private func marks(time: Float, motionClock: Double) -> (traces: [Float], tiles: [Float]) {
+        var traces: [Float] = [], tiles: [Float] = []
+        if let mode = overlayMode.routeMode, let map = lastMap {
+            if diagramTraces == nil { diagramTraces = MetalMarks.diagram(for: mode, in: map, drawing: routeDraft) }
+            traces += diagramTraces ?? []
+            traces += MetalMarks.vehicles(for: mode, in: map, clock: motionClock)
+        }
+        if let cursor { traces += MetalMarks.cursor(cursor) }
+        flashes = flashes.compactMap { entry in
+            let started = entry.started ?? time
+            let strength = MetalMarks.strength(of: entry.flash.kind, age: Double(time - started))
+            guard strength > 0 || entry.started == nil else { return nil }
+            let drawn = MetalMarks.flash(entry.flash, strength: max(strength, 0))
+            traces += drawn.traces
+            tiles += drawn.tiles
+            return (entry.flash, started)
+        }
+        return (traces, tiles)
     }
 
     /// The running-time clock the motion was last planned at, so a tram line
@@ -779,6 +828,7 @@ final class MetalCityRenderer {
         // The view is rebuilt on every change of the map, because anything
         // can change what a view says — a pipe laid while paused, a building
         // finishing a storey.
+        diagramTraces = nil
         overlay.height = { [unowned self] in self.readyHeight(zone: $0, density: $1, at: $2) }
         if rebuildsInBackground, overlayMode != .none {
             // **M7: a view's layer off the main thread.** The per-tile
@@ -1165,6 +1215,13 @@ final class MetalCityRenderer {
                                   visible: rainArea(for: camera))
         let lights = diagnostics.skipPointLights ? []
             : visibleLights([moving.lights, allLights], through: matrix, camera: camera)
+        let marks = marks(time: time, motionClock: motionClock)
+        let markTraceCount = marks.traces.count / MetalMotion.traceFloatCount
+        let markTraceBuffer = markTraceCount == 0 ? nil
+            : device.makeBuffer(bytes: marks.traces, length: marks.traces.count * 4)
+        let markTileCount = marks.tiles.count / MetalOverlay.tileFloatCount
+        let markTileBuffer = markTileCount == 0 ? nil
+            : device.makeBuffer(bytes: marks.tiles, length: marks.tiles.count * 4)
         let lightCount = lights.count / GPULight.floatCount
         var uniforms = Uniforms(
             viewProjection: matrix,
@@ -1381,6 +1438,12 @@ final class MetalCityRenderer {
                     encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
                                            instanceCount: overlayTileCount)
                 }
+                if let markTileBuffer {
+                    encoder.setRenderPipelineState(overlayTilePipeline)
+                    encoder.setVertexBuffer(markTileBuffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                           instanceCount: markTileCount)
+                }
                 if let scaffoldBuffer {
                     encoder.setRenderPipelineState(tracePipeline)
                     encoder.setVertexBuffer(scaffoldBuffer, offset: 0, index: 0)
@@ -1402,6 +1465,14 @@ final class MetalCityRenderer {
                     encoder.setFragmentTexture(glyphAtlas, index: 0)
                     encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
                                            instanceCount: billboardCount)
+                }
+                // The marks the input layer asked for, over everything: the
+                // route diagram, the cursor, the flashes.
+                if let markTraceBuffer {
+                    encoder.setRenderPipelineState(tracePipeline)
+                    encoder.setVertexBuffer(markTraceBuffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6,
+                                           instanceCount: markTraceCount)
                 }
             }
             encoder.endEncoding()

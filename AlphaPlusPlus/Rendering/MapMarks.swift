@@ -32,8 +32,9 @@ enum MapMarks {
             case insufficientFunds
             /// A click the rules refused.
             case blocked
-            /// A hazard struck this building today.
-            case hazard
+            /// A hazard struck this building today, let through by the absence
+            /// of `service` (a fire or a police station), which picks the colour.
+            case hazard(ZoneType)
         }
         var origin: GridPosition
         var size: Int
