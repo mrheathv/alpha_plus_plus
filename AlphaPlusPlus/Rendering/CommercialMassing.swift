@@ -506,12 +506,15 @@ enum CommercialMassing {
 
     /// The ground floor: one unbroken slab of light per wall, which is the
     /// brightest and most zone-identifying mark commerce has.
-    static func shopfront(on box: Box, share: ClosedRange<CGFloat>, into massing: inout BuildingMassing) {
+    static func shopfront(on box: Box, share: ClosedRange<CGFloat>, footprint: CGFloat = 2,
+                          into massing: inout BuildingMassing) {
         for face in [Panel.Face.right, .left] {
             massing.panels.append(Panel(box: box, face: face, u0: 0.06, u1: 0.94,
                                         v0: share.lowerBound, v1: share.upperBound,
                                         color: NeonStyle.litAccent))
         }
+        FacadeDetail.awnings(over: box, at: box.z + box.height * share.upperBound + 0.04,
+                             footprint: footprint, into: &massing)
     }
 
     /// **Glass, or a frame with glass in it.**
@@ -532,6 +535,7 @@ enum CommercialMassing {
     /// wrapping the corner — the single strongest difference from housing's
     /// grid of separate little windows, and one that survives greyscale.
     static func glazingBands(on box: Box, into massing: inout BuildingMassing, random: inout BuildingRandom) {
+        FacadeDetail.cornice(on: box, into: &massing)
         let bands = max(1, Int((box.height / 0.34).rounded()))
         guard bands >= 1 else { return }
         for face in [Panel.Face.right, .left] {

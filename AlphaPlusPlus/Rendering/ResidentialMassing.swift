@@ -180,6 +180,12 @@ enum ResidentialMassing {
         if let top { NeonStyle.rooftopPlant(on: top, into: &massing, random: &random) }
         crown(atTop: z, inset: inset, footprint: footprint, tier: tier, into: &massing, random: &random)
         if let ground { entrance(on: ground, into: &massing, random: &random) }
+        // Half of the taller blocks carry a fire escape, chosen by the lot's
+        // own roll so the random stream above is untouched.
+        if tier >= 2, let ground,
+           FacadeDetail.roll(CGFloat(seed.x), CGFloat(seed.y), 0, salt: 7) < 0.5 {
+            FacadeDetail.fireEscape(on: ground, footprint: footprint, into: &massing)
+        }
     }
 
     /// **The point block: housing's landmark.**
@@ -487,12 +493,14 @@ enum ResidentialMassing {
     /// meaning instead of the decoration.
     static func balcony(on box: Box, at fraction: CGFloat, into massing: inout BuildingMassing) {
         let overhang: CGFloat = 0.08
-        massing.add(.box(Box(
+        let slab = Box(
             x: box.x - overhang, y: box.y - overhang,
             z: box.z + box.height * fraction,
             width: box.width + overhang * 2, depth: box.depth + overhang * 2,
             height: 0.06
-        )))
+        )
+        massing.add(.box(slab))
+        FacadeDetail.balustrade(on: slab, into: &massing)
     }
 
     /// Small separate windows, some lit and some dark — the opposite of
@@ -531,14 +539,16 @@ enum ResidentialMassing {
             for row in 0 ..< rows {
                 for column in 0 ..< columns {
                     guard row * columns + column == litIndex || random.chance(chance) else { continue }
-                    massing.panels.append(Panel(
+                    let window = Panel(
                         box: box, face: face,
                         u0: (CGFloat(column) + 0.26) / CGFloat(columns),
                         u1: (CGFloat(column) + 0.74) / CGFloat(columns),
                         v0: (CGFloat(row) + 0.24) / CGFloat(rows),
                         v1: (CGFloat(row) + 0.7) / CGFloat(rows),
                         color: NeonStyle.windowColor(row: row, column: column, salt: salt)
-                    ))
+                    )
+                    massing.panels.append(window)
+                    FacadeDetail.airConditioner(under: window, into: &massing)
                 }
             }
         }
