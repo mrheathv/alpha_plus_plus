@@ -299,6 +299,10 @@ struct Panel {
     var color: SKColor
     /// The farthest camera it is drawn at; see `DetailTier`.
     var tier: DetailTier = .far
+    /// How far it stands off its wall, in tiles, in the Metal renderer; `nil`
+    /// is the default (0.009 lit, 0.004 dark). What lets a dark frame or a
+    /// mullion stand in front of the lit glass it borders rather than behind.
+    var standoff: CGFloat? = nil
 
     /// This panel, tagged for `tier`: `massing.panels.append(panel.at(.near))`.
     func at(_ tier: DetailTier) -> Panel {
