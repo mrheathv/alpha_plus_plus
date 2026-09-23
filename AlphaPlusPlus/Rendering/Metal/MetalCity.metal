@@ -235,7 +235,12 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         float lineWidth = fwidth(p.x) * 1.2 + 0.015;
         float line = 1 - smoothstep(0.0, lineWidth, min(cell.x, cell.y));
         color += float3(0.045, 0.032, 0.085) * line * 0.7;
-        float fade = 1 - smoothstep(3.0, 30.0, d);
+        // Into the sky within a few tiles, so the land has become sunset by
+        // the time the sun's horizon arrives; fading over thirty left the sun
+        // hovering above a band of dark ground. A few tiles because the
+        // camera stops two tiles past the map, so the sky a player can reach
+        // is a thin strip above the far corner.
+        float fade = 1 - smoothstep(1.5, 7.0, d);
         // Past the map the land fades into the sky's colour rather than into
         // black: in a retrowave frame the edge of the world is a sunset.
         color = mix(airColor(in.clip.y / u.frame.y, u), color, fade);
@@ -766,4 +771,92 @@ fragment float4 billboardFragment(TraceVaryings in [[stage_in]],
     constexpr sampler s(filter::linear, address::clamp_to_edge);
     float4 texel = atlas.sample(s, in.uv);
     return float4(texel.rgb * in.color, texel.a);   // premultiplied
+}
+
+// MARK: - The sky (retrowave direction)
+
+// The sky behind everything, and the synthwave sun in it. Drawn first in the
+// main pass at the far plane without writing depth, so the city, the land
+// past the map and everything else land on top of it — the sky shows only
+// where nothing else is.
+struct SkyParams {
+    float4 frame;    // xy: viewport in pixels
+    float4 sun;      // xy: the sun's centre in pixels · z: its radius · w: the horizon's y
+    float4 zenith;   // rgb, as `Uniforms.zenith`
+    float4 horizon;  // rgb, as `Uniforms.horizon`
+};
+
+struct SkyVaryings {
+    float4 clip [[position]];
+};
+
+vertex SkyVaryings skyVertex(uint vid [[vertex_id]]) {
+    // One triangle that covers the screen.
+    const float2 corners[3] = { float2(-1, -1), float2(3, -1), float2(-1, 3) };
+    SkyVaryings out;
+    out.clip = float4(corners[vid], 0.99999, 1);
+    return out;
+}
+
+fragment float4 skyFragment(SkyVaryings in [[stage_in]], constant SkyParams &sky [[buffer(0)]]) {
+    float2 p = in.clip.xy;
+    float screenY = p.y / sky.frame.y;
+    float3 color = mix(sky.horizon.rgb, sky.zenith.rgb, smoothstep(0.0, 1.0, screenY));
+
+    // A glow along the horizon, the line every retrowave frame is built on.
+    float horizonY = sky.sun.w;
+    color += sky.horizon.rgb * 0.9 * exp(-abs(p.y - horizonY) / max(1.0, sky.frame.y * 0.04));
+
+    return float4(color, 1);
+}
+
+// **The sun**, the title screen's, the right way up: a disc shaded
+// yellow → orange → magenta, cut by slats that widen toward the bottom, and
+// sitting on the horizon with its lower part below it. Its own pass, drawn
+// over the land past the map and under the city, so the city stands in front
+// of it — which is the picture: a skyline against a sunset.
+// The sun's own quad: its disc and halo, cut at the horizon — never the
+// whole screen. Drawn full-screen, it ran its slat loop over millions of
+// pixels on every frame, almost all of them with no sun in view, and cost
+// Apex four milliseconds.
+vertex SkyVaryings sunVertex(uint vid [[vertex_id]], constant SkyParams &sky [[buffer(0)]]) {
+    const float2 corners[6] = { float2(-1, -1), float2(1, -1), float2(1, 1),
+                                float2(-1, -1), float2(1, 1), float2(-1, 1) };
+    float2 c = corners[vid];
+    float reach = sky.sun.z * 1.8;
+    float2 pixel = float2(sky.sun.x + c.x * reach,
+                          c.y < 0 ? sky.sun.y - reach : min(sky.sun.w, sky.sun.y + reach));
+    SkyVaryings out;
+    out.clip = float4(pixel.x / sky.frame.x * 2 - 1, 1 - pixel.y / sky.frame.y * 2, 0.5, 1);
+    return out;
+}
+
+fragment float4 sunFragment(SkyVaryings in [[stage_in]], constant SkyParams &sky [[buffer(0)]]) {
+    float2 p = in.clip.xy;
+    float horizonY = sky.sun.w;
+    if (p.y >= horizonY) return float4(0);
+    float r = sky.sun.z;
+    float2 d = (p - sky.sun.xy) / max(r, 1.0);
+    float dist = length(d);
+    // The halo, added: premultiplied with no coverage.
+    // Faded to nothing inside the quad's edge (1.8 radii), or the quad shows
+    // as a lit rectangle around the sun.
+    float3 halo = float3(1.0, 0.12, 0.35) * 0.35 * exp(-max(dist - 0.95, 0.0) * 3.0)
+        * (1.0 - smoothstep(1.2, 1.75, dist));
+    if (dist >= 1.0) return float4(halo, 0);
+    float y = 0.02, thickness = 0.035;
+    for (int i = 0; i < 8 && y < 1.0; i++) {
+        if (d.y >= y && d.y < y + thickness) return float4(halo, 0);
+        y += thickness + 0.115;
+        thickness *= 1.55;
+    }
+    float t = saturate((d.y + 1.0) * 0.5);
+    float3 yellow = float3(1.0, 0.85, 0.23), orange = float3(1.0, 0.27, 0.044),
+           magenta = float3(1.0, 0.018, 0.28);
+    float3 sunColor = t < 0.5 ? mix(yellow, orange, t * 2) : mix(orange, magenta, (t - 0.5) * 2);
+    float coverage = smoothstep(1.0, 0.985, dist);
+    // Bright enough to bloom, not so bright the tone map bleaches it: at 2.2
+    // the disc came out near-white and lost the orange and magenta that make
+    // it a synthwave sun rather than a light.
+    return float4(sunColor * 1.15 * coverage, coverage);
 }

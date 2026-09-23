@@ -124,6 +124,36 @@ final class MetalCityRenderer {
         var params: SIMD4<Float>
     }
 
+    /// Mirrors `SkyParams` in MetalCity.metal.
+    struct SkyParams {
+        var frame: SIMD4<Float>
+        var sun: SIMD4<Float>
+        var zenith: SIMD4<Float>
+        var horizon: SIMD4<Float>
+    }
+
+    /// **Where the sun sits**: centred over the far tip of the land past the
+    /// map, on a horizon level with that tip, with its lower part below it —
+    /// the title screen's composition, found at the edge of the world. In this
+    /// projection the far side of the city is the top of the screen, so the
+    /// sun appears when the camera looks toward the back of the map or pulls
+    /// all the way out.
+    static let sunRadiusTiles: Float = 9
+    /// How far past the map's far corner the horizon sits, in tiles: close
+    /// enough that the sun is found by looking at the back of the city.
+    static let sunBeyondCorner: Float = 5
+
+    private func skyParams(through matrix: simd_float4x4, camera: Camera) -> SkyParams {
+        let tip = -Self.sunBeyondCorner
+        let clip = matrix * SIMD4<Float>(tip, tip, 0, 1)
+        let width = Float(camera.size.width), height = Float(camera.size.height)
+        let x = (clip.x + 1) / 2 * width, horizonY = (1 - clip.y) / 2 * height
+        let radius = Self.sunRadiusTiles * Float(projection.tileWidth / 2 / camera.scale)
+        return SkyParams(frame: SIMD4(width, height, 0, 0),
+                         sun: SIMD4(x, horizonY - radius * 0.34, radius, horizonY),
+                         zenith: SIMD4(look.zenith, 0), horizon: SIMD4(look.horizon, 0))
+    }
+
     struct CompositeSettings {
         var bloomStrength: Float = 0.55
         var hazeStrength: Float = 0.35
@@ -174,6 +204,8 @@ final class MetalCityRenderer {
     private let rainPipeline: MTLRenderPipelineState
     private let smokePipeline: MTLRenderPipelineState
     private let flamePipeline: MTLRenderPipelineState
+    private let skyPipeline: MTLRenderPipelineState
+    private let sunPipeline: MTLRenderPipelineState
     private let overlayTilePipeline: MTLRenderPipelineState
     private let billboardPipeline: MTLRenderPipelineState
     /// Drawn over everything: a mark the player came to a view to find.
@@ -227,7 +259,11 @@ final class MetalCityRenderer {
               let overlayTileVertex = library.makeFunction(name: "overlayTileVertex"),
               let overlayTileFragment = library.makeFunction(name: "overlayTileFragment"),
               let billboardVertex = library.makeFunction(name: "billboardVertex"),
-              let billboardFragment = library.makeFunction(name: "billboardFragment")
+              let billboardFragment = library.makeFunction(name: "billboardFragment"),
+              let skyVertex = library.makeFunction(name: "skyVertex"),
+              let skyFragment = library.makeFunction(name: "skyFragment"),
+              let sunFragment = library.makeFunction(name: "sunFragment"),
+              let sunVertex = library.makeFunction(name: "sunVertex")
         else { return nil }
         self.cullPipeline = cullPipeline
         self.device = device
@@ -284,6 +320,17 @@ final class MetalCityRenderer {
         self.rainPipeline = rainPipeline
         self.smokePipeline = smokePipeline
         self.flamePipeline = flamePipeline
+        let sky = MTLRenderPipelineDescriptor()
+        sky.vertexFunction = skyVertex
+        sky.fragmentFunction = skyFragment
+        sky.colorAttachments[0].pixelFormat = .rgba16Float
+        sky.depthAttachmentPixelFormat = .depth32Float
+        sky.rasterSampleCount = Self.sampleCount
+        guard let skyPipeline = try? device.makeRenderPipelineState(descriptor: sky),
+              let sunPipeline = blended(sunVertex, sunFragment, samples: Self.sampleCount, additive: false)
+        else { return nil }
+        self.skyPipeline = skyPipeline
+        self.sunPipeline = sunPipeline
         self.overlayTilePipeline = overlayTilePipeline
         self.billboardPipeline = billboardPipeline
         let always = MTLDepthStencilDescriptor()
@@ -862,7 +909,15 @@ final class MetalCityRenderer {
             counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), mapSizePacked),
             overlay: SIMD4(overlayMode != .none && overlayTint != nil ? 1 : 0,
                            Float(motionClock.truncatingRemainder(dividingBy: 10_000)), 0, 0),
-            fog: SIMD4(look.lowFog, look.fogHeight, look.distanceHaze, look.streetGloss),
+            // **No fog under a view.** A view answers one question with
+            // colour, and sunset-tinted air pulled Power's "wanting" and "not
+            // applicable" together for a colourblind eye — measured by
+            // `testTheRenderedViewsKeepTheirMeaningsApart`, which failed the
+            // day the retrowave look became the default. Atmosphere describes
+            // the city; a view hides what describes the city.
+            fog: overlayMode == .none
+                ? SIMD4(look.lowFog, look.fogHeight, look.distanceHaze, look.streetGloss)
+                : SIMD4(0, 1, 0, look.streetGloss),
             zenith: SIMD4(look.zenith, min(1, max(0, 64 / Float(projection.tileWidth / camera.scale)))),
             horizon: SIMD4(look.horizon, look.groundGloss)
         )
@@ -896,6 +951,7 @@ final class MetalCityRenderer {
         let rainArea = rainArea(for: camera)
         let drops = VisualStyle.reduceMotion || rainfall <= 0 ? 0
             : min(9000, Int(rainArea.z * rainArea.w * 3 * rainfall))
+        var skyParams = skyParams(through: matrix, camera: camera)
         var motionUniforms = MotionUniforms(
             viewProjection: matrix,
             frame: SIMD4(Float(camera.size.width), Float(camera.size.height),
@@ -964,9 +1020,28 @@ final class MetalCityRenderer {
             encoder.setFragmentBuffer(targets.tileLights, offset: 0, index: 4)
             encoder.setFragmentTexture(mirrored ? placeholder : targets.reflection, index: 0)
             encoder.setFragmentTexture(overlayTint ?? placeholder, index: 1)
+            if !mirrored {
+                // The sky first, at the far plane and writing no depth, so
+                // everything drawn after lands on top of it.
+                encoder.setRenderPipelineState(skyPipeline)
+                encoder.setDepthStencilState(readOnlyDepthState)
+                encoder.setFragmentBytes(&skyParams, length: MemoryLayout<SkyParams>.stride, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                encoder.setRenderPipelineState(scenePipeline)
+                encoder.setDepthStencilState(depthState)
+                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
+            }
             if !mirrored, let backdrop {
                 encoder.setVertexBuffer(backdrop.buffer, offset: 0, index: 0)
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: backdrop.vertexCount)
+                // The sun over the land past the map and under the city.
+                encoder.setRenderPipelineState(sunPipeline)
+                encoder.setDepthStencilState(alwaysDepthState)
+                encoder.setVertexBytes(&skyParams, length: MemoryLayout<SkyParams>.stride, index: 0)
+                encoder.setFragmentBytes(&skyParams, length: MemoryLayout<SkyParams>.stride, index: 0)
+                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+                encoder.setRenderPipelineState(scenePipeline)
+                encoder.setDepthStencilState(depthState)
             }
             // One draw per visible chunk: the ones off screen never reach the
             // GPU at all.

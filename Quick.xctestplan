@@ -36,7 +36,8 @@
         "MetalOverlayTests/testRenderEveryView()",
         "MetalOverlayTests/testRenderTheBuildingMarks()",
         "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()",
-        "MetalLookTests"
+        "MetalLookTests",
+        "SoundtrackPlayerTests/testAWantedTrackIsRenderedBeforeTheRestOfTheWarmUp()"
       ]
     }
   ],

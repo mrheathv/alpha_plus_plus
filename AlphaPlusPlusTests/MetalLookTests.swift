@@ -155,4 +155,25 @@ final class MetalLookTests: XCTestCase {
         }
         try MetalSpikeTests.writeGrid(frames, columns: 3, cell: size, named: "metal-mood-frames")
     }
+
+    /// **The sky and the sun**, seen the way a player finds them: looking
+    /// toward the back of the map, pulled out and then closer.
+    func testRenderTheSky() throws {
+        let size = CGSize(width: 1400, height: 875)
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let apex = try CitySaveFile.read(from: url).map
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        var frames: [(String, NSImage)] = []
+        // Cameras at the edge the game's clamp allows: two tiles past the far
+        // corner, which is as far toward the sky as a player can look.
+        for (label, x, y, scale) in [("the whole city, pulled out", CGFloat(20), CGFloat(20), CGFloat(1.5)),
+                                     ("at the far edge, pulled out", -1, -1, 1.5),
+                                     ("at the far edge, resting", -1, -1, 0.5)] {
+            let camera = MetalCityRenderer.Camera(centre: Isometric().project(x, y, 0), scale: scale, size: size)
+            let frame = try XCTUnwrap(renderer.render(apex, camera: camera, wetness: 0, time: 2))
+            frames.append((label, NSImage(cgImage: frame.image, size: size)))
+        }
+        try MetalSpikeTests.writeGrid(frames, columns: 1, cell: size, named: "metal-sky")
+    }
 }

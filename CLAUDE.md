@@ -8095,6 +8095,35 @@ measured on the harness), large clean neon signage, rain reworked to sit on
 the gloss, and **a repetition pass**. Up close the city looks good; zoomed
 out it reads as a repeating pattern.
 
+### Retrowave step 1 (done): the sky and the sun
+
+The sky is a pass of its own behind everything, in the same sunset gradient
+the fog uses, and the land past the map now fades into it within a few tiles
+rather than thirty. **The title screen's synthwave sun** rises behind the far
+corner of the map, with the same slats and the same yellow, orange and
+magenta, and the city stands in front of it. In this projection the far side
+of the city is the top of the screen, so a player finds the sun by looking at
+the back of the map. The camera stops two tiles past the map, so the sun is
+sized and placed for the thin strip of sky that is actually reachable
+(`MetalLookTests.testRenderTheSky` frames the cameras at that limit).
+
+Three things measuring caught:
+
+- **Drawn full-screen, the sun cost Apex 4.4 ms**: its slat loop ran over
+  millions of pixels, almost none of which had a sun in them. Its own
+  bounded quad costs nothing when it is off screen, which is nearly always.
+  The full-screen sky gradient itself measured as free.
+- **At 2.2× brightness the disc bleached to near-white** and lost the orange
+  and magenta that make it a synthwave sun; it is 1.15× now. The halo has to
+  fade to zero inside its quad, or the quad shows as a lit rectangle.
+- **The retrowave look broke colour accessibility** the day it became the
+  default: sunset-tinted fog pulled Power's "wanting" and "not applicable"
+  together for a colourblind eye (0.19, against 0.20). Views now draw with no
+  fog, keeping only the gloss. A view answers one question with colour, and
+  atmosphere describes the city, which a view hides. This was caught by the
+  standing test, not by looking. The lesson: **a change to the default look
+  reruns the accessibility test**, however unrelated it seems.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
