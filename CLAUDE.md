@@ -7535,6 +7535,43 @@ and the rewards broke it. The thing moved rather than the yardstick,
 exactly as freight did before, so it is restated with the rewards excluded:
 they are landmarks a rank buys, not services residents rely on.
 
+### Autosave and crash recovery
+
+Nothing autosaved, so a crash, a force-quit or a flat battery lost everything
+since the last Cmd-S. For a city builder that can be hours, which is a
+refund rather than an inconvenience.
+
+`CityAutosave` (App/) saves every two minutes, but only when the city has
+changed, and also on quit and on returning to the title. The encode and write
+run off the main thread, since a 64×64 city is megabytes of JSON. Writes go
+through `CitySaveFile.write`, which is atomic, so a crash *during* an autosave
+leaves the previous one intact.
+
+- **A session marker** is written at launch and removed on a clean quit. If
+  it is still there at the next launch, the last session did not end
+  properly, and the title screen says so rather than silently offering a
+  rescued city.
+- **Continue now means the autosave on a relaunch.** It used to mean only the
+  city still in memory, which never survives a relaunch, so the one moment a
+  player most wanted to pick up where they left off was the one moment it
+  was missing.
+- **The origin comes back with the city.** A recovered city remembers the
+  file it was opened from, so Cmd-S afterwards writes there rather than into
+  the autosave slot, where the next autosave would overwrite it.
+- **The change check is a fingerprint, not a hash of the map**, which would
+  cost as much as encoding it: generation, day, treasury, how much is built,
+  and land owned. `testEveryKindOfEditIsNoticed` pins it against placing, a
+  *free* bulldoze and a day passing.
+
+**Off unless the app turns it on.** Only `AlphaPlusPlusApp` hands
+`CityDocument` a `CityAutosave`, pointed at Application Support. Every test
+uses a temporary directory or none, so the suite never writes into a
+player's saves. That is the same reason the founding panel, not the
+controller, owns `UserDefaults`.
+
+The render caught one thing: `RelativeDateTimeFormatter` described a save
+from a second ago as "in 0 seconds". Under a minute it now says "moments ago".
+
 ### The suite runs in under three minutes in Release
 
 Measured while shipping the above: every test except the four soundtrack

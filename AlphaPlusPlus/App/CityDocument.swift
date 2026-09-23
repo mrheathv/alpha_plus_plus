@@ -37,15 +37,79 @@ final class CityDocument: ObservableObject {
     /// about the *app* — which screen you are looking at — and the controller
     /// is the city. Starts true: a game opens on something that tells you
     /// what it is.
-    @Published var isShowingTitle = true
+    @Published var isShowingTitle = true {
+        didSet {
+            // Back to the title is a natural checkpoint: the player may quit
+            // from there, and a city left behind should be the one saved.
+            if isShowingTitle, !oldValue { autosave?.saveIfChanged(controller, origin: currentURL) }
+        }
+    }
+
+    // MARK: - Autosave
+
+    /// See `CityAutosave`. `nil` in every test, so the suite never writes into
+    /// a player's Application Support folder.
+    let autosave: CityAutosave?
+
+    /// Whether the previous session ended without a clean quit — a crash, a
+    /// force-quit, a flat battery. Read once, at launch.
+    let previousSessionEndedBadly: Bool
+
+    /// The autosave on offer, if any. Refreshed when the title screen asks.
+    @Published private(set) var recoverable: CityAutosave.Metadata?
+
+    private var autosaveTimer: Timer?
+    private var terminationObserver: NSObjectProtocol?
 
     /// `controller` defaults to `nil` rather than to `GameController()`
     /// because a default argument expression is evaluated at the *call site*,
     /// which is outside this class's `@MainActor` isolation — constructing it
     /// in the body instead keeps that call on the main actor where it
     /// belongs.
-    init(controller: GameController? = nil) {
+    init(controller: GameController? = nil, autosave: CityAutosave? = nil) {
         self.controller = controller ?? GameController()
+        self.autosave = autosave
+        self.previousSessionEndedBadly = autosave?.beginSession() ?? false
+        self.recoverable = autosave?.available
+        guard autosave != nil else { return }
+
+        autosaveTimer = Timer.scheduledTimer(withTimeInterval: CityAutosave.interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.autosave?.saveIfChanged(self.controller, origin: self.currentURL)
+            }
+        }
+        // Synchronous on quit: there is no "later" for a background write to
+        // finish in once the process is going away.
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.autosave?.saveNow(self.controller, origin: self.currentURL)
+                self.autosave?.endSession()
+            }
+        }
+    }
+
+    /// Loads the autosave and picks up where it left off.
+    ///
+    /// **The origin comes back with it**, so Cmd-S afterwards writes to the
+    /// player's own file rather than into the autosave slot, where the next
+    /// autosave would overwrite it.
+    func resumeAutosave() {
+        guard let autosave, let metadata = autosave.available else { return }
+        do {
+            try controller.restore(from: autosave.read())
+            currentURL = metadata.origin
+            isShowingTitle = false
+        } catch {
+            errorMessage = CitySaveFile.describe(error)
+        }
+    }
+
+    func refreshRecoverable() {
+        recoverable = autosave?.available
     }
 
     /// The document's title, for the window and the save panel.

@@ -13,7 +13,10 @@ struct AlphaPlusPlusApp: App {
     /// File menu below needs the same instance the view is showing, and menu
     /// commands are built out here where a view's private state is out of
     /// reach. See `GameView.controller`'s own doc comment.
-    @StateObject private var document = CityDocument()
+    ///
+    /// The one place autosave is switched on — see `CityAutosave` for why
+    /// nothing else passes one.
+    @StateObject private var document = CityDocument(autosave: CityAutosave.standard())
 
     /// A binding onto one ordinance, so the City menu can show it as a
     /// checkmarked toggle.

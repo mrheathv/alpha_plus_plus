@@ -173,6 +173,7 @@ struct TitleScreen: View {
             Spacer()
             title
             Spacer()
+            recoveryNote
             buttons
                 .padding(.bottom, 54)
         }
@@ -212,10 +213,39 @@ struct TitleScreen: View {
             // Only once there is something to go back *to*. On a first launch
             // the map is empty and "Continue" would be a third way of saying
             // "New City".
+            //
+            // **And on a relaunch, "back to" is the autosave.** Continue used
+            // to mean only the city still in memory, which never survives a
+            // relaunch — so the one moment a player most wants to pick up
+            // where they left off was the one moment it was missing.
             if document.controller.hasACityWorthReturningTo {
                 Button("Continue", action: start)
                     .buttonStyle(RetroButtonStyle(accent: RetroUITheme.primaryAccent))
+            } else if document.recoverable != nil {
+                Button("Continue") { document.resumeAutosave() }
+                    .buttonStyle(RetroButtonStyle(accent: RetroUITheme.primaryAccent, isSelected: true))
             }
+        }
+    }
+
+    /// "3 minutes ago", or "moments ago" for anything under a minute — the
+    /// formatter reads a save from a second ago as "in 0 seconds", which the
+    /// render caught on its first run.
+    static func howLongAgo(_ date: Date, now: Date = Date()) -> String {
+        guard now.timeIntervalSince(date) >= 60 else { return "moments ago" }
+        return RelativeDateTimeFormatter().localizedString(for: date, relativeTo: now)
+    }
+
+    /// Said once, after a session that did not end cleanly, so a rescued
+    /// city is offered as a rescue rather than silently.
+    @ViewBuilder private var recoveryNote: some View {
+        if document.previousSessionEndedBadly, !document.controller.hasACityWorthReturningTo,
+           let saved = document.recoverable {
+            Text("Alpha++ closed unexpectedly. Your city was autosaved "
+                 + Self.howLongAgo(saved.savedAt) + " — Continue picks it up.")
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color(red: 1.0, green: 0.75, blue: 0.3))
+                .padding(.bottom, 12)
         }
     }
 }
