@@ -1,36 +1,31 @@
 import CoreGraphics
 import Metal
+import MetalKit
 import SpriteKit
 import simd
 
-/// **The spike: the city drawn in real 3D on Metal, offscreen.**
+/// **The city drawn as lit geometry on Metal** — migration phase M0.
 ///
-/// Not wired into the game. It exists to answer one question with a picture —
-/// does drawing the city as lit geometry beat drawing it as pre-rasterised
-/// sprites, by enough to be worth a migration — and it answers it by drawing
-/// the *same data* the game draws: `ZoneMassing` for every building, the same
-/// variants the texture cache would pick, and a camera matched exactly to
-/// `Isometric`'s projection so a side-by-side with SpriteKit is fair.
+/// Began as the spike (see CLAUDE.md, "The Metal spike") and is now the
+/// renderer behind *Settings ▸ Renderer ▸ Metal (beta)*. During the migration
+/// SpriteKit stays in charge of input, the camera, cursors and everything not
+/// yet ported; this draws the city underneath it, reading SpriteKit's camera
+/// every frame. Each phase moves another piece across.
 ///
-/// Everything SpriteKit could only fake, this does for real:
+/// It draws the *same data* the game always has — `ZoneMassing` for every
+/// building, the variant the texture cache would pick — through a camera
+/// matched exactly to `Isometric`'s projection. What it adds is everything a
+/// sprite engine could only fake: light that falls on walls and streets, a
+/// wet street that genuinely mirrors the city, a bloom chain, haze, and
+/// sharpness at any zoom.
 ///
-/// - **Neon is light.** Each building's lit solids and window panels become
-///   point lights that fall on nearby walls and on the street, instead of a
-///   glow baked into one building's own picture.
-/// - **The wet street reflects the city**, by drawing the city mirrored under
-///   the ground plane into its own texture — which, for a flat mirror and a
-///   fixed camera, is exactly what a reflection is.
-/// - **Bloom is a chain**, five levels down and back up, which is the shape
-///   real lens bloom has and what one blur of one size cannot give.
-/// - **Depth is a depth buffer.** No painter's algorithm, no sort-key ties, no
-///   texture cache, no effect node sized to the whole world.
-///
-/// The look it aims at is the one the project settled on: Mini Motorways'
-/// restraint in the *shapes* — dark, flat, clean faces — and Cyberpunk's
-/// richness in the *light*.
+/// Four passes: the city mirrored under the street (the reflection), the city
+/// itself (4× MSAA, in on-chip memory), a five-level bloom chain, and a
+/// composite — written straight into the view's drawable when live, or into a
+/// readable texture when a test asks for a picture.
 final class MetalCityRenderer {
 
-    // MARK: - GPU layouts, mirrored in MetalCityShaders
+    // MARK: - GPU layouts, mirrored in MetalCity.metal
 
     struct GPUVertex {
         var position: SIMD3<Float>
@@ -59,6 +54,7 @@ final class MetalCityRenderer {
         var color: SIMD3<Float>
 
         var floats: [Float] { [position.x, position.y, position.z, radius, color.x, color.y, color.z, 0] }
+        static let floatCount = 8
     }
 
     struct Uniforms {
@@ -76,11 +72,13 @@ final class MetalCityRenderer {
     }
 
     /// Where the camera looks and how close, in the same terms `GameScene`'s
-    /// camera uses: a point in isometric screen space and points per pixel.
+    /// camera uses: a point in isometric screen space, and points per pixel.
     struct Camera {
         var centre: CGPoint
-        /// Screen points per output pixel — `SKCameraNode`'s scale.
+        /// Screen points per output pixel — `SKCameraNode`'s scale divided by
+        /// the display's backing scale.
         var scale: CGFloat
+        /// Output size in pixels.
         var size: CGSize
     }
 
@@ -94,6 +92,7 @@ final class MetalCityRenderer {
     private let bloomDown: MTLComputePipelineState
     private let bloomUp: MTLComputePipelineState
     private let compositePipeline: MTLComputePipelineState
+    private let cullPipeline: MTLComputePipelineState
     let projection: Isometric
     var settings = CompositeSettings()
 
@@ -102,13 +101,16 @@ final class MetalCityRenderer {
     init?(projection: Isometric = Isometric()) {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
-              let library = try? device.makeLibrary(source: MetalCityShaders.source, options: nil),
+              let library = device.makeDefaultLibrary(),
               let vertex = library.makeFunction(name: "sceneVertex"),
               let fragment = library.makeFunction(name: "sceneFragment"),
               let down = library.makeFunction(name: "bloomDown"),
               let up = library.makeFunction(name: "bloomUp"),
-              let composite = library.makeFunction(name: "composite")
+              let composite = library.makeFunction(name: "composite"),
+              let cull = library.makeFunction(name: "cullLights"),
+              let cullPipeline = try? device.makeComputePipelineState(function: cull)
         else { return nil }
+        self.cullPipeline = cullPipeline
         self.device = device
         self.queue = queue
         self.projection = projection
@@ -148,9 +150,11 @@ final class MetalCityRenderer {
     /// The projection is affine — x and y go to the screen by the 2:1
     /// diamond, z goes straight up by `heightUnit` — so it is one matrix, not
     /// an approximation of one. Depth is distance along `Isometric.toCamera`,
-    /// the direction the whole project already agrees the camera sits in, so
-    /// nearer things win the depth test for the same reason they win the
-    /// painter's sort today.
+    /// the direction the whole project already agrees the camera sits in.
+    ///
+    /// **A real camera matrix on purpose**: the migration plan keeps the
+    /// fixed view for now, and a rotating or tilting camera later is a change
+    /// to this function rather than another migration.
     func viewProjection(for camera: Camera, mapExtent: Float) -> simd_float4x4 {
         let kx = Float(1 / camera.scale / (camera.size.width / 2))
         let ky = Float(1 / camera.scale / (camera.size.height / 2))
@@ -169,27 +173,102 @@ final class MetalCityRenderer {
         ])
     }
 
-    // MARK: - Rendering
+    // MARK: - The city on the GPU
 
-    struct Frame {
-        let image: CGImage
-        let gpuMilliseconds: Double
-        let triangles: Int
-        let lights: Int
+    private let cache = MetalCityMesh.Cache()
+    private var vertexBuffer: MTLBuffer?
+    private var vertexCount = 0
+    /// Every light in the city, on the CPU: culled to the view each frame.
+    private var allLights: [Float] = []
+    private var builtRevision: Int?
+    private var mapExtent: Float = 1
+
+    /// Rebuilds the city's triangles if the map has moved on since the last
+    /// build. `revision` is `GameController.mapRevision`; `nil` always
+    /// rebuilds, which is what a test taking one picture wants.
+    ///
+    /// **Whole-city rebuilds, for now.** Buildings come out of `Cache`, so a
+    /// rebuild is copying floats rather than generating massing, but it is
+    /// still the whole map. M1 replaces this with instancing and dirty tiles.
+    func update(_ map: CityMap, revision: Int?) {
+        if let revision, revision == builtRevision { return }
+        builtRevision = revision
+        let built = MetalCityMesh.build(map, cache: cache)
+        vertexCount = built.vertices.count / GPUVertex.floatCount
+        vertexBuffer = vertexCount == 0 ? nil
+            : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4)
+        allLights = built.lights
+        mapExtent = Float(map.width + map.height + 20)
     }
 
-    func render(_ map: CityMap, camera: Camera, wetness: Float, time: Float = 0) -> Frame? {
-        let mesh = MetalCityMesh.build(map)
-        let width = Int(camera.size.width), height = Int(camera.size.height)
-        guard !mesh.vertices.isEmpty,
-              let vertexBuffer = device.makeBuffer(bytes: mesh.vertices, length: mesh.vertices.count * 4),
-              let lightBuffer = device.makeBuffer(
-                  bytes: mesh.lights.isEmpty ? [Float](repeating: 0, count: 8) : mesh.lights,
-                  length: max(32, mesh.lights.count * 4))
-        else { return nil }
-        let vertexCount = mesh.vertices.count / GPUVertex.floatCount
-        let lightCount = mesh.lights.count / 8
+    /// Only the lights that can reach what is on screen, and at most
+    /// `maximumLights` of them.
+    ///
+    /// **A stopgap until M1's tiled culling**, and an honest one: every pixel
+    /// still checks every light it is handed, so the count handed over is the
+    /// cost. A light whose reach does not touch the view cannot change a
+    /// visible pixel, so dropping it is free — and on a zoomed-in view of a
+    /// big city that is almost all of them.
+    private func visibleLights(through matrix: simd_float4x4, camera: Camera) -> [Float] {
+        let pixelsPerTile = Float(projection.tileWidth / camera.scale)
+        var kept: [Float] = []
+        let stride = GPULight.floatCount
+        var index = 0
+        while index + stride <= allLights.count, kept.count / stride < Self.maximumLights {
+            let p = SIMD4<Float>(allLights[index], allLights[index + 1], allLights[index + 2], 1)
+            let clip = matrix * p
+            // How far the light reaches, in normalised screen units.
+            let reach = allLights[index + 3] * pixelsPerTile / Float(camera.size.width) * 2 + 0.05
+            if abs(clip.x) <= 1 + reach && abs(clip.y) <= 1 + reach * 2 {
+                kept.append(contentsOf: allLights[index ..< index + stride])
+            }
+            index += stride
+        }
+        return kept
+    }
 
+    /// Lights handed to the GPU per frame, after the view cull. Generous now
+    /// that the tile cull decides what each pixel actually looks at.
+    static let maximumLights = 4096
+
+    /// Screen tile edge for light culling, in pixels.
+    static let tileSize = 32
+    /// Must match `maxLightsPerTile` in MetalCity.metal.
+    static let maxLightsPerTile = 64
+
+    struct CullParams {
+        var viewProjection: simd_float4x4
+        var viewportAndExtent: SIMD4<Float>
+        var counts: SIMD4<UInt32>
+    }
+
+    // MARK: - Frame resources
+
+    private struct Targets {
+        let size: CGSize
+        let reflection: MTLTexture
+        let reflectionDepth: MTLTexture
+        let msaa: MTLTexture
+        let msaaDepth: MTLTexture
+        let hdr: MTLTexture
+        let bloom: [MTLTexture]
+        let tilesAcross: Int
+        let tilesDown: Int
+        let tileCounts: MTLBuffer
+        let tileLights: MTLBuffer
+    }
+
+    private var targets: Targets?
+
+    /// Offscreen textures for a frame of `size`, remade only when it changes.
+    ///
+    /// The MSAA colour and depth are **memoryless**: on Apple Silicon a
+    /// render pass happens in on-chip tile memory, and a texture that is only
+    /// ever resolved or discarded never needs to exist in RAM at all. That is
+    /// why 4× anti-aliasing is nearly free on these GPUs.
+    private func targets(for size: CGSize) -> Targets? {
+        if let targets, targets.size == size { return targets }
+        let width = Int(size.width), height = Int(size.height)
         func texture(_ format: MTLPixelFormat, _ w: Int, _ h: Int, samples: Int = 1,
                      usage: MTLTextureUsage, storage: MTLStorageMode = .private) -> MTLTexture? {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -200,23 +279,83 @@ final class MetalCityRenderer {
             descriptor.storageMode = storage
             return device.makeTexture(descriptor: descriptor)
         }
-
         let target: MTLTextureUsage = [.renderTarget, .shaderRead]
-        guard let reflection = texture(.rgba16Float, width, height, usage: target),
-              let reflectionDepth = texture(.depth32Float, width, height, usage: .renderTarget),
-              let msaa = texture(.rgba16Float, width, height, samples: Self.sampleCount, usage: .renderTarget),
-              let msaaDepth = texture(.depth32Float, width, height, samples: Self.sampleCount, usage: .renderTarget),
-              let hdr = texture(.rgba16Float, width, height, usage: target),
-              let output = texture(.rgba8Unorm, width, height, usage: [.shaderWrite, .shaderRead], storage: .shared),
-              let commands = queue.makeCommandBuffer()
+        // The reflection is blurred by the street anyway, so half size is
+        // indistinguishable and a quarter of the cost.
+        guard let reflection = texture(.rgba16Float, width / 2, height / 2, usage: target),
+              let reflectionDepth = texture(.depth32Float, width / 2, height / 2, usage: .renderTarget,
+                                            storage: .memoryless),
+              let msaa = texture(.rgba16Float, width, height, samples: Self.sampleCount,
+                                 usage: .renderTarget, storage: .memoryless),
+              let msaaDepth = texture(.depth32Float, width, height, samples: Self.sampleCount,
+                                      usage: .renderTarget, storage: .memoryless),
+              let hdr = texture(.rgba16Float, width, height, usage: target)
         else { return nil }
+        var bloom: [MTLTexture] = []
+        var w = width / 2, h = height / 2
+        for _ in 0 ..< 5 {
+            guard let level = texture(.rgba16Float, w, h, usage: [.shaderRead, .shaderWrite]) else { return nil }
+            bloom.append(level)
+            w = max(1, w / 2); h = max(1, h / 2)
+        }
+        let tilesAcross = (width + Self.tileSize - 1) / Self.tileSize
+        let tilesDown = (height + Self.tileSize - 1) / Self.tileSize
+        guard let tileCounts = device.makeBuffer(length: tilesAcross * tilesDown * 4, options: .storageModePrivate),
+              let tileLights = device.makeBuffer(length: tilesAcross * tilesDown * Self.maxLightsPerTile * 4,
+                                                 options: .storageModePrivate)
+        else { return nil }
+        let made = Targets(size: size, reflection: reflection, reflectionDepth: reflectionDepth,
+                           msaa: msaa, msaaDepth: msaaDepth, hdr: hdr, bloom: bloom,
+                           tilesAcross: tilesAcross, tilesDown: tilesDown,
+                           tileCounts: tileCounts, tileLights: tileLights)
+        targets = made
+        return made
+    }
 
+    // MARK: - Drawing
+
+    /// Encodes one whole frame into `output`, which is either the live view's
+    /// drawable or a readable texture a test will copy out.
+    @discardableResult
+    private func encode(into commands: MTLCommandBuffer, output: MTLTexture, camera: Camera,
+                        wetness: Float, time: Float) -> (triangles: Int, lights: Int)? {
+        guard let vertexBuffer, vertexCount > 0, let targets = targets(for: camera.size) else { return nil }
+        let matrix = viewProjection(for: camera, mapExtent: mapExtent)
+        let lights = visibleLights(through: matrix, camera: camera)
+        let lightCount = lights.count / GPULight.floatCount
         var uniforms = Uniforms(
-            viewProjection: viewProjection(for: camera, mapExtent: Float(map.width + map.height + 20)),
-            frame: SIMD4(Float(width), Float(height), wetness, 0),
+            viewProjection: matrix,
+            frame: SIMD4(Float(camera.size.width), Float(camera.size.height), wetness, 0),
             moonAndTime: SIMD4(SIMD3<Float>(-0.35, 0.55, 0.76), time),
-            counts: SIMD4(UInt32(lightCount), 0, 0, 0)
+            counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), 0)
         )
+        let lightData = lights.isEmpty ? [Float](repeating: 0, count: GPULight.floatCount) : lights
+        guard let lightBuffer = device.makeBuffer(bytes: lightData, length: lightData.count * 4) else { return nil }
+
+        // Cull first: every tile's list of the lights that can reach it.
+        // How far one tile of light radius reaches on screen, in pixels: the
+        // projection stretches x and y differently, so the box is too.
+        let pointsX = projection.tileWidth / 2 * 2.squareRoot()
+        let pointsY = ((projection.tileHeight / 2) * (projection.tileHeight / 2) * 2
+            + projection.heightUnit * projection.heightUnit).squareRoot()
+        var cull = CullParams(
+            viewProjection: matrix,
+            viewportAndExtent: SIMD4(Float(camera.size.width), Float(camera.size.height),
+                                     Float(pointsX / camera.scale), Float(pointsY / camera.scale)),
+            counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(targets.tilesDown),
+                          UInt32(Self.tileSize))
+        )
+        if let culling = commands.makeComputeCommandEncoder() {
+            culling.setComputePipelineState(cullPipeline)
+            culling.setBuffer(lightBuffer, offset: 0, index: 0)
+            culling.setBytes(&cull, length: MemoryLayout<CullParams>.stride, index: 1)
+            culling.setBuffer(targets.tileCounts, offset: 0, index: 2)
+            culling.setBuffer(targets.tileLights, offset: 0, index: 3)
+            let tiles = targets.tilesAcross * targets.tilesDown
+            culling.dispatchThreadgroups(MTLSize(width: (tiles + 63) / 64, height: 1, depth: 1),
+                                         threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+            culling.endEncoding()
+        }
 
         func scenePass(into color: MTLTexture, depth: MTLTexture, resolve: MTLTexture?, mirrored: Bool) {
             let pass = MTLRenderPassDescriptor()
@@ -238,27 +377,23 @@ final class MetalCityRenderer {
             encoder.setDepthStencilState(depthState)
             encoder.setCullMode(.none)
             uniforms.frame.w = mirrored ? 1 : 0
+            // The shader reads the frame size to find its place in the
+            // reflection texture, which is the *full* frame's size even when
+            // the reflection itself is drawn at half.
             encoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
             encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
             encoder.setFragmentBuffer(lightBuffer, offset: 0, index: 2)
-            encoder.setFragmentTexture(mirrored ? nil : reflection, index: 0)
+            encoder.setFragmentBuffer(targets.tileCounts, offset: 0, index: 3)
+            encoder.setFragmentBuffer(targets.tileLights, offset: 0, index: 4)
+            encoder.setFragmentTexture(mirrored ? nil : targets.reflection, index: 0)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
             encoder.endEncoding()
         }
 
-        scenePass(into: reflection, depth: reflectionDepth, resolve: nil, mirrored: true)
-        scenePass(into: msaa, depth: msaaDepth, resolve: hdr, mirrored: false)
+        scenePass(into: targets.reflection, depth: targets.reflectionDepth, resolve: nil, mirrored: true)
+        scenePass(into: targets.msaa, depth: targets.msaaDepth, resolve: targets.hdr, mirrored: false)
 
-        // Bloom: five levels, halving each time.
-        let rw: MTLTextureUsage = [.shaderRead, .shaderWrite]
-        var levels: [MTLTexture] = []
-        var w = width / 2, h = height / 2
-        for _ in 0 ..< 5 {
-            guard let level = texture(.rgba16Float, w, h, usage: rw) else { return nil }
-            levels.append(level)
-            w = max(1, w / 2); h = max(1, h / 2)
-        }
         guard let compute = commands.makeComputeCommandEncoder() else { return nil }
         func dispatch(_ pipeline: MTLComputePipelineState, over texture: MTLTexture) {
             let group = MTLSize(width: 8, height: 8, depth: 1)
@@ -267,8 +402,8 @@ final class MetalCityRenderer {
             compute.dispatchThreadgroups(grid, threadsPerThreadgroup: group)
         }
         var threshold: Float = 1.0
-        var source: MTLTexture = hdr
-        for level in levels {
+        var source: MTLTexture = targets.hdr
+        for level in targets.bloom {
             compute.setTexture(source, index: 0)
             compute.setTexture(level, index: 1)
             compute.setBytes(&threshold, length: 4, index: 0)
@@ -276,22 +411,59 @@ final class MetalCityRenderer {
             threshold = 0
             source = level
         }
-        // The widest level, kept as it is, for the haze.
-        let haze = levels[3]
-        for index in stride(from: levels.count - 1, to: 0, by: -1) {
-            compute.setTexture(levels[index], index: 0)
-            compute.setTexture(levels[index - 1], index: 1)
-            dispatch(bloomUp, over: levels[index - 1])
+        // The widest level still holding only itself, for the haze.
+        let haze = targets.bloom[3]
+        for index in stride(from: targets.bloom.count - 1, to: 0, by: -1) {
+            compute.setTexture(targets.bloom[index], index: 0)
+            compute.setTexture(targets.bloom[index - 1], index: 1)
+            dispatch(bloomUp, over: targets.bloom[index - 1])
         }
         var composite = settings
-        compute.setTexture(hdr, index: 0)
-        compute.setTexture(levels[0], index: 1)
+        compute.setTexture(targets.hdr, index: 0)
+        compute.setTexture(targets.bloom[0], index: 1)
         compute.setTexture(haze, index: 2)
         compute.setTexture(output, index: 3)
         compute.setBytes(&composite, length: MemoryLayout<CompositeSettings>.stride, index: 0)
         dispatch(compositePipeline, over: output)
         compute.endEncoding()
+        return (vertexCount / 3, lightCount)
+    }
 
+    /// Frames actually handed to the display, for the test that checks the
+    /// live path draws at all — it writes into a drawable, which the picture
+    /// path used by every other test never touches.
+    private(set) var framesPresented = 0
+
+    /// One frame into the live view.
+    func draw(in view: MTKView, camera: Camera, wetness: Float, time: Float) {
+        guard let drawable = view.currentDrawable, let commands = queue.makeCommandBuffer(),
+              encode(into: commands, output: drawable.texture, camera: camera,
+                     wetness: wetness, time: time) != nil
+        else { return }
+        commands.present(drawable)
+        commands.commit()
+        framesPresented += 1
+    }
+
+    struct Frame {
+        let image: CGImage
+        let gpuMilliseconds: Double
+        let triangles: Int
+        let lights: Int
+    }
+
+    /// One frame into a picture, for the render tests.
+    func render(_ map: CityMap, camera: Camera, wetness: Float, time: Float = 0) -> Frame? {
+        update(map, revision: nil)
+        let width = Int(camera.size.width), height = Int(camera.size.height)
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
+        descriptor.usage = [.shaderWrite, .shaderRead]
+        descriptor.storageMode = .shared
+        guard let output = device.makeTexture(descriptor: descriptor),
+              let commands = queue.makeCommandBuffer(),
+              let counts = encode(into: commands, output: output, camera: camera, wetness: wetness, time: time)
+        else { return nil }
         commands.commit()
         commands.waitUntilCompleted()
         guard commands.status == .completed else { return nil }
@@ -308,7 +480,7 @@ final class MetalCityRenderer {
         else { return nil }
         return Frame(image: image,
                      gpuMilliseconds: (commands.gpuEndTime - commands.gpuStartTime) * 1000,
-                     triangles: vertexCount / 3, lights: lightCount)
+                     triangles: counts.triangles, lights: counts.lights)
     }
 }
 
@@ -322,6 +494,17 @@ enum MetalCityMesh {
         var lights: [Float] = []
     }
 
+    /// Every distinct building, turned into triangles once.
+    ///
+    /// The same idea as `IsoTextureCache`, one level up: a lot draws one of a
+    /// fixed set of variants per zone and density, so the massing for that
+    /// variant is generated once and every lot that draws it copies the
+    /// floats, offset to where it stands. Stored relative to the lot's corner.
+    final class Cache {
+        struct Key: Hashable { let zone: ZoneType; let density: Int; let variant: Int }
+        var entries: [Key: Built] = [:]
+    }
+
     /// sRGB colour to linear light. Every colour in this project was picked
     /// as an sRGB value on a screen; lighting maths has to happen in linear,
     /// or every blend and every falloff comes out wrong.
@@ -333,31 +516,37 @@ enum MetalCityMesh {
 
     static func luminance(_ c: SIMD3<Float>) -> Float { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
 
-    static func build(_ map: CityMap) -> Built {
+    /// A polygon, fanned into triangles. Quads carry a uv and a size so the
+    /// shader can put neon on their edges; anything else does not.
+    static func appendPolygon(_ points: [SIMD3<Float>], normal: SIMD3<Float>, albedo: SIMD3<Float>,
+                              emissive: SIMD3<Float>, rim: SIMD3<Float>, ground: Float,
+                              into vertices: inout [Float]) {
+        guard points.count >= 3 else { return }
+        let isQuad = points.count == 4
+        let size = isQuad
+            ? SIMD2(simd_length(points[1] - points[0]), simd_length(points[3] - points[0]))
+            : SIMD2<Float>(0, 0)
+        let uvs: [SIMD2<Float>] = isQuad ? [SIMD2(0, 0), SIMD2(1, 0), SIMD2(1, 1), SIMD2(0, 1)]
+                                         : Array(repeating: SIMD2(0.5, 0.5), count: points.count)
+        for index in 1 ..< points.count - 1 {
+            for corner in [0, index, index + 1] {
+                vertices += MetalCityRenderer.GPUVertex(
+                    position: points[corner], normal: normal, albedo: albedo, emissive: emissive,
+                    rim: rim, uv: uvs[corner], size: size, ground: ground).floats
+            }
+        }
+    }
+
+    static func build(_ map: CityMap, cache: Cache = Cache()) -> Built {
         var built = Built()
-        func add(_ v: MetalCityRenderer.GPUVertex) { built.vertices += v.floats }
         func addLight(_ at: SIMD3<Float>, _ color: SIMD3<Float>, radius: Float) {
-            guard built.lights.count / 8 < 512 else { return }
             built.lights += MetalCityRenderer.GPULight(position: at, radius: radius, color: color).floats
         }
 
-        /// A polygon, fanned into triangles. Quads carry a uv and a size so
-        /// the shader can put neon on their edges; anything else does not.
         func polygon(_ points: [SIMD3<Float>], normal: SIMD3<Float>, albedo: SIMD3<Float>,
                      emissive: SIMD3<Float> = .zero, rim: SIMD3<Float> = .zero, ground: Float = 0) {
-            guard points.count >= 3 else { return }
-            let isQuad = points.count == 4
-            let size = isQuad
-                ? SIMD2(simd_length(points[1] - points[0]), simd_length(points[3] - points[0]))
-                : SIMD2<Float>(0, 0)
-            let uvs: [SIMD2<Float>] = isQuad ? [SIMD2(0, 0), SIMD2(1, 0), SIMD2(1, 1), SIMD2(0, 1)]
-                                             : Array(repeating: SIMD2(0.5, 0.5), count: points.count)
-            for index in 1 ..< points.count - 1 {
-                for corner in [0, index, index + 1] {
-                    add(.init(position: points[corner], normal: normal, albedo: albedo, emissive: emissive,
-                              rim: rim, uv: uvs[corner], size: size, ground: ground))
-                }
-            }
+            appendPolygon(points, normal: normal, albedo: albedo, emissive: emissive, rim: rim,
+                          ground: ground, into: &built.vertices)
         }
 
         // The ground, one quad per tile.
@@ -398,17 +587,59 @@ enum MetalCityMesh {
             }
         }
 
-        // The buildings, from the variant the texture cache would draw.
+        // The buildings, from the variant the texture cache would draw —
+        // generated once per variant and copied into place.
         for tile in map.tiles where tile.isBuildingAnchor {
-            let variant = IsoTextureCache.variant(for: tile.position)
-            guard let massing = ZoneMassing.make(for: tile.zone, density: tile.density,
-                                                 seed: IsoTextureCache.canonicalSeed(for: variant))
-            else { continue }
-            let origin = SIMD3(Float(tile.position.x), Float(tile.position.y), 0)
+            let key = Cache.Key(zone: tile.zone, density: tile.density,
+                                variant: IsoTextureCache.variant(for: tile.position))
+            let local: Built
+            if let hit = cache.entries[key] {
+                local = hit
+            } else {
+                local = building(key)
+                cache.entries[key] = local
+            }
+            let dx = Float(tile.position.x), dy = Float(tile.position.y)
+            var vertices = local.vertices
+            var index = 0
+            while index < vertices.count {
+                vertices[index] += dx
+                vertices[index + 1] += dy
+                index += MetalCityRenderer.GPUVertex.floatCount
+            }
+            built.vertices += vertices
+            var lights = local.lights
+            index = 0
+            while index < lights.count {
+                lights[index] += dx
+                lights[index + 1] += dy
+                index += MetalCityRenderer.GPULight.floatCount
+            }
+            built.lights += lights
+        }
+        return built
+    }
+    /// One building's triangles and lights, relative to its lot's corner.
+    static func building(_ key: Cache.Key) -> Built {
+        var built = Built()
+        func add(_ v: MetalCityRenderer.GPUVertex) { built.vertices += v.floats }
+        func addLight(_ at: SIMD3<Float>, _ color: SIMD3<Float>, radius: Float) {
+            built.lights += MetalCityRenderer.GPULight(position: at, radius: radius, color: color).floats
+        }
+        func polygon(_ points: [SIMD3<Float>], normal: SIMD3<Float>, albedo: SIMD3<Float>,
+                     emissive: SIMD3<Float> = .zero, rim: SIMD3<Float> = .zero, ground: Float = 0) {
+            appendPolygon(points, normal: normal, albedo: albedo, emissive: emissive, rim: rim,
+                          ground: ground, into: &built.vertices)
+        }
+        do {
+            guard let massing = ZoneMassing.make(for: key.zone, density: key.density,
+                                                 seed: IsoTextureCache.canonicalSeed(for: key.variant))
+            else { return built }
+            let origin = SIMD3<Float>(0, 0, 0)
             func world(_ p: Point3) -> SIMD3<Float> { origin + SIMD3(Float(p.x), Float(p.y), Float(p.z)) }
-            let accent = linear(ZoneMassing.accent(for: tile.zone, density: tile.density))
+            let accent = linear(ZoneMassing.accent(for: key.zone, density: key.density))
             let body = SIMD3<Float>(0.11, 0.095, 0.15) + accent * 0.05
-            let footprint = Float(tile.zone.footprintSize)
+            let footprint = Float(key.zone.footprintSize)
 
             for solid in massing.solids {
                 let faces = solid.volume.faces
@@ -472,4 +703,5 @@ enum MetalCityMesh {
         }
         return built
     }
+
 }

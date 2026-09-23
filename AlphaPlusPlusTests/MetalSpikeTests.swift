@@ -130,3 +130,103 @@ final class MetalSpikeTests: XCTestCase {
         print("🟪 \(url.path)")
     }
 }
+
+/// **M0's two questions, measured on the biggest city there is.**
+@MainActor
+final class MetalMapTests: XCTestCase {
+
+    /// Switching renderer hides the city in the SpriteKit scene and keeps what
+    /// SpriteKit still owns — and switching back restores it exactly.
+    func testTheSceneHandsTheCityToMetalAndBack() {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 4, y: 4))
+        let game = ScenePlaytest(map: map)
+        game.scene.setDrawsCity(false)
+        XCTAssertFalse(game.scene.drawsCity)
+        XCTAssertEqual(game.scene.backgroundColor.alphaComponent, 0, "the Metal map would be hidden behind it")
+        game.click(.road, at: GridPosition(x: 1, y: 1))
+        XCTAssertEqual(game.controller.map[GridPosition(x: 1, y: 1)].zone, .road,
+                       "input still goes through the scene")
+        game.scene.setDrawsCity(true)
+        game.check("after handing the city back")
+    }
+
+    /// **The live path draws.** The renderer writes the finished frame into
+    /// the view's drawable from a compute kernel, which only works when the
+    /// drawable allows shader writes — and nothing else in the suite goes
+    /// near a drawable. So: the real view, in a real (offscreen) window,
+    /// asked for a real frame.
+    func testTheLiveViewPresentsFrames() throws {
+        var map = CityMap(width: 12, height: 12)
+        map.placeBuilding(zone: .commercial, origin: GridPosition(x: 4, y: 4))
+        map[GridPosition(x: 4, y: 4)].density = 3
+        let game = ScenePlaytest(map: map)
+        let coordinator = MetalMapView.Coordinator(controller: game.controller, scene: game.scene)
+        let renderer = try XCTUnwrap(coordinator.renderer)
+        let view = PassThroughMTKView(frame: NSRect(x: 0, y: 0, width: 640, height: 400), device: renderer.device)
+        view.colorPixelFormat = .bgra8Unorm
+        view.framebufferOnly = false
+        view.isPaused = true
+        view.enableSetNeedsDisplay = false
+        view.delegate = coordinator
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        // A window made in code frees itself on close by default, and this
+        // one is also released when the test ends — a double free.
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        view.draw()
+        view.draw()
+        XCTAssertGreaterThan(renderer.framesPresented, 0, "the live view never presented a frame")
+        window.close()
+    }
+
+    /// The map revision moves on every change, which is how the renderer
+    /// knows to rebuild without comparing whole maps.
+    func testEveryEditMovesTheRevision() {
+        let controller = GameController(rng: AlwaysZeroRNG())
+        let start = controller.mapRevision
+        controller.selectTool(.road)
+        controller.place(at: GridPosition(x: 2, y: 2))
+        XCTAssertGreaterThan(controller.mapRevision, start)
+        let placed = controller.mapRevision
+        controller.advanceSimulation()
+        XCTAssertGreaterThan(controller.mapRevision, placed)
+    }
+
+    /// **Is M0 playable on a big city?** Apex is the densest 64×64 fixture.
+    /// Two costs: rebuilding the whole mesh, which happens on every tick until
+    /// M1, and drawing a Retina-sized frame, at the resting camera and with
+    /// the whole city in view.
+    func testWhatApexCostsToDraw() throws {
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path), "needs Apex")
+        let map = try CitySaveFile.read(from: url).map
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        let projection = Isometric()
+        let bounds = projection.contentBounds(of: map)
+        let centre = CGPoint(x: bounds.midX, y: bounds.midY)
+        let size = CGSize(width: 2880, height: 1800)
+
+        let built = Date()
+        renderer.update(map, revision: nil)
+        let rebuildCold = Date().timeIntervalSince(built) * 1000
+        let rebuiltAgain = Date()
+        renderer.update(map, revision: nil)
+        let rebuildWarm = Date().timeIntervalSince(rebuiltAgain) * 1000
+
+        var report = String(format: "apex rebuild: %.1f ms cold, %.1f ms with the building cache warm\n",
+                            rebuildCold, rebuildWarm)
+        for (label, scale) in [("resting camera", 0.5), ("whole city", 3.0)] as [(String, CGFloat)] {
+            let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: size)
+            // Twice, and report the second: the first pays for pipeline and
+            // texture set-up that a running game has already paid.
+            _ = renderer.render(map, camera: camera, wetness: 1)
+            let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 1))
+            report += String(format: "apex %@: %.2f ms GPU at 2880×1800, %d triangles, %d lights\n",
+                             label, frame.gpuMilliseconds, frame.triangles, frame.lights)
+        }
+        try report.write(to: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("build/ContactSheet/metal-apex.txt"),
+                         atomically: true, encoding: .utf8)
+    }
+}

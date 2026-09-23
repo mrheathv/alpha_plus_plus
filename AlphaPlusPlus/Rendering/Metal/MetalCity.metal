@@ -1,17 +1,6 @@
-import Foundation
-
-/// The spike renderer's shaders, compiled at runtime.
-///
-/// **A string rather than a `.metal` file**, and on purpose for now. This
-/// Xcode install has no Metal toolchain — newer Xcodes download it separately
-/// (`xcodebuild -downloadComponent MetalToolchain`) — so a `.metal` file in the
-/// target fails the whole build. `MTLDevice.makeLibrary(source:)` compiles
-/// through the OS's own Metal framework instead, which is exactly how the
-/// game's `SKShader`s already work. If the migration goes ahead, precompiling
-/// is worth the toolchain; for a spike it is not.
-enum MetalCityShaders {
-    static let source = #"""
-// The spike renderer's shaders — see `MetalCityRenderer`.
+// The city renderer's shaders — see `MetalCityRenderer`. Compiled with the
+// app now that the Metal toolchain is installed, so a mistake here fails the
+// build rather than failing silently at launch.
 //
 // Four stages: the scene (drawn twice, once mirrored under the street for the
 // reflection and once for real), a bloom chain, and a composite. Everything is
@@ -48,8 +37,12 @@ struct Uniforms {
     float4x4 viewProjection;
     float4 frame;             // x, y: viewport in pixels · z: wetness 0…1 · w: 1 when mirrored
     float4 moonAndTime;       // xyz: direction moonlight comes from · w: seconds
-    uint4 counts;             // x: lights
+    uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels
 };
+
+// Most lights a single screen tile can carry. A tile over the densest block
+// on Apex sees about twenty; the rest is headroom.
+constant uint maxLightsPerTile = 64;
 
 struct Varyings {
     float4 clip [[position]];
@@ -105,8 +98,13 @@ vertex Varyings sceneVertex(uint id [[vertex_id]],
 /// Light a point: dim moonlight, a floor of ambient, and every neon source
 /// near enough to reach it. The neon is the whole look — a wall is dark until
 /// something lit stands near it.
+///
+/// **Only the lights `cullLights` found for this pixel's screen tile.** Every
+/// pixel checking every light cost 57 ms a frame on Apex at Retina size; a
+/// tile's list is a handful long.
 float3 lighting(float3 world, float3 normal, constant Uniforms &u,
-                const device Light *lights) {
+                const device Light *lights, uint2 pixel,
+                const device uint *tileCounts, const device uint *tileLights) {
     // **Night comes from dim light, not from black paint.** The first pass
     // gave the ground a near-black colour, and nothing — not a lamp, not a
     // sign — could show up on it. Surfaces carry real albedo; the dark is a
@@ -114,8 +112,10 @@ float3 lighting(float3 world, float3 normal, constant Uniforms &u,
     float3 moonColor = float3(0.20, 0.19, 0.34);
     float3 light = float3(0.035, 0.03, 0.06)
         + moonColor * max(0.0, dot(normal, u.moonAndTime.xyz)) * 0.6;
-    for (uint i = 0; i < u.counts.x; i++) {
-        Light l = lights[i];
+    uint tile = (pixel.y / u.counts.z) * u.counts.y + pixel.x / u.counts.z;
+    uint count = tileCounts[tile];
+    for (uint k = 0; k < count; k++) {
+        Light l = lights[tileLights[tile * maxLightsPerTile + k]];
         float3 toLight = float3(l.position) - world;
         float d = length(toLight);
         if (d > l.radius) continue;
@@ -143,13 +143,24 @@ float rimAmount(float2 uv, float2 size) {
 fragment float4 sceneFragment(Varyings in [[stage_in]],
                               constant Uniforms &u [[buffer(1)]],
                               const device Light *lights [[buffer(2)]],
+                              const device uint *tileCounts [[buffer(3)]],
+                              const device uint *tileLights [[buffer(4)]],
                               texture2d<float> reflection [[texture(0)]]) {
     // Nothing below the street in the mirrored pass — a reflection of
     // something that is itself underground is not a reflection of anything.
     if (u.frame.w > 0.5 && in.ground > 0.5) discard_fragment();
 
     float3 n = normalize(in.normal);
-    float3 color = in.albedo * lighting(in.world, n, u, lights);
+    // The reflection gets moonlight and neon but no point lights: it is
+    // blurred by the street and mostly emissive anyway, and its fragments sit
+    // at mirrored screen positions the tile lists were not built for.
+    float3 color;
+    if (u.frame.w > 0.5) {
+        color = in.albedo * (float3(0.035, 0.03, 0.06)
+            + float3(0.20, 0.19, 0.34) * max(0.0, dot(n, u.moonAndTime.xyz)) * 0.6);
+    } else {
+        color = in.albedo * lighting(in.world, n, u, lights, uint2(in.clip.xy), tileCounts, tileLights);
+    }
 
     // Walls darken toward their feet: the soft contact shadow Mini Motorways
     // leans on for depth, bought here for a multiply.
@@ -190,6 +201,42 @@ fragment float4 sceneFragment(Varyings in [[stage_in]],
         color *= 0.9 + 0.2 * valueNoise(in.world.xy * 3.1);
     }
     return float4(color, 1);
+}
+
+// MARK: - Light culling
+
+struct CullParams {
+    float4x4 viewProjection;
+    float4 viewportAndExtent;   // xy: viewport in pixels · zw: pixels one tile of radius covers
+    uint4 counts;               // x: lights · y: tiles across · z: tiles down · w: tile size
+};
+
+/// **Which lights can reach each 32-pixel screen tile.** One thread a tile,
+/// testing every light's screen-space box against its own. A few thousand
+/// tiles by a few thousand lights is nothing for the GPU — and it turns the
+/// per-pixel light loop from "every light in view" into "the few that reach
+/// here", which is the whole difference between 57 ms and a playable frame.
+kernel void cullLights(const device Light *lights [[buffer(0)]],
+                       constant CullParams &p [[buffer(1)]],
+                       device uint *tileCounts [[buffer(2)]],
+                       device uint *tileLights [[buffer(3)]],
+                       uint gid [[thread_position_in_grid]]) {
+    uint tilesX = p.counts.y, tilesY = p.counts.z, size = p.counts.w;
+    if (gid >= tilesX * tilesY) return;
+    float2 low = float2(gid % tilesX, gid / tilesX) * float(size);
+    float2 high = low + float(size);
+    uint n = 0;
+    for (uint i = 0; i < p.counts.x && n < maxLightsPerTile; i++) {
+        float4 clip = p.viewProjection * float4(float3(lights[i].position), 1);
+        float2 centre = float2((clip.x * 0.5 + 0.5) * p.viewportAndExtent.x,
+                               (0.5 - clip.y * 0.5) * p.viewportAndExtent.y);
+        float2 extent = lights[i].radius * p.viewportAndExtent.zw;
+        if (centre.x + extent.x < low.x || centre.x - extent.x > high.x ||
+            centre.y + extent.y < low.y || centre.y - extent.y > high.y) continue;
+        tileLights[gid * maxLightsPerTile + n] = i;
+        n++;
+    }
+    tileCounts[gid] = n;
 }
 
 // MARK: - Bloom
@@ -286,6 +333,4 @@ kernel void composite(texture2d<float, access::sample> scene [[texture(0)]],
     float g = hash21(float2(gid) * 0.731) - 0.5;
     c += g * settings.grain * (1 - saturate(dot(c, float3(0.33))));
     output.write(float4(saturate(c), 1), gid);
-}
-"""#
 }

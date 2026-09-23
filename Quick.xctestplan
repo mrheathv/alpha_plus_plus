@@ -27,7 +27,8 @@
         "FrameCostDiagnosticTests",
         "JourneyLookupCostTests",
         "HarnessTimingTests",
-        "MetalSpikeTests"
+        "MetalSpikeTests",
+        "MetalMapTests/testWhatApexCostsToDraw()"
       ]
     }
   ],

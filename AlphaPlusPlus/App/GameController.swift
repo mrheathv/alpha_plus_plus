@@ -26,8 +26,22 @@ final class GameController: ObservableObject {
     /// `place(at:)` below, so every mutation goes through one rule-checked
     /// path instead of scattered `map[position].zone = ...` call sites.
     @Published private(set) var map: CityMap {
-        didSet { updateGuide() }
+        didSet {
+            mapRevision &+= 1
+            updateGuide()
+        }
     }
+
+    /// Bumped on every change to `map`, however small.
+    ///
+    /// For renderers that keep their own copy of the city on the GPU and need
+    /// a cheap "has anything moved?" — comparing two whole `CityMap`s every
+    /// frame would cost more than the frame. Deliberately not `@Published`:
+    /// SwiftUI already hears about the map through `map` itself.
+    private(set) var mapRevision = 0
+
+    /// Which renderer draws the map. See `MapRenderer`.
+    @Published var mapRenderer: MapRenderer = .classic
 
     /// Which `ZoneType` the next click will paint. `.empty` doubles as the
     /// bulldoze tool — clicking with it clears a tile back to unzoned land,

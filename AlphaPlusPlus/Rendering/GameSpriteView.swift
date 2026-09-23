@@ -11,6 +11,9 @@ struct GameSpriteView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GameSKView {
         let view = GameSKView()
+        // So that, with the Metal renderer on, the scene's cursor and
+        // overlays can sit over the Metal map with the city showing through.
+        view.allowsTransparency = true
         view.presentScene(scene)
         view.preferredFramesPerSecond = 60
         return view

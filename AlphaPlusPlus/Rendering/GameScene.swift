@@ -1307,6 +1307,35 @@ final class GameScene: SKScene {
         retroEffectLayer.calculateAccumulatedFrame().size
     }
 
+    // MARK: - Metal migration
+
+    /// Whether this scene draws the city, or leaves it to the Metal renderer
+    /// underneath — see `MapRenderer`.
+    ///
+    /// **The scene keeps everything else.** During the migration SpriteKit
+    /// still owns input, the camera, the placement cursor, route diagrams and
+    /// the rain, and they stay drawn here, over a transparent background, on
+    /// top of the Metal map. Each migration phase moves another of them across
+    /// until this scene has nothing left to draw.
+    private(set) var drawsCity = true
+
+    func setDrawsCity(_ draws: Bool) {
+        guard draws != drawsCity else { return }
+        drawsCity = draws
+        tileLayer.isHidden = !draws
+        sunGlowNode.isHidden = !draws
+        backdropNode.isHidden = !draws
+        // The post-process would grade the transparent overlay as if it were
+        // the city, and the Metal renderer has its own.
+        retroEffectLayer.shouldEnableEffects = draws
+        backgroundColor = draws ? RenderPalette.background : .clear
+    }
+
+    /// Where the camera is looking, for the Metal renderer to follow.
+    var cameraCentre: CGPoint { cameraNode.position }
+    /// Scene points per view point.
+    var cameraScale: CGFloat { cameraNode.xScale }
+
     func setPostProcessEnabledForTesting(_ enabled: Bool) {
         retroEffectLayer.shouldEnableEffects = enabled
     }
@@ -1380,7 +1409,7 @@ final class GameScene: SKScene {
     /// switched away from.
     func restyle() {
         tileRenderer.textures.purge()
-        backgroundColor = RenderPalette.background
+        backgroundColor = drawsCity ? RenderPalette.background : .clear
         // Bloom lives in the shader rather than in a texture, so it is the
         // one part of a style change that a purge-and-rebuild would *not*
         // pick up on its own.

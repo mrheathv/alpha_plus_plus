@@ -7636,6 +7636,51 @@ The shaders are a Swift string compiled at runtime (`MetalCityShaders`),
 because this Xcode has no Metal toolchain. A `.metal` file fails the whole
 build until someone runs `xcodebuild -downloadComponent MetalToolchain`.
 
+### M0 (done): the Metal map in the real game
+
+*Settings ▸ Renderer ▸ Metal (beta)* draws the city through
+`MetalCityRenderer`, live. The plan is the "The Metal Migration" artifact.
+
+**SpriteKit keeps everything that is not the city, for now.** In Metal mode
+`GameScene.setDrawsCity(false)` hides the city, the sun and the backdrop,
+turns off its post-process, and goes transparent. The scene keeps input, the
+camera, the placement cursor, route diagrams and the rain, drawn *over*
+`MetalMapView`, which reads the scene's camera every frame. So nothing about
+placing, zoning, pipes, routes or the inspector changed, and each later
+phase moves another piece across until the scene has nothing left to draw.
+
+- **The shaders are a real `.metal` file** now that the toolchain is
+  installed, so a mistake fails the build rather than the launch.
+- **Buildings are cached** by zone, density and variant (`MetalCityMesh.Cache`),
+  the same idea as `IsoTextureCache` one level up. The mesh rebuilds only when
+  `GameController.mapRevision` moves, a counter bumped on every map write and
+  deliberately not `@Published`.
+- **MSAA colour and depth are memoryless.** On Apple Silicon a render pass
+  lives in on-chip tile memory, so a target that is only ever resolved never
+  needs to exist in RAM.
+
+**Tiled light culling had to come forward from M1**, because measuring said
+so. On Apex (the densest 64×64 fixture) at 2880×1800, every pixel checking
+every light cost **57 ms of GPU at the resting camera**, about 17 fps. A
+compute pass (`cullLights`) now lists, for each 32-pixel screen tile, the
+lights that can reach it, and each pixel walks only its tile's list:
+
+| Apex, 2880×1800 | before | after |
+|---|---|---|
+| resting camera | 57.4 ms, capped at 384 lights | **11.2 ms, all 1,453** |
+| whole city | 18.3 ms | **6.9 ms, all 2,376** |
+| mesh rebuild | | 4.7 ms with the building cache warm |
+
+The reflection pass takes no point lights. It is blurred and mostly emissive,
+and its fragments sit at mirrored screen positions the tile lists were not
+built for.
+
+`MetalMapTests.testTheLiveViewPresentsFrames` puts the real view in an
+offscreen window and draws through the drawable, which no picture test
+touches. It crashed on its first run, and the crash was the *test*: an
+`NSWindow` made in code frees itself on close, and it was also released at
+the end of the test. `isReleasedWhenClosed = false`.
+
 ### Two test plans: Quick and Full
 
 A full run took about 23 minutes in Debug, which is too long to run before

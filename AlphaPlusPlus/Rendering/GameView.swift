@@ -54,7 +54,15 @@ struct GameView: View {
             if !controller.isScreenshotMode { toolRail }
             Group {
                 if let scene {
-                    GameSpriteView(scene: scene)
+                    // With the Metal renderer on, it draws the city underneath
+                    // and the SpriteKit view on top keeps input, the camera
+                    // and everything not yet ported. See `MapRenderer`.
+                    ZStack {
+                        if controller.mapRenderer == .metal {
+                            MetalMapView(controller: controller, scene: scene)
+                        }
+                        GameSpriteView(scene: scene)
+                    }
                 } else {
                     Color.clear
                 }
@@ -104,8 +112,13 @@ struct GameView: View {
         }
         .onAppear {
             if scene == nil {
-                scene = GameScene(controller: controller)
+                let made = GameScene(controller: controller)
+                made.setDrawsCity(controller.mapRenderer == .classic)
+                scene = made
             }
+        }
+        .onChange(of: controller.mapRenderer) {
+            scene?.setDrawsCity(controller.mapRenderer == .classic)
         }
         // `overlayMode` is bound directly to the Picker below (`$controller.overlayMode`),
         // so nothing else runs when it changes — but every tile's *color*
