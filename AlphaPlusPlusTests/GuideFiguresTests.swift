@@ -1,4 +1,3 @@
-import SpriteKit
 import SwiftUI
 import XCTest
 @testable import AlphaPlusPlus
@@ -125,10 +124,10 @@ final class GuideFiguresTests: XCTestCase {
     ///
     /// The first picture in this project to show the chrome *on top of the
     /// city*, and it needs composing by hand because neither renderer can do
-    /// it alone: `ImageRenderer` cannot draw the hosted `SKView` (the live
+    /// it alone: `ImageRenderer` cannot draw the hosted Metal view (the live
     /// cockpit render comes out with a blank rectangle where the map is), and
-    /// `SKView.texture(from:)` knows nothing about SwiftUI. Both halves are
-    /// real — a scene frame with the shader on it, and the actual
+    /// the Metal renderer knows nothing about SwiftUI. Both halves are real —
+    /// a frame from `MetalCityRenderer` with its route diagram, and the actual
     /// `TransitPanel` the app builds — drawn into one bitmap at the offset
     /// `GameView` puts the panel at.
     ///
@@ -141,23 +140,20 @@ final class GuideFiguresTests: XCTestCase {
         var map = Self.transitFixture()
         map.trafficLoad = Traffic.computeLoad(for: map)
 
-        let game = ScenePlaytest(map: map, size: CGSize(width: 1240, height: 700))
-        game.play()
-        game.look(at: .bus)
-        game.frame()
-        game.zoom(by: 0.82)
+        let controller = Self.controller(for: map)
+        controller.isRunning = true
+        controller.overlayMode = .bus
 
         // A second line, half drawn, and **along the other street** — the
         // first version drew it between two stations the finished line
         // already called at, so the figure showed one corridor wearing two
         // colours instead of a line being added to a network.
-        game.controller.beginTransitRoute(mode: .bus)
-        game.controller.addStopToRoute(at: GridPosition(x: 6, y: 5))
-        game.controller.addStopToRoute(at: GridPosition(x: 18, y: 5))
-        game.scene.refreshAll()
+        controller.beginTransitRoute(mode: .bus)
+        controller.addStopToRoute(at: GridPosition(x: 6, y: 5))
+        controller.addStopToRoute(at: GridPosition(x: 18, y: 5))
 
-        let frame = try sceneFrame(game)
-        let panel = try panelImage(for: game.controller)
+        let frame = try cityFrame(controller, size: CGSize(width: 1240, height: 700), zoom: 0.82)
+        let panel = try panelImage(for: controller)
         let composed = try XCTUnwrap(
             Self.compose(frame: frame, panel: panel, inset: RetroMetrics.gutter),
             "failed to compose the transit figure"
@@ -173,21 +169,20 @@ final class GuideFiguresTests: XCTestCase {
         Self.plumb(&map)
         map.trafficLoad = Traffic.computeLoad(for: map)
 
-        let game = ScenePlaytest(map: map, size: CGSize(width: 780, height: 470))
+        let controller = Self.controller(for: map)
         // Supply is a pure function of the map and nothing has ticked, so
         // without this every building reads as unsupplied and the Water view
         // illustrates one state twice.
-        game.controller.recomputeUtilitySupply()
-        game.play()
+        controller.recomputeUtilitySupply()
+        controller.isRunning = true
+        let size = CGSize(width: 780, height: 470)
 
         var cells: [(caption: String, image: NSImage)] = []
         for view in [OverlayMode.none, .problems, .water] {
-            game.look(at: view)
-            game.frame()
-            game.zoom(by: 0.88)
-            cells.append((caption: view.displayName, image: try sceneFrame(game)))
+            controller.overlayMode = view
+            cells.append((caption: view.displayName, image: try cityFrame(controller, size: size, zoom: 0.88)))
         }
-        try write(Self.sheet(cells: cells, columns: 3, cellSize: game.scene.size,
+        try write(Self.sheet(cells: cells, columns: 3, cellSize: size,
                              title: "One city, three views"),
                   named: "guide-views")
     }
@@ -196,8 +191,7 @@ final class GuideFiguresTests: XCTestCase {
     /// show: the panel's prompt is different at every stage, and the stages
     /// are the instructions.
     func testRenderTheRouteEditorSteps() throws {
-        let game = ScenePlaytest(map: Self.transitFixture(),
-                                 size: CGSize(width: 400, height: 300))
+        let game = (controller: Self.controller(for: Self.transitFixture()), ())
         let captions = ["1 · pick the tool", "2 · click a station", "3 · click more, then finish"]
         let stops = [GridPosition(x: 6, y: 12), GridPosition(x: 12, y: 12), GridPosition(x: 18, y: 12)]
         game.controller.beginTransitRoute(mode: .bus)
@@ -245,12 +239,12 @@ final class GuideFiguresTests: XCTestCase {
             map[cell].damagedBy = .fireStation
         }
 
-        let game = ScenePlaytest(map: map, size: CGSize(width: 1180, height: 620))
-        game.play()
-        game.frame()
+        let controller = Self.controller(for: map)
+        controller.isRunning = true
+        let size = CGSize(width: 1180, height: 620)
         try write(Self.sheet(cells: [(caption: "wants water and power · under construction · alight",
-                                      image: try sceneFrame(game))],
-                             columns: 1, cellSize: game.scene.size,
+                                      image: try cityFrame(controller, size: size))],
+                             columns: 1, cellSize: size,
                              title: "What a block tells you"),
                   named: "guide-marks")
     }
@@ -292,43 +286,21 @@ final class GuideFiguresTests: XCTestCase {
         // A cover band rather than a window: wide and short, so it sits at the
         // top of a page without pushing the words off the screen.
         let frame = CGSize(width: 1800, height: 780)
-        let scene = GameScene(controller: controller)
-        scene.size = frame
-        let view = SKView(frame: NSRect(origin: .zero, size: frame))
-        view.presentScene(scene)
-        scene.rebuildEntireGrid()
-        scene.refreshAll()
-
+        let renderer = try XCTUnwrap(MetalCityRenderer(), "no Metal device")
         let spot = Self.mostVariedNeighbourhood(in: controller.map)
         print("🎞  \(name) cover centred on \(spot.position) — \(spot.report)")
 
+        // The same three cameras as ever, in the renderer's points per pixel.
+        let centre = Self.projection.project(CGFloat(spot.position.x), CGFloat(spot.position.y), 0)
         for scale in [0.7, 1.0, 1.35] as [CGFloat] {
-            // Scale first: `centerCameraForTesting` clamps against the camera's
-            // *current* zoom, so centring before scaling clamps to the wrong
-            // rectangle and the frame drifts off the spot.
-            scene.setCameraScaleForTesting(scale)
-            scene.centerCameraForTesting(on: spot.position)
-            // Culling and the detail tier both read the camera inside
-            // `update`, so a capture without this gets the far textures at
-            // close range — a frame the game never draws.
-            for step in 0 ..< 4 { scene.update(TimeInterval(step) / 60) }
-            _ = view.texture(from: scene, crop: CGRect(origin: .zero, size: frame))
-            let texture = try XCTUnwrap(
-                view.texture(from: scene, crop: CGRect(origin: .zero, size: frame)),
-                "the scene rendered nothing at \(scale)"
-            )
-            let image = NSImage(cgImage: texture.cgImage(), size: frame)
-            let data = NSBitmapImageRep(data: image.tiffRepresentation ?? Data())?
-                .representation(using: .png, properties: [:])
-            try write(data, named: "guide-cover-\(Int(scale * 100))")
+            let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: frame)
+            let image = try XCTUnwrap(renderer.render(controller.map, camera: camera, wetness: 0, time: 2)?.image,
+                                      "the city rendered nothing at \(scale)")
+            try write(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
+                      named: "guide-cover-\(Int(scale * 100))")
         }
     }
 
-    /// The block with the most *kinds* of thing in it.
-    ///
-    /// Scored rather than chosen by eye, so it survives the city being
-    /// re-minted: a hand-picked coordinate is a number that silently stops
-    /// meaning anything the moment the map changes under it.
     private static func mostVariedNeighbourhood(
         in map: CityMap, radius: Int = 7
     ) -> (position: GridPosition, report: String) {
@@ -441,62 +413,42 @@ final class GuideFiguresTests: XCTestCase {
     /// cell — the lot anchored rather than the building, so a bus shelter
     /// stays visibly smaller than a power plant instead of every cell being
     /// scaled to fill.
+    /// One building, alone on its lot, drawn by the Metal renderer the game
+    /// uses (`MetalSheet`). `seed` picks the variant the way a lot does, from
+    /// its position; rendered at twice the cell's size, since the sheet is
+    /// composed at 2×.
     private func buildingCell(_ zone: ZoneType, density: Int, seed: GridPosition) throws -> NSImage {
-        let size = Self.cell
-        let projection = Self.projection
-        let footprint = CGFloat(zone.footprintSize)
-        let scene = SKScene(size: size)
-        scene.backgroundColor = RenderPalette.background
-
-        let lotCentre = projection.project(footprint / 2, footprint / 2, 0)
-        let origin = CGPoint(x: size.width / 2 - lotCentre.x, y: size.height * 0.32 - lotCentre.y)
-
-        for x in 0 ..< zone.footprintSize {
-            for y in 0 ..< zone.footprintSize {
-                let tile = SKShapeNode(path: projection.tileDiamond(x: CGFloat(x), y: CGFloat(y), inset: 0.015))
-                tile.fillColor = RenderPalette.color(for: zone, density: density)
-                tile.strokeColor = RenderPalette.ground.blended(withFraction: 0.3, of: .white) ?? .clear
-                tile.lineWidth = 0.6
-                tile.position = origin
-                scene.addChild(tile)
-            }
-        }
-
-        if let massing = ZoneMassing.make(for: zone, density: density, seed: seed) {
-            let node = IsometricBuilding.node(
-                for: massing,
-                accent: ZoneMassing.accent(for: zone, density: density),
-                tier: max(1, RenderPalette.growthTier(for: density)),
-                in: projection
-            )
-            node.position = origin
-            scene.addChild(node)
-        }
-
-        let view = SKView(frame: NSRect(origin: .zero, size: size))
-        view.presentScene(scene)
-        let texture = try XCTUnwrap(
-            view.texture(from: scene, crop: CGRect(origin: .zero, size: size)),
-            "\(zone.rawValue) at \(density): SKView produced no texture"
-        )
-        return NSImage(cgImage: texture.cgImage(), size: size)
+        let renderer = try XCTUnwrap(MetalCityRenderer(), "no Metal device")
+        let cell = MetalSheet.Cell(label: zone.rawValue, zone: zone, density: density,
+                                   variant: zone.maxDensity > 0 ? IsoTextureCache.variant(for: seed) : nil)
+        let pixels = CGSize(width: Self.cell.width * 2, height: Self.cell.height * 2)
+        return NSImage(cgImage: try MetalSheet.render(cell, pixels: pixels, with: renderer), size: Self.cell)
     }
 
-    /// A frame off the live session.
-    ///
-    /// **The first capture of any scene is thrown away**, because it comes back
-    /// measurably different from the second with nothing changed in between —
-    /// the same correction `CityPortraitTests` records. A figure taken from it
-    /// is a picture of a frame the game never draws.
-    private func sceneFrame(_ game: ScenePlaytest) throws -> NSImage {
-        let scene = game.scene
-        let view = try XCTUnwrap(scene.view, "the session's scene is not on a view")
-        _ = view.texture(from: scene)
-        let texture = try XCTUnwrap(view.texture(from: scene), "SKView produced no frame")
-        return NSImage(cgImage: texture.cgImage(), size: scene.size)
+    /// A controller for a fixture map, with every tool available.
+    private static func controller(for map: CityMap) -> GameController {
+        GameController(map: map, rng: SeededRNG(seed: 0xA1F4), peakPopulation: Unlocks.everythingUnlocked)
     }
 
-    /// The real `TransitPanel`, built the way `GameView` builds it.
+    /// The city as the game draws it, through the Metal renderer, reading
+    /// the controller the way the Metal view does: its view, and a line
+    /// being drawn. Framed on the whole map, then `zoom` closer; rendered at
+    /// twice `size` for a sheet composed at 2×.
+    private func cityFrame(_ controller: GameController, size: CGSize, zoom: CGFloat = 1) throws -> NSImage {
+        let renderer = try XCTUnwrap(MetalCityRenderer(), "no Metal device")
+        renderer.overlayMode = controller.overlayMode
+        renderer.showsTraffic = controller.overlayMode.showsRoadNetwork
+        renderer.routeDraft = controller.routeDraft
+        let map = controller.map
+        let bounds = Self.projection.contentBounds(of: map)
+        let pixels = CGSize(width: size.width * 2, height: size.height * 2)
+        let fit = max(bounds.width / pixels.width, bounds.height / pixels.height) * 1.08 * zoom
+        let camera = MetalCityRenderer.Camera(centre: CGPoint(x: bounds.midX, y: bounds.midY), scale: fit, size: pixels)
+        let image = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 0, time: 2)?.image,
+                                  "the city rendered nothing")
+        return NSImage(cgImage: image, size: size)
+    }
+
     private func panelImage(for controller: GameController) throws -> NSImage {
         let mode = TransitRoute.Mode.bus
         let panel = TransitPanel(
