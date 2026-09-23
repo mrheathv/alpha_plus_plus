@@ -1007,7 +1007,11 @@ final class MetalCityRenderer {
                            Float(motionClock.truncatingRemainder(dividingBy: 10_000)),
                            // Rain falling now, for the rings it makes on the
                            // wet street. Off with Reduce Motion, like the drops.
-                           VisualStyle.reduceMotion ? 0 : rainfall, 0),
+                           VisualStyle.reduceMotion ? 0 : rainfall,
+                           // P6's shader detail — window interiors, panel lines,
+                           // sky on dark glass — is part of the graded look;
+                           // Classic is the plain frame.
+                           VisualStyle.current == .cinematic ? 1 : 0),
             // **No fog under a view.** A view answers one question with
             // colour, and sunset-tinted air pulled Power's "wanting" and "not
             // applicable" together for a colourblind eye — measured by
@@ -1400,6 +1404,17 @@ enum MetalCityMesh {
         return SIMD3(f(c.redComponent), f(c.greenComponent), f(c.blueComponent))
     }
 
+    /// A lit window's surface tag: 0.201…0.299, carrying `seed` (0…1). The
+    /// shader reads anything in 0.2…0.3 as a window and the rest as its seed.
+    static func windowTag(seed: Float) -> Float { 0.201 + 0.098 * seed }
+    static func isWindowTag(_ ground: Float) -> Bool { ground > 0.2 && ground < 0.3 }
+
+    /// A stable 0…1 hash of a point, for per-window variety.
+    static func hash(_ p: SIMD3<Float>) -> Float {
+        let v = sin(simd_dot(p, SIMD3(12.9898, 78.233, 37.719))) * 43758.5453
+        return v - v.rounded(.down)
+    }
+
     static func luminance(_ c: SIMD3<Float>) -> Float { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
 
     /// A polygon, fanned into triangles. Quads carry a uv and a size so the
@@ -1711,10 +1726,18 @@ enum MetalCityMesh {
             let rise = heightScale(zone: tile.zone, density: tile.density, at: tile.position, in: map)
             var vertices = local.vertices
             var index = 0
+            // Every lot drawing this variant would otherwise light the same
+            // panes the same way; mix the lot into each window's seed.
+            let lotSeed = hash(SIMD3(dx, dy, 7.3))
             while index < vertices.count {
                 vertices[index] += dx
                 vertices[index + 1] += dy
                 vertices[index + 2] *= rise
+                let tag = vertices[index + 19]
+                if isWindowTag(tag) {
+                    let seed = (tag - 0.201) / 0.098 + lotSeed
+                    vertices[index + 19] = windowTag(seed: seed - seed.rounded(.down))
+                }
                 index += MetalCityRenderer.GPUVertex.floatCount
             }
             // Signs, from the building as it actually stands on this lot.
@@ -1912,8 +1935,12 @@ enum MetalCityMesh {
                 if lit {
                     // Tagged 0.25, so the shader can calm windows from afar
                     // without touching the neon that carries the form.
+                    // The window's own seed rides in its surface tag, inside
+                    // the band the shader reads as "window" (0.2…0.3): what
+                    // P6 varies each pane by — warmth, blinds, a dark room.
+                    let middle = corners.reduce(SIMD3<Float>.zero, +) / 4
                     polygon(corners, normal: normal, albedo: .zero, emissive: color * 0.95 * role.windows,
-                            ground: 0.25)
+                            ground: Self.windowTag(seed: Self.hash(middle)))
                     let area = simd_length(corners[1] - corners[0]) * simd_length(corners[3] - corners[0])
                     var entry = lightPerFace[panel.face] ?? (.zero, 0, .zero, 0)
                     entry.sum += color * area

@@ -38,7 +38,7 @@ struct Uniforms {
     float4 frame;             // x, y: viewport in pixels · z: wetness 0…1 · w: 1 when mirrored
     float4 moonAndTime;       // xyz: direction moonlight comes from · w: seconds
     uint4 counts;             // x: lights · y: tiles across · z: tile size in pixels · w: map width | height << 16
-    float4 overlay;           // x: 1 when a view washes buildings toward its colours · y: motion clock · z: rainfall 0…1
+    float4 overlay;           // x: 1 when a view washes buildings toward its colours · y: motion clock · z: rainfall 0…1 · w: 1 for P6's shader detail
     float4 fog;               // x: low fog · y: its height in tiles · z: distance haze · w: street gloss
     float4 zenith;            // rgb: the air overhead, near the viewer · w: how far out the camera is, 0…1
     float4 horizon;           // rgb: the far air and the sky past the map · w: gloss on open ground
@@ -230,12 +230,66 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         color *= 0.55 + 0.45 * smoothstep(0.0, 0.7, in.world.z);
     }
 
-    // Windows (tagged 0.25) calm as the camera pulls back: from afar a
-    // facade of lit panels is speckle, and the neon outline is what carries
-    // the form. Full strength at rest, half from the widest camera.
-    float farAway = saturate((u.zenith.w - 0.5) * 2.0);
+    // **P6: detail in the shader**, off under the Classic look and in the
+    // mirrored pass (a reflection is too blurred to carry it). Detail that
+    // would cost millions of triangles costs a few instructions here, and
+    // everything below fades out when it would be smaller than a few pixels —
+    // detail under the size it can be read at is speckle.
+    bool detail = u.overlay.w > 0.5 && u.frame.w < 0.5;
     bool window = in.ground > 0.2 && in.ground < 0.3;
-    float3 glow = in.emissive * (window ? mix(1.0, 0.5, farAway) : 1.0)
+
+    // **Panel lines**: a faint storey line and cladding joints on every wall,
+    // in world space so they run straight across a building's faces.
+    if (detail && !window && in.ground < 0.2 && abs(n.z) < 0.5
+        && max(in.albedo.r, max(in.albedo.g, in.albedo.b)) > 0.0) {
+        float along = abs(n.x) > 0.5 ? in.world.y : in.world.x;
+        float2 p = float2(along / 0.5, in.world.z / 0.36);
+        float2 d = min(fract(p), 1.0 - fract(p));
+        float2 w = max(fwidth(p), float2(1e-4));
+        float2 lines = 1.0 - smoothstep(w * 0.5, w * 1.5, d);
+        // Only where a storey is at least a dozen pixels tall.
+        float visible = saturate((1.0 / w.y - 12.0) / 12.0);
+        color *= 1.0 - 0.35 * max(lines.x * 0.6, lines.y) * visible;
+    }
+
+    // Windows calm as the camera pulls back: from afar a facade of lit
+    // panels is speckle, and the neon outline is what carries the form. Full
+    // strength at rest, half from the widest camera.
+    float farAway = saturate((u.zenith.w - 0.5) * 2.0);
+    float3 lit = in.emissive;
+    if (detail && window) {
+        // **Every window a room.** Its seed rides in its surface tag
+        // (`MetalCityMesh.windowTag`), mixed with its lot, so two towers of
+        // the same design do not light the same panes the same way.
+        float seed = (in.ground - 0.201) / 0.098;
+        // Warm or cool light behind the glass: a night skyline is never one
+        // colour of window. A tint on the window's own colour, not a
+        // replacement for it: mixed toward a neutral white it washed the
+        // palette's cyan and gold windows out to cream.
+        float3 temperature = fract(seed * 7.13) < 0.5 ? float3(1.12, 0.9, 0.74) : float3(0.82, 0.96, 1.15);
+        lit *= mix(float3(1.0), temperature, 0.8) * (0.85 + 0.3 * fract(seed * 3.7));
+        // How big the pane is on screen, for what can be drawn inside it.
+        float pixels = 1.0 / max(max(fwidth(in.uv.x), fwidth(in.uv.y)), 1e-4);
+        float close = saturate((pixels - 12.0) / 20.0);
+        bool dark = fract(seed * 13.7) < 0.14;
+        if (dark) lit *= 0.06;
+        // Blinds, drawn part way down: slats up close, a dimmer band from afar.
+        if (fract(seed * 29.3) < 0.3) {
+            float drawn = 0.2 + 0.7 * fract(seed * 51.1);
+            float slats = 0.6 + 0.4 * step(0.45, fract(in.uv.y * 7.0));
+            if (in.uv.y > drawn) lit *= mix(0.6, slats * 0.55, close);
+        }
+        // A room behind the glass: darker just inside the frame.
+        float2 edge = min(in.uv, 1.0 - in.uv);
+        lit *= mix(1.0, 0.7 + 0.3 * smoothstep(0.0, 0.22, min(edge.x, edge.y)), close);
+        // One window in a hundred has a failing tube.
+        if (fract(seed * 97.1) < 0.012) {
+            lit *= 0.65 + 0.35 * step(0.25, fract(sin(u.overlay.y * 5.0 + seed * 40.0) * 43.7));
+        }
+        // A dark room's glass shows the sunset sky, more of it higher up.
+        if (dark) lit += airColor(in.clip.y / u.frame.y, u) * (0.2 + 0.3 * saturate(in.world.z / 4.0));
+    }
+    float3 glow = lit * (window ? mix(1.0, 0.5, farAway) : 1.0)
         + in.rim * rimAmount(in.uv, in.size);
 
     // **A view recolours each building's light toward its answer** —
