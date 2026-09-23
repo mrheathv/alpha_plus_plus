@@ -230,3 +230,38 @@ final class MetalMapTests: XCTestCase {
                          atomically: true, encoding: .utf8)
     }
 }
+
+/// **The player's own city, through both renderers.** A diagnostic for a
+/// report from play, reading the autosave — so it skips on any machine that
+/// has not played, and lives only in the Full plan.
+@MainActor
+final class MetalAutosaveDiagnosticTests: XCTestCase {
+    func testRenderTheAutosaveBothWays() throws {
+        guard let autosave = CityAutosave.standard(), autosave.available != nil else {
+            throw XCTSkip("no autosave on this machine")
+        }
+        let map = try autosave.read().map
+        // The live view: 1440×932 points on a 2880×1864 Retina panel, less
+        // the chrome — about the map area a player actually sees.
+        let points = CGSize(width: 1440, height: 640)
+        let game = ScenePlaytest(map: map, size: points)
+        game.scene.centerCameraOnMap()
+        game.frame()
+        game.frame()
+        let texture = try XCTUnwrap(game.scene.view?.texture(from: game.scene,
+                                                            crop: CGRect(origin: .zero, size: points)))
+        let renderer = try XCTUnwrap(MetalCityRenderer())
+        // The same camera the live view builds: scene points per *pixel*, on
+        // a 2× panel.
+        let camera = MetalCityRenderer.Camera(centre: game.scene.cameraCentre,
+                                              scale: game.scene.cameraScale / 2,
+                                              size: CGSize(width: points.width * 2, height: points.height * 2))
+        let wetness = Float(Weather.wetness(onDay: map.elapsedDays))
+        let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: wetness))
+        try MetalSpikeTests.writeGrid(
+            [("SpriteKit — your city, day \(map.elapsedDays), camera \(game.scene.cameraScale)",
+              NSImage(cgImage: texture.cgImage(), size: points)),
+             ("Metal — same city, same camera", NSImage(cgImage: frame.image, size: points))],
+            columns: 1, cell: points, named: "metal-autosave")
+    }
+}

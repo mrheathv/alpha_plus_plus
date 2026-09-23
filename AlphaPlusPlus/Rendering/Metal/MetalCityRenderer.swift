@@ -561,9 +561,16 @@ enum MetalCityMesh {
             let isRoad = Traffic.isRoadLike(tile.zone)
             var albedo = isRoad ? asphalt : land
             if tile.isWater { albedo = SIMD3(0.01, 0.03, 0.07) }
+            // A zoned lot with nothing on it yet is the first thing a new
+            // player sees, and it was invisible: the ground carries its
+            // zone's colour clearly enough to read as "this is housing".
             if tile.zone.maxDensity > 0 {
-                albedo = albedo * 0.8 + linear(RenderPalette.fullColor(for: tile.zone)) * 0.04
+                let tint = tile.density == 0 ? 0.14 : 0.05
+                albedo = albedo * 0.75 + linear(RenderPalette.fullColor(for: tile.zone)) * Float(tint)
             }
+            // Land the city does not own, darker — as SpriteKit draws it, so
+            // the edge of what you can build on reads in either renderer.
+            if !map.isOwned(tile.position) { albedo *= 0.4 }
             // `ground` 2 marks street, which is what gets wet enough to
             // mirror the city; 1 is land, which only shines in its puddles.
             polygon([SIMD3(x, y, 0), SIMD3(x + 1, y, 0), SIMD3(x + 1, y + 1, 0), SIMD3(x, y + 1, 0)],
@@ -648,7 +655,7 @@ enum MetalCityMesh {
                     for face in faces {
                         polygon(face.points.map(world), normal: SIMD3(Float(face.normal.x), Float(face.normal.y),
                                                                           Float(face.normal.z)),
-                                albedo: body, rim: accent * 1.25)
+                                albedo: body, rim: accent * 1.7)
                     }
                 case .lit(let color):
                     let glow = linear(color)

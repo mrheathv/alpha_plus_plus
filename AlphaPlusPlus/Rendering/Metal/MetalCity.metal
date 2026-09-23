@@ -129,14 +129,22 @@ float3 lighting(float3 world, float3 normal, constant Uniforms &u,
     return light;
 }
 
-/// Neon on the creases: how close this fragment is to the edge of its face,
-/// measured in tile units so a rim is the same width on a tower and a kerb.
+/// Neon on the creases: how close this fragment is to the edge of its face.
+///
+/// **Never thinner than about a pixel and a half.** The first version held
+/// the rim at a fixed width in tile units, which is right up close and
+/// disappears zoomed out — at a whole-city view 0.022 of a tile is a fraction
+/// of a pixel, the outlines faded to nothing, and small dark buildings could
+/// not be seen at all (reported from play). SpriteKit strokes its outlines at
+/// a fixed width *on screen*, which is what keeps a building findable at any
+/// zoom; `fwidth` is how many tile units one pixel spans here, so the rim
+/// takes whichever is wider.
 float rimAmount(float2 uv, float2 size) {
     if (size.x <= 0 || size.y <= 0) return 0;
     float2 fromEdge = min(uv, 1 - uv) * size;
     float d = min(fromEdge.x, fromEdge.y);
-    float width = 0.022;
     float aa = fwidth(d);
+    float width = max(0.022, aa * 1.4);
     return 1 - smoothstep(width - aa, width + aa, d);
 }
 
