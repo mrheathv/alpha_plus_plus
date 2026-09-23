@@ -23,7 +23,6 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: 16) {
             RetroSectionLabel(text: "Settings", accent: RetroUITheme.primaryAccent)
             visuals.frame(maxWidth: .infinity, alignment: .leading)
-            renderer.frame(maxWidth: .infinity, alignment: .leading)
             motion.frame(maxWidth: .infinity, alignment: .leading)
             sound.frame(maxWidth: .infinity, alignment: .leading)
             keyboard.frame(maxWidth: .infinity, alignment: .leading)
@@ -46,23 +45,6 @@ struct SettingsPanel: View {
                     selection: $controller.visualStyle
                 )
                 Text(controller.visualStyle.summary)
-                    .font(.system(size: 11))
-                    .foregroundStyle(RetroUITheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// For the length of the Metal migration only. See `MapRenderer`.
-    private var renderer: some View {
-        RetroPanel(title: "Renderer") {
-            VStack(alignment: .leading, spacing: 8) {
-                RetroSegmentedPicker(
-                    options: MapRenderer.allCases,
-                    label: \.displayName,
-                    selection: $controller.mapRenderer
-                )
-                Text(controller.mapRenderer.summary)
                     .font(.system(size: 11))
                     .foregroundStyle(RetroUITheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

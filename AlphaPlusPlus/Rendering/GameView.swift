@@ -1,7 +1,7 @@
 import SwiftUI
 import SpriteKit
 
-/// SwiftUI wrapper that hosts the SpriteKit scene, plus the chrome around
+/// SwiftUI wrapper that hosts the Metal map, plus the chrome around
 /// it: a tool picker, simulation controls, overlay/size pickers, and a
 /// stats readout with trend sparklines.
 ///
@@ -34,19 +34,12 @@ struct GameView: View {
     /// guarantees it just as well.
     @ObservedObject var controller: GameController
 
-    /// The SpriteKit scene, created once and held here.
+    /// The map's input and its clock (M8), created once and held here.
     ///
-    /// This can't just be `@State private var scene = GameScene(controller: controller)`
-    /// the way the single-`@State` version worked before: a property
-    /// initializer runs before `controller` exists as a `@StateObject`, so
-    /// there's nothing yet to hand the scene. Instead this starts `nil` and
-    /// `.onAppear` fills it in exactly once — the `if scene == nil` guard is
-    /// what makes "exactly once" true even though `.onAppear` can technically
-    /// fire again (e.g. if the view is removed and reinserted).
-    @State private var scene: GameScene?
-
-    /// The map's input and its clock with Metal drawing (M8), made on appear
-    /// for the same reason the scene is: they need the controller.
+    /// These can't be `@State private var … = MapInteraction(controller:)`: a
+    /// property initializer runs before `controller` exists, so there is
+    /// nothing yet to hand them. They start `nil` and `.onAppear` fills them
+    /// in exactly once.
     @State private var interaction: MapInteraction?
     @State private var clock: CityClock?
 
@@ -58,13 +51,10 @@ struct GameView: View {
         VStack(spacing: 0) {
             if !controller.isScreenshotMode { toolRail }
             Group {
-                if controller.mapRenderer == .metal, let interaction, let clock {
-                    // Metal draws the city, takes the input and runs the clock
-                    // (M8); no SpriteKit scene is presented at all.
+                if let interaction, let clock {
+                    // Metal draws the city, takes the input and runs the clock.
                     MetalMapView(controller: controller, interaction: interaction, clock: clock,
                                  onScreenshot: { save(screenshot: $0) })
-                } else if let scene {
-                    GameSpriteView(scene: scene)
                 } else {
                     Color.clear
                 }
@@ -97,65 +87,16 @@ struct GameView: View {
             .onChange(of: heldKeys.isEmpty) { syncKeyboardPan() }
             if !controller.isScreenshotMode { dashboard }
         }
-        .onChange(of: controller.cityGeneration) {
-            // A load can change the tile count, so the scene's sprites no
-            // longer match the map one-to-one — the same rebuild-and-recentre
-            // the Reset button does for a map-size change. See
-            // `GameController.cityGeneration`.
-            scene?.rebuildEntireGrid()
-            scene?.centerCameraOnMap()
-            // The Metal view recentres itself on a new generation.
-        }
-        // With Metal on, the Metal view answers the request itself: the
-        // SpriteKit layer is transparent there and would capture nothing.
-        .onChange(of: controller.screenshotRequests) {
-            if controller.mapRenderer == .classic, let data = scene?.captureImage() { save(screenshot: data) }
-        }
-        .onChange(of: controller.restyleRequests) {
-            // A style change redraws the same city rather than a different
-            // one, so no recentre — the camera should not move under a player
-            // who is comparing two looks.
-            scene?.restyle()
-        }
+        // A load, a new city, Advance and screenshots are all answered by the
+        // Metal view's own frame loop, which notices the controller's counters
+        // move (`MetalMapView.Coordinator.draw`).
         .onAppear {
-            if scene == nil {
-                let made = GameScene(controller: controller)
-                made.runsDaysInBackground = true
-                made.setDrawsCity(controller.mapRenderer == .classic)
-                scene = made
-            }
             if interaction == nil {
                 var camera = CityCamera()
                 camera.centre(on: controller.map)
                 interaction = MapInteraction(controller: controller, camera: camera)
                 clock = CityClock(controller: controller)
             }
-        }
-        .onChange(of: controller.mapRenderer) {
-            scene?.setDrawsCity(controller.mapRenderer == .classic)
-        }
-        // `overlayMode` is bound directly to the Picker below (`$controller.overlayMode`),
-        // so nothing else runs when it changes — but every tile's *color*
-        // needs to be recomputed when it does. `GameScene` never refreshes
-        // on its own; every other full-map change (Advance, Reset) already
-        // triggers its own explicit follow-up right at its call site.
-        .onChange(of: controller.overlayMode) {
-            scene?.refreshAll()
-        }
-        // The route diagram draws the line being drawn, and the panel's own
-        // buttons — Undo, Cancel, Finish — change it without a click ever
-        // reaching the map. Without this the draft on screen would only ever
-        // update when you clicked a station, so pressing Cancel would leave a
-        // dashed line lying across the city.
-        .onChange(of: controller.routeDraft) {
-            scene?.refreshTransitDiagram()
-        }
-        // The Simulation menu can't reach the scene, so it bumps a counter and
-        // this turns it into a real tick — which flashes hazards the way an
-        // automatic tick does, unlike calling `advanceSimulation()` directly.
-        .onChange(of: controller.manualAdvanceRequests) {
-            // With Metal on the Metal view's clock answers it (M8).
-            if controller.mapRenderer == .classic { scene?.runSimulationTick() }
         }
         // The whole toolbar is hand-colored against a dark background
         // regardless of the system appearance — forcing dark here keeps
@@ -331,7 +272,7 @@ struct GameView: View {
         return .handled
     }
 
-    /// Sums every held direction into one velocity for the scene.
+    /// Sums every held direction into one velocity for the camera.
     ///
     /// Summing rather than taking the latest is what makes two keys at once
     /// travel diagonally, and what makes pressing opposite keys cancel out
@@ -343,7 +284,6 @@ struct GameView: View {
             pan.dx += dx
             pan.dy += dy
         }
-        scene?.keyboardPan = pan
         interaction?.keyboardPan = pan
     }
 
