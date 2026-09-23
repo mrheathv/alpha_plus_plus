@@ -8882,6 +8882,41 @@ spots each form already keeps clear:
   lesson as the throttled M3: a GPU timing taken beside other work is not a
   measurement.
 
+### Two balance measurements (report only, no constants changed)
+
+Asked by the visuals session; `SkylinePayoffTests` (opt-in, full profile,
+Release) holds both.
+
+**Does level 6 pay off?** Only where a city can reach it. With a subway
+network, the same 64×64 city over 1,500 days, level 6 on against capped at 5:
+
+| city | population | treasury | net/day | lots at 6 |
+|---|---|---|---|---|
+| mixed, level 6 | 3,620 | −1.66M | −1,010 | 9 |
+| mixed, capped | 3,628 | −1.66M | −984 | 0 |
+| planned, level 6 | **4,252** | **−0.88M** | **−397** | **83** |
+| planned, capped | 4,028 | −1.23M | −690 | 0 |
+
+A mixed city barely reaches the skyline: pollution keeps its land value
+under level 6's 0.9. A planned one gets 83 lots there, and 224 more people
+and about 290 a day better off. So level 6 rewards planning. But every
+subway city here went bankrupt either way; that is a transit-upkeep
+question, not a level-6 one. The capped run knocks lots back after each day,
+so it slightly flatters the capped city.
+
+**Why planned and mixed finish level.** Bisected over the simulation's
+history with the planning scenario. Planning still won by 452 people at
+d36d2e0 (the regional economy) and lost at c29b639, which made roads, pipes
+and lines wear out with traffic. On today's code the planned city carries
+three times the road wear (0.20 against 0.07), 274 worn-out roads against
+88 (and as many failed conduits, which share the road's wear), more
+congestion (0.227 against 0.156) and longer commutes (11.2 minutes against
+9.1). Separating industry lengthens every commute, and wear is driven by
+traffic, so the gain from cleaner air is paid back as worn-out streets and
+cut-off utilities. Level 6 is not the cause: the scenario measures
+identically before and after it. Whether that trade is the intended design
+is a balance call for the player.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
