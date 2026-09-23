@@ -23,8 +23,55 @@ struct BuildingMassing {
     var panels: [Panel] = []
     var badges: [Badge] = []
 
-    mutating func add(_ volume: Volume, _ style: Solid.Style = .structure) {
-        solids.append(Solid(volume: volume, style: style))
+    /// `tier` is the farthest camera the part is drawn at; untagged parts
+    /// are drawn at every zoom.
+    mutating func add(_ volume: Volume, _ style: Solid.Style = .structure, from tier: DetailTier = .far) {
+        solids.append(Solid(volume: volume, style: style, tier: tier))
+    }
+
+    /// Only the parts drawn at `tier`: those tagged for it or for a farther
+    /// camera.
+    func drawn(at tier: DetailTier) -> BuildingMassing {
+        var copy = self
+        copy.solids = solids.filter { $0.tier <= tier }
+        copy.panels = panels.filter { $0.tier <= tier }
+        return copy
+    }
+}
+
+// MARK: - Level of detail
+
+/// **Which cameras a part is drawn at.** Detail belongs to the camera distance
+/// at which it first becomes big enough to read: a mark smaller than about
+/// eight pixels on screen averages into grey speckle, the failure
+/// `NeonStyle.minimumDetailSize` records. A part tagged `.near` is drawn at
+/// the near tier and every closer one; an untagged part (`.far`) at every zoom.
+///
+/// Drawn by the Metal renderer only. SpriteKit is due to retire, and draws
+/// `drawn(at: .standard)` — exactly what it drew before tiers existed.
+enum DetailTier: Int, Comparable, CaseIterable {
+    /// Always drawn, from the widest camera in.
+    case far
+    /// From the resting camera in (128 Retina pixels a tile).
+    case standard
+    /// From the near tier in (178 pixels a tile).
+    case near
+    /// From the street tier in (380 pixels a tile).
+    case street
+
+    static func < (a: DetailTier, b: DetailTier) -> Bool { a.rawValue < b.rawValue }
+
+    /// The smallest a part tagged for this tier may be, in tiles: about eight
+    /// pixels at the farthest camera the tier is drawn at. Measured on a
+    /// part's *largest* extent — a speck is small in every direction, and a
+    /// mast or a lit fin is thin but long and reads perfectly well.
+    static func floor(_ tier: DetailTier) -> CGFloat {
+        switch tier {
+        case .far: return 0.19
+        case .standard: return 0.06
+        case .near: return 0.03
+        case .street: return 0.016
+        }
     }
 }
 
@@ -76,6 +123,7 @@ struct Solid {
 
     var volume: Volume
     var style: Style
+    var tier: DetailTier = .far
 }
 
 /// A rectangular volume. `x`/`y` are the minimum plan corner, `z` the base.
@@ -249,6 +297,15 @@ struct Panel {
     var v0: CGFloat
     var v1: CGFloat
     var color: SKColor
+    /// The farthest camera it is drawn at; see `DetailTier`.
+    var tier: DetailTier = .far
+
+    /// This panel, tagged for `tier`: `massing.panels.append(panel.at(.near))`.
+    func at(_ tier: DetailTier) -> Panel {
+        var copy = self
+        copy.tier = tier
+        return copy
+    }
 
     /// The panel's four corners in world space.
     var corners: [Point3] {

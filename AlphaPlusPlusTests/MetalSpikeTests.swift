@@ -289,6 +289,9 @@ final class MetalMapTests: XCTestCase {
         // pays for them.
         for (label, scale, gpuBudget, rainfall) in [("resting camera", 0.5, 9.0, Float(0)),
                                                     ("resting camera, raining", 0.5, 9.0, Float(1)),
+                                                    // The closest the player can come, where the street
+                                                    // tier draws: fewer buildings, each more detailed.
+                                                    ("closest camera", StreetLevelTests.closest, 9.0, Float(0)),
                                                     ("whole city", 3.0, 8.0, Float(0))]
             as [(String, CGFloat, Double, Float)] {
             let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: size)

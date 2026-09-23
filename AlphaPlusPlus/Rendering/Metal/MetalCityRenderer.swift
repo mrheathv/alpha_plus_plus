@@ -503,7 +503,8 @@ final class MetalCityRenderer {
         /// Vertices that are ground; the rest are buildings.
         var groundCount: Int
         /// Whether its buildings carry the close-up detail.
-        var near = false
+        /// The detail tier its buildings were built at (`DetailTier`).
+        var tier: DetailTier = .standard
         var lights: [Float]
         /// The tallest thing in it, for deciding whether it is on screen.
         var height: Float
@@ -632,7 +633,7 @@ final class MetalCityRenderer {
         for index in chunks.indices {
             let signature = Self.signature(of: chunks[index].region, in: map)
             guard signature != chunks[index].signature || chunks[index].buffer == nil else { continue }
-            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, near: nearDetail)
+            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, tier: detailTier)
             let count = built.vertices.count / GPUVertex.floatCount
             var height: Float = 0
             var z = 2
@@ -642,7 +643,7 @@ final class MetalCityRenderer {
                 buffer: count == 0 ? nil : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4),
                 vertexCount: count, groundCount: built.groundFloats / GPUVertex.floatCount,
                 lights: built.lights, height: height, region: chunks[index].region)
-            chunks[index].near = nearDetail
+            chunks[index].tier = detailTier
             storeSigns(built.signs, at: index)
             rebuilt += 1
         }
@@ -689,9 +690,22 @@ final class MetalCityRenderer {
     /// camera in pixels per tile, with the hysteresis SpriteKit's detail tier
     /// has for the same reason: one number read in both directions makes a
     /// pinch resting on the boundary flip the whole city back and forth.
-    private(set) var nearDetail = false
+    /// **The detail tier the camera is at** (`DetailTier`): which tagged
+    /// parts are drawn. Each boundary has hysteresis, for the reason the near
+    /// tier always had it.
+    private(set) var detailTier: DetailTier = .standard
+    var nearDetail: Bool { detailTier >= .near }
+    var streetDetail: Bool { detailTier >= .street }
+    /// Below the resting camera, parts tagged `.standard` drop out.
+    static let standardEngages: Float = 100
+    static let standardReleases: Float = 92
     static let nearEngages: Float = 178
     static let nearReleases: Float = 164
+    /// **Street level**, the tier the closer camera opened up: road markings,
+    /// framed windows, cars on wheels. Only at a zoom where a window is tens
+    /// of pixels across, since below that a frame is a smudge on the glass.
+    static let streetEngages: Float = 380
+    static let streetReleases: Float = 350
     private var lastMap: CityMap?
 
     /// Moves the detail tier to suit `camera`, and rebuilds up to `budget`
@@ -704,26 +718,44 @@ final class MetalCityRenderer {
     /// work (`pendingRefresh`).
     func settleDetail(for camera: Camera, budget: Int?) {
         let pixelsPerTile = Float(projection.tileWidth / camera.scale)
-        if nearDetail, pixelsPerTile < Self.nearReleases { nearDetail = false }
-        if !nearDetail, pixelsPerTile >= Self.nearEngages { nearDetail = true }
+        detailTier = Self.tier(for: pixelsPerTile, from: detailTier)
         guard let map = lastMap else { return }
         let matrix = viewProjection(for: camera, mapExtent: mapExtent)
-        var stale = chunks.indices.filter { chunks[$0].near != nearDetail && chunks[$0].vertexCount > 0 }
+        var stale = chunks.indices.filter { chunks[$0].tier != detailTier && chunks[$0].vertexCount > 0 }
         guard !stale.isEmpty else { return }
         stale.sort { isVisible(chunks[$0], through: matrix, mirrored: false)
             && !isVisible(chunks[$1], through: matrix, mirrored: false) }
         for index in stale.prefix(budget ?? stale.count) {
-            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, near: nearDetail)
+            let built = MetalCityMesh.build(map, cache: cache, region: chunks[index].region, tier: detailTier)
             let count = built.vertices.count / GPUVertex.floatCount
             chunks[index].buffer = count == 0 ? nil
                 : device.makeBuffer(bytes: built.vertices, length: built.vertices.count * 4)
             chunks[index].vertexCount = count
             chunks[index].groundCount = built.groundFloats / GPUVertex.floatCount
             chunks[index].lights = built.lights
-            chunks[index].near = nearDetail
+            chunks[index].tier = detailTier
             storeSigns(built.signs, at: index)
         }
         allLights = chunks.flatMap(\.lights)
+    }
+
+    /// The tier `pixelsPerTile` calls for, moving one boundary at a time from
+    /// `current` and only past each boundary's engage or release point.
+    static func tier(for pixelsPerTile: Float, from current: DetailTier) -> DetailTier {
+        func engages(_ tier: DetailTier) -> Float {
+            switch tier { case .far: return 0; case .standard: return standardEngages
+            case .near: return nearEngages; case .street: return streetEngages }
+        }
+        func releases(_ tier: DetailTier) -> Float {
+            switch tier { case .far: return 0; case .standard: return standardReleases
+            case .near: return nearReleases; case .street: return streetReleases }
+        }
+        var tier = current
+        while let next = DetailTier(rawValue: tier.rawValue + 1), pixelsPerTile >= engages(next) { tier = next }
+        while tier > .far, pixelsPerTile < releases(tier), let previous = DetailTier(rawValue: tier.rawValue - 1) {
+            tier = previous
+        }
+        return tier
     }
 
     /// What one chunk holds, read back off the GPU, for `MetalAgreement` —
@@ -958,7 +990,11 @@ final class MetalCityRenderer {
         guard chunks.contains(where: { $0.vertexCount > 0 }), let targets = targets(for: camera.size) else { return nil }
         let matrix = viewProjection(for: camera, mapExtent: mapExtent)
         lastMotionClock = motionClock
-        let moving = motion.frame(at: motionClock, near: nearDetail)
+        // Up close, only the vehicles on screen are built as bodies: built for
+        // the whole city they cost Apex 3 ms of CPU a frame at the closest
+        // camera, almost all of it off screen.
+        let moving = motion.frame(at: motionClock, near: nearDetail, streetLevel: streetDetail,
+                                  visible: rainArea(for: camera))
         let lights = diagnostics.skipPointLights ? []
             : visibleLights([moving.lights, allLights], through: matrix, camera: camera)
         let lightCount = lights.count / GPULight.floatCount
@@ -1339,7 +1375,13 @@ enum MetalCityMesh {
             let zone: ZoneType; let density: Int; let variant: Int
             /// With the marks a building gains up close — mullions and slab
             /// lines, `IsometricBuilding.nearDetail`.
-            var near = false
+            /// The detail tier it is built at (`DetailTier`): which tagged
+            /// parts it carries, and whether the renderer's own close-up
+            /// marks (mullions and slab lines from `.near`, window frames
+            /// from `.street`) are added.
+            var tier: DetailTier = .standard
+            var near: Bool { tier >= .near }
+            var street: Bool { tier >= .street }
         }
         var entries: [Key: Built] = [:]
     }
@@ -1388,8 +1430,15 @@ enum MetalCityMesh {
         func contains(_ p: GridPosition) -> Bool { p.x >= x0 && p.x < x1 && p.y >= y0 && p.y < y1 }
     }
 
+    /// The old spelling, kept for callers that think in near and street.
     static func build(_ map: CityMap, cache: Cache = Cache(), region: Region? = nil,
-                      near: Bool = false) -> Built {
+                      near: Bool, street: Bool = false) -> Built {
+        build(map, cache: cache, region: region, tier: street ? .street : (near ? .near : .standard))
+    }
+
+    static func build(_ map: CityMap, cache: Cache = Cache(), region: Region? = nil,
+                      tier: DetailTier = .standard) -> Built {
+        let near = tier >= .near, street = tier >= .street
         let region = region ?? .whole(map)
         let tilesInRegion: [Tile] = (region.y0 ..< region.y1).flatMap { y in
             (region.x0 ..< region.x1).map { x in map[GridPosition(x: x, y: y)] }
@@ -1601,6 +1650,47 @@ enum MetalCityMesh {
                             normal: up, albedo: .zero, emissive: glow * dim, ground: 1)
                 }
             }
+
+            // **Street level: paint on the road.** Only at the street tier —
+            // below it a dash is a pixel and the neon centre line says all a
+            // street needs to. Paint, not light: lamps light it and a wet
+            // street mirrors it, which is what makes it read as road markings.
+            if street {
+                let paint = SIMD3<Float>(0.55, 0.53, 0.6) * dim
+                let mark = deck + 0.005
+                func strip(_ a: SIMD3<Float>, _ b: SIMD3<Float>, width: Float) {
+                    let along = simd_normalize(b - a)
+                    let side = SIMD3<Float>(-along.y, along.x, 0) * (width / 2)
+                    polygon([a - side, b - side, b + side, a + side], normal: up, albedo: paint, ground: 2)
+                }
+                let straight = (continues[0] && continues[1] && !continues[2] && !continues[3])
+                    || (continues[2] && continues[3] && !continues[0] && !continues[1])
+                let armCount = continues.filter { $0 }.count
+                if straight {
+                    // Dashed lane lines either side of the neon.
+                    let along = continues[0] ? SIMD3<Float>(1, 0, 0) : SIMD3<Float>(0, 1, 0)
+                    let across = SIMD3<Float>(-along.y, along.x, 0)
+                    let centreLine = SIMD3<Float>(x + 0.5, y + 0.5, mark)
+                    for offset: Float in [-0.2, 0.2] {
+                        for start: Float in [-0.4, 0.1] {
+                            strip(centreLine + across * offset + along * start,
+                                  centreLine + across * offset + along * (start + 0.22), width: 0.018)
+                        }
+                    }
+                } else if armCount >= 3 {
+                    // A zebra across the mouth of each arm of a junction.
+                    for (index, side) in sides.enumerated() where continues[index] {
+                        let along = SIMD3<Float>(Float(side.dx), Float(side.dy), 0)
+                        let across = SIMD3<Float>(-along.y, along.x, 0)
+                        let mouth = SIMD3<Float>(x + 0.5, y + 0.5, mark) + along * 0.36
+                        for stripe in 0 ..< 6 {
+                            let offset = (Float(stripe) - 2.5) * 0.1
+                            strip(mouth + across * offset - along * 0.07, mouth + across * offset + along * 0.07,
+                                  width: 0.05)
+                        }
+                    }
+                }
+            }
         }
 
         built.groundFloats = built.vertices.count
@@ -1609,7 +1699,7 @@ enum MetalCityMesh {
         // generated once per variant and copied into place.
         for tile in tilesInRegion where tile.isBuildingAnchor {
             let key = Cache.Key(zone: tile.zone, density: tile.density,
-                                variant: IsoTextureCache.variant(for: tile.position), near: near)
+                                variant: IsoTextureCache.variant(for: tile.position), tier: tier)
             let local: Built
             if let hit = cache.entries[key] {
                 local = hit
@@ -1740,9 +1830,11 @@ enum MetalCityMesh {
                           ground: ground, into: &built.vertices)
         }
         do {
-            guard let massing = ZoneMassing.make(for: key.zone, density: key.density,
-                                                 seed: IsoTextureCache.canonicalSeed(for: key.variant))
+            guard let whole = ZoneMassing.make(for: key.zone, density: key.density,
+                                               seed: IsoTextureCache.canonicalSeed(for: key.variant))
             else { return built }
+            // Only the parts tagged for this tier or a farther one.
+            let massing = whole.drawn(at: key.tier)
             let origin = SIMD3<Float>(0, 0, 0)
             func world(_ p: Point3) -> SIMD3<Float> { origin + SIMD3(Float(p.x), Float(p.y), Float(p.z)) }
             let accentColor = varied(ZoneMassing.accent(for: key.zone, density: key.density), key)
@@ -1829,6 +1921,31 @@ enum MetalCityMesh {
                     entry.centre += corners.reduce(.zero, +) / 4
                     entry.n += 1
                     lightPerFace[panel.face] = entry
+                    if key.street {
+                        // **Street level: a frame and a sill.** A window you
+                        // can walk up to has depth — a dark frame standing
+                        // proud of the glass and a ledge under it that catches
+                        // the street's light. At any other zoom it is a smudge
+                        // round the pane, which is why it is only drawn here.
+                        let ux = simd_normalize(corners[1] - corners[0])
+                        let vz = simd_normalize(corners[3] - corners[0])
+                        let t: Float = 0.016
+                        let out = normal * 0.006
+                        let c = corners.map { $0 + out }
+                        let frameAlbedo = body * 0.6, frameRim = accent * 0.35 * role.rim
+                        polygon([c[0] - ux * t - vz * t, c[1] + ux * t - vz * t, c[1] + ux * t, c[0] - ux * t],
+                                normal: normal, albedo: frameAlbedo, rim: frameRim)
+                        polygon([c[3] - ux * t, c[2] + ux * t, c[2] + ux * t + vz * t, c[3] - ux * t + vz * t],
+                                normal: normal, albedo: frameAlbedo, rim: frameRim)
+                        polygon([c[0] - ux * t, c[0], c[3], c[3] - ux * t],
+                                normal: normal, albedo: frameAlbedo)
+                        polygon([c[1], c[1] + ux * t, c[2] + ux * t, c[2]],
+                                normal: normal, albedo: frameAlbedo)
+                        // The sill: a ledge the width of the frame.
+                        let sill0 = c[0] - ux * t - vz * t, sill1 = c[1] + ux * t - vz * t
+                        polygon([sill0, sill1, sill1 + normal * 0.035, sill0 + normal * 0.035],
+                                normal: SIMD3(0, 0, 1), albedo: body * 1.4, rim: frameRim)
+                    }
                 } else {
                     polygon(corners, normal: normal, albedo: color)
                 }

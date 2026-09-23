@@ -113,6 +113,7 @@ struct GameView: View {
         .onAppear {
             if scene == nil {
                 let made = GameScene(controller: controller)
+                made.runsDaysInBackground = true
                 made.setDrawsCity(controller.mapRenderer == .classic)
                 scene = made
             }

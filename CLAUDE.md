@@ -8413,6 +8413,107 @@ as scratches on the lens.
 `rainfall` reaches the scene shader in `Uniforms.overlay.z`. The Apex budget
 test now also measures a raining frame: 8.20 ms against 8.02 dry.
 
+### The day runs in the background
+
+A day on a large city cost the frame it landed on about 29 ms in Release,
+nearly two dropped frames every day (`RedrawHitchTests`). The live game now
+simulates each day off the main thread.
+
+- **The day is split in two.** `GameController.simulateDay` is the heavy
+  half (routing, utilities, growth, hazards): a pure, `nonisolated` function
+  of a city and the generator. `apply` is the bookkeeping (treasury, unlocks,
+  milestones, history, the inspector), on the main thread.
+  `advanceSimulation()` runs both synchronously and is what every test and
+  the manual "advance" use. `beginDayInBackground` runs the first half in a
+  detached task and applies it when it lands.
+- **The player's click wins.** If `mapRevision` moved while the day ran, the
+  day is thrown away and the scene starts another on the next frame, so an
+  edit is never overwritten. The cost is a day arriving a frame or two late.
+- **The generator belongs to the day alone.** It is a struct wrapping a
+  closure, so a copy shares its state, and using it on two threads would be
+  a race. The one other caller was `recomputeUtilitySupply` re-rolling the
+  power outage after an edit, which was a quirk in its own right: laying a
+  line should not start or end a blackout. Edits now keep the day's outage.
+- **Opt-in, for the live game only** (`GameScene.runsDaysInBackground`,
+  set by `GameView`). A test drives the frame loop synchronously and never
+  spins the run loop, so a background day would start, never land, and
+  every tick after it would quietly be skipped while the clock waited for it.
+
+`BackgroundDayTests` pins it: ten background days equal ten synchronous
+ones exactly, map and treasury; an edit mid-day survives and the day is
+discarded; starting a day on Apex costs the main thread 0.004 ms against
+23.5 ms to simulate it there; and a scene running background days still
+agrees with a freshly built one, which fails when the redraw on landing is
+removed.
+
+**Still on the main thread:** the Metal renderer's catch-up after a day
+(rebuilding changed map sections, 2–12 ms on a large growing city). Moving
+that off, or spreading it over frames, is the next step for big-city
+smoothness.
+
+### A closer camera, and a street tier
+
+Metal may zoom about two and a half times nearer than SpriteKit
+(`GameScene.metalMinimumZoomScale`, 0.2 against 0.5): it draws geometry, so
+nothing blurs. SpriteKit keeps its limit, and switching back to it clamps
+the camera. At the closest zoom a tile is about 640 Retina pixels.
+
+Past `streetEngages` (380 px a tile, releasing at 350) the renderer adds a
+third tier, swapped a few chunks a frame like the near tier:
+
+- **Paint on the road**: dashed lane lines either side of the neon on
+  straight streets, and a zebra across each arm of a junction. Paint rather
+  than light, so lamps light it and a wet street mirrors it.
+- **Framed windows**: a dark frame and a sill standing proud of each lit
+  pane, cached per variant as `Cache.Key.street`.
+- **Cars on wheels.**
+
+Two things measuring caught:
+
+- **Neon edges went fat up close.** An outline held at its world width was
+  fourteen pixels across at the closest camera, a bar rather than a tube.
+  `rimAmount` caps it at about five pixels.
+- **Up close, every car in the city was built as a body every frame**,
+  including hundreds off screen: 3 ms of CPU a frame on Apex at the closest
+  camera. Bodies are built only for cars inside the camera's ground rectangle
+  now (the one the rain already used): 0.41 ms. The budget test measures the
+  closest camera too: GPU 5.35 ms, since fewer buildings are in view.
+
+**What the closer camera exposed**: buildings designed to be seen from
+further out read as sparse up close, with big blank roofs and few windows.
+That is the richer-toolkit work, not a camera problem.
+
+### P1: level of detail as a property of each part
+
+Agreed with the buildings session, which owns the tagging (the plan is the
+"Building Detail Plan" page). Every `Solid` and `Panel` carries a
+`DetailTier` (`far`, `standard`, `near`, `street`): the farthest camera it
+is drawn at. Untagged parts are `.far`, drawn at every zoom.
+
+- **API**: `BuildingMassing.add(_:_:from:)`, `Panel.at(_:)`,
+  `BuildingMassing.drawn(at:)`, and `DetailTier.floor(_:)` (0.19 / 0.06 /
+  0.03 / 0.016 tiles, about eight pixels at the farthest camera each tier is
+  drawn at).
+- **The Metal renderer** holds one `detailTier` chosen from pixels per tile,
+  with hysteresis at every boundary (standard 100/92, near 178/164, street
+  380/350). `Cache.Key.tier` replaces the near and street flags, a chunk is
+  rebuilt when its tier differs, and a building draws `drawn(at:)` its tier.
+  The resting camera (128) is `.standard`, so it draws exactly what it did.
+- **SpriteKit draws `drawn(at: .standard)`**, exactly what it drew before
+  tiers existed. The close tiers are Metal's only.
+- **The floor is measured on a part's largest extent** — a speck is small
+  in every direction, a mast or a lit fin is thin but long and reads — and
+  bounded only for parts with an explicit tier. Today 286 of 8,069 untagged
+  solids fall under the far floor; they are reported, and the tagging passes
+  will move them.
+
+Still in the renderer rather than the massing: the near tier's mullions and
+slab lines (`IsometricBuilding.nearDetail`, added in `MetalCityMesh.building`
+when `key.near`), and the street tier's window frames (same function, when
+`key.street`). Both become tagged parts during the facade pass. Crossing the
+far/standard boundary rebuilds chunks even while nothing is tagged
+`.standard`; cheap, spread over frames, and worth skipping once measured.
+
 ### Retrowave step 4: sixteen skyscrapers, and more of level 5
 
 The player asked for "a TON of variety... all sorts of skyscrapers". Level 6

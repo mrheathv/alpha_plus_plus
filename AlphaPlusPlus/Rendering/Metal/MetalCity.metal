@@ -155,7 +155,11 @@ float rimAmount(float2 uv, float2 size) {
     float2 fromEdge = min(uv, 1 - uv) * size;
     float d = min(fromEdge.x, fromEdge.y);
     float aa = fwidth(d);
-    float width = max(0.022, aa * 1.4);
+    // Never thinner than 1.4 pixels, and — since the camera can now come
+    // close to street level — never wider than about five: held at its world
+    // width, an edge up close was fourteen pixels across and read as a bar
+    // rather than a tube of light.
+    float width = min(max(0.022, aa * 1.4), aa * 5.0);
     // **Where the pixel floor has taken over, the rim gives back energy.**
     // The floor keeps an edge visible as the camera pulls back — but at the
     // widest camera a face is a few pixels across, a 1.4-pixel rim covers
