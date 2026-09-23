@@ -182,7 +182,8 @@ final class MetalMotion {
     }
 
     /// Everything that moves, where it is at `clock` seconds of running time.
-    func frame(at clock: Double, near: Bool = false) -> Frame {
+    func frame(at clock: Double, near: Bool = false, streetLevel: Bool = false,
+               visible: SIMD4<Float>? = nil) -> Frame {
         var frame = Frame()
         frame.traces.reserveCapacity(carCount * Self.traceFloatCount * (near ? 2 : 1) + 512)
 
@@ -204,6 +205,11 @@ final class MetalMotion {
                     var head = street.origin + street.along * distance + street.across * side
                     head.z = street.decks[tile]
                     let color = street.colors[laneIndex][carIndex]
+                    if near, let visible,
+                       head.x < visible.x - 1 || head.y < visible.y - 1
+                        || head.x > visible.x + visible.z + 1 || head.y > visible.y + visible.w + 1 {
+                        continue
+                    }
                     if near, car.vehicle == .car {
                         // A stable pick per car: its street, lane and place in
                         // the lane, so it keeps its paint from frame to frame.
@@ -212,9 +218,15 @@ final class MetalMotion {
                                                     &+ carIndex &* 11) % Self.paints.count]
                         sportsCar(at: head, heading: heading, paint: paint,
                                   visibility: Float(visibility), into: &frame)
+                        if streetLevel { wheels(at: head, heading: heading, length: 0.34, width: 0.15, into: &frame) }
                     } else if near {
                         vehicle(at: head, heading: heading, kind: car.vehicle, color: color,
                                 visibility: Float(visibility), into: &frame)
+                        if streetLevel {
+                            let big = car.vehicle == .lorry || car.vehicle == .fire
+                            wheels(at: head, heading: heading, length: big ? 0.42 : 0.28, width: big ? 0.15 : 0.13,
+                                   into: &frame)
+                        }
                     } else {
                         // **Seven times the car's colour**, found by rendering
                         // rather than reasoning: at 2.2 a trace on a lit street
@@ -317,6 +329,22 @@ final class MetalMotion {
         let road = SIMD3(front.x, front.y, front.z + 0.01)
         frame.traces += Self.trace(from: road, to: road + heading * 0.4, width: 0.12, mode: 1,
                                    color: SIMD3(1, 0.92, 0.75) * 0.9, alpha: 0.35 * visibility)
+    }
+
+    /// **Wheels, at street level.** Four dark tyres at the corners, standing
+    /// a hair proud of the body's sides — what a car sits on when the camera
+    /// is close enough to see what it sits on.
+    private func wheels(at front: SIMD3<Float>, heading: SIMD3<Float>, length: Float, width: Float,
+                        into frame: inout Frame) {
+        let across = SIMD3<Float>(-heading.y, heading.x, 0)
+        let tyre = SIMD3<Float>(0.02, 0.02, 0.025)
+        for along: Float in [0.2, 0.8] {
+            for side: Float in [-1, 1] {
+                let centre = front - heading * (length * along) + across * ((width / 2 + 0.004) * side)
+                Self.block(centre, along: heading, length: 0.075, width: 0.03, z0: front.z, z1: front.z + 0.05,
+                           albedo: tyre, emissive: .zero, rim: SIMD3(0.12, 0.12, 0.16), into: &frame.solids)
+            }
+        }
     }
 
     /// **The paint a sports car can wear**, in linear light: Ferrari red,

@@ -8451,6 +8451,38 @@ removed.
 that off, or spreading it over frames, is the next step for big-city
 smoothness.
 
+### A closer camera, and a street tier
+
+Metal may zoom about two and a half times nearer than SpriteKit
+(`GameScene.metalMinimumZoomScale`, 0.2 against 0.5): it draws geometry, so
+nothing blurs. SpriteKit keeps its limit, and switching back to it clamps
+the camera. At the closest zoom a tile is about 640 Retina pixels.
+
+Past `streetEngages` (380 px a tile, releasing at 350) the renderer adds a
+third tier, swapped a few chunks a frame like the near tier:
+
+- **Paint on the road**: dashed lane lines either side of the neon on
+  straight streets, and a zebra across each arm of a junction. Paint rather
+  than light, so lamps light it and a wet street mirrors it.
+- **Framed windows**: a dark frame and a sill standing proud of each lit
+  pane, cached per variant as `Cache.Key.street`.
+- **Cars on wheels.**
+
+Two things measuring caught:
+
+- **Neon edges went fat up close.** An outline held at its world width was
+  fourteen pixels across at the closest camera, a bar rather than a tube.
+  `rimAmount` caps it at about five pixels.
+- **Up close, every car in the city was built as a body every frame**,
+  including hundreds off screen: 3 ms of CPU a frame on Apex at the closest
+  camera. Bodies are built only for cars inside the camera's ground rectangle
+  now (the one the rain already used): 0.41 ms. The budget test measures the
+  closest camera too: GPU 5.35 ms, since fewer buildings are in view.
+
+**What the closer camera exposed**: buildings designed to be seen from
+further out read as sparse up close, with big blank roofs and few windows.
+That is the richer-toolkit work, not a camera problem.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -38,6 +38,7 @@
         "MetalOverlayTests/testRenderEveryView()",
         "UtilityGlowTests/testRenderTheUtilityViewsBothWays()",
         "NeonSignTests/testRenderTheSigns()",
+        "StreetLevelTests/testRenderStreetLevel()",
         "MetalOverlayTests/testRenderTheBuildingMarks()",
         "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()",
         "MetalLookTests",

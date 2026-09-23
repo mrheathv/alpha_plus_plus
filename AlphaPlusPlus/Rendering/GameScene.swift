@@ -262,7 +262,14 @@ final class GameScene: SKScene {
     /// Bounds exist just to stop a pinch gesture from producing a useless
     /// view (the map shrunk to a speck, or blown up past recognizing
     /// individual tiles), not because either number is precisely tuned.
-    private let minimumZoomScale: CGFloat = 0.5
+    ///
+    /// **Closer in Metal.** SpriteKit draws buildings from cached textures,
+    /// which blur past 0.5; the Metal renderer draws real geometry at any
+    /// zoom, so it may come about two and a half times closer — near street
+    /// level, where its street tier (road markings, framed windows, cars on
+    /// wheels) takes over.
+    private var minimumZoomScale: CGFloat { drawsCity ? 0.5 : Self.metalMinimumZoomScale }
+    static let metalMinimumZoomScale: CGFloat = 0.2
     private let maximumZoomScale: CGFloat = 3.0
 
     /// Pan the camera by a trackpad scroll gesture's delta.
@@ -1384,6 +1391,8 @@ final class GameScene: SKScene {
     func setDrawsCity(_ draws: Bool) {
         guard draws != drawsCity else { return }
         drawsCity = draws
+        // Back to SpriteKit from a camera closer than it can draw sharply.
+        if cameraNode.xScale < minimumZoomScale { cameraNode.setScale(minimumZoomScale) }
         if draws, hasBuiltScene {
             if gridOwedWhileHidden {
                 rebuildEntireGrid()
