@@ -204,7 +204,15 @@ final class MetalMotion {
                     var head = street.origin + street.along * distance + street.across * side
                     head.z = street.decks[tile]
                     let color = street.colors[laneIndex][carIndex]
-                    if near {
+                    if near, car.vehicle == .car {
+                        // A stable pick per car: its street, lane and place in
+                        // the lane, so it keeps its paint from frame to frame.
+                        let first = street.motion.tiles[0]
+                        let paint = Self.paints[abs(first.x &* 73 &+ first.y &* 151 &+ laneIndex &* 37
+                                                    &+ carIndex &* 11) % Self.paints.count]
+                        sportsCar(at: head, heading: heading, paint: paint,
+                                  visibility: Float(visibility), into: &frame)
+                    } else if near {
                         vehicle(at: head, heading: heading, kind: car.vehicle, color: color,
                                 visibility: Float(visibility), into: &frame)
                     } else {
@@ -305,6 +313,104 @@ final class MetalMotion {
         // The tail-light trail, and the headlights' wash on the street ahead.
         let back = SIMD3(front.x, front.y, front.z + 0.02) - heading * length
         frame.traces += Self.trace(from: back - heading * 0.45, to: back, width: 0.05, mode: 0,
+                                   color: SIMD3(1, 0.1, 0.12) * 2.5, alpha: 0.45 * visibility)
+        let road = SIMD3(front.x, front.y, front.z + 0.01)
+        frame.traces += Self.trace(from: road, to: road + heading * 0.4, width: 0.12, mode: 1,
+                                   color: SIMD3(1, 0.92, 0.75) * 0.9, alpha: 0.35 * visibility)
+    }
+
+    /// **The paint a sports car can wear**, in linear light: Ferrari red,
+    /// hot magenta, white, electric cyan, sunset orange and black — the
+    /// retrowave set, from the reference the player brought (an F40 under a
+    /// slatted sun).
+    static let paints: [SIMD3<Float>] = [
+        SIMD3(0.92, 0.04, 0.06), SIMD3(0.95, 0.08, 0.55), SIMD3(0.82, 0.82, 0.86),
+        SIMD3(0.05, 0.62, 0.9), SIMD3(1.0, 0.36, 0.06), SIMD3(0.025, 0.025, 0.035),
+    ].map { SIMD3(powf($0.x, 2.2), powf($0.y, 2.2), powf($0.z, 2.2)) * 1.6 }
+
+    /// **An 80s wedge, up close.** A car here is 30–60 pixels long, so what
+    /// makes it read is the silhouette and the lights, not detail: a long low
+    /// body with a sloping nose and the cabin set well back, a wing on two
+    /// posts, twin round tail lights each side, and real paint that the
+    /// street's light falls on. Lorries, patrols and engines keep their boxes,
+    /// so the ordinary car is the one that looks like the poster.
+    private func sportsCar(at front: SIMD3<Float>, heading: SIMD3<Float>, paint: SIMD3<Float>,
+                           visibility: Float, into frame: inout Frame) {
+        let length: Float = 0.34, width: Float = 0.15
+        let across = SIMD3<Float>(-heading.y, heading.x, 0)
+        let rear = front - heading * length
+        let z0 = front.z + 0.012
+        // The side profile, rear to nose along the top: (distance from the
+        // rear, height). Star-shaped from the rear-bottom corner, so a fan
+        // from there triangulates it.
+        let profile: [(Float, Float)] = [
+            (0, 0.052), (0.24, 0.056), (0.34, 0.098), (0.58, 0.1), (0.72, 0.06), (1.0, 0.032),
+        ]
+        func point(_ t: Float, _ h: Float, _ side: Float) -> SIMD3<Float> {
+            var p = rear + heading * (t * length) + across * (width / 2 * side)
+            p.z = z0 + h
+            return p
+        }
+        let rim = paint * 0.9 + SIMD3(0.1, 0.1, 0.12)
+        let glass = SIMD3<Float>(0.04, 0.05, 0.08)
+        // Sides.
+        for side: Float in [-1, 1] {
+            let outline = [point(0, 0, side), point(1, 0, side)]
+                + profile.reversed().map { point($0.0, $0.1, side) }
+            MetalCityMesh.appendPolygon(outline, normal: across * side, albedo: paint * visibility,
+                                        emissive: paint * 0.08 * visibility, rim: rim * 0.6 * visibility,
+                                        ground: 0, into: &frame.solids)
+        }
+        // The top, one strip per segment of the profile: glass where the
+        // cabin is, paint everywhere else.
+        for index in 0 ..< profile.count - 1 {
+            let (t0, h0) = profile[index], (t1, h1) = profile[index + 1]
+            let a = point(t0, h0, -1), b = point(t1, h1, -1), c = point(t1, h1, 1), d = point(t0, h0, 1)
+            let slope = simd_normalize(simd_cross(c - b, a - b))
+            let normal = slope.z < 0 ? -slope : slope
+            let isGlass = index == 1 || index == 3
+            MetalCityMesh.appendPolygon([a, b, c, d], normal: normal,
+                                        albedo: (isGlass ? glass : paint) * visibility,
+                                        emissive: (isGlass ? SIMD3(0.2, 0.3, 0.45) * 0.3 : paint * 0.08) * visibility,
+                                        // A faint edge only: a full neon rim on
+                                        // every panel striped the body, and
+                                        // what sells a sports car is one
+                                        // continuous sweep of paint.
+                                        rim: rim * 0.25 * visibility, ground: 0, into: &frame.solids)
+        }
+        // Tail and nose.
+        MetalCityMesh.appendPolygon([point(0, 0, -1), point(0, 0, 1), point(0, 0.052, 1), point(0, 0.052, -1)],
+                                    normal: -heading, albedo: paint * 0.6 * visibility, emissive: .zero,
+                                    rim: rim * 0.5 * visibility, ground: 0, into: &frame.solids)
+        MetalCityMesh.appendPolygon([point(1, 0, 1), point(1, 0, -1), point(1, 0.032, -1), point(1, 0.032, 1)],
+                                    normal: heading, albedo: paint * 0.6 * visibility, emissive: .zero,
+                                    rim: rim * 0.5 * visibility, ground: 0, into: &frame.solids)
+        // The wing, on two posts.
+        let wing = rear + heading * 0.03
+        for side: Float in [-0.6, 0.6] {
+            Self.block(wing + across * (width / 2 * side), along: heading, length: 0.02, width: 0.012,
+                       z0: z0 + 0.05, z1: z0 + 0.085, albedo: paint * 0.5 * visibility, emissive: .zero,
+                       rim: rim * 0.4 * visibility, into: &frame.solids)
+        }
+        Self.block(wing, along: heading, length: 0.05, width: width * 1.05, z0: z0 + 0.085, z1: z0 + 0.097,
+                   albedo: paint * visibility, emissive: paint * 0.08 * visibility, rim: rim * visibility,
+                   into: &frame.solids)
+
+        // Twin round tail lights each side — the mark from the poster — and
+        // pop-up-era headlights, as points of light bright enough to bloom.
+        let lamp = z0 + 0.034
+        for side: Float in [-1, 1] {
+            for k: Float in [0.26, 0.4] {
+                let tail = SIMD3(rear.x, rear.y, lamp) + across * (width * k * side) - heading * 0.004
+                frame.traces += Self.trace(from: tail - heading * 0.012, to: tail, width: 0.03, mode: 1,
+                                           color: SIMD3(1, 0.1, 0.08) * 7, alpha: visibility)
+            }
+            let headlight = SIMD3(front.x, front.y, z0 + 0.024) + across * (width * 0.34 * side)
+            frame.traces += Self.trace(from: headlight, to: headlight + heading * 0.015, width: 0.03, mode: 1,
+                                       color: SIMD3(1, 0.95, 0.85) * 6, alpha: visibility)
+        }
+        let back = SIMD3(rear.x, rear.y, front.z + 0.02)
+        frame.traces += Self.trace(from: back - heading * 0.5, to: back, width: 0.06, mode: 0,
                                    color: SIMD3(1, 0.1, 0.12) * 2.5, alpha: 0.45 * visibility)
         let road = SIMD3(front.x, front.y, front.z + 0.01)
         frame.traces += Self.trace(from: road, to: road + heading * 0.4, width: 0.12, mode: 1,

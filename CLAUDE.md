@@ -8341,6 +8341,15 @@ out it stays a streak, because a body a few pixels across stops being a
 shape. `MetalMotion.block` now builds both vehicles and the ship's hull.
 Apex holds at 8.0 ms, since bodies are only drawn when zoomed in.
 
+**The ordinary car is an 80s sports car.** The player brought the
+reference: an F40 under a slatted sun. At 30–60 pixels long, what carries
+that is the silhouette and the lights, so `sportsCar` is a long low wedge
+with the cabin set back, a wing on two posts, twin round tail lights each
+side, and real paint from a retrowave set (red, magenta, white, cyan,
+orange, black) that the street's light falls on. The top panels carry only
+a faint edge: a full neon rim on every panel striped the body, and what
+sells it is one sweep of paint. Lorries, patrols and engines keep boxes.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
