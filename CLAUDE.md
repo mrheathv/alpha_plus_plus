@@ -8124,6 +8124,40 @@ Three things measuring caught:
   standing test, not by looking. The lesson: **a change to the default look
   reruns the accessibility test**, however unrelated it seems.
 
+### Retrowave step 2, round 1: a readable skyline
+
+Up close the city looked good; zoomed out it read as a pattern. Measured on
+Apex, the fault was one level of everything: every building glowing equally,
+one colour per zone and tier, one height per density.
+
+- **Hierarchy by role** (`MetalCityMesh.prominence`): housing, most of a
+  city, has the quietest outline (0.6); industry 0.8; shops 1.0; services 1.2;
+  and a rank's landmarks 1.35. Legibility is hierarchy, the Mini Motorways
+  half of the brief.
+- **A family of colours** (`varied`): each variant shifts slightly in hue,
+  saturation and brightness within its zone's family, seeded by the variant
+  so a lot keeps its colour. Kept small, because zone identity is what a
+  colour must still say.
+- **Height follows density** (`heightScale`): housing and shops rise with
+  the mean density within three tiles, so downtown climbs as a cluster, with
+  a small per-lot wobble. Industry keeps its height, because wide and low is
+  its identity. The scale is applied when a chunk copies a building into
+  place, so the cache stays one entry per variant. **The chunk signature
+  reads three tiles past its edge now**, because a neighbour growing changes
+  this chunk's heights. That costs 0.6 ms on an unchanged Apex (0.36 → 0.99),
+  and the random player runs clean with it. Fires and badges sit on the
+  scaled height.
+- **Windows calm from afar**: lit panels are tagged, and fade to half as the
+  camera pulls back, because a facade of lit panels at distance is speckle and
+  the outline carries the form. Distance haze is halved on open ground, where
+  it had turned an empty map into one mauve slab.
+
+`MetalLookTests.testRenderTheSkyline` is the instrument: the player's
+autosave beside Apex, from the widest camera and at rest. The autosave was a
+brand-new city when this was built, too small to show repetition, which is
+itself worth knowing: Apex is a generator's grid, and some of its repetition
+is its layout. Judge this pass on a player's city as soon as one exists.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

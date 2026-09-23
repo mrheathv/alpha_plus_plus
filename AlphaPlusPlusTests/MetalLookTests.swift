@@ -176,4 +176,36 @@ final class MetalLookTests: XCTestCase {
         }
         try MetalSpikeTests.writeGrid(frames, columns: 1, cell: size, named: "metal-sky")
     }
+
+    /// **The readable-skyline instrument** (retrowave step 2): the player's
+    /// own city — the autosave, a city a person built — beside Apex, which a
+    /// generator laid out on a regular grid, each from the widest camera and
+    /// at rest. Repetition is judged on both, because some of Apex's is its
+    /// layout rather than its buildings. `LOOK_NAME` keeps a before.
+    func testRenderTheSkyline() throws {
+        let size = CGSize(width: 1400, height: 875)
+        var cities: [(String, CityMap)] = []
+        if let autosave = CityAutosave.standard(), autosave.available != nil {
+            cities.append(("your city", try autosave.read().map))
+        }
+        let url = try CitySaveFile.defaultDirectory().appendingPathComponent("Apex.alphacity")
+        if FileManager.default.fileExists(atPath: url.path) {
+            cities.append(("Apex", try CitySaveFile.read(from: url).map))
+        }
+        try XCTSkipIf(cities.isEmpty, "no city to look at")
+        var frames: [(String, NSImage)] = []
+        for (name, map) in cities {
+            let renderer = try XCTUnwrap(MetalCityRenderer())
+            let bounds = Isometric().contentBounds(of: map)
+            let middle = CGPoint(x: bounds.midX, y: bounds.midY)
+            let street = MetalMotionTests.centre(MetalMotionTests.exposedBusiestStreet(in: map))
+            for (label, centre, scale) in [("widest", middle, CGFloat(1.5)), ("resting", street, 0.5)] {
+                let camera = MetalCityRenderer.Camera(centre: centre, scale: scale, size: size)
+                let frame = try XCTUnwrap(renderer.render(map, camera: camera, wetness: 0, time: 2))
+                frames.append(("\(name) · \(label)", NSImage(cgImage: frame.image, size: size)))
+            }
+        }
+        let name = ProcessInfo.processInfo.environment["LOOK_NAME"] ?? "metal-skyline"
+        try MetalSpikeTests.writeGrid(frames, columns: 2, cell: size, named: name)
+    }
 }

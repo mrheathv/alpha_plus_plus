@@ -189,7 +189,12 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
         color *= 0.55 + 0.45 * smoothstep(0.0, 0.7, in.world.z);
     }
 
-    color += in.emissive;
+    // Windows (tagged 0.25) calm as the camera pulls back: from afar a
+    // facade of lit panels is speckle, and the neon outline is what carries
+    // the form. Full strength at rest, half from the widest camera.
+    float farAway = saturate((u.zenith.w - 0.5) * 2.0);
+    bool window = in.ground > 0.2 && in.ground < 0.3;
+    color += in.emissive * (window ? mix(1.0, 0.5, farAway) : 1.0);
     color += in.rim * rimAmount(in.uv, in.size);
 
     // **A view washes each building toward its answer** — supplied, wanting,
@@ -350,7 +355,9 @@ static float4 shadeScene(Varyings in, constant Uniforms &u, const device Light *
     if (u.frame.w < 0.5 && !beyond) {
         float screenY = in.clip.y / u.frame.y;
         float low = u.fog.x * exp(-max(in.world.z, 0.0) / max(u.fog.y, 0.01));
-        float far = u.fog.z * u.zenith.w * (1.0 - screenY);
+        // Half as much on open ground: from the widest camera an empty map
+        // turned into one mauve slab.
+        float far = u.fog.z * u.zenith.w * (1.0 - screenY) * (in.ground > 0.5 ? 0.5 : 1.0);
         float haze = min(0.66, low + far);
         color = mix(color, airColor(screenY, u), haze);
     }

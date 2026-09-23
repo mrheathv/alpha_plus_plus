@@ -439,6 +439,11 @@ final class MetalCityRenderer {
     }
 
     private func buildingHeight(zone: ZoneType, density: Int, at position: GridPosition) -> Float {
+        let rise = lastMap.map { MetalCityMesh.heightScale(zone: zone, density: density, at: position, in: $0) } ?? 1
+        return baseHeight(zone: zone, density: density, at: position) * rise
+    }
+
+    private func baseHeight(zone: ZoneType, density: Int, at position: GridPosition) -> Float {
         let key = MetalCityMesh.Cache.Key(zone: zone, density: density,
                                           variant: IsoTextureCache.variant(for: position))
         if let known = heights[key] { return known }
@@ -528,8 +533,12 @@ final class MetalCityRenderer {
     /// line is a statement about its neighbours.
     private static func signature(of region: MetalCityMesh.Region, in map: CityMap) -> Int {
         var hasher = Hasher()
-        for y in max(0, region.y0 - 1) ..< min(map.height, region.y1 + 1) {
-            for x in max(0, region.x0 - 1) ..< min(map.width, region.x1 + 1) {
+        // Three tiles past the edge: a lane line reads its neighbours, and a
+        // building's height reads the density of everything within three
+        // tiles (`MetalCityMesh.heightScale`), so a neighbour growing has to
+        // rebuild this chunk too.
+        for y in max(0, region.y0 - 3) ..< min(map.height, region.y1 + 3) {
+            for x in max(0, region.x0 - 3) ..< min(map.width, region.x1 + 3) {
                 let position = GridPosition(x: x, y: y)
                 let tile = map[position]
                 hasher.combine(tile.zone)
@@ -1538,11 +1547,13 @@ enum MetalCityMesh {
                 cache.entries[key] = local
             }
             let dx = Float(tile.position.x), dy = Float(tile.position.y)
+            let rise = heightScale(zone: tile.zone, density: tile.density, at: tile.position, in: map)
             var vertices = local.vertices
             var index = 0
             while index < vertices.count {
                 vertices[index] += dx
                 vertices[index + 1] += dy
+                vertices[index + 2] *= rise
                 index += MetalCityRenderer.GPUVertex.floatCount
             }
             built.vertices += vertices
@@ -1551,12 +1562,78 @@ enum MetalCityMesh {
             while index < lights.count {
                 lights[index] += dx
                 lights[index + 1] += dy
+                lights[index + 2] *= rise
                 index += MetalCityRenderer.GPULight.floatCount
             }
             built.lights += lights
         }
         return built
     }
+    // MARK: - A readable skyline (retrowave step 2)
+
+    /// **Not every building shouts.** Every outline in the city glowed as hard
+    /// as every other, so nothing led the eye and the wide view was one level
+    /// of noise. Housing is the most of a city and speaks quietest; shops keep
+    /// their colour; industry sits between; what the player built on purpose —
+    /// services, and the landmarks a rank earns — is brightest. The Mini
+    /// Motorways half of the brief: legibility is hierarchy.
+    static func prominence(_ key: Cache.Key) -> (rim: Float, windows: Float) {
+        if key.zone.maxDensity > 0,
+           ZoneMassing.isLandmark(tier: RenderPalette.growthTier(for: key.density),
+                                  seed: IsoTextureCache.canonicalSeed(for: key.variant)) {
+            return (1.35, 1.1)
+        }
+        switch key.zone {
+        case .residential: return (0.6, 0.85)
+        case .industrial: return (0.8, 1)
+        case .commercial: return (1, 1)
+        default: return (1.2, 1)
+        }
+    }
+
+    /// **A family of colours, not one colour per zone and tier.** Every
+    /// mid-density shop was the same hue, so a district was one tone repeated
+    /// — most of why the city read as a pattern from afar. Each variant now
+    /// shifts a little in hue, saturation and brightness within its zone's
+    /// family, seeded by the variant so a lot keeps its colour. Small on
+    /// purpose: zone identity is the one thing a colour must still say.
+    static func varied(_ color: SKColor, _ key: Cache.Key) -> SKColor {
+        guard key.zone.maxDensity > 0 else { return color }
+        let c = color.usingColorSpace(.sRGB) ?? color
+        var h: CGFloat = 0, sat: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
+        let zoneIndex = ZoneType.allCases.firstIndex(of: key.zone) ?? 0
+        var random = BuildingRandom(seed: GridPosition(x: key.variant, y: key.density), salt: 5_000 + zoneIndex)
+        let hue = (h + CGFloat(random.value(in: -0.045 ... 0.045)) + 1).truncatingRemainder(dividingBy: 1)
+        let saturation = min(1, sat * CGFloat(random.value(in: 0.82 ... 1.1)))
+        let brightness = min(1, b * CGFloat(random.value(in: 0.82 ... 1.08)))
+        return SKColor(hue: hue, saturation: saturation, brightness: brightness, alpha: a)
+            .usingColorSpace(.sRGB) ?? color
+    }
+
+    /// **The skyline follows the city.** Every building of one density stood
+    /// at the same height, so the skyline was a flat canopy. Housing and
+    /// shops now rise with how dense their neighbourhood is — the mean density
+    /// of growable lots within three tiles — so downtown is a cluster that
+    /// climbs, and a lone tower in the suburbs stands a little lower. A small
+    /// per-lot wobble stops a block of equals lining up. Industry keeps its
+    /// height: wide and low is its identity.
+    static func heightScale(zone: ZoneType, density: Int, at position: GridPosition, in map: CityMap) -> Float {
+        guard zone == .residential || zone == .commercial, density >= 3 else { return 1 }
+        var sum = 0, count = 0
+        for dy in -3 ... 3 {
+            for dx in -3 ... 3 {
+                let p = GridPosition(x: position.x + dx, y: position.y + dy)
+                guard map.contains(p) else { continue }
+                let t = map[p]
+                if t.zone.maxDensity > 0 { sum += t.density; count += 1 }
+            }
+        }
+        let cluster = count == 0 ? 0 : Float(sum) / Float(count * 5)
+        let wobble = Float((position.x &* 73_856_093 ^ position.y &* 19_349_663) & 1023) / 1023 * 0.12 - 0.06
+        return 0.85 + 0.6 * cluster * cluster + wobble
+    }
+
     /// One building's triangles and lights, relative to its lot's corner.
     static func building(_ key: Cache.Key) -> Built {
         var built = Built()
@@ -1575,8 +1652,10 @@ enum MetalCityMesh {
             else { return built }
             let origin = SIMD3<Float>(0, 0, 0)
             func world(_ p: Point3) -> SIMD3<Float> { origin + SIMD3(Float(p.x), Float(p.y), Float(p.z)) }
-            let accent = linear(ZoneMassing.accent(for: key.zone, density: key.density))
+            let accentColor = varied(ZoneMassing.accent(for: key.zone, density: key.density), key)
+            let accent = linear(accentColor)
             let body = SIMD3<Float>(0.11, 0.095, 0.15) + accent * 0.05
+            let role = prominence(key)
             let footprint = Float(key.zone.footprintSize)
 
             for solid in massing.solids {
@@ -1586,7 +1665,7 @@ enum MetalCityMesh {
                     for face in faces {
                         polygon(face.points.map(world), normal: SIMD3(Float(face.normal.x), Float(face.normal.y),
                                                                           Float(face.normal.z)),
-                                albedo: body, rim: accent * 1.7)
+                                albedo: body, rim: accent * 1.7 * role.rim)
                     }
                 case .lit(let color):
                     let glow = linear(color)
@@ -1611,7 +1690,6 @@ enum MetalCityMesh {
             // recesses, mullions, cladding — stay surface, not light.
             var lightPerFace: [Panel.Face: (sum: SIMD3<Float>, area: Float, centre: SIMD3<Float>, n: Float)] = [:]
             var ledged: Set<String> = []
-            let accentColor = ZoneMassing.accent(for: key.zone, density: key.density)
             for panel in massing.panels {
                 let normal: SIMD3<Float> = panel.face == .right ? SIMD3(1, 0, 0) : SIMD3(0, 1, 0)
                 let color = linear(panel.color) * Float(panel.color.alphaComponent)
@@ -1624,7 +1702,10 @@ enum MetalCityMesh {
                 // (`NeonStyle.Cladding`); the offsets now say the same.
                 let corners = panel.corners.map { world($0) + normal * (lit ? 0.009 : 0.004) }
                 if lit {
-                    polygon(corners, normal: normal, albedo: .zero, emissive: color * 0.95)
+                    // Tagged 0.25, so the shader can calm windows from afar
+                    // without touching the neon that carries the form.
+                    polygon(corners, normal: normal, albedo: .zero, emissive: color * 0.95 * role.windows,
+                            ground: 0.25)
                     let area = simd_length(corners[1] - corners[0]) * simd_length(corners[3] - corners[0])
                     var entry = lightPerFace[panel.face] ?? (.zero, 0, .zero, 0)
                     entry.sum += color * area
