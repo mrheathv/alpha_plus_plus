@@ -1751,7 +1751,8 @@ struct IsoTileRenderer {
     private func buildingTop(zone: ZoneType, density: Int, seed: GridPosition) -> CGFloat {
         guard let massing = ZoneMassing.make(
             for: zone, density: density,
-            seed: IsoTextureCache.canonicalSeed(for: IsoTextureCache.variant(for: seed))
+            seed: IsoTextureCache.canonicalSeed(for: IsoTextureCache.variant(for: seed)),
+            tier: .standard
         ) else { return 0 }
         return massing.solids.reduce(CGFloat(0)) { result, solid in
             switch solid.volume {

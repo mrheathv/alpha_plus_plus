@@ -1989,7 +1989,8 @@ enum MetalCityMesh {
         }
         do {
             guard let whole = given ?? ZoneMassing.make(for: key.zone, density: key.density,
-                                                        seed: IsoTextureCache.canonicalSeed(for: key.variant))
+                                                        seed: IsoTextureCache.canonicalSeed(for: key.variant),
+                                                        tier: key.tier)
             else { return built }
             // Only the parts tagged for this tier or a farther one.
             let massing = whole.drawn(at: key.tier)

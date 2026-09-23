@@ -216,7 +216,9 @@ final class IsoTextureCache {
         if let hit = cache[key] { return hit }
 
         let canonical = Self.canonicalSeed(for: key.variant)
-        guard let massing = ZoneMassing.make(for: zone, density: density, seed: canonical) else { return nil }
+        // SpriteKit draws the standard tier only (`IsometricBuilding.node`).
+        guard let massing = ZoneMassing.make(for: zone, density: density, seed: canonical, tier: .standard)
+        else { return nil }
 
         let node = IsometricBuilding.node(
             for: massing,

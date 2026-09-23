@@ -11,18 +11,32 @@ import SpriteKit
 /// contact sheet render exactly what has been ported and nothing else.
 enum ZoneMassing {
 
-    static func make(for zone: ZoneType, density: Int, seed: GridPosition) -> BuildingMassing? {
+    /// The building on a lot, with the parts drawn at `tier` and every
+    /// farther camera.
+    ///
+    /// **`tier` saves the work, not just the drawing.** The close-up passes
+    /// — roof clutter and window marks — are most of what the detail plan
+    /// added to a building's cost, and a building built for the resting
+    /// camera used to generate all of them and throw them away. Measured in
+    /// Release over every growable variant, a standard-tier building cost
+    /// 0.035 ms before the detail plan and 0.056 after; skipping the passes
+    /// it cannot draw is most of the difference. The default is everything,
+    /// for the tests and tools that look at a building whole.
+    static func make(for zone: ZoneType, density: Int, seed: GridPosition,
+                     tier: DetailTier = .street) -> BuildingMassing? {
         guard var massing = generate(for: zone, density: density, seed: seed) else { return nil }
-        // Roof clutter for the near tier, over every growable building's
-        // finished massing — see `RoofDetail` for why a pass rather than a
-        // change to each generator.
-        if zone.maxDensity > 0 {
-            RoofDetail.dress(&massing, zone: zone, footprint: CGFloat(zone.footprintSize))
+        if tier >= .near {
+            // Roof clutter for the near tier, over every growable building's
+            // finished massing — see `RoofDetail` for why a pass rather than
+            // a change to each generator.
+            if zone.maxDensity > 0 {
+                RoofDetail.dress(&massing, zone: zone, footprint: CGFloat(zone.footprintSize))
+            }
+            // Frames, sills, mullions and slab lines for every building, as
+            // the renderer used to draw them — see `FacadeDetail.windowDetail`.
+            FacadeDetail.windowDetail(&massing, accent: accent(for: zone, density: density))
         }
-        // Frames, sills, mullions and slab lines for every building, as the
-        // renderer used to draw them — see `FacadeDetail.windowDetail`.
-        FacadeDetail.windowDetail(&massing, accent: accent(for: zone, density: density))
-        return massing
+        return tier == .street ? massing : massing.drawn(at: tier)
     }
 
     private static func generate(for zone: ZoneType, density: Int, seed: GridPosition) -> BuildingMassing? {
