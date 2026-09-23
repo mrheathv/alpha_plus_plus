@@ -968,7 +968,10 @@ final class MetalCityRenderer {
             moonAndTime: SIMD4(SIMD3<Float>(-0.35, 0.55, 0.76), time),
             counts: SIMD4(UInt32(lightCount), UInt32(targets.tilesAcross), UInt32(Self.tileSize), mapSizePacked),
             overlay: SIMD4(overlayMode != .none && overlayTint != nil ? 1 : 0,
-                           Float(motionClock.truncatingRemainder(dividingBy: 10_000)), 0, 0),
+                           Float(motionClock.truncatingRemainder(dividingBy: 10_000)),
+                           // Rain falling now, for the rings it makes on the
+                           // wet street. Off with Reduce Motion, like the drops.
+                           VisualStyle.reduceMotion ? 0 : rainfall, 0),
             // **No fog under a view.** A view answers one question with
             // colour, and sunset-tinted air pulled Power's "wanting" and "not
             // applicable" together for a colourblind eye — measured by

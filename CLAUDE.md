@@ -8392,6 +8392,27 @@ Three things the renders caught, none of which failed a test:
 - **Held to the roof's width, billboards read as trim.** They overhang it
   now, as real ones do.
 
+### Rain on the gloss (Metal)
+
+The player's brief: rain stays, but as weather that sits on the gloss, not
+the headline. Before this, rain barely changed a street that already shines
+when dry: it doubled the reflection and drew grey vertical lines that read
+as scratches on the lens.
+
+- **Rain rings** (`rainRings` in the shader): drops land in a grid of
+  quarter-tile cells, each spreading a ring that fades as it grows. A ring
+  bends the reflection outward and catches light in proportion to what the
+  street is already reflecting, so rings sparkle under neon and all but
+  vanish in the dark. Heavier rain, more rings. They run on the motion clock
+  and stop with the city; Reduce Motion turns them off with the drops.
+- **Wet is darker and glassier than dry**: wet tarmac darkens more (0.45
+  against 0.3) and its reflections blur less, so a wet street no longer reads
+  as a brighter dry one.
+- **Drops catch the city's light**: thinner, pink or cyan, not grey.
+
+`rainfall` reaches the scene shader in `Uniforms.overlay.z`. The Apex budget
+test now also measures a raining frame: 8.20 ms against 8.02 dry.
+
 ### Retrowave step 4: sixteen skyscrapers, and more of level 5
 
 The player asked for "a TON of variety... all sorts of skyscrapers". Level 6
