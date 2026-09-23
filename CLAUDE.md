@@ -8071,6 +8071,30 @@ The pattern worth keeping is the one this file already names: **a cache key
 has to be the thing it describes**. The run key was a string of proxies, and
 every stale-run bug above is a proxy that did not move when the thing did.
 
+### The direction: clean retrowave, not gritty cyberpunk
+
+Decided by the player on 2026-09-23, after the M6 pass had drifted the look
+toward Cyberpunk 2077: rain as a headline, film grain, crushed blacks, grey
+haze. **80s cyberpunk was considered and rejected as too dark and gritty.**
+The direction is clean retrowave, using the Metal renderer's real light to
+get there: gloss instead of grime, sunset-coloured air instead of grey,
+deep indigo rather than black, and a strict magenta, cyan, violet and sunset
+palette. Rain stays, as weather that sits on the gloss rather than as the
+feature.
+
+`MetalCityRenderer.Look` holds the look as data (fog, sky colours, gloss,
+grade), and `MetalLookTests.testRenderTheMoodFrames` renders the candidates
+side by side. The player picked **`Look.retrowave`**: Chrome night's gloss
+and crisp streets up close, with Sunset haze's pink horizon for depth. Miami
+dusk was rejected (it slid back to the lavender wash). The Apex budget is
+8.73 ms against 9 with it on, a margin the building pass will have to watch.
+
+**Next, agreed:** fog and sky, then visual hierarchy by role, **a real new
+density level** with taller skyscrapers (a simulation and balance change,
+measured on the harness), large clean neon signage, rain reworked to sit on
+the gloss, and **a repetition pass**. Up close the city looks good; zoomed
+out it reads as a repeating pattern.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

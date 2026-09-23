@@ -100,11 +100,21 @@ final class MetalCityRenderer {
                                     streetGloss: 0.35, groundGloss: 0.12,
                                     zenith: SIMD3(0.04, 0.018, 0.09), horizon: SIMD3(0.5, 0.15, 0.22),
                                     grain: 0, toe: 0, saturation: 1.05, exposure: 1.1, scanlines: 0.06)
-        static let candidates: [Look] = [.neonNoir, .sunsetHaze, .chromeNight, .miamiDusk]
+        /// **The chosen direction, for now**: Chrome night's gloss and crisp
+        /// streets up close, Sunset haze's pink horizon for depth. Picked by
+        /// the player from the mood frames — clean retrowave rather than
+        /// gritty cyberpunk, with the far side of the city fading into a
+        /// sunset instead of into black. Low fog is light, because a street
+        /// washed pink up close was the one thing Sunset haze got wrong.
+        static let retrowave = Look(name: "Retrowave", lowFog: 0.1, fogHeight: 0.8, distanceHaze: 0.45,
+                                    streetGloss: 0.5, groundGloss: 0.18,
+                                    zenith: SIMD3(0.01, 0.012, 0.05), horizon: SIMD3(0.3, 0.06, 0.2),
+                                    grain: 0, toe: 0.15, saturation: 1.15)
+        static let candidates: [Look] = [.neonNoir, .sunsetHaze, .chromeNight, .retrowave]
     }
 
     /// The look the frame is drawn in.
-    var look = Look.neonNoir
+    var look = Look.retrowave
 
     /// Mirrors `MotionUniforms` in MetalCity.metal.
     struct MotionUniforms {
