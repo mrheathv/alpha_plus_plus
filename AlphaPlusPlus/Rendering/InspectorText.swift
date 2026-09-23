@@ -171,6 +171,24 @@ enum InspectorText {
         band(value, ["Failing", "Poor", "Worn", "Good"])
     }
 
+    /// **What to do about worn infrastructure: nothing, directly.** Reported
+    /// from play: it was never clear whether a player repairs a road or a
+    /// pipe or whether it fixes itself. It fixes itself, out of the public
+    /// works budget, so the advice names the dial rather than a click.
+    static let wornAdvice = "Repaired automatically by public works. Raise its funding in City Hall, "
+        + "or ease the traffic wearing it out."
+
+    /// The name City Hall gives the road budget. It pays for every road,
+    /// pipe and power line, not only roads, and "Road" hid that.
+    static let publicWorks = "Public works"
+
+    /// City Hall's explanation of what the funding dials buy.
+    static let fundingNote = "Funding buys coverage and capacity: a half-funded water budget "
+        + "halves what your towers can carry. Public works is different: it repairs roads, "
+        + "pipes and power lines by itself, with nothing to click. At full funding quiet "
+        + "streets stay new, but busy ones still wear, so ease their traffic or fund more. "
+        + "Underfunded, streets wear out and the pipes and lines under them start to fail."
+
     /// What this lot is, for a sentence rather than a title.
     private static func zoneNoun(_ zone: ZoneType) -> String {
         switch zone {

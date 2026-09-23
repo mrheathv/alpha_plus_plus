@@ -182,7 +182,7 @@ struct CityPanel: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 8) {
                 ForEach(Self.fundableZones, id: \.self) { zone in
                     HStack(spacing: 6) {
-                        Text(RenderPalette.displayName(for: zone))
+                        Text(zone == .road ? InspectorText.publicWorks : RenderPalette.displayName(for: zone))
                             .foregroundStyle(RetroUITheme.textSecondary)
                             .frame(width: 120, alignment: .leading)
                             .lineLimit(1)
@@ -198,9 +198,7 @@ struct CityPanel: View {
                     }
                 }
             }
-            Text("Funding buys coverage and capacity: a half-funded water budget "
-                 + "halves what your towers can carry. Road funding is different — "
-                 + "it is upkeep, and what it buys is a network that does not wear out.")
+            Text(InspectorText.fundingNote)
                 .font(.caption)
                 .foregroundStyle(RetroUITheme.textSecondary)
         }

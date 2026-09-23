@@ -186,6 +186,10 @@ struct InspectorPanel: View {
                         text: "⚠ Roads here are \(InspectorText.condition(report.infrastructureCondition).lowercased())",
                         accent: .orange
                     )
+                    Text(InspectorText.wornAdvice)
+                        .font(.caption)
+                        .foregroundStyle(RetroUITheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
