@@ -39,7 +39,10 @@ final class MetalOverlay {
 
     /// Height of a building of this zone and density on this lot, for putting
     /// a badge on its roof and a scaffold between two roofs.
-    var height: (ZoneType, Int, GridPosition) -> Float = { _, _, _ in 1 }
+    /// `nil` while it is not known yet: the live game will not stop to
+    /// generate a building nobody has drawn, which cost up to 12 ms on a busy
+    /// day. A mark whose height is not known yet waits a frame or two.
+    var height: (ZoneType, Int, GridPosition) -> Float? = { _, _, _ in 1 }
 
     private(set) var mode: OverlayMode = .none
     /// Instances for the overlay-tile pass.
@@ -123,18 +126,26 @@ final class MetalOverlay {
         for tile in map.tiles where tile.isBuildingAnchor {
             let size = Float(tile.zone.footprintSize)
             let x = Float(tile.position.x), y = Float(tile.position.y)
-            let roof = height(tile.zone, tile.density, tile.position)
-            if mode == .none, tile.isUnderConstruction {
+            let building = mode == .none && tile.isUnderConstruction
+            let damage = mode == .none ? tile.damagedBy : nil
+            let missing = badges && tile.zone.maxDensity > 0
+                ? IsoTileRenderer.missingUtilities(
+                    of: tile, hasWaterSupply: Water.hasSupply(at: tile.position, in: map),
+                    hasPowerSupply: PowerGrid.hasSupply(at: tile.position, in: map))
+                : (water: false, power: false)
+            // Only a lot that carries a mark asks its height: asking every
+            // building made a busy day generate each new one here, on the
+            // main thread, beside the background job making it too.
+            guard building || damage != nil || missing.water || missing.power,
+                  let roof = height(tile.zone, tile.density, tile.position) else { continue }
+            if building {
                 scaffold(tile, at: SIMD2(x, y), size: size, roof: roof)
             }
-            if mode == .none, let service = tile.damagedBy {
+            if let service = damage {
                 billboards += [x + size / 2, y + size / 2, roof * 0.6 + 0.1, 30]
                     + Self.rgb(RenderPalette.fullColor(for: service), 1.6) + [Glyph.damage.rawValue, 0, 0, 0, 0]
             }
-            if badges, tile.zone.maxDensity > 0 {
-                let missing = IsoTileRenderer.missingUtilities(
-                    of: tile, hasWaterSupply: Water.hasSupply(at: tile.position, in: map),
-                    hasPowerSupply: PowerGrid.hasSupply(at: tile.position, in: map))
+            do {
                 // Side by side when a block is short of both, which is the
                 // state that most wants reading.
                 let glyphs = (missing.water ? [Glyph.water] : []) + (missing.power ? [Glyph.power] : [])
@@ -166,7 +177,8 @@ final class MetalOverlay {
     /// `IsoTileRenderer.syncConstructionSite`'s drawing, in light.
     private func scaffold(_ tile: Tile, at corner: SIMD2<Float>, size: Float, roof: Float) {
         let target = tile.density + 1
-        let top = max(height(tile.zone, target, tile.position), roof + 0.5)
+        // Not known yet: the scaffold's floor stands in for a frame or two.
+        let top = max(height(tile.zone, target, tile.position) ?? 0, roof + 0.5)
         let total = Float(CitySimulator.constructionTicks(toReach: target))
         let progress = total > 0 ? max(0, 1 - Float(tile.constructionRemaining ?? 0) / total) : 1
         let inset: Float = 0.14

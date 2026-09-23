@@ -8773,9 +8773,46 @@ growing city in Release (`BackgroundChunkTests`, ten days at a time).
 
 `BackgroundChunkTests` pins that background rebuilds land byte for byte
 where synchronous ones would, that a newer change wins, and that a click is
-drawn at once. **Still on the main thread** after a changed day, about 5 ms
-on the growing city: the signature pass, the motion plan, the view layer's
-rebuild and its uploads.
+drawn at once.
+
+**Most of the remaining 5 ms was scaffolds**, found by timing each part of
+`update` before touching anything. Normal view has no overlay, yet its
+building marks cost 1–12 ms. Each construction site asks for the height of
+the level it is growing into, and that building has usually never been
+drawn, so the lookup generated its whole mesh on the spot (about 0.1 ms
+each, 80 on a busy day). `MetalOverlay.comingHeight` may answer `nil`: the
+live game fetches the height on the background queue, the scaffold stands
+at its floor for a frame or two, and the view is rebuilt once every pending
+height has landed. A test still waits, as with chunks. Worst main-thread
+update on the growing city: **7.06 → 2.0 ms**, which is now the signature
+pass (0.4), the motion plan (0.6) and the view's own work.
+
+A review by the buildings session then found the rest, and one real bug:
+
+- **A late background result could undo an edit.** A chunk deferred on a
+  busy day and then rebuilt on the spot for a click kept its old job in
+  flight, and when that landed it passed the check and put the chunk back
+  the way it was, until the map next changed: paused, never. `install` now
+  cancels anything in flight for its chunk.
+  `testALateResultDoesNotUndoAPlacement` reproduces it deterministically.
+- **Every main-thread height is non-blocking now**, not only the
+  scaffold's. The view asked every building's roof height on every update
+  whether a mark needed it or not, and the motion plan asked every factory's
+  for its smoke, so a busy day generated each new variant on the main thread
+  *and* again in the background job. `readyHeight` answers from the cache or
+  fetches in the background; a mark whose height is not known yet waits a
+  frame or two, and the view and the motion plan are rebuilt when every
+  pending height has landed. Worst main-thread update: **1.7–2.2 ms**.
+
+`testMarksSettleOnTheirRealHeights` checks that settled scaffolds, badges
+and smoke match a synchronous renderer's exactly. It starts from day 0: from
+day 20, every variant the city grew into had been drawn already, and the
+test passed with the smoke's heights never landing at all.
+
+Still on the main thread by design: the near and street tier swap, which
+builds four chunks a frame on a zoom. The timing test is Full-plan only now: its
+tighter bound (a third of the synchronous cost) failed in Quick's parallel
+Debug run, where it shares the cores.
 
 ### Building detail, P2: shapes beyond boxes
 

@@ -46,7 +46,8 @@ final class MetalMotion {
 
     /// Height of the building standing on an anchor tile, for putting a
     /// flame on its roof. Supplied by the renderer, which knows the meshes.
-    var buildingHeight: (Tile) -> Float = { _ in 1 }
+    /// `nil` while not known yet; see `MetalOverlay.height`.
+    var buildingHeight: (Tile) -> Float? = { _ in 1 }
 
     /// Whether the view up shows ambient traffic at all — the rule
     /// `OverlayMode.showsRoadNetwork` states for SpriteKit.
@@ -156,10 +157,11 @@ final class MetalMotion {
             let x = Float(tile.position.x) + size / 2, y = Float(tile.position.y) + size / 2
             if overlayActive { continue }
             if tile.isBurning {
-                fires.append(Burning(top: SIMD3(x, y, max(0.3, buildingHeight(tile))), footprint: size,
+                fires.append(Burning(top: SIMD3(x, y, max(0.3, buildingHeight(tile) ?? 0)), footprint: size,
                                      seed: Float(tile.position.x * 31 + tile.position.y * 17)))
-            } else if tile.zone == .industrial, tile.density > 0, !reduceMotion {
-                smokeEmitters.append(SIMD4(x, y, buildingHeight(tile), Float(tile.density)))
+            } else if tile.zone == .industrial, tile.density > 0, !reduceMotion,
+                      let top = buildingHeight(tile) {
+                smokeEmitters.append(SIMD4(x, y, top, Float(tile.density)))
             }
         }
     }
