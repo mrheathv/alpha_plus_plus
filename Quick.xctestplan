@@ -26,7 +26,8 @@
         "RenderTimingTests",
         "FrameCostDiagnosticTests",
         "JourneyLookupCostTests",
-        "HarnessTimingTests"
+        "HarnessTimingTests",
+        "MetalSpikeTests"
       ]
     }
   ],

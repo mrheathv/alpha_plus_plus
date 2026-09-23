@@ -1,0 +1,132 @@
+import AppKit
+import SpriteKit
+import XCTest
+@testable import AlphaPlusPlus
+
+/// **The spike's verdict, as a picture.** One block, drawn by the game's
+/// SpriteKit renderer and by the Metal spike from the *same map at the same
+/// moment*, through the same camera — dry, and in the day-6 downpour.
+///
+/// ```sh
+/// xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus -testPlan Full \
+///            -configuration Release -derivedDataPath ./build ENABLE_TESTABILITY=YES \
+///            test -only-testing:AlphaPlusPlusTests/MetalSpikeTests
+/// open ./build/ContactSheet/metal-spike.png
+/// ```
+@MainActor
+final class MetalSpikeTests: XCTestCase {
+
+    /// A dense block: towers of all three zones, a landmark-height office,
+    /// civic buildings, a park, streets on three sides and open ground in front
+    /// — so the lighting has walls to fall on and the wet street has something
+    /// to reflect.
+    static func block() -> CityMap {
+        var map = CityMap(width: 18, height: 16)
+        for x in 0 ..< 18 {
+            map[GridPosition(x: x, y: 5)].zone = .road
+            map[GridPosition(x: x, y: 10)].zone = .road
+        }
+        for y in 0 ..< 16 {
+            map[GridPosition(x: 4, y: y)].zone = .road
+            map[GridPosition(x: 11, y: y)].zone = .road
+        }
+        let lots: [(ZoneType, GridPosition, Int)] = [
+            (.commercial, GridPosition(x: 5, y: 3), 5), (.residential, GridPosition(x: 7, y: 3), 4),
+            (.commercial, GridPosition(x: 9, y: 3), 4), (.residential, GridPosition(x: 12, y: 3), 5),
+            (.industrial, GridPosition(x: 14, y: 3), 3), (.residential, GridPosition(x: 2, y: 3), 3),
+            (.commercial, GridPosition(x: 5, y: 6), 5), (.residential, GridPosition(x: 7, y: 6), 3),
+            (.commercial, GridPosition(x: 9, y: 8), 3), (.residential, GridPosition(x: 12, y: 6), 4),
+            (.commercial, GridPosition(x: 12, y: 8), 5), (.industrial, GridPosition(x: 14, y: 7), 4),
+            (.residential, GridPosition(x: 2, y: 7), 4), (.commercial, GridPosition(x: 5, y: 11), 4),
+            (.residential, GridPosition(x: 7, y: 11), 5),
+        ]
+        for (zone, origin, density) in lots {
+            map.placeBuilding(zone: zone, origin: origin)
+            for cell in map.footprintCells(origin: origin, size: 2) { map[cell].density = density }
+        }
+        map.placeBuilding(zone: .park, origin: GridPosition(x: 9, y: 6))
+        map.placeBuilding(zone: .fireStation, origin: GridPosition(x: 12, y: 11))
+        map.placeBuilding(zone: .waterTower, origin: GridPosition(x: 2, y: 11))
+        map.placeBuilding(zone: .powerPlant, origin: GridPosition(x: 14, y: 12))
+        for tile in map.tiles where Traffic.isRoadLike(tile.zone) {
+            map[tile.position].hasPipe = true
+            map[tile.position].hasPowerLine = true
+        }
+        return map
+    }
+
+    private static var timings = ""
+
+    func testRenderTheSpikeBesideSpriteKit() throws {
+        let size = CGSize(width: 1200, height: 800)
+        let scale: CGFloat = 0.72
+        let game = ScenePlaytest(map: Self.block(), size: size)
+        game.controller.setFundingLevel(4, for: .waterTower)
+        game.controller.setFundingLevel(4, for: .powerPlant)
+        let renderer = try XCTUnwrap(MetalCityRenderer(), "no Metal device, or the shaders did not compile")
+
+        func frameBoth(_ label: String, wetness: Float, scale: CGFloat = scale) throws -> [(String, NSImage)] {
+            game.scene.centerCameraOnMap()
+            game.scene.camera?.setScale(scale)
+            game.frame()
+            game.frame()
+            let texture = try XCTUnwrap(game.scene.view?.texture(from: game.scene,
+                                                                crop: CGRect(origin: .zero, size: size)))
+            let sprite = NSImage(cgImage: texture.cgImage(), size: size)
+
+            let camera = MetalCityRenderer.Camera(centre: game.scene.cameraPositionForTesting,
+                                                  scale: scale, size: size)
+            let frame = try XCTUnwrap(renderer.render(game.controller.map, camera: camera, wetness: wetness))
+            let line = String(format: "metal %@: %.2f ms GPU, %d triangles, %d lights\n",
+                              label, frame.gpuMilliseconds, frame.triangles, frame.lights)
+            Self.timings += line
+            print(line)
+            return [("SpriteKit — \(label)", sprite),
+                    ("Metal spike — \(label)", NSImage(cgImage: frame.image, size: size))]
+        }
+
+        var frames = try frameBoth("dry", wetness: 0)
+        game.play()
+        game.tick(6)
+        XCTAssertGreaterThan(game.scene.wetnessForTesting, 0, "day 6 should be raining")
+        frames += try frameBoth("day 6, raining", wetness: 1)
+        // Close in, where SpriteKit is showing pictures magnified and the
+        // spike is still drawing geometry — `GameScene.minimumZoomScale`.
+        frames += try frameBoth("closest zoom, raining", wetness: 1, scale: 0.5)
+        try Self.writeGrid(frames, columns: 2, cell: size, named: "metal-spike")
+        try Self.timings.write(to: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("build/ContactSheet/metal-spike.txt"),
+                               atomically: true, encoding: .utf8)
+    }
+
+    /// Frames in a grid with a caption over each, written beside the other
+    /// contact sheets.
+    static func writeGrid(_ frames: [(String, NSImage)], columns: Int, cell: CGSize, named name: String) throws {
+        let caption: CGFloat = 34
+        let rows = (frames.count + columns - 1) / columns
+        let canvas = NSSize(width: cell.width * CGFloat(columns),
+                            height: (cell.height + caption) * CGFloat(rows))
+        let image = NSImage(size: canvas)
+        image.lockFocus()
+        NSColor(calibratedRed: 0.03, green: 0.02, blue: 0.06, alpha: 1).setFill()
+        NSRect(origin: .zero, size: canvas).fill()
+        for (index, frame) in frames.enumerated() {
+            let column = index % columns, row = index / columns
+            let top = canvas.height - CGFloat(row) * (cell.height + caption)
+            frame.1.draw(in: NSRect(x: CGFloat(column) * cell.width, y: top - caption - cell.height,
+                                    width: cell.width, height: cell.height))
+            (frame.0 as NSString).draw(
+                at: NSPoint(x: CGFloat(column) * cell.width + 14, y: top - caption + 9),
+                withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 15, weight: .semibold),
+                                 .foregroundColor: NSColor.white])
+        }
+        image.unlockFocus()
+        let data = try XCTUnwrap(NSBitmapImageRep(data: image.tiffRepresentation ?? Data())?
+            .representation(using: .png, properties: [:]))
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("build/ContactSheet/\(name).png")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url)
+        print("🟪 \(url.path)")
+    }
+}

@@ -7572,6 +7572,70 @@ controller, owns `UserDefaults`.
 The render caught one thing: `RelativeDateTimeFormatter` described a save
 from a second ago as "in 0 seconds". Under a minute it now says "moments ago".
 
+## The Metal spike: the city as lit geometry
+
+The player chose "Cyberpunk 2077 styling with the simplicity of Mini
+Motorways", and asked whether that needs a real graphics engine. The answer
+this spike tests is **our own renderer on Metal**. Unity, Godot or Unreal
+would mean rewriting the Swift simulation and giving up the native-Mac
+design. SpriteKit's ceiling is the look itself: light that falls on things,
+reflections, haze, and sharpness at any zoom are all things a sprite engine
+can only fake.
+
+The reason it is tractable: **the buildings are already 3D descriptions.**
+`BuildingMassing` is volumes in tile units, which SpriteKit flattens into
+pictures. `MetalCityRenderer` feeds the same volumes to the GPU as geometry,
+through a camera matched exactly to `Isometric.project`. The projection is
+affine, so it is one matrix, with depth along `Isometric.toCamera`.
+
+Four passes:
+
+1. **Reflection.** The city drawn mirrored under the street. For a flat
+   mirror and a fixed camera that is exactly what a reflection *is*, not an
+   approximation of one. Street tiles mirror strongly, and land only in its
+   puddles.
+2. **Scene** (4× MSAA). Flat, dark faces lit by a weak moon; neon rims on
+   every edge; windows and lit volumes as emissive; and point lights placed
+   from each building's lit parts, street lamps and ground pools. The light
+   falls on walls and street rather than being baked into one picture.
+3. **Bloom**: five levels down and back up, the shape real lens bloom has.
+4. **Composite**: ACES tone-mapping, haze from the widest bloom level,
+   vignette, grain.
+
+Not wired into the game. `MetalSpikeTests` renders one block through a real
+`GameScene` and through the spike from the same map at the same moment,
+dry, raining and at the closest zoom, into `metal-spike.png`. It is on
+Quick's skip list, so it runs through the Full plan:
+
+```sh
+xcodebuild -project AlphaPlusPlus.xcodeproj -scheme AlphaPlusPlus -testPlan Full \
+           -configuration Release -derivedDataPath ./build ENABLE_TESTABILITY=YES \
+           test -only-testing:AlphaPlusPlusTests/MetalSpikeTests
+```
+
+**`-only-testing` inside a plan that skips the test runs nothing and still
+reports success.** Found immediately, by the sheet not changing.
+
+Two lessons from the first render, both the same as lessons this file already
+records for SpriteKit:
+
+- **Night comes from dim light, not black paint.** The first pass gave the
+  ground and walls near-black albedo, so no lamp or sign could show up on
+  them. Surfaces carry real albedo now, and the dark is a low ambient.
+- **Neon blew out to white**, the saturation this project has hit four
+  times. The fix was the same one each time: less emission, not more
+  clamping.
+
+**Measured:** 4–10 ms of GPU per 1200×800 frame for this block (about 3,100
+triangles, 75 lights). The lighting loops over every light for every pixel,
+which is fine for a block and **will not be fine for a 64×64 city**, which
+would have well over a thousand lights. A real migration needs tiled or
+clustered light culling first.
+
+The shaders are a Swift string compiled at runtime (`MetalCityShaders`),
+because this Xcode has no Metal toolchain. A `.metal` file fails the whole
+build until someone runs `xcodebuild -downloadComponent MetalToolchain`.
+
 ### Two test plans: Quick and Full
 
 A full run took about 23 minutes in Debug, which is too long to run before
