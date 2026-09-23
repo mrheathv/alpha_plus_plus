@@ -1130,7 +1130,7 @@ final class GameController: ObservableObject {
     /// this that's still a real, felt consequence; per-plant redundancy
     /// (a second plant halving your exposure) is a genuine refinement to
     /// make later, not a correctness fix now.
-    private static let basePowerOutageChance = 0.15
+    nonisolated private static let basePowerOutageChance = 0.15
 
     /// Rolls whether the grid blacks out this tick, then computes the
     /// result the same way `Water.computeSupply(for:)` already does for
@@ -1139,12 +1139,19 @@ final class GameController: ObservableObject {
     /// drawing from the same shared `rng` `CityHazards` and
     /// `CitySimulator`'s demand roll already use, not a second
     /// independent source of randomness.
-    private func computePowerSupply() -> PowerSupply {
+    ///
+    /// **Rolled once a day, by the daily step, and nowhere else.** An edit —
+    /// laying a line, placing a plant, changing funding — recomputes supply
+    /// against the day's outage as it stands (`recomputeUtilitySupply`),
+    /// rather than rolling again: laying a power line should not start or end
+    /// a blackout. It is also what lets the daily step run in the background:
+    /// the generator then belongs to that step alone.
+    nonisolated private static func powerSupply(for map: CityMap,
+                                                using rng: inout AnyRandomNumberGenerator) -> (PowerSupply, Bool) {
         let fundingLevel = map.serviceFunding.level(for: .powerPlant)
-        let outageChance = Self.basePowerOutageChance * max(0, 1 - fundingLevel)
+        let outageChance = basePowerOutageChance * max(0, 1 - fundingLevel)
         let outageActive = Double.random(in: 0 ..< 1, using: &rng) < outageChance
-        isPowerOutageActive = outageActive
-        return PowerGrid.computeSupply(for: map, outageActive: outageActive)
+        return (PowerGrid.computeSupply(for: map, outageActive: outageActive), outageActive)
     }
 
     /// Advance the city by one simulation step: hazards first (see
@@ -1188,7 +1195,7 @@ final class GameController: ObservableObject {
     /// skipping supply it did.
     func recomputeUtilitySupply() {
         map.waterSupply = Water.computeSupply(for: map)
-        map.powerSupply = computePowerSupply()
+        map.powerSupply = PowerGrid.computeSupply(for: map, outageActive: isPowerOutageActive)
     }
 
     /// Where the rails are, which changes when a tram line does and when the
@@ -1210,14 +1217,36 @@ final class GameController: ObservableObject {
         map.tramTracks = Transit.tramTracks(in: map)
     }
 
+    /// One day of the city, synchronously: the step, then the bookkeeping.
+    ///
+    /// What every test and the manual "advance one day" call. The live game's
+    /// clock goes through `beginDayInBackground` instead, which runs the same
+    /// two halves with the first one off the main thread.
     func advanceSimulation() {
+        precondition(dayInFlight == nil, "a day is already being simulated in the background")
+        var rng = self.rng
+        let day = Self.simulateDay(map, using: &rng)
+        self.rng = rng
+        apply(day)
+    }
+
+    /// What one day of simulation produced, before any of it is applied.
+    struct Day {
+        let map: CityMap
+        let isPowerOutageActive: Bool
+        let strikes: [CityHazards.Strike]
+    }
+
+    /// **The day itself**: a pure function of the city and the generator, so
+    /// it can run anywhere. Everything that touches the controller's own
+    /// state — the treasury, unlocks, milestones, history, the inspector — is
+    /// `apply`'s, and runs on the main thread.
+    nonisolated static func simulateDay(_ start: CityMap, using rng: inout AnyRandomNumberGenerator) -> Day {
+        var map = start
         // Routed commute load first, before hazards/growth run — both read
         // it (via `LandValue`'s road-frontage dampening), and they should
         // see this tick's freshly-computed congestion for the map as it
         // stood at the start of the tick, not last tick's stale numbers.
-        // `CityHazards.apply`'s and `CitySimulator.advance`'s `next = map`
-        // copies both carry it forward automatically since it's just
-        // another field on the struct they copy.
         // Rails first: `Traffic.congestion` reads them to decide how much of
         // a street is left for cars, and routing reads congestion.
         map.tramTracks = Transit.tramTracks(in: map)
@@ -1228,7 +1257,8 @@ final class GameController: ObservableObject {
         // this tick rather than next.
         map = Infrastructure.advance(map)
         map.waterSupply = Water.computeSupply(for: map)
-        map.powerSupply = computePowerSupply()
+        let (power, outage) = powerSupply(for: map, using: &rng)
+        map.powerSupply = power
         // The region moves on whether the player is watching or not, and it
         // has to move *before* demand is computed — `Demand.compute` reads it.
         map.regionalEconomy = map.regionalEconomy.advanced()
@@ -1246,8 +1276,15 @@ final class GameController: ObservableObject {
         // Reported together, so a fire jumping to the next block gets the same
         // flash on the map as the strike that started it — to the player they
         // are the same event, and the second one is the more alarming.
-        lastHazardStrikes = spread + strikes
         map = CitySimulator.advance(hazarded, using: &rng)
+        return Day(map: map, isPowerOutageActive: outage, strikes: spread + strikes)
+    }
+
+    /// The bookkeeping half of a day, on the main thread.
+    private func apply(_ day: Day) {
+        map = day.map
+        isPowerOutageActive = day.isPowerOutageActive
+        lastHazardStrikes = day.strikes
         treasury += netRevenue
         newlyUnlockedZones = Unlocks.newlyUnlocked(crossing: population, from: peakPopulation)
         peakPopulation = max(peakPopulation, population)
@@ -1257,6 +1294,52 @@ final class GameController: ObservableObject {
         // last tick's answer is worse than one showing none, because it looks
         // live.
         refreshInspection()
+    }
+
+    // MARK: - The day, in the background
+
+    private func finishDay(_ day: Day, rng advanced: AnyRandomNumberGenerator, startedAt revision: Int,
+                           done: @MainActor (_ applied: Bool) -> Void) {
+        dayInFlight = nil
+        guard mapRevision == revision else {
+            done(false)
+            return
+        }
+        rng = advanced
+        apply(day)
+        done(true)
+    }
+
+    /// A day being simulated off the main thread, if one is.
+    private var dayInFlight: Task<Void, Never>?
+
+    var isDayInFlight: Bool { dayInFlight != nil }
+
+    /// **Runs the next day off the main thread**, so a large city's tick no
+    /// longer stops the frame: on a 64×64 city it was about 29 ms in Release,
+    /// nearly two dropped frames every day, and several hundred in Debug.
+    ///
+    /// The day is simulated from a copy of the city, and applied on the main
+    /// thread when it arrives — **unless the player has changed the city in
+    /// the meantime**, in which case it is thrown away and `done(false)`
+    /// tells the caller to start again at once. The player's click always
+    /// wins; the cost is a day arriving a frame or two later. `mapRevision`
+    /// is the test, since every write to the map moves it.
+    ///
+    /// Returns false, and does nothing, if a day is already running.
+    @discardableResult
+    func beginDayInBackground(_ done: @escaping @MainActor @Sendable (_ applied: Bool) -> Void) -> Bool {
+        guard dayInFlight == nil else { return false }
+        let start = map
+        let startRevision = mapRevision
+        let generator = rng
+        dayInFlight = Task.detached(priority: .userInitiated) {
+            var rng = generator
+            let day = GameController.simulateDay(start, using: &rng)
+            let advanced = rng
+            await self.finishDay(day, rng: advanced, startedAt: startRevision, done: done)
+        }
+        return true
     }
 
     private func recordHistorySnapshot() {

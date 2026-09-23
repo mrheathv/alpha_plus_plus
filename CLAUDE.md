@@ -8413,6 +8413,44 @@ as scratches on the lens.
 `rainfall` reaches the scene shader in `Uniforms.overlay.z`. The Apex budget
 test now also measures a raining frame: 8.20 ms against 8.02 dry.
 
+### The day runs in the background
+
+A day on a large city cost the frame it landed on about 29 ms in Release,
+nearly two dropped frames every day (`RedrawHitchTests`). The live game now
+simulates each day off the main thread.
+
+- **The day is split in two.** `GameController.simulateDay` is the heavy
+  half (routing, utilities, growth, hazards): a pure, `nonisolated` function
+  of a city and the generator. `apply` is the bookkeeping (treasury, unlocks,
+  milestones, history, the inspector), on the main thread.
+  `advanceSimulation()` runs both synchronously and is what every test and
+  the manual "advance" use. `beginDayInBackground` runs the first half in a
+  detached task and applies it when it lands.
+- **The player's click wins.** If `mapRevision` moved while the day ran, the
+  day is thrown away and the scene starts another on the next frame, so an
+  edit is never overwritten. The cost is a day arriving a frame or two late.
+- **The generator belongs to the day alone.** It is a struct wrapping a
+  closure, so a copy shares its state, and using it on two threads would be
+  a race. The one other caller was `recomputeUtilitySupply` re-rolling the
+  power outage after an edit, which was a quirk in its own right: laying a
+  line should not start or end a blackout. Edits now keep the day's outage.
+- **Opt-in, for the live game only** (`GameScene.runsDaysInBackground`,
+  set by `GameView`). A test drives the frame loop synchronously and never
+  spins the run loop, so a background day would start, never land, and
+  every tick after it would quietly be skipped while the clock waited for it.
+
+`BackgroundDayTests` pins it: ten background days equal ten synchronous
+ones exactly, map and treasury; an edit mid-day survives and the day is
+discarded; starting a day on Apex costs the main thread 0.004 ms against
+23.5 ms to simulate it there; and a scene running background days still
+agrees with a freshly built one, which fails when the redraw on landing is
+removed.
+
+**Still on the main thread:** the Metal renderer's catch-up after a day
+(rebuilding changed map sections, 2–12 ms on a large growing city). Moving
+that off, or spreading it over frames, is the next step for big-city
+smoothness.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

@@ -529,6 +529,13 @@ final class GameScene: SKScene {
         advanceDiagramVehicles(by: frameDelta)
         advanceAircraft(by: frameDelta)
 
+        // A day thrown away because the player edited the city while it ran
+        // is started again at once, rather than a whole interval later.
+        if retryDay, !controller.isDayInFlight {
+            retryDay = false
+            startDayInBackground()
+            return
+        }
         guard let lastTickTime else {
             // Just resumed (or this is the first frame ever): start the
             // clock from now rather than ticking on this very frame.
@@ -536,9 +543,43 @@ final class GameScene: SKScene {
             return
         }
         guard currentTime - lastTickTime >= controller.simulationSpeed.tickInterval else { return }
+        // Still working on the last day: the clock waits for it rather than
+        // queueing another behind it.
+        guard !controller.isDayInFlight else { return }
 
         self.lastTickTime = currentTime
-        runSimulationTick()
+        startDayInBackground()
+    }
+
+    /// Set when a day was discarded, so the next frame starts another.
+    private var retryDay = false
+
+    /// **Whether the clock simulates days in the background.** On for the
+    /// live game only (`GameView` turns it on). A test drives the frame loop
+    /// synchronously and never spins the run loop, so a background day would
+    /// start and never land — and every tick after it would quietly be
+    /// skipped, because the clock waits for the day in flight.
+    var runsDaysInBackground = false
+
+    /// **The clock's day, off the main thread.** The simulation step on a
+    /// large city cost the frame it landed on 29 ms in Release — nearly two
+    /// dropped frames every day — so the live game simulates the day in the
+    /// background and shows it when it is applied. `runSimulationTick` below
+    /// stays synchronous for the manual "advance" and for the tests.
+    private func startDayInBackground() {
+        guard runsDaysInBackground else {
+            runSimulationTick()
+            return
+        }
+        let before = controller.map
+        controller.beginDayInBackground { [weak self] applied in
+            guard let self else { return }
+            if applied {
+                self.showDay(from: before)
+            } else {
+                self.retryDay = true
+            }
+        }
     }
 
     /// Runs one simulation step and reflects it visually: resync every
@@ -546,8 +587,17 @@ final class GameScene: SKScene {
     /// both the automatic clock above and `GameView`'s manual "Advance"
     /// button funnel through, so the two can never show a tick differently.
     func runSimulationTick() {
+        // The clock is already simulating a day; this one would race it for
+        // the generator. It will arrive on its own in a moment.
+        guard !controller.isDayInFlight else { return }
         let before = controller.map
         controller.advanceSimulation()
+        showDay(from: before)
+    }
+
+    /// Reflects a day that has just been applied: resync what changed, then
+    /// flash any tile a hazard struck.
+    private func showDay(from before: CityMap) {
         refreshTilesChanged(from: before)
         for strike in controller.lastHazardStrikes {
             flashHazard(at: strike.position, service: strike.coveringService)
