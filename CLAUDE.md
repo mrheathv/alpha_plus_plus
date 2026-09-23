@@ -8362,6 +8362,36 @@ as panel lines. Imported 3D models (an artist's or bought) are the route
 past what code can express, and would be the project's first real art
 assets; that is the player's decision and is parked.
 
+### Neon signs (Metal)
+
+`MetalSigns` gives shops, level-6 towers and the arcade real neon signs:
+rooftop billboards on posts, tall blades with stacked letters, and marquees
+round a shop's ground floor. The words (MOTEL, ARCADE, VIDEO, DINER and 20
+more, plus 8 vertical) are drawn once with CoreText as outlined tubes with a
+soft halo into one grey atlas. Each sign is a world-space quad that samples
+a word and adds its colour as light: hidden by what stands in front of it,
+reflected in a wet street, hidden in views.
+
+**Planned per lot, not per building design.** The sign is seeded by the
+lot's position, so two lots drawing the same cached tower carry different
+signs, which is variety the 32-variant cache cannot give. The frame (dark
+backing board, posts) is ordinary chunk geometry; the letters are a
+per-chunk instance buffer, compared by `MetalAgreement` like the rest.
+
+Three things the renders caught, none of which failed a test:
+
+- **`MTKTextureLoader` turned down the one-channel grey atlas without an
+  error**, and a missing atlas skips the draw, so 67 planned signs drew
+  nothing. The atlas is built from its pixels now, and a test asserts it
+  loaded.
+- **"The roof" was the top of the building**, which on nearly every tall one
+  is a mast, so almost no billboard was placed and the signs were blades
+  alone. `testSignsChangeTheFrame` diffs a frame with and without signs and
+  writes `neon-signs-where.png`, which is what showed it. The roof is now the
+  highest level at least most of a tile wide.
+- **Held to the roof's width, billboards read as trim.** They overhang it
+  now, as real ones do.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

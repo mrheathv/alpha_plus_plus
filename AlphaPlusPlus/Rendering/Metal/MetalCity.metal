@@ -625,6 +625,46 @@ vertex TraceVaryings traceVertex(uint vid [[vertex_id]], uint iid [[instance_id]
     return out;
 }
 
+// Neon signs: a quad in the world carrying one word from the sign atlas,
+// added to the frame as light. `MetalSigns` plans them; see its doc comment.
+struct Sign {
+    float4 origin;   // xyz: bottom-left corner in world tiles
+    float4 u;        // xyz: along the text
+    float4 v;        // xyz: up the text
+    float4 tint;     // rgb: the tube's colour
+    float4 rect;     // the word in the atlas: u0, v top, u1, v bottom
+};
+
+struct SignVaryings {
+    float4 clip [[position]];
+    float2 uv;
+    float3 color;
+};
+
+vertex SignVaryings signVertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                               const device Sign *signs [[buffer(0)]],
+                               constant MotionUniforms &u [[buffer(1)]]) {
+    const float2 corners[6] = { float2(0, 0), float2(1, 0), float2(1, 1),
+                                float2(0, 0), float2(1, 1), float2(0, 1) };
+    Sign sign = signs[iid];
+    float2 c = corners[vid];
+    float3 world = sign.origin.xyz + sign.u.xyz * c.x + sign.v.xyz * c.y;
+    SignVaryings out;
+    out.clip = u.viewProjection * float4(mirrorIfNeeded(world, u), 1);
+    out.uv = float2(mix(sign.rect.x, sign.rect.z, c.x), mix(sign.rect.w, sign.rect.y, c.y));
+    out.color = sign.tint.rgb;
+    return out;
+}
+
+fragment float4 signFragment(SignVaryings in [[stage_in]], texture2d<float> atlas [[texture(0)]]) {
+    constexpr sampler s(filter::linear, mip_filter::linear, address::clamp_to_edge);
+    float glow = atlas.sample(s, in.uv).r;
+    // The tube's core burns past white so it blooms; the halo around it keeps
+    // the colour.
+    float3 light = in.color * glow * 3.2 + float3(1.0) * pow(glow, 6.0) * 0.8;
+    return float4(light, 0);
+}
+
 // Rain: nothing on the CPU but a count. Each drop's place and fall come from
 // its index and the clock, so a downpour of thousands costs no more to plan
 // than a drizzle. It falls over the ground the camera can see, from a fixed
