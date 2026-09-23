@@ -17,6 +17,9 @@ enum ZoneMassing {
         if RenderPalette.growthTier(for: density) >= 4, zone == .residential || zone == .commercial {
             return SkyscraperMassing.make(zone: zone, seed: seed, footprint: footprint)
         }
+        if IconBuildings.isIcon(zone) {
+            return IconMassing.make(for: zone, seed: seed, footprint: footprint)
+        }
         switch zone {
         case .industrial:
             let tier = RenderPalette.growthTier(for: density)

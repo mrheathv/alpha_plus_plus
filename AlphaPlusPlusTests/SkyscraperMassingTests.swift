@@ -63,6 +63,62 @@ final class SkyscraperMassingTests: XCTestCase {
         XCTAssertGreaterThan(differing, Self.variantSeeds.count * 3 / 4)
     }
 
+    /// **Every form, weighed.** The contact sheet only samples eight seeds,
+    /// so a heavy form can hide from `testABuildingsGeometryStaysBounded`
+    /// until the day it happens to be drawn. This builds each form in both
+    /// zones from the variants the game uses and holds each to the same bound.
+    func testEveryFormStaysWithinTheGeometryBudget() throws {
+        let projection = Isometric()
+        for zone in Self.zones {
+            var worst: [String: Int] = [:]
+            for seed in Self.variantSeeds where !ZoneMassing.isLandmark(tier: 4, seed: seed) {
+                let massing = try XCTUnwrap(ZoneMassing.make(for: zone, density: 6, seed: seed))
+                let node = IsometricBuilding.node(for: massing, accent: ZoneMassing.accent(for: zone, density: 6),
+                                                  tier: 4, in: projection)
+                let form = "\(SkyscraperMassing.form(for: seed))"
+                worst[form] = max(worst[form] ?? 0, Self.nodeCount(node))
+            }
+            print("\(zone.rawValue) nodes per form: \(worst.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
+            for (form, count) in worst {
+                XCTAssertLessThan(count, 220, "\(zone.rawValue) \(form) is far heavier than anything else")
+            }
+        }
+    }
+
+    private static func nodeCount(_ node: SKNode) -> Int {
+        1 + node.children.reduce(0) { $0 + nodeCount($1) }
+    }
+
+    /// **Distinct buildings per zone and tier, over the looks the game draws.**
+    /// Counted on structure — volume kinds, height, panel count — the same
+    /// signature the contact sheet uses, but over all of `variantCount`
+    /// canonical seeds rather than eight arbitrary ones, because those are the
+    /// only buildings a player will ever see.
+    func testReportDistinctMassingsPerZoneAndTier() throws {
+        for zone in [ZoneType.residential, .commercial, .industrial] {
+            var line: [String] = []
+            for density in [1, 3, 5, 6] where density <= zone.maxDensity {
+                let signatures = Set(try Self.variantSeeds.map { seed -> String in
+                    let massing = try XCTUnwrap(ZoneMassing.make(for: zone, density: density, seed: seed))
+                    let kinds = massing.solids.map { solid -> String in
+                        switch solid.volume {
+                        case .box: return "b"
+                        case .ridge: return "r"
+                        case .cylinder: return "c"
+                        }
+                    }.joined()
+                    return "\(kinds)-\(Int(Self.top(of: massing) * 12))-\(massing.panels.count)"
+                })
+                line.append("density \(density): \(signatures.count)")
+                if density == 6 {
+                    XCTAssertGreaterThanOrEqual(signatures.count, IsoTextureCache.variantCount - 2,
+                                                "\(zone.rawValue): the skyline repeats itself")
+                }
+            }
+            print("\(zone.rawValue) distinct of \(IsoTextureCache.variantCount): \(line.joined(separator: ", "))")
+        }
+    }
+
     func testIndustryNeverDrawsASkyscraper() {
         XCTAssertLessThan(ZoneType.industrial.maxDensity, 6)
     }

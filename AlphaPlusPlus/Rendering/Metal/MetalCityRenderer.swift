@@ -1771,8 +1771,14 @@ enum MetalCityMesh {
         c.getHue(&h, saturation: &sat, brightness: &b, alpha: &a)
         let zoneIndex = ZoneType.allCases.firstIndex(of: key.zone) ?? 0
         var random = BuildingRandom(seed: GridPosition(x: key.variant, y: key.density), salt: 5_000 + zoneIndex)
-        let hue = (h + CGFloat(random.value(in: -0.045 ... 0.045)) + 1).truncatingRemainder(dividingBy: 1)
-        let saturation = min(1, sat * CGFloat(random.value(in: 0.82 ... 1.1)))
+        // **Industry gets a wider family, leaning to amber.** Its tiers are
+        // one orange and one red-orange, so a district read as one block from
+        // afar. The spread runs further toward amber than toward red, since
+        // red is the direction of shops' magenta and zone identity is the one
+        // thing this colour must still say.
+        let spread: ClosedRange<Double> = key.zone == .industrial ? -0.03 ... 0.075 : -0.045 ... 0.045
+        let hue = (h + CGFloat(random.value(in: spread)) + 1).truncatingRemainder(dividingBy: 1)
+        let saturation = min(1, sat * CGFloat(random.value(in: key.zone == .industrial ? 0.7 ... 1.1 : 0.82 ... 1.1)))
         let brightness = min(1, b * CGFloat(random.value(in: 0.82 ... 1.08)))
         return SKColor(hue: hue, saturation: saturation, brightness: brightness, alpha: a)
             .usingColorSpace(.sRGB) ?? color
@@ -1786,7 +1792,14 @@ enum MetalCityMesh {
     /// per-lot wobble stops a block of equals lining up. Industry keeps its
     /// height: wide and low is its identity.
     static func heightScale(zone: ZoneType, density: Int, at position: GridPosition, in map: CityMap) -> Float {
-        guard zone == .residential || zone == .commercial, density >= 3 else { return 1 }
+        // **An icon rises with downtown too, and never below its drawing.**
+        // Left at 1 while the towers round it stretched by up to half again,
+        // the Sunset Spire's lead over a dense district shrank to a few
+        // percent in the one view that matters. So an icon takes the same
+        // neighbourhood scale, without the wobble (there is one of it) and
+        // without the shrink (an icon standing in a suburb is still an icon).
+        let isIcon = IconBuildings.isIcon(zone)
+        guard isIcon || (zone == .residential || zone == .commercial) && density >= 3 else { return 1 }
         var sum = 0, most = 0
         for dy in -3 ... 3 {
             for dx in -3 ... 3 {
@@ -1799,6 +1812,7 @@ enum MetalCityMesh {
         // Against each lot's own ceiling, since housing and shops reach 6 and
         // industry stops at 5.
         let cluster = most == 0 ? 0 : Float(sum) / Float(most)
+        if isIcon { return max(1, 0.85 + 0.6 * cluster * cluster) }
         let wobble = Float((position.x &* 73_856_093 ^ position.y &* 19_349_663) & 1023) / 1023 * 0.12 - 0.06
         return 0.85 + 0.6 * cluster * cluster + wobble
     }

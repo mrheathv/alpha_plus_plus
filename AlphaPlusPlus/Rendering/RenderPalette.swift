@@ -398,6 +398,20 @@ enum RenderPalette {
             return SKColor(srgbRed: 1.0, green: 0.93, blue: 0.72, alpha: 1.0)
         case .arcology:
             return SKColor(srgbRed: 0.40, green: 1.0, blue: 0.92, alpha: 1.0)
+        // The icons, each in the colour its reference image lights it with:
+        // the night market's sign red, the dome's chrome, the masts'
+        // twilight violet, the harbour tower's ice blue, and the spire in
+        // the gold of the sun it stands in front of.
+        case .nightMarket:
+            return SKColor(srgbRed: 1.0, green: 0.26, blue: 0.42, alpha: 1.0)
+        case .chromeDome:
+            return SKColor(srgbRed: 0.76, green: 0.9, blue: 1.0, alpha: 1.0)
+        case .twinMasts:
+            return SKColor(srgbRed: 0.58, green: 0.5, blue: 1.0, alpha: 1.0)
+        case .harbourTower:
+            return SKColor(srgbRed: 0.42, green: 0.74, blue: 1.0, alpha: 1.0)
+        case .sunsetSpire:
+            return SKColor(srgbRed: 1.0, green: 0.66, blue: 0.3, alpha: 1.0)
         case .park:
             // **The one green in the game**, and deliberately the only one.
             // Every other zone sits somewhere on the magenta-to-cyan
@@ -783,6 +797,11 @@ enum RenderPalette {
         case .neonArcade: return "Neon Arcade"
         case .broadcastTower: return "Broadcast Tower"
         case .arcology: return "Arcology"
+        case .nightMarket: return "Night Market"
+        case .chromeDome: return "Chrome Dome"
+        case .twinMasts: return "Twin Masts"
+        case .harbourTower: return "Harbour Tower"
+        case .sunsetSpire: return "Sunset Spire"
         case .empty: return "Bulldoze"
         case .residential: return "Residential"
         case .commercial: return "Commercial"

@@ -8514,6 +8514,207 @@ when `key.near`), and the street tier's window frames (same function, when
 far/standard boundary rebuilds chunks even while nothing is tagged
 `.standard`; cheap, spread over frames, and worth skipping once measured.
 
+### Retrowave step 4: sixteen skyscrapers, and more of level 5
+
+The player asked for "a TON of variety... all sorts of skyscrapers". Level 6
+went from five forms to **sixteen**, each a different silhouette rather than
+the same drawing at different numbers: ziggurat (equal tiers stepped from the
+ground, a lit fin on every wall), antenna farm (steps retreating to the back
+corner, a roof of masts), telescope (an octagon closing in three collared
+stages), cantilever (a full-width block overhanging a slim shaft), split top
+(one shaft forking into two blades), stacked (four blocks zigzagging corner to
+corner), wedge (a steep slanted roof with a lit ridge), cluster (three towers of
+three heights on one podium), halo (a core carrying one or two saucers),
+obelisk (eight shallow steps tapering into a needle) and ribbed (lit fins that
+break the roofline into a comb). Level 5 gained a corner tower and a glass slab
+for shops, an L-block and an estate slab for housing, picked on their own
+stream so the variants it already drew are unchanged.
+
+- **Forms are dealt, not rolled.** Sixteen forms over the ~29 ordinary cached
+  variants, rolled fairly, leaves one or two forms the game never draws.
+  `SkyscraperMassing.form(for:)` deals them in turn over the canonical seeds,
+  so each appears once or twice; any other seed still rolls.
+- **Two of the original five were already over the geometry bound**, and had
+  been hidden by the contact sheet's eight seeds: a residential drum was 275
+  nodes and a twin 232, against 220. `testEveryFormStaysWithinTheGeometryBudget`
+  now weighs every form over the variants the game draws. Rings went from 16
+  sides to 12 and housing's window rows are capped at ten per shaft.
+- **Measured on Apex**, same process, before and after: GPU at the resting
+  camera 7.99 → 7.91 ms, whole city 5.22 → 5.05, lights 2,034 → 2,041. Lit
+  solids are nearly free here, because a building's lit volumes merge into at
+  most two lights.
+- **Distinct massings over the 32 cached variants**: housing 25 / 32 / 32 / 32
+  at densities 1, 3, 5, 6; shops 24 / 31 / 32 / 31; industry 28 / 31 / 29. The
+  top tiers saturate `variantCount`. Raising it is the next lever for variety,
+  and it needs texture memory measured first (`OversampleCostTests`).
+- **What the widest camera showed**: the ringed drums and telescopes are the
+  loudest marks in a downtown, since every ring is lit. If a skyline reads as
+  "all drums", thin those rings first.
+
+### Icons: prestige, one of each per city
+
+Asked for after the player brought three reference images (a Hong Kong
+street, a skyline silhouetted on a striped sun, a skyline over grid water):
+"special buildings the player can only place a few of". Decided: **one of
+each per city, prestige only** — no effect on demand, land value or anything
+else, and no upkeep. `IconBuildings` (Simulation/) holds the rules;
+`IconMassing` draws them.
+
+| icon | rank | cost | the mark |
+|---|---|---|---|
+| Night Market | Village | $6k | pagoda eaves wrapped in tall vertical neon signs |
+| Chrome Dome | Town | $12k | a lit dome on a drum over a slim tower |
+| Twin Masts | City | $20k | two slim towers, two antennas each |
+| Harbour Tower | City | $30k | a tapering shaft under a crown of lit spikes |
+| Sunset Spire | Metropolis | $50k | Deco shoulders, a lit crown and a needle, 12.7 units |
+
+- **Earned through `RewardBuildings.requiredRank`**, which now falls through
+  to the icons, so `Unlocks`, the locked chip and the rank announcement needed
+  no second path. The announcement names every building a rank earns now
+  ("Broadcast Tower, Twin Masts, Harbour Tower unlocked"), since City opens
+  three and naming the first hid the others. One test moved with it: Village
+  used to carry no reward.
+- **One per city is a placement rule**, `.blocked` in `placementRefusal`, so
+  the cursor turns red over a second one the same way it does over water. The
+  chip reads **Built** once one stands, because a chip that looked available
+  and refused every click would read as a bug. Bulldozing frees the slot.
+- **The spire has to lead by a clear margin**, and the first version did not:
+  at 11.2 units it beat the Harbour Tower (10.3) by less than the 20% the test
+  asks. `testTheSunsetSpireIsTheTallestThingInTheGame` compares it with every
+  variant of every zone at every density.
+- **Two things only the render caught.** Twin Masts on the lot's main
+  diagonal put one tower directly behind the other and read as one; on the
+  anti-diagonal they stand side by side. And the night market's signs, at
+  first no taller than its eaves, read as a house with some trim.
+- `IconBuildingsTests.testRenderTheIcons` writes `icons.png`, and
+  `MetalLookTests.testRenderTheIconsDowntown` places all five in Apex and
+  renders them with Metal (`metal-icons.png`, Full plan).
+
+### The low end: an 80s Miami suburb, and industry that says it several ways
+
+The contact sheet after the skyline pass showed the repetition had moved to
+the bottom of the ladder, which is most of a city's map area and the first
+hour of play. Seven of eight tier-1 houses were the same squat box filling
+its lot; tier 2 housing was one stepped block; the plain strip took half of
+tier-1 shops and the podium tower all of tier 2; every tier-1 factory was
+one sawtooth shed. The player chose a Miami suburb as the answer.
+
+| | added |
+|---|---|
+| housing T1 | detached house with garage and palm, pool bungalow, duplex |
+| housing T2 | garden court round a pool, walk-up with lit galleries, townhouses |
+| shops T1 | diner, petrol station, mini-mall behind its car park, big-sign store |
+| shops T2 | motel round its pool, glass office on a lobby, billboard block |
+| industry T1 | warehouse with trucks at its doors, gabled sheds, container yard, grain silos |
+| industry T2–3 | tank farm, container port with gantry, refinery with a flare |
+
+Every existing form is still in each list, so nothing was removed.
+
+- **Low density leaves ground.** The tier-1 house now covers about a third
+  of its lot on average, where the old block covered most of it, and the
+  open ground carries the suburb's marks: palms, lit pools, pole signs.
+  `SuburbMassing` holds those, shared by housing and shops.
+- **`LotPlan`** writes a form once in lot-local axes (along, across) and
+  flips it to either orientation, so a duplex or a motel can face either way
+  without two copies of every coordinate.
+- **`ZoneMassing.dealt`** generalises the skyscraper's rule: over the
+  canonical seeds, forms are dealt in turn, so every form is drawn.
+- **Shapes per tier over the 32 cached variants** (counted by volume kinds,
+  so size changes do not count): housing 14 / 14, shops 12 / 12 at tiers 1
+  and 2, industry 5 → 12 at tier 1. `LowEndMassingTests` asserts at least 12
+  for housing and shops.
+- **A palm is a drooping frond, not a cross.** The first palms had flat
+  fronds and read as telegraph poles. Each frond is a `Ridge` with its ridge
+  at the trunk end, so it falls away along its length.
+- **Apex's frame budget is unchanged** at 7.98 ms (it has no low-density
+  lots). The new forms are cheap: few volumes, and lit solids merge into at
+  most two lights a building.
+- `LowEndMassingTests.testRenderTheLowEnd` writes `low-end.png`, and
+  `MetalLookTests.testRenderTheSuburb` renders a small town of tiers 1–2 in
+  Metal (`metal-suburb.png`, Full plan).
+
+### Industry's colour, and the first look at a grown city
+
+- **Industry's colour family is wider in Metal, leaning to amber.**
+  `MetalCityRenderer.varied` shifts each variant's hue by −0.03…+0.075 for
+  industry, against ±0.045 elsewhere, and saturation further. It leans away
+  from red because red is the direction of shops' magenta.
+- **Every stack carries a red aviation beacon** (`NeonStyle.beaconColor`),
+  and warehouses and container yards a sodium floodlight
+  (`NeonStyle.sodiumColor`): working light rather than neon, the one light
+  an industrial skyline has that no other zone does. Apex at the resting
+  camera: 7.98 → 8.13 ms, 2,101 → 2,128 lights, inside the 9 ms bound.
+- **`MetalLookTests.testRenderAGrownCity`** grows a 32×32 harness city and
+  photographs it at day 45 and day 200 (`metal-grown-city.png`, Full plan) —
+  the first render of a city the simulation made rather than one placed by
+  hand. **It found that the first hour is scaffolding**: at day 45 nearly
+  every lot is under construction, and the amber wireframes, bloomed, swamp
+  the buildings they stand on. By day 200 the suburb reads as designed. The
+  harness zones a whole map at once, which overstates it, but a player
+  zoning a district at a time sees the same thing locally.
+- **Fixed in Metal by making the deck the mark.** `MetalOverlay.scaffold`
+  no longer draws the ring at the coming roofline, the posts are faint and
+  rise only as far as the work has, and the climbing deck is calmer
+  (1.6× amber rather than 3×). Re-rendered, day 45 reads as a city being
+  built rather than a lattice. SpriteKit's scaffold is unchanged, since
+  Metal is the renderer being carried forward.
+
+### Skyline tops, sparse windows, and icons that rise with downtown
+
+The last items from the reference images.
+
+- **Two new tops for ordinary skyscrapers**: a crown of lit spikes, taller
+  at the corners (the Hong Kong supertall's top, which the Harbour Tower
+  icon has in full), and a dome on a drum with a mast (the silhouette
+  image). They come through the shared `crown` helper on about a third of
+  its towers, on Deco towers in place of the needle a third of the time, and
+  as spikes on 40% of slabs. Each is picked on its own random stream, so
+  towers that keep their old top are unchanged.
+- **Sparse windows on about a third of towers**: a dark shaft with a
+  scatter of lit dashes (shops) or a thin punched grid (housing) instead of
+  a full lit grid. From afar the outline carries the tower, and the skyline
+  gets dark towers to set the bright ones against.
+- **The dome is not offered to the stacked form.** Four window-covered
+  blocks already sit near the 220-node geometry bound, and a stacked
+  housing tower with a dome measured 236.
+- **Icons rise with downtown in Metal.** `MetalCityMesh.heightScale` used to
+  scale only housing and shops, by up to about 1.5× in a dense district,
+  which shrank the Sunset Spire's lead in exactly the view it exists for.
+  An icon now takes the same neighbourhood scale, without the per-lot wobble
+  and never below 1.
+- Apex at the resting camera: 8.13 ms, 2,128 lights.
+
+### Building detail, P0: the baseline
+
+The plan for adding detail by camera distance is the "Building Detail Plan"
+artifact (https://claude.ai/artifact/EPbNaykqUmDHj3agmjCdjk). The split: the
+visuals session owns the closer camera, P1 (a detail tier per part) and P6
+(shader detail); the buildings session owns P0, P2–P5 and P7. All of it is
+Metal only.
+
+P0 is `DetailBaselineTests` (an extension of `MetalLookTests`, Full plan):
+
+- **A showcase city**: six skyscraper forms per zone, two variants of every
+  lower zone and level, and the five icons, placed on lots whose position
+  gives the wanted variant. Every tile is plumbed and wired, so no close-up
+  is a picture of a utility badge. Towers take lots at the back and
+  everything else at the front, since a tower in front hid the house the
+  close-up was meant to show.
+- **Four sheets** (`detail-p0-overview`, `-skyline`, `-lowrise`, `-icons`):
+  the showcase at the widest and resting cameras in colour and greyscale,
+  then every building at the near and closest cameras.
+- **`Camera.scale` is points per output pixel**, so the game's cameras are
+  1.5 (widest, 43 px a tile), 0.5 (resting, 128), 0.3 (near, 213) and 0.1
+  (closest, 640). Close-ups aim at a building's *body*, ignoring needles and
+  masts, and allow for Metal's downtown height stretch, or they frame sky.
+- **Triangles per building** (`detail-p0-triangles.txt`): the heaviest,
+  level-6 housing at the near tier, is 784; most buildings are 100–450.
+  Against a GPU that draws millions, there is plenty of room to add
+  geometry.
+- **What the close-ups show**: facades are flat lit rectangles with no depth,
+  roofs are empty planes with at most a box or two, and the suburb's ground
+  is bare between the palms. That is the list P3–P5 exist to answer.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

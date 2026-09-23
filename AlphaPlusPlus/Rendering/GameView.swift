@@ -846,12 +846,16 @@ struct GameView: View {
         switch entry.action {
         case .zone(let zone):
             let unlocked = controller.isUnlocked(zone)
+            // An icon the city already has is spent, not locked, and says so:
+            // a chip that looked available and then refused every click would
+            // read as a bug. A scan of the tiles, which is microseconds.
+            let spent = IconBuildings.isIcon(zone) && IconBuildings.isBuilt(zone, in: controller.map)
             RetroToolChip(
                 title: entry.title,
                 cost: entry.cost,
                 accent: RetroUITheme.accent(for: entry.accentZone),
                 isSelected: controller.selectedTool == zone && controller.overlayMode == .none,
-                lockedBy: unlocked ? nil : lockHint(for: zone),
+                lockedBy: !unlocked ? lockHint(for: zone) : (spent ? "Built" : nil),
                 // `selectTool` rather than assigning directly: picking a zone
                 // also leaves a network overlay, so the two stay exclusive.
                 action: { controller.selectTool(zone) }

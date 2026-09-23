@@ -32,9 +32,44 @@ enum ResidentialMassing {
                        into: &massing, random: &random)
             return massing
         }
-        if tier == 1, random.chance(0.5) {
-            houseRow(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
-        } else {
+        // Level 5 picks its form on its own stream, so the blocks it already
+        // drew stay byte-identical and only the new forms are new.
+        if tier == 3 {
+            var formRandom = BuildingRandom(seed: seed, salt: 150)
+            switch formRandom.int(in: 0 ... 3) {
+            case 0:
+                lBlock(seed: seed, footprint: footprint, into: &massing, random: &random)
+                return massing
+            case 1:
+                slabBlock(seed: seed, footprint: footprint, into: &massing, random: &random)
+                return massing
+            default:
+                break
+            }
+        }
+        // **The low end is a Miami suburb.** Every tier-1 and tier-2 lot used
+        // to be a box filling its lot, so a suburb read as a small downtown;
+        // these forms leave open ground and put palms and pools in it.
+        let plan = LotPlan(alongX: random.chance(0.5))
+        switch tier {
+        case 1:
+            enum Low: CaseIterable { case houseRow, block, detached, poolBungalow, duplex }
+            switch ZoneMassing.dealt(Low.allCases, seed: seed, salt: 1) {
+            case .houseRow: houseRow(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .block: block(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .detached: detachedHouse(plan, into: &massing, random: &random)
+            case .poolBungalow: poolBungalow(plan, into: &massing, random: &random)
+            case .duplex: duplex(plan, into: &massing, random: &random)
+            }
+        case 2:
+            enum Mid: CaseIterable { case block, gardenCourt, walkUp, townhouses }
+            switch ZoneMassing.dealt(Mid.allCases, seed: seed, salt: 2) {
+            case .block: block(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .gardenCourt: gardenCourt(plan, seed: seed, into: &massing, random: &random)
+            case .walkUp: walkUp(plan, seed: seed, into: &massing, random: &random)
+            case .townhouses: townhouses(plan, footprint: footprint, into: &massing, random: &random)
+            }
+        default:
             block(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
         }
         return massing
@@ -206,6 +241,239 @@ enum ResidentialMassing {
         NeonStyle.rooftopPlant(on: shaft, into: &massing, random: &random)
         crown(atTop: shaft.z + shaft.height, inset: inset, footprint: footprint,
               tier: tier, into: &massing, random: &random)
+    }
+
+    // MARK: - The suburb (tiers 1 and 2)
+
+    /// A detached house at the back of its lot, with a garage beside it and a
+    /// palm in the front yard. Most of the lot is yard, which is the point:
+    /// low density is mostly ground.
+    private static func detachedHouse(
+        _ plan: LotPlan, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let long = CGFloat(random.value(in: 0.9 ... 1.12))
+        let short = CGFloat(random.value(in: 0.7 ... 0.86))
+        let house = plan.box(0.16, 0.16, long, short, height: CGFloat(random.value(in: 0.42 ... 0.54)))
+        massing.add(.box(house))
+        windows(on: house, rows: 1, columns: 2, chance: 0.85, salt: 1, into: &massing, random: &random)
+        entrance(on: house, into: &massing, random: &random)
+        massing.add(.ridge(Ridge(x: house.x - 0.05, y: house.y - 0.05, z: house.height,
+                                 width: house.width + 0.1, depth: house.depth + 0.1,
+                                 height: CGFloat(random.value(in: 0.26 ... 0.36)),
+                                 axis: plan.alongX ? .x : .y)))
+        // The garage, with its door lit: a car-shaped hole in the house.
+        let garage = plan.box(0.16 + long + 0.05, 0.16, 0.42, 0.5, height: 0.32)
+        massing.add(.box(garage))
+        massing.add(.box(plan.box(0.16 + long + 0.03, 0.14, 0.46, 0.54, z: 0.32, height: 0.05)))
+        massing.panels.append(Panel(box: garage, face: plan.face(.left), u0: 0.14, u1: 0.86,
+                                    v0: 0, v1: 0.66, color: NeonStyle.windowPalette[1]))
+        SuburbMassing.palm(at: plan.point(1.46, 1.5).0, plan.point(1.46, 1.5).1,
+                           height: CGFloat(random.value(in: 0.95 ... 1.3)), into: &massing)
+        if random.chance(0.5) {
+            SuburbMassing.palm(at: plan.point(0.5, 1.58).0, plan.point(0.5, 1.58).1,
+                               height: CGFloat(random.value(in: 0.8 ... 1.1)), into: &massing)
+        }
+    }
+
+    /// A long low flat-roofed bungalow with a lit pool in front of it and two
+    /// palms: the Miami house.
+    private static func poolBungalow(
+        _ plan: LotPlan, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let long = CGFloat(random.value(in: 1.3 ... 1.5))
+        let short = CGFloat(random.value(in: 0.6 ... 0.72))
+        let house = plan.box(0.14, 0.14, long, short, height: CGFloat(random.value(in: 0.36 ... 0.44)))
+        massing.add(.box(house))
+        windows(on: house, rows: 1, columns: 4, chance: 0.8, salt: 2, into: &massing, random: &random)
+        entrance(on: house, into: &massing, random: &random)
+        // A thin flat roof that overhangs, the modernist line.
+        massing.add(.box(Box(x: house.x - 0.06, y: house.y - 0.06, z: house.height,
+                             width: house.width + 0.12, depth: house.depth + 0.12, height: 0.05)))
+        SuburbMassing.pool(plan.box(CGFloat(random.value(in: 0.3 ... 0.5)), 0.14 + short + 0.22,
+                                    CGFloat(random.value(in: 0.78 ... 0.96)), CGFloat(random.value(in: 0.4 ... 0.48)),
+                                    height: 0), into: &massing)
+        SuburbMassing.palm(at: plan.point(1.58, 1.28).0, plan.point(1.58, 1.28).1,
+                           height: CGFloat(random.value(in: 1.0 ... 1.3)), into: &massing)
+        SuburbMassing.palm(at: plan.point(0.42, 1.6).0, plan.point(0.42, 1.6).1,
+                           height: CGFloat(random.value(in: 0.8 ... 1.05)), into: &massing)
+    }
+
+    /// Two homes under one pitched roof, a door and a porch each, a chimney
+    /// at each end.
+    private static func duplex(
+        _ plan: LotPlan, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let long = CGFloat(random.value(in: 1.46 ... 1.62))
+        let short = CGFloat(random.value(in: 0.7 ... 0.8))
+        let height = CGFloat(random.value(in: 0.6 ... 0.7))
+        let body = plan.box(0.18, 0.2, long, short, height: height)
+        massing.add(.box(body))
+        windows(on: body, rows: 2, columns: 4, chance: 0.75, salt: 3, into: &massing, random: &random)
+        for (index, a) in [0.18 + long * 0.25, 0.18 + long * 0.75].enumerated() {
+            let porch = plan.box(a - 0.18, 0.2 + short, 0.36, 0.16, height: 0.05 + CGFloat(index) * 0.005)
+            massing.add(.box(porch))
+            let door = plan.face(.left)
+            let u = (a - 0.18) / long
+            massing.panels.append(Panel(box: body, face: door, u0: u - 0.07, u1: u + 0.07,
+                                        v0: 0, v1: 0.36, color: NeonStyle.litAccent))
+            let (cx, cy) = plan.point(index == 0 ? 0.3 : 0.18 + long - 0.12, 0.2 + short * 0.5)
+            massing.add(.cylinder(Cylinder(x: cx, y: cy, z: height, radius: 0.05,
+                                           height: 0.42 + CGFloat(index) * 0.03, sides: 6)))
+        }
+        massing.add(.ridge(Ridge(x: body.x - 0.05, y: body.y - 0.05, z: height,
+                                 width: body.width + 0.1, depth: body.depth + 0.1,
+                                 height: CGFloat(random.value(in: 0.28 ... 0.38)),
+                                 axis: plan.alongX ? .x : .y)))
+        SuburbMassing.palm(at: plan.point(1.56, 1.52).0, plan.point(1.56, 1.52).1,
+                           height: CGFloat(random.value(in: 1.0 ... 1.35)), into: &massing)
+    }
+
+    /// Garden apartments: three two-storey wings around a courtyard open to
+    /// the street, a lit pool and a palm in the middle.
+    private static func gardenCourt(
+        _ plan: LotPlan, seed: GridPosition, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let height = CGFloat(random.value(in: 0.8 ... 0.98))
+        let wing: CGFloat = 0.5
+        let wings = [
+            plan.box(0.14, 0.14, 1.72, wing, height: height),
+            plan.box(0.14, 0.14 + wing, wing, 1.72 - wing, height: height - 0.02),
+            plan.box(1.86 - wing, 0.14 + wing, wing, 1.72 - wing, height: height - 0.04),
+        ]
+        for (index, box) in wings.enumerated() {
+            massing.add(.box(box))
+            NeonStyle.clad(box, as: cladding(for: seed), into: &massing, random: &random)
+            windows(on: box, rows: 2, columns: max(1, Int((max(box.width, box.depth) / 0.4).rounded())),
+                    chance: 0.72, salt: index, into: &massing, random: &random)
+            massing.add(.box(Box(x: box.x - 0.03, y: box.y - 0.03, z: box.z + box.height,
+                                 width: box.width + 0.06, depth: box.depth + 0.06, height: 0.06 + CGFloat(index) * 0.004)))
+        }
+        entrance(on: wings[0], into: &massing, random: &random)
+        SuburbMassing.pool(plan.box(0.8, 0.8, 0.4, 0.48, height: 0), into: &massing)
+        SuburbMassing.palm(at: plan.point(1.0, 1.52).0, plan.point(1.0, 1.52).1,
+                           height: CGFloat(random.value(in: 1.2 ... 1.5)), into: &massing)
+    }
+
+    /// A three-storey walk-up with open access galleries along its front, a
+    /// lit strip on each gallery edge, and a stair tower at one end.
+    private static func walkUp(
+        _ plan: LotPlan, seed: GridPosition, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let long = CGFloat(random.value(in: 1.34 ... 1.48))
+        let short = CGFloat(random.value(in: 0.7 ... 0.8))
+        let height = CGFloat(random.value(in: 1.1 ... 1.3))
+        let body = plan.box(0.14, 0.2, long, short, height: height)
+        massing.add(.box(body))
+        NeonStyle.clad(body, as: cladding(for: seed), into: &massing, random: &random)
+        windows(on: body, rows: 3, columns: 4, chance: 0.75, salt: 4, into: &massing, random: &random)
+        let strip = NeonStyle.signColor(for: seed, salt: 6)
+        for storey in 1 ..< 3 {
+            let z = height * CGFloat(storey) / 3 - 0.03
+            massing.add(.box(plan.box(0.14, 0.2 + short, long, 0.14, z: z, height: 0.05)))
+            massing.add(.box(plan.box(0.14, 0.2 + short + 0.12, long, 0.025, z: z + 0.05, height: 0.03)),
+                        .lit(strip))
+        }
+        let stair = plan.box(0.14 + long, 0.3, 0.22, 0.46, height: height + 0.16)
+        massing.add(.box(stair))
+        massing.panels.append(Panel(box: stair, face: plan.face(.right), u0: 0.3, u1: 0.7,
+                                    v0: 0.06, v1: 0.9, color: NeonStyle.litAccent))
+        massing.add(.box(Box(x: body.x - 0.03, y: body.y - 0.03, z: height, width: body.width + 0.06,
+                             depth: body.depth + 0.06, height: 0.07)))
+        NeonStyle.rooftopPlant(on: body, into: &massing, random: &random)
+        SuburbMassing.palm(at: plan.point(0.5, 1.6).0, plan.point(0.5, 1.6).1,
+                           height: CGFloat(random.value(in: 1.1 ... 1.45)), into: &massing)
+        if random.chance(0.6) {
+            SuburbMassing.palm(at: plan.point(1.4, 1.62).0, plan.point(1.4, 1.62).1,
+                               height: CGFloat(random.value(in: 0.9 ... 1.2)), into: &massing)
+        }
+    }
+
+    /// Three or four narrow three-storey townhouses side by side, each its
+    /// own height with its own door — a street front rather than a block.
+    /// The tier-1 row is single-storey houses standing apart; this is the
+    /// same idea grown up.
+    private static func townhouses(
+        _ plan: LotPlan, footprint: CGFloat, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let count = random.int(in: 3 ... 4)
+        let span = footprint - 0.28
+        let slot = span / CGFloat(count)
+        let depth = CGFloat(random.value(in: 0.9 ... 1.05))
+        for index in 0 ..< count {
+            let height = CGFloat(random.value(in: 0.95 ... 1.3)) + CGFloat(index) * 0.01
+            let house = plan.box(0.14 + slot * CGFloat(index), 0.2, slot * 0.96, depth, height: height)
+            massing.add(.box(house))
+            windows(on: house, rows: 3, columns: 1, chance: 0.8, salt: index, into: &massing, random: &random)
+            let door = plan.face(.left)
+            massing.panels.append(Panel(box: house, face: door, u0: 0.35, u1: 0.65, v0: 0, v1: 0.2,
+                                        color: NeonStyle.litAccent))
+            massing.add(.box(Box(x: house.x - 0.02, y: house.y - 0.02, z: height, width: house.width + 0.04,
+                                 depth: house.depth + 0.04, height: 0.05)))
+            if random.chance(0.5) {
+                // A roof terrace's stair head.
+                massing.add(.box(plan.box(0.14 + slot * CGFloat(index) + slot * 0.3, 0.3, slot * 0.36, 0.3,
+                                          z: height + 0.05, height: 0.18)))
+            }
+        }
+        SuburbMassing.palm(at: plan.point(0.14 + slot * 0.5, 1.6).0, plan.point(0.14 + slot * 0.5, 1.6).1,
+                           height: CGFloat(random.value(in: 1.0 ... 1.3)), into: &massing)
+    }
+
+    /// **Level 5: two wings meeting in an L**, one taller than the other,
+    /// wrapped round a lit courtyard corner. The stepped block is a pyramid in
+    /// every direction; this one has a hollow, which is the mark.
+    private static func lBlock(
+        seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let margin: CGFloat = 0.14
+        let thickness = CGFloat(random.value(in: 0.7 ... 0.85))
+        let tall = CGFloat(random.value(in: 2.0 ... 2.6))
+        let short = tall - CGFloat(random.value(in: 0.5 ... 0.9))
+        let full = footprint - margin * 2
+        let wings = [
+            Box(x: margin, y: margin, z: 0, width: full, depth: thickness, height: tall),
+            Box(x: margin, y: margin + thickness, z: 0, width: thickness, depth: full - thickness, height: short),
+        ]
+        for (index, wing) in wings.enumerated() {
+            massing.add(.box(wing))
+            NeonStyle.clad(wing, as: cladding(for: seed), into: &massing, random: &random)
+            windows(on: wing, rows: max(2, Int((wing.height / 0.36).rounded())),
+                    columns: max(1, Int((max(wing.width, wing.depth) / 0.55).rounded())),
+                    chance: 0.7, salt: index, into: &massing, random: &random)
+            balcony(on: wing, at: CGFloat(random.value(in: 0.4 ... 0.7)), into: &massing)
+            NeonStyle.rooftopPlant(on: wing, into: &massing, random: &random)
+        }
+        entrance(on: wings[1], into: &massing, random: &random)
+    }
+
+    /// **Level 5: a long slab block**, one flat deep and the length of its
+    /// lot, balconies running its whole face — the post-war estate slab.
+    private static func slabBlock(
+        seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let thin = CGFloat(random.value(in: 0.62 ... 0.78))
+        let long = footprint - 0.28
+        let alongX = random.chance(0.5)
+        let slab = Box(x: alongX ? 0.14 : (footprint - thin) / 2, y: alongX ? (footprint - thin) / 2 : 0.14, z: 0,
+                       width: alongX ? long : thin, depth: alongX ? thin : long,
+                       height: CGFloat(random.value(in: 2.1 ... 2.8)))
+        massing.add(.box(slab))
+        NeonStyle.clad(slab, as: cladding(for: seed), into: &massing, random: &random)
+        windows(on: slab, rows: max(2, Int((slab.height / 0.36).rounded())),
+                columns: max(1, Int((long / 0.5).rounded())), chance: 0.68, salt: 2,
+                into: &massing, random: &random)
+        var fraction = CGFloat(random.value(in: 0.2 ... 0.28))
+        while fraction < 0.9 {
+            balcony(on: slab, at: fraction, into: &massing)
+            fraction += CGFloat(random.value(in: 0.22 ... 0.3))
+        }
+        entrance(on: slab, into: &massing, random: &random)
+        // Its own parapet and plant: `crown` sizes itself for a square top.
+        massing.add(.box(Box(x: slab.x - 0.03, y: slab.y - 0.03, z: slab.height,
+                             width: slab.width + 0.06, depth: slab.depth + 0.06, height: 0.09)))
+        NeonStyle.rooftopPlant(on: slab, into: &massing, random: &random)
     }
 
     // MARK: - Parts

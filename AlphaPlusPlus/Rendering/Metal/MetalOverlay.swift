@@ -172,16 +172,21 @@ final class MetalOverlay {
         let inset: Float = 0.14
         let corners = [SIMD2<Float>(inset, inset), SIMD2(size - inset, inset),
                        SIMD2(size - inset, size - inset), SIMD2(inset, size - inset)].map { $0 + corner }
+        // **The deck is the mark; the frame is a hint.** The first version
+        // drew a full wireframe — four posts and a lit ring at the coming
+        // roofline — and a grown city at day 45 showed what that costs: nearly
+        // every lot is under construction at once, and the rings, bloomed,
+        // turned the first hour of play into a lattice of amber boxes over the
+        // buildings. The ring at the top is gone, the posts are faint, and the
+        // climbing deck carries "under construction" on its own.
         let amber = Self.linear(NeonStyle.scaffoldColor)
+        let deck = roof + (top - roof) * progress
         for (index, c) in corners.enumerated() {
             let next = corners[(index + 1) % 4]
-            traces += MetalMotion.trace(from: SIMD3(c.x, c.y, roof), to: SIMD3(c.x, c.y, top),
-                                        width: 0.02, mode: 1, color: amber * 1.2, alpha: 0.6)
-            traces += MetalMotion.trace(from: SIMD3(c.x, c.y, top), to: SIMD3(next.x, next.y, top),
-                                        width: 0.02, mode: 1, color: amber * 1.2, alpha: 0.6)
-            let deck = roof + (top - roof) * progress
+            traces += MetalMotion.trace(from: SIMD3(c.x, c.y, roof), to: SIMD3(c.x, c.y, deck),
+                                        width: 0.015, mode: 1, color: amber * 0.5, alpha: 0.35)
             traces += MetalMotion.trace(from: SIMD3(c.x, c.y, deck), to: SIMD3(next.x, next.y, deck),
-                                        width: 0.04, mode: 1, color: amber * 3, alpha: 1)
+                                        width: 0.03, mode: 1, color: amber * 1.6, alpha: 0.85)
         }
     }
 
