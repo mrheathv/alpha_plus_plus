@@ -1,4 +1,4 @@
-import SpriteKit
+import Foundation
 import XCTest
 @testable import AlphaPlusPlus
 
@@ -72,69 +72,20 @@ final class LowEndMassingTests: XCTestCase {
     /// Eight consecutive variants per row — which, forms being dealt in turn,
     /// shows every form a row has — for housing and shops at tiers 1 and 2,
     /// and industry at tiers 1 to 3.
+    /// The low end, eight variants a row, drawn by the Metal renderer the
+    /// game uses (`MetalSheet`).
     func testRenderTheLowEnd() throws {
-        let projection = Isometric()
         let rows: [(ZoneType, Int, String)] = [
             (.residential, 1, "housing T1"), (.residential, 3, "housing T2"),
             (.commercial, 1, "shops T1"), (.commercial, 3, "shops T2"),
             (.industrial, 1, "industry T1"), (.industrial, 3, "industry T2"), (.industrial, 5, "industry T3"),
         ]
-        let cell = CGSize(width: 170, height: 170)
-        let columns = 8
-        let view = SKView(frame: NSRect(origin: .zero, size: cell))
-        let sheetSize = CGSize(width: CGFloat(columns) * cell.width + 110, height: CGFloat(rows.count) * cell.height)
-        let sheet = NSImage(size: sheetSize)
-        var images: [[NSImage]] = []
-        for (zone, density, _) in rows {
-            var row: [NSImage] = []
-            for variant in 0 ..< columns {
-                let scene = SKScene(size: cell)
-                scene.backgroundColor = RenderPalette.background
-                let lotCentre = projection.project(1, 1, 0)
-                let origin = CGPoint(x: cell.width / 2 - lotCentre.x, y: cell.height * 0.3 - lotCentre.y)
-                for x in 0 ..< 2 {
-                    for y in 0 ..< 2 {
-                        let tile = SKShapeNode(path: projection.tileDiamond(x: CGFloat(x), y: CGFloat(y), inset: 0.015))
-                        tile.fillColor = RenderPalette.color(for: zone, density: density)
-                        tile.strokeColor = .clear
-                        tile.position = origin
-                        scene.addChild(tile)
-                    }
-                }
-                let seed = IsoTextureCache.canonicalSeed(for: variant)
-                let massing = try XCTUnwrap(ZoneMassing.make(for: zone, density: density, seed: seed))
-                let node = IsometricBuilding.node(for: massing, accent: ZoneMassing.accent(for: zone, density: density),
-                                                  tier: RenderPalette.growthTier(for: density), in: projection)
-                node.position = origin
-                scene.addChild(node)
-                view.presentScene(scene)
-                let texture = try XCTUnwrap(view.texture(from: scene, crop: CGRect(origin: .zero, size: cell)))
-                row.append(NSImage(cgImage: texture.cgImage(), size: cell))
-            }
-            images.append(row)
-        }
-        sheet.lockFocus()
-        RenderPalette.background.setFill()
-        NSRect(origin: .zero, size: sheetSize).fill()
-        for (index, row) in images.enumerated() {
-            let y = sheetSize.height - CGFloat(index + 1) * cell.height
-            rows[index].2.draw(at: NSPoint(x: 8, y: y + cell.height / 2),
-                               withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
-                                                .foregroundColor: NSColor.white])
-            for (column, image) in row.enumerated() {
-                image.draw(at: CGPoint(x: 110 + CGFloat(column) * cell.width, y: y),
-                           from: .zero, operation: .sourceOver, fraction: 1)
+        var cells: [MetalSheet.Cell] = []
+        for (zone, density, name) in rows {
+            for variant in 0 ..< 8 {
+                cells.append(MetalSheet.Cell(label: "\(name) v\(variant)", zone: zone, density: density, variant: variant))
             }
         }
-        sheet.unlockFocus()
-        let directory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("build/ContactSheet")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("low-end.png")
-        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(sheet.tiffRepresentation))?
-            .representation(using: .png, properties: [:]))
-        try png.write(to: url)
-        print("wrote \(url.path)")
+        try MetalSheet.write(cells, columns: 8, cell: CGSize(width: 240, height: 220), named: "low-end")
     }
 }

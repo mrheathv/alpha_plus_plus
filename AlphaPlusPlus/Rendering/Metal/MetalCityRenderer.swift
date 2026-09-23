@@ -720,6 +720,16 @@ final class MetalCityRenderer {
     /// cache is massing generated on the frame that needed it.
     var cachedBuildingCount: Int { cache.count }
 
+    /// Makes every lot of `zone` at `density` whose variant is `variant` draw
+    /// `massing`, at every detail tier. For contact sheets of massings no lot
+    /// generates; the game never calls it.
+    func drawForTesting(_ massing: BuildingMassing, zone: ZoneType, density: Int, variant: Int) {
+        for tier in DetailTier.allCases {
+            let key = MetalCityMesh.Cache.Key(zone: zone, density: density, variant: variant, tier: tier)
+            cache.store(MetalCityMesh.building(key, massing: massing), for: key)
+        }
+    }
+
     /// Everything about a chunk's tiles that decides what it draws — and
     /// nothing that does not. Read one tile past the edge, because a lane
     /// line is a statement about its neighbours.
@@ -1656,6 +1666,13 @@ enum MetalCityMesh {
         var count: Int {
             lock.lock(); defer { lock.unlock() }
             return entries.count
+        }
+
+        /// Puts `built` in the cache for `key`, for a contact sheet drawing a
+        /// massing no lot would generate (`MetalSheet`).
+        func store(_ built: Built, for key: Key) {
+            lock.lock(); defer { lock.unlock() }
+            entries[key] = built
         }
     }
 
