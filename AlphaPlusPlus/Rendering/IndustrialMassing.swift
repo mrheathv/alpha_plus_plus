@@ -31,6 +31,43 @@ enum IndustrialMassing {
             return massing
         }
 
+        // **Forms, dealt.** Tier 1 was one sawtooth shed on every lot, the
+        // most repeated building in the game after the old tier-1 house.
+        // Industry keeps its vocabulary — wide and low, stacks, tanks, lit
+        // bays — and now says it several ways: a warehouse with trucks at its
+        // doors, gabled sheds, a yard of containers, grain silos, a tank farm,
+        // a container port with its gantry, a refinery. Picked on their own
+        // stream, so the halls it already drew are unchanged.
+        var planRandom = BuildingRandom(seed: seed, salt: 30 + tier)
+        let plan = LotPlan(alongX: planRandom.chance(0.5))
+        switch tier {
+        case 1:
+            enum Low: CaseIterable { case hall, warehouse, gabledSheds, containerYard, silos }
+            switch ZoneMassing.dealt(Low.allCases, seed: seed, salt: 5) {
+            case .hall: break
+            case .warehouse: warehouse(plan, tier: tier, seed: seed, into: &massing, random: &random); return massing
+            case .gabledSheds: gabledSheds(plan, into: &massing, random: &random); return massing
+            case .containerYard: containerYard(plan, crane: false, seed: seed, into: &massing, random: &random); return massing
+            case .silos: silos(plan, into: &massing, random: &random); return massing
+            }
+        case 2:
+            enum Mid: CaseIterable { case hall, tankFarm, containerPort, refinery, warehouse }
+            switch ZoneMassing.dealt(Mid.allCases, seed: seed, salt: 6) {
+            case .hall: break
+            case .tankFarm: tankFarm(plan, seed: seed, into: &massing, random: &random); return massing
+            case .containerPort: containerYard(plan, crane: true, seed: seed, into: &massing, random: &random); return massing
+            case .refinery: refinery(plan, tier: tier, seed: seed, into: &massing, random: &random); return massing
+            case .warehouse: warehouse(plan, tier: tier, seed: seed, into: &massing, random: &random); return massing
+            }
+        default:
+            enum High: CaseIterable { case hall, hall2, refinery, tankFarm }
+            switch ZoneMassing.dealt(High.allCases, seed: seed, salt: 7) {
+            case .hall, .hall2: break
+            case .refinery: refinery(plan, tier: tier, seed: seed, into: &massing, random: &random); return massing
+            case .tankFarm: tankFarm(plan, seed: seed, into: &massing, random: &random); return massing
+            }
+        }
+
         let margin: CGFloat = 0.09
         let hasTanks = tier >= 2 && random.chance(tier >= 3 ? 0.85 : 0.45)
         let tankRadius = CGFloat(random.value(in: 0.24 ... 0.32))
@@ -279,6 +316,189 @@ enum IndustrialMassing {
         // plain post. Not carried over: a band on a stack six points wide is
         // under two points tall, which is below anything the camera resolves,
         // and in massing it costs a whole extra volume rather than one rect.
+    }
+
+    // MARK: - More forms
+
+    /// A long low warehouse along the back of its lot, lit loading doors on
+    /// its yard side, a dock, and trucks backed up to it.
+    private static func warehouse(
+        _ plan: LotPlan, tier: Int, seed: GridPosition,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let depth = CGFloat(random.value(in: 0.9 ... 1.08))
+        let hall = plan.box(0.1, 0.1, 1.8, depth, height: CGFloat(random.value(in: 0.56 ... 0.68)) + CGFloat(tier) * 0.08)
+        massing.add(.box(hall))
+        massing.add(.box(Box(x: hall.x - 0.02, y: hall.y - 0.02, z: hall.height, width: hall.width + 0.04,
+                             depth: hall.depth + 0.04, height: 0.06)))
+        let doors = 4
+        for door in 0 ..< doors {
+            let u = (CGFloat(door) + 0.5) / CGFloat(doors)
+            massing.panels.append(Panel(box: hall, face: plan.face(.left), u0: u - 0.08, u1: u + 0.08,
+                                        v0: 0, v1: 0.5, color: NeonStyle.windowColor(row: door, column: 0, salt: 9)))
+        }
+        massing.panels.append(Panel(box: hall, face: plan.face(.right), u0: 0.2, u1: 0.8, v0: 0.6, v1: 0.8,
+                                    color: NeonStyle.signColor(for: seed, salt: 11)))
+        massing.add(.box(plan.box(0.1, 0.1 + depth, 1.8, 0.12, height: 0.08)))
+        for (index, a) in [0.3, 1.1].enumerated() where index == 0 || random.chance(0.6) {
+            truck(plan, a: CGFloat(a), b: 0.1 + depth + 0.12, index: index, into: &massing)
+        }
+        chimney(at: CGPoint(x: plan.point(1.5, 0.3).0, y: plan.point(1.5, 0.3).1), base: hall.height,
+                tier: tier, into: &massing, random: &random)
+    }
+
+    /// A trailer and cab, backed up square to a dock.
+    private static func truck(_ plan: LotPlan, a: CGFloat, b: CGFloat, index: Int, into massing: inout BuildingMassing) {
+        massing.add(.box(plan.box(a, b, 0.18, 0.44, height: 0.22 + CGFloat(index) * 0.004)))
+        massing.add(.box(plan.box(a + 0.01, b + 0.46, 0.16, 0.16, height: 0.17)))
+    }
+
+    /// Two gabled sheds side by side, different lengths, a stack between them
+    /// and crates in the yard: the small workshop, which is what a sawtooth
+    /// works looks like before it grows.
+    private static func gabledSheds(
+        _ plan: LotPlan, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let first = plan.box(0.12, 0.12, CGFloat(random.value(in: 1.4 ... 1.62)), 0.78, height: 0.5)
+        let second = plan.box(0.12, 0.96, CGFloat(random.value(in: 1.0 ... 1.24)), 0.66, height: 0.44)
+        for (index, shed) in [first, second].enumerated() {
+            massing.add(.box(shed))
+            massing.panels.append(Panel(box: shed, face: plan.face(.left), u0: 0.12, u1: 0.4, v0: 0, v1: 0.62,
+                                        color: NeonStyle.windowColor(row: index, column: 1, salt: 9)))
+            massing.panels.append(Panel(box: shed, face: plan.face(.right), u0: 0.3, u1: 0.7, v0: 0.25, v1: 0.6,
+                                        color: NeonStyle.litAccent))
+            massing.add(.ridge(Ridge(x: shed.x - 0.04, y: shed.y - 0.04, z: shed.height,
+                                     width: shed.width + 0.08, depth: shed.depth + 0.08,
+                                     height: 0.3 + CGFloat(index) * 0.02, axis: plan.alongX ? .x : .y)))
+        }
+        chimney(at: CGPoint(x: plan.point(0.4, 0.94).0, y: plan.point(0.4, 0.94).1), base: 0.44,
+                tier: 1, into: &massing, random: &random)
+        for index in 0 ..< random.int(in: 2 ... 3) {
+            massing.add(.box(plan.box(1.5, 1.2 + CGFloat(index) * 0.2, 0.26, 0.16, height: 0.16 + CGFloat(index) * 0.01)))
+        }
+    }
+
+    /// A yard of shipping containers stacked beside a low workshop; with
+    /// `crane`, a gantry spans the stacks and it is a container port.
+    private static func containerYard(
+        _ plan: LotPlan, crane: Bool, seed: GridPosition,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let shop = plan.box(0.1, 0.1, 0.62, 1.8, height: CGFloat(random.value(in: 0.6 ... 0.75)) + (crane ? 0.2 : 0))
+        massing.add(.box(shop))
+        massing.panels.append(Panel(box: shop, face: plan.face(.right), u0: 0.1, u1: 0.9, v0: 0, v1: 0.5,
+                                    color: NeonStyle.windowColor(row: 1, column: 2, salt: 9)))
+        chimney(at: CGPoint(x: plan.point(0.4, 0.5).0, y: plan.point(0.4, 0.5).1), base: shop.height,
+                tier: crane ? 2 : 1, into: &massing, random: &random)
+        // Containers: the proportion is the mark — long, low, stacked.
+        for row in 0 ..< 3 {
+            let stack = random.int(in: 1 ... (crane ? 3 : 2))
+            for level in 0 ..< stack {
+                let b = 0.2 + CGFloat(row) * 0.56
+                massing.add(.box(plan.box(0.92 + CGFloat(level % 2) * 0.03, b, 0.66, 0.24,
+                                          z: CGFloat(level) * 0.2, height: 0.19)))
+                massing.add(.box(plan.box(0.92, b + 0.27, 0.66, 0.2, z: 0, height: 0.18 + CGFloat(row) * 0.004)))
+            }
+        }
+        guard crane else { return }
+        let top: CGFloat = 1.2
+        for (a, b) in [(0.84, 0.14), (1.72, 0.14), (0.84, 1.8), (1.72, 1.8)] as [(CGFloat, CGFloat)] {
+            massing.add(.box(plan.box(a, b, 0.06, 0.06, height: top)))
+        }
+        massing.add(.box(plan.box(0.84, 0.14, 0.94, 0.06, z: top, height: 0.08)))
+        massing.add(.box(plan.box(0.84, 1.8, 0.94, 0.06, z: top + 0.002, height: 0.08)))
+        let trolley = CGFloat(random.value(in: 0.4 ... 1.2))
+        massing.add(.box(plan.box(1.1, 0.14, 0.1, 1.72, z: top + 0.08, height: 0.08)))
+        massing.add(.box(plan.box(1.08, trolley, 0.14, 0.2, z: top - 0.04, height: 0.1)),
+                    .lit(NeonStyle.signColor(for: seed, salt: 12)))
+    }
+
+    /// Grain silos in a row, a headhouse bridging their tops, and a low hall
+    /// in front: the tallest thing a tier-1 lot of industry draws, and its
+    /// own silhouette.
+    private static func silos(
+        _ plan: LotPlan, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let count = random.int(in: 3 ... 4)
+        let radius: CGFloat = 0.2
+        let height = CGFloat(random.value(in: 1.2 ... 1.5))
+        let spacing = 1.6 / CGFloat(count)
+        for index in 0 ..< count {
+            let (x, y) = plan.point(0.2 + spacing * (CGFloat(index) + 0.5), 0.36)
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0, radius: radius, height: height + CGFloat(index) * 0.01, sides: 10)))
+        }
+        let head = plan.box(0.24, 0.26, 1.52, 0.2, z: height + 0.04, height: 0.2)
+        massing.add(.box(head))
+        massing.panels.append(Panel(box: head, face: plan.face(.left), u0: 0.1, u1: 0.9, v0: 0.3, v1: 0.7,
+                                    color: NeonStyle.litAccent))
+        let hall = plan.box(0.16, 0.9, 1.3, 0.8, height: 0.46)
+        massing.add(.box(hall))
+        massing.add(.ridge(Ridge(x: hall.x - 0.03, y: hall.y - 0.03, z: hall.height, width: hall.width + 0.06,
+                                 depth: hall.depth + 0.06, height: 0.22, axis: plan.alongX ? .x : .y)))
+        massing.panels.append(Panel(box: hall, face: plan.face(.left), u0: 0.1, u1: 0.4, v0: 0, v1: 0.6,
+                                    color: NeonStyle.windowColor(row: 0, column: 0, salt: 9)))
+    }
+
+    /// A tank farm: four drums of different sizes, a pipe rack between them,
+    /// a control hut, and a flare stack burning at the top.
+    private static func tankFarm(
+        _ plan: LotPlan, seed: GridPosition, into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        for (a, b) in [(0.46, 0.46), (1.42, 0.5), (0.5, 1.4)] as [(CGFloat, CGFloat)] {
+            let radius = CGFloat(random.value(in: 0.28 ... 0.34))
+            let (x, y) = plan.point(a, b)
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0, radius: radius,
+                                           height: CGFloat(random.value(in: 0.5 ... 0.85)))))
+        }
+        let hut = plan.box(1.18, 1.18, 0.5, 0.42, height: 0.36)
+        massing.add(.box(hut))
+        massing.panels.append(Panel(box: hut, face: plan.face(.left), u0: 0.15, u1: 0.85, v0: 0.3, v1: 0.7,
+                                    color: NeonStyle.litAccent))
+        massing.add(.box(plan.box(0.2, 0.92, 1.62, 0.06, z: 0.34, height: 0.05)))
+        flare(at: plan.point(1.66, 1.66), height: CGFloat(random.value(in: 1.3 ... 1.7)), into: &massing)
+    }
+
+    /// A refinery: two process columns ringed in light, a flare stack, drums
+    /// and a low process block — the densest silhouette industry has, and at
+    /// tier 3 it carries the hazard mark.
+    private static func refinery(
+        _ plan: LotPlan, tier: Int, seed: GridPosition,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let block = plan.box(0.12, 1.02, 1.1, 0.8, height: 0.42 + CGFloat(tier) * 0.06)
+        massing.add(.box(block))
+        massing.panels.append(Panel(box: block, face: plan.face(.left), u0: 0.1, u1: 0.9, v0: 0.3, v1: 0.6,
+                                    color: NeonStyle.windowColor(row: 0, column: 1, salt: 9)))
+        let ring = NeonStyle.signColor(for: seed, salt: 13)
+        for (index, (a, b)) in ([(0.4, 0.4), (0.9, 0.46)] as [(CGFloat, CGFloat)]).enumerated() {
+            let (x, y) = plan.point(a, b)
+            let height = CGFloat(random.value(in: 1.2 ... 1.6)) + CGFloat(tier) * 0.15 - CGFloat(index) * 0.3
+            let radius = index == 0 ? CGFloat(0.16) : 0.13
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0, radius: radius, height: height)))
+            var z: CGFloat = 0.4
+            while z < height - 0.2 {
+                massing.add(.cylinder(Cylinder(x: x, y: y, z: z, radius: radius + 0.03, height: 0.04)), .lit(ring))
+                z += 0.4
+            }
+        }
+        for (a, b) in [(1.5, 0.4), (1.52, 0.98)] as [(CGFloat, CGFloat)] {
+            let (x, y) = plan.point(a, b)
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0, radius: 0.26,
+                                           height: CGFloat(random.value(in: 0.5 ... 0.7)))))
+        }
+        massing.add(.box(plan.box(0.3, 0.74, 1.4, 0.05, z: 0.46, height: 0.05)))
+        flare(at: plan.point(1.62, 1.62), height: CGFloat(random.value(in: 1.6 ... 2.0)), into: &massing)
+        if tier >= 3 {
+            let (x, y) = plan.point(0.7, 1.82)
+            massing.badges.append(Badge(at: Point3(x: x, y: y, z: block.height * 0.55), size: 15))
+        }
+    }
+
+    /// A flare stack: a thin mast burning at the top, in ember.
+    private static func flare(at point: (CGFloat, CGFloat), height: CGFloat, into massing: inout BuildingMassing) {
+        massing.add(.cylinder(Cylinder(x: point.0, y: point.1, z: 0, radius: 0.045, height: height, sides: 8)))
+        massing.add(.cylinder(Cylinder(x: point.0, y: point.1, z: height, radius: 0.08, height: 0.14, sides: 8)),
+                    .lit(NeonStyle.emberColor))
     }
 
     private static func tank(

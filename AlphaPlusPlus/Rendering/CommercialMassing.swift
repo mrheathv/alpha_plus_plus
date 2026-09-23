@@ -41,6 +41,37 @@ enum CommercialMassing {
                 break
             }
         }
+        // **The low end is a Miami strip**: a diner, a petrol station, a
+        // mini-mall behind its car park, a store under a sign bigger than it
+        // is; and at tier 2 a motel round its pool, a glass office, a block
+        // under a billboard. Tier 1 used to be the plain strip on half its
+        // lots, and tier 2 the podium tower on all of them.
+        let plan = LotPlan(alongX: random.chance(0.5))
+        if tier == 1 {
+            enum Low: CaseIterable { case strip, cornerUnit, podiumTower, diner, gasStation, miniMall, bigSign }
+            switch ZoneMassing.dealt(Low.allCases, seed: seed, salt: 3) {
+            case .strip: strip(seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .cornerUnit: cornerUnit(seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .podiumTower:
+                podiumTower(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .diner: diner(plan, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .gasStation: gasStation(plan, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .miniMall: miniMall(plan, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .bigSign: bigSign(plan, seed: seed, into: &massing, random: &random)
+            }
+            return massing
+        }
+        if tier == 2 {
+            enum Mid: CaseIterable { case podiumTower, motel, glassOffice, billboard }
+            switch ZoneMassing.dealt(Mid.allCases, seed: seed, salt: 4) {
+            case .podiumTower:
+                podiumTower(tier: tier, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .motel: motel(plan, seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .glassOffice: glassOffice(seed: seed, footprint: footprint, into: &massing, random: &random)
+            case .billboard: billboardBlock(plan, seed: seed, into: &massing, random: &random)
+            }
+            return massing
+        }
         let form: Form = tier >= 2 ? .podiumTower : random.pick([.strip, .cornerUnit, .podiumTower])
 
         switch form {
@@ -234,6 +265,189 @@ enum CommercialMassing {
             x: shaft.x + shaft.width / 2, y: shaft.y + shaft.depth / 2,
             z: top + 0.1 + mastHeight, radius: 0.07, height: 0.12, sides: 8
         )), .lit(NeonStyle.litAccent))
+    }
+
+    // MARK: - The strip (tiers 1 and 2)
+
+    /// A diner: a long low glazed body with a rounded end, a chrome stripe, a
+    /// sign on the roof and another on a pole out by the road.
+    private static func diner(
+        _ plan: LotPlan, seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let long = CGFloat(random.value(in: 1.0 ... 1.2))
+        let depth: CGFloat = 0.56
+        let height = CGFloat(random.value(in: 0.4 ... 0.46))
+        let body = plan.box(0.2, 0.3, long, depth, height: height)
+        massing.add(.box(body))
+        shopfront(on: body, share: 0.18 ... 0.74, into: &massing)
+        let (cx, cy) = plan.point(0.2 + long, 0.3 + depth / 2)
+        massing.add(.cylinder(Cylinder(x: cx, y: cy, z: 0, radius: depth / 2, height: height, sides: 12)))
+        massing.add(.cylinder(Cylinder(x: cx, y: cy, z: height * 0.8, radius: depth / 2 + 0.02, height: 0.05,
+                                       sides: 12)), .lit(NeonStyle.signColor(for: seed, salt: 2)))
+        massing.add(.box(plan.box(0.3, 0.3 + depth * 0.45, long * 0.7, 0.06, z: height, height: 0.3)),
+                    .lit(NeonStyle.signColor(for: seed)))
+        let (px, py) = plan.point(1.55, 1.5)
+        SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.0 ... 1.3)),
+                               color: NeonStyle.signColor(for: seed, salt: 1), stacked: random.chance(0.5),
+                               footprint: footprint, into: &massing)
+    }
+
+    /// A petrol station: a kiosk at the back, a canopy over the pumps with its
+    /// edge lit, and a price board on a pole. The canopy is the mark — a
+    /// roof with nothing under it but light.
+    private static func gasStation(
+        _ plan: LotPlan, seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let kiosk = plan.box(0.14, 0.14, 0.62, 0.5, height: 0.36)
+        massing.add(.box(kiosk))
+        shopfront(on: kiosk, share: 0.16 ... 0.7, into: &massing)
+        massing.add(.box(plan.box(0.12, 0.12, 0.66, 0.54, z: 0.36, height: 0.05)))
+        let canopyZ: CGFloat = 0.54
+        for a in [0.82, 1.42] as [CGFloat] {
+            massing.add(.box(plan.box(a, 1.16, 0.06, 0.06, height: canopyZ)))
+            massing.add(.box(plan.box(a - 0.04, 1.02, 0.14, 0.12, height: 0.2)))
+        }
+        massing.add(.box(plan.box(0.5, 0.8, 1.2, 0.8, z: canopyZ, height: 0.1)))
+        massing.add(.box(plan.box(0.48, 0.78, 1.24, 0.84, z: canopyZ + 0.01, height: 0.07)),
+                    .lit(NeonStyle.signColor(for: seed, salt: 3)))
+        let (px, py) = plan.point(1.75, 0.34)
+        SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.1 ... 1.4)),
+                               color: NeonStyle.signColor(for: seed, salt: 4), stacked: false,
+                               footprint: footprint, into: &massing)
+    }
+
+    /// A mini-mall: a low L of shops along the back of the lot, each wing
+    /// under a lit fascia, a car park in front with two lamps, and a pole
+    /// sign on the corner.
+    private static func miniMall(
+        _ plan: LotPlan, seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let height = CGFloat(random.value(in: 0.46 ... 0.54))
+        let wings = [plan.box(0.12, 0.12, 1.76, 0.56, height: height),
+                     plan.box(0.12, 0.68, 0.56, 0.98, height: height - 0.02)]
+        for (index, wing) in wings.enumerated() {
+            massing.add(.box(wing))
+            shopfront(on: wing, share: 0.14 ... 0.54, into: &massing)
+            for face in [Panel.Face.right, .left] {
+                massing.panels.append(Panel(box: wing, face: face, u0: 0.08, u1: 0.92, v0: 0.64, v1: 0.88,
+                                            color: NeonStyle.signColor(for: seed, salt: index)))
+            }
+            massing.add(.box(Box(x: wing.x - 0.02, y: wing.y - 0.02, z: wing.height, width: wing.width + 0.04,
+                                 depth: wing.depth + 0.04, height: 0.06 + CGFloat(index) * 0.005)))
+        }
+        for (a, b) in [(1.0, 1.2), (1.5, 1.66)] as [(CGFloat, CGFloat)] {
+            let (x, y) = plan.point(a, b)
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0, radius: 0.025, height: 0.55, sides: 6)))
+            massing.add(.cylinder(Cylinder(x: x, y: y, z: 0.55, radius: 0.05, height: 0.06, sides: 6)),
+                        .lit(NeonStyle.litAccent))
+        }
+        let (px, py) = plan.point(1.62, 0.9)
+        SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.2 ... 1.5)),
+                               color: NeonStyle.signColor(for: seed, salt: 5), stacked: true,
+                               footprint: footprint, into: &massing)
+    }
+
+    /// A store under a sign bigger than it is — a video store, an arcade —
+    /// with a false front standing proud of the roof and two vertical blade
+    /// signs down its side, the Hong Kong street's stacked signage.
+    private static func bigSign(
+        _ plan: LotPlan, seed: GridPosition,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let long = CGFloat(random.value(in: 1.3 ... 1.46))
+        let short = CGFloat(random.value(in: 1.0 ... 1.2))
+        let height = CGFloat(random.value(in: 0.55 ... 0.7))
+        let body = plan.box(0.2, 0.2, long, short, height: height)
+        massing.add(.box(body))
+        shopfront(on: body, share: 0.16 ... 0.56, into: &massing)
+        massing.add(.box(plan.box(0.2, 0.2 + short - 0.06, long, 0.06, z: height,
+                                  height: CGFloat(random.value(in: 0.34 ... 0.44)))),
+                    .lit(NeonStyle.signColor(for: seed)))
+        for (index, b) in [0.3, 0.3 + short * 0.45].enumerated() {
+            massing.add(.box(plan.box(0.2 + long, b, 0.08, 0.06, z: 0.08,
+                                      height: CGFloat(random.value(in: 0.85 ... 1.15)) + CGFloat(index) * 0.01)),
+                        .lit(NeonStyle.signColor(for: seed, salt: 7 + index)))
+        }
+        NeonStyle.rooftopPlant(on: body, into: &massing, random: &random)
+    }
+
+    /// A two-storey motel in an L round its pool, galleries with lit edges on
+    /// the courtyard sides, a palm, and the arrow sign on a pole.
+    private static func motel(
+        _ plan: LotPlan, seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let height = CGFloat(random.value(in: 0.74 ... 0.84))
+        let wing: CGFloat = 0.5
+        let back = plan.box(0.12, 0.12, 1.76, wing, height: height)
+        let side = plan.box(0.12, 0.12 + wing, wing, 1.0, height: height - 0.02)
+        let rail = NeonStyle.signColor(for: seed, salt: 8)
+        for box in [back, side] {
+            massing.add(.box(box))
+            glazingBands(on: box, into: &massing, random: &random)
+            massing.add(.box(Box(x: box.x - 0.03, y: box.y - 0.03, z: box.z + box.height,
+                                 width: box.width + 0.06, depth: box.depth + 0.06, height: 0.06)))
+        }
+        let z = height / 2 - 0.03
+        massing.add(.box(plan.box(0.12 + wing, 0.12 + wing, 1.76 - wing, 0.12, z: z, height: 0.05)))
+        massing.add(.box(plan.box(0.12 + wing, 0.12 + wing + 0.1, 1.76 - wing, 0.02, z: z + 0.05, height: 0.03)),
+                    .lit(rail))
+        massing.add(.box(plan.box(0.12 + wing, 0.12 + wing + 0.12, 0.12, 0.86, z: z + 0.001, height: 0.05)))
+        massing.add(.box(plan.box(0.12 + wing + 0.1, 0.12 + wing + 0.12, 0.02, 0.86, z: z + 0.051, height: 0.03)),
+                    .lit(rail))
+        SuburbMassing.pool(plan.box(0.9, 0.92, 0.6, 0.42, height: 0), into: &massing)
+        SuburbMassing.palm(at: plan.point(1.58, 1.5).0, plan.point(1.58, 1.5).1,
+                           height: CGFloat(random.value(in: 1.2 ... 1.5)), into: &massing)
+        let (px, py) = plan.point(0.9, 1.72)
+        SuburbMassing.poleSign(at: px, py, height: CGFloat(random.value(in: 1.3 ... 1.6)),
+                               color: NeonStyle.signColor(for: seed, salt: 9), stacked: true,
+                               footprint: footprint, into: &massing)
+    }
+
+    /// A glass office box standing on a narrow lit lobby, overhanging it on
+    /// every side — the 80s office park.
+    private static func glassOffice(
+        seed: GridPosition, footprint: CGFloat,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let lobbyInset = CGFloat(random.value(in: 0.5 ... 0.6))
+        let lobby = Box(x: lobbyInset, y: lobbyInset, z: 0, width: footprint - lobbyInset * 2,
+                        depth: footprint - lobbyInset * 2, height: 0.34)
+        massing.add(.box(lobby))
+        shopfront(on: lobby, share: 0.1 ... 0.84, into: &massing)
+        let inset = CGFloat(random.value(in: 0.16 ... 0.24))
+        let office = Box(x: inset, y: inset, z: lobby.height, width: footprint - inset * 2,
+                         depth: footprint - inset * 2, height: CGFloat(random.value(in: 1.0 ... 1.3)))
+        massing.add(.box(office))
+        glazingBands(on: office, into: &massing, random: &random)
+        crown(on: office, tier: 2, seed: seed, into: &massing, random: &random)
+    }
+
+    /// A block of shops and offices with a billboard on the roof, lit, on two
+    /// posts — the thing a passing car reads from the freeway.
+    private static func billboardBlock(
+        _ plan: LotPlan, seed: GridPosition,
+        into massing: inout BuildingMassing, random: inout BuildingRandom
+    ) {
+        let short = CGFloat(random.value(in: 1.1 ... 1.35))
+        let height = CGFloat(random.value(in: 0.9 ... 1.2))
+        let body = plan.box(0.14, 0.14, 1.72, short, height: height)
+        massing.add(.box(body))
+        shopfront(on: plan.box(0.14, 0.14, 1.72, short, height: 0.36), share: 0.2 ... 0.8, into: &massing)
+        NeonStyle.clad(body, as: cladding(for: seed), into: &massing, random: &random)
+        glazingBands(on: plan.box(0.14, 0.14, 1.72, short, z: 0.36, height: height - 0.36),
+                     into: &massing, random: &random)
+        massing.add(.box(Box(x: body.x - 0.03, y: body.y - 0.03, z: height, width: body.width + 0.06,
+                             depth: body.depth + 0.06, height: 0.06)))
+        let b = 0.14 + short * 0.5
+        for a in [0.55, 1.35] as [CGFloat] {
+            massing.add(.box(plan.box(a, b, 0.05, 0.05, z: height + 0.06, height: 0.3)))
+        }
+        massing.add(.box(plan.box(0.36, b + 0.05, 1.28, 0.06, z: height + 0.3, height: 0.48)),
+                    .lit(NeonStyle.signColor(for: seed, salt: 10)))
     }
 
     /// **Level 5: a tower pushed into one back corner of its lot**, with a

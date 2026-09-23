@@ -8345,6 +8345,49 @@ else, and no upkeep. `IconBuildings` (Simulation/) holds the rules;
   `MetalLookTests.testRenderTheIconsDowntown` places all five in Apex and
   renders them with Metal (`metal-icons.png`, Full plan).
 
+### The low end: an 80s Miami suburb, and industry that says it several ways
+
+The contact sheet after the skyline pass showed the repetition had moved to
+the bottom of the ladder, which is most of a city's map area and the first
+hour of play. Seven of eight tier-1 houses were the same squat box filling
+its lot; tier 2 housing was one stepped block; the plain strip took half of
+tier-1 shops and the podium tower all of tier 2; every tier-1 factory was
+one sawtooth shed. The player chose a Miami suburb as the answer.
+
+| | added |
+|---|---|
+| housing T1 | detached house with garage and palm, pool bungalow, duplex |
+| housing T2 | garden court round a pool, walk-up with lit galleries, townhouses |
+| shops T1 | diner, petrol station, mini-mall behind its car park, big-sign store |
+| shops T2 | motel round its pool, glass office on a lobby, billboard block |
+| industry T1 | warehouse with trucks at its doors, gabled sheds, container yard, grain silos |
+| industry T2–3 | tank farm, container port with gantry, refinery with a flare |
+
+Every existing form is still in each list, so nothing was removed.
+
+- **Low density leaves ground.** The tier-1 house now covers about a third
+  of its lot on average, where the old block covered most of it, and the
+  open ground carries the suburb's marks: palms, lit pools, pole signs.
+  `SuburbMassing` holds those, shared by housing and shops.
+- **`LotPlan`** writes a form once in lot-local axes (along, across) and
+  flips it to either orientation, so a duplex or a motel can face either way
+  without two copies of every coordinate.
+- **`ZoneMassing.dealt`** generalises the skyscraper's rule: over the
+  canonical seeds, forms are dealt in turn, so every form is drawn.
+- **Shapes per tier over the 32 cached variants** (counted by volume kinds,
+  so size changes do not count): housing 14 / 14, shops 12 / 12 at tiers 1
+  and 2, industry 5 → 12 at tier 1. `LowEndMassingTests` asserts at least 12
+  for housing and shops.
+- **A palm is a drooping frond, not a cross.** The first palms had flat
+  fronds and read as telegraph poles. Each frond is a `Ridge` with its ridge
+  at the trunk end, so it falls away along its length.
+- **Apex's frame budget is unchanged** at 7.98 ms (it has no low-density
+  lots). The new forms are cheap: few volumes, and lit solids merge into at
+  most two lights a building.
+- `LowEndMassingTests.testRenderTheLowEnd` writes `low-end.png`, and
+  `MetalLookTests.testRenderTheSuburb` renders a small town of tiers 1–2 in
+  Metal (`metal-suburb.png`, Full plan).
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
