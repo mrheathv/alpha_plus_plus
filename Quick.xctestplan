@@ -34,6 +34,7 @@
         "MetalMotionTests/testRecordTheCity()",
         "MetalMotionTests/testRenderTheMovingCityCloseUp()",
         "MetalOverlayTests/testRenderEveryView()",
+        "UtilityGlowTests/testRenderTheUtilityViewsBothWays()",
         "MetalOverlayTests/testRenderTheBuildingMarks()",
         "MetalOverlayTests/testEveryViewRebuildsInsideAFrameOnApex()",
         "MetalLookTests",

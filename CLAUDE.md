@@ -8289,6 +8289,30 @@ measurement. One thing the run showed that predates this work: planned and
 mixed layouts now finish level (3,276 against 3,272 people) where this file
 records planning winning clearly. That is worth checking separately.
 
+### The utility glow, back in Metal
+
+Reported from play: in the Water and Power views, buildings *"just light up
+or they don't"*. `UtilityGlowTests` renders one half-plumbed city in both
+views, SpriteKit beside Metal. That showed the cause: Metal repainted each
+building in the answer's colour, walls and all, so the views were a city of
+plastic blocks. SpriteKit's buildings stayed night silhouettes whose *neon*
+changed colour, and each one threw a pool of it on the ground.
+
+- **The light is recoloured, not the building.** In a network view the walls
+  are dimmed and the neon edges and lit windows take the answer's hue at
+  their own brightness, with a small floor so a dark facade still reads.
+- **Every building throws its answer on the ground**: a soft pool, 1.9× its
+  footprint, so a served district glows as one field. Overlapping pools at
+  full strength summed to a milky sheet, the additive-saturation lesson
+  again, so they sit at 0.2.
+- **Badges are offset on the screen, not in the world.** A drop and a bolt
+  were shifted 0.45 of a tile apart, which shrinks as the camera pulls back,
+  so at a whole-city view the bolt covered the drop. `Billboard` carries a
+  pixel offset now.
+
+The colour-vision test on rendered pixels still passes. That test has to be
+rerun after any change to how a view looks, however unrelated it seems.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.
