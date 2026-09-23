@@ -799,6 +799,9 @@ final class GameController: ObservableObject {
         cityGeneration += 1
         peakPopulation = 0
         newlyUnlockedZones = []
+        milestone = nil
+        newlyEarnedMilestones = []
+        scorecard = CityScorecard()
         history.removeAll()
         lastHazardStrikes = []
         isPowerOutageActive = false
@@ -915,6 +918,34 @@ final class GameController: ObservableObject {
         max(0, Unlocks.requiredPopulation(for: zone) - peakPopulation)
     }
 
+    // MARK: - Milestones
+
+    /// The highest rank this city has earned, or `nil` before the first.
+    /// See `Milestone`.
+    @Published private(set) var milestone: Milestone?
+
+    /// Ranks earned on the most recent tick — empty on almost every one.
+    /// `GameView` reads it to announce them, the way it announces unlocks.
+    @Published private(set) var newlyEarnedMilestones: [Milestone] = []
+
+    /// How the city scores on what the ladder asks for, as of the last tick.
+    ///
+    /// Kept rather than measured on demand, for the reason
+    /// `inspectedReport` is: measuring builds a whole-map distance field, and
+    /// a SwiftUI body calling it directly would pay for that on every
+    /// published change from anywhere in the controller.
+    @Published private(set) var scorecard = CityScorecard()
+
+    /// The rank the city is working toward, or `nil` once it has them all.
+    var nextMilestone: Milestone? { Milestone.next(after: milestone) }
+
+    private func updateMilestones() {
+        scorecard = CityScorecard.measure(map, population: population)
+        newlyEarnedMilestones = Milestone.newlyEarned(after: milestone, card: scorecard,
+                                                      netRevenue: netRevenue)
+        if let top = newlyEarnedMilestones.last { milestone = top }
+    }
+
     // MARK: - Save / load
 
     /// Bumped every time the *entire* city is replaced wholesale, as opposed
@@ -945,7 +976,8 @@ final class GameController: ObservableObject {
             taxRate: taxRate,
             bondBalance: bondBalance,
             history: history,
-            peakPopulation: peakPopulation
+            peakPopulation: peakPopulation,
+            milestone: milestone
         )
     }
 
@@ -994,6 +1026,9 @@ final class GameController: ObservableObject {
         // generous reading that can't hand out tools the city never earned.
         peakPopulation = save.peakPopulation ?? population
         newlyUnlockedZones = []
+        milestone = save.milestone
+        newlyEarnedMilestones = []
+        scorecard = CityScorecard.measure(map, population: population)
 
         isRunning = false
         lastHazardStrikes = []
@@ -1152,6 +1187,7 @@ final class GameController: ObservableObject {
         treasury += netRevenue
         newlyUnlockedZones = Unlocks.newlyUnlocked(crossing: population, from: peakPopulation)
         peakPopulation = max(peakPopulation, population)
+        updateMilestones()
         recordHistorySnapshot()
         // The city just moved under a pointer that has not. A panel showing
         // last tick's answer is worse than one showing none, because it looks

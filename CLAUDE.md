@@ -7401,6 +7401,94 @@ finished by a test that hands it a `State` is a guide nobody can finish.
 `RetroUIContactSheetTests.testRenderGuidePanelStates` renders an open step, a
 locked step and the closing card side by side.
 
+### Milestones: a ladder that asks for more than a headcount
+
+The goals item on the product-gap list, built as a ladder, as the player
+chose. `Unlocks` is already a progression, but it is gated on population
+alone, and population is the one number every strategy produces some of. A
+city that never laid a pipe still reaches 1,500 residents on a big map.
+
+`Milestone` (Simulation/) has five ranks. Each adds one skill to the
+headcount: Hamlet (100), Village (400 + water), Town (900 + water, power and
+schools), City (2,000 + clean air over the homes and a budget in the black),
+Metropolis (3,500 + free-flowing roads and little rubble). A rank is earned
+on a day the city meets **all** of its conditions at once, ranks are earned
+in order, and the top rank earned is a high-water mark that rides in
+`CitySave` as an `Optional`, like `peakPopulation`.
+
+`CityScorecard` measures the conditions, and every number is *called* from
+the system that owns it (`needsWater`, `Water.hasSupply`, `ServiceCoverage`,
+`Traffic.congestion`), for the reason `CityHazards.isExposed` exists. It costs
+**0.62 ms of a 20.2 ms tick** on a settled 64×64 city in Release, about 3%.
+
+**Every threshold was measured, not picked.** `MilestoneCalibrationTests`
+(opt-in, `PLAYTEST_FULL`) prints what eight strategies score on every field
+at 32, 48 and 64 tiles. Each bar sits between a strategy that clears it and
+one that does not, and `MilestoneTests` pins those pairs with the measured
+scorecards:
+
+| rank | cleared by | refused |
+|---|---|---|
+| Village | any serviced city | no utilities: water 0% |
+| Town (32×32) | industry apart: 960 | default layout: 784 |
+| City | industry apart: pollution 0.05 | mixed: 0.35 |
+| City | — | dense services: losing 514/day |
+| Metropolis | subway city: congestion 0.04 | best car-only city: 0.19 |
+
+Two things the calibration found:
+
+- **Employment was cut before it shipped.** It read 88–100% in every
+  strategy on every map, because a city that zones any jobs employs nearly
+  everybody. A figure that does not move cannot tell a good city from a bad
+  one.
+- **Every solvent strategy still banks money without limit.** Max tax reaches
+  $15M on a 64×64 map. City's "in the black" condition cannot bite a city
+  like that, so the ladder does not close the standing *money accumulates*
+  finding. The closing lever still has to be something that costs money.
+
+**Rewards are not built yet.** A rank is a name in the dashboard and a badge
+when it is earned. What a rank *buys* is the next decision.
+
+On screen, the rank is the first dashboard panel's title, which costs no
+height. The next rank's conditions sit in a two-column Goal panel, each
+marked with a tick as well as a colour. When the row is too narrow for a
+fifth panel, the goal folds into a badge in Alerts. The narrow render caught
+the first version squeezing Alerts to "A…", which is the urgent panel losing
+to the one that can wait.
+
+### Wet streets: light, not a mirror
+
+Reported from play: the reflections were "really not landing". The close-up
+showed why. Each reflection was the building's own cached texture, flipped
+and squashed onto the tile in front of it, windows and outlines crisp. So
+every wet tile carried a flat miniature of its building: decals on the
+floor, not water.
+
+Wet asphalt at night never gives back a *picture*. It gives back the lights,
+each stretched into a vertical smear toward the viewer and broken up by
+ripples. `IsoTextureCache.wetStreaks` is that: one white texture of two
+soft streaks, cut into pieces whose gaps open up as the streak falls, tinted
+per tile to the neon of the building behind it. There are four variants,
+chosen by the ground's own position, and four textures serve every colour in
+the game.
+
+**Two tiles, not one.** A tile node can only draw on itself, because the
+tile in front is drawn later and opaque. So a streak that should run a long
+way toward the viewer continues onto a second tile of open ground, at half
+strength. `GameScene.reflectionReach` is the one list of tiles a building's
+light can reach, and both the placement path and the per-tick diff use it.
+Anything that depends on a neighbour has to be written down once.
+
+The first two passes were each wrong in a way only a picture showed. At the
+old building-copy strength and width the streaks read as noise, and three
+parallel bars cut at even intervals read as a graphic equaliser. Soft ends,
+irregular breaks and two streaks fixed both.
+
+**The old render could not have caught any of this.** The rain filmstrip
+frames the whole map, where a reflection is a few pixels across.
+`WetStreetTests` renders the same block dry and in the day-6 downpour at the
+resting camera.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

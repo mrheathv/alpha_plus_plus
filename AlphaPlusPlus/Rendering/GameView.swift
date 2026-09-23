@@ -417,8 +417,31 @@ struct GameView: View {
     /// a bar — so the strip is as tall as a stat tile and stays that way as
     /// the game grows. See `toolRail` for where the verbs went.
     private var dashboard: some View {
+        // **The goal gives way before anything else is squeezed.** The first
+        // version always drew the requirements grid, and the narrow render
+        // showed what that costs: at 1000 points the grid held its width and
+        // Alerts truncated to "A…" — the urgent panel losing to the one that
+        // can wait. A one-line goal panel did not fit either, because the
+        // problem is a fifth panel, not how tall it is. So when the row cannot
+        // hold it, the goal becomes one badge inside Alerts, beside the "Next:
+        // Police Station at 40" that is already a goal of the same kind.
+        ViewThatFits(in: .horizontal) {
+            dashboardRow(compactGoal: false)
+            dashboardRow(compactGoal: true)
+        }
+        .padding(RetroMetrics.gutter)
+        .background(RetroUITheme.background)
+        .overlay(alignment: .top) { sunBleed }
+        .overlay(alignment: .top) { neonSeam }
+    }
+
+    private func dashboardRow(compactGoal: Bool) -> some View {
         HStack(alignment: .top, spacing: RetroMetrics.gutter) {
-            RetroPanel(title: "City", accent: RetroUITheme.primaryAccent) {
+            // **The rank is the panel's title**, so the city's name for
+            // itself costs no height in a strip whose height is the thing
+            // this file keeps fighting for. See `Milestone`.
+            RetroPanel(title: MilestoneText.title(for: controller.milestone),
+                       accent: RetroUITheme.primaryAccent) {
                 HStack(alignment: .top, spacing: 16) {
                     // **The date, first.** The cockpit used to say
                     // "+$1,798/tick", which is the simulation's own
@@ -454,16 +477,14 @@ struct GameView: View {
                 utilityTile
             }
 
+            if !compactGoal { goalPanel }
+
             RetroPanel(title: "Alerts", accent: .orange) {
-                alerts
+                alerts(withGoal: compactGoal)
             }
 
             Spacer(minLength: 0)
         }
-        .padding(RetroMetrics.gutter)
-        .background(RetroUITheme.background)
-        .overlay(alignment: .top) { sunBleed }
-        .overlay(alignment: .top) { neonSeam }
     }
 
     /// "14 blocks need attention" — and, when something is failing rather
@@ -556,7 +577,7 @@ struct GameView: View {
     /// unless the player happened to be looking at the right overlay. Anything
     /// urgent belongs somewhere always on screen.
     @ViewBuilder
-    private var alerts: some View {
+    private func alerts(withGoal: Bool) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             // Fire goes first, above even the outage. It is the only thing in
             // the game that gets *worse* while you read about it, and the
@@ -578,6 +599,22 @@ struct GameView: View {
             // *which*. A count with no way to act on it would be worse than
             // silence, so the badge names the view that answers it.
             attentionBadge
+            if let rank = controller.newlyEarnedMilestones.last {
+                RetroBadge(text: MilestoneText.earned(rank), accent: .green)
+            } else if withGoal, let next = controller.nextMilestone {
+                // The narrow form of the Goal panel: the rank, and the first
+                // thing standing between the city and it.
+                let blocking = next.requirements.first {
+                    !$0.isMet(by: controller.scorecard, netRevenue: controller.netRevenue)
+                }
+                RetroBadge(
+                    text: blocking.map {
+                        "\(MilestoneText.name(next)): \(MilestoneText.label($0)) "
+                            + MilestoneText.status($0, card: controller.scorecard, netRevenue: controller.netRevenue)
+                    } ?? "\(MilestoneText.name(next)): all met",
+                    accent: .green
+                )
+            }
             if let earned = controller.newlyUnlockedZones.first {
                 RetroBadge(text: "Unlocked: \(RenderPalette.displayName(for: earned))", accent: .green)
             } else if let next = nextUnlock {
@@ -801,6 +838,55 @@ struct GameView: View {
                 }
             )
         }
+    }
+
+    /// What the next rank asks for, and where the city stands on each.
+    ///
+    /// **Every requirement at once**, in two columns rather than one line of
+    /// progress. A rank is earned on a day the city meets all of them
+    /// together, so a single bar would hide the one thing a player needs —
+    /// *which* condition is holding them back. Two columns keep the panel to
+    /// three rows, which is inside the height a stat tile already gives this
+    /// strip: the dashboard stands as tall as its tallest panel, and phase 6
+    /// of the cockpit was spent getting that height back.
+    @ViewBuilder private var goalPanel: some View {
+        if let next = controller.nextMilestone {
+            RetroPanel(title: "Next: \(MilestoneText.name(next))", accent: .green) {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
+                    let requirements = next.requirements
+                    ForEach(0 ..< (requirements.count + 1) / 2, id: \.self) { row in
+                        GridRow {
+                            requirementLine(requirements[row * 2])
+                            if row * 2 + 1 < requirements.count {
+                                requirementLine(requirements[row * 2 + 1])
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            RetroPanel(title: MilestoneText.topOfTheLadder, accent: .green) { EmptyView() }
+        }
+    }
+
+    /// Met is lit, unmet is dim — the same way round as every other readout
+    /// here. The tick carries it too, because a colour alone is a channel a
+    /// colourblind player does not have (see `ColourAccessibilityTests`).
+    private func requirementLine(_ requirement: Milestone.Requirement) -> some View {
+        let met = requirement.isMet(by: controller.scorecard, netRevenue: controller.netRevenue)
+        return HStack(spacing: 5) {
+            Text(met ? "✓" : "·")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .frame(width: 8)
+            Text(MilestoneText.label(requirement))
+                .font(.system(size: 10, weight: .semibold))
+            Text(MilestoneText.status(requirement, card: controller.scorecard,
+                                      netRevenue: controller.netRevenue))
+                .font(.system(size: 10, design: .monospaced))
+                .opacity(0.8)
+        }
+        .fixedSize()
+        .foregroundStyle(met ? Color.green : RetroUITheme.textSecondary)
     }
 
     /// The cheapest still-locked tool, by the population it asks for.

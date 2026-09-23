@@ -89,6 +89,13 @@ struct CitySave: Equatable, Codable, Sendable {
     /// The same trick `Tile.damagedBy` uses.
     let peakPopulation: Int?
 
+    /// The highest rank this city has earned — see `Milestone`. `Optional`
+    /// for the same reason `peakPopulation` is, and a high-water mark for the
+    /// same reason too: a save must not hand back a lower rank than the
+    /// player earned just because the city was having a bad day when it was
+    /// written.
+    let milestone: Milestone?
+
     init(
         formatVersion: Int = CitySave.currentFormatVersion,
         map: CityMap,
@@ -96,7 +103,8 @@ struct CitySave: Equatable, Codable, Sendable {
         taxRate: Double,
         bondBalance: Int,
         history: [CityStatSnapshot],
-        peakPopulation: Int? = nil
+        peakPopulation: Int? = nil,
+        milestone: Milestone? = nil
     ) {
         self.formatVersion = formatVersion
         self.map = map
@@ -105,6 +113,7 @@ struct CitySave: Equatable, Codable, Sendable {
         self.bondBalance = bondBalance
         self.history = history
         self.peakPopulation = peakPopulation
+        self.milestone = milestone
     }
 }
 
