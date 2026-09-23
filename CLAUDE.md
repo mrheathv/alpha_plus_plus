@@ -8773,6 +8773,34 @@ checks every face points outward and is convex, and writes
   paint a chamfer on a square corner. Apex: 8.27 ms at rest, fewer triangles
   than before.
 
+### Building detail, P3 part 1 and P4: facades and roofs up close
+
+Both are near-tier parts only, so the resting camera draws exactly what it
+did (Apex: 115,600 triangles, about 8.3 ms, 2,128 lights, unchanged).
+
+- **`FacadeDetail` (P3 part 1)**: balustrades on housing balconies, air
+  conditioners under about one housing window in seven, awnings over
+  street-level shopfronts, cornices on commercial volumes, fire escapes on
+  half the tier 2–3 apartment blocks. Hooked into the shared helpers
+  (`balcony`, `windows`, `shopfront`, `glazingBands`).
+- **`RoofDetail` (P4)**: a pass in `ZoneMassing.make` over every growable
+  building's finished massing. Housing gets water tanks on legs,
+  condensers, and sometimes a lit rooftop pool; shops get HVAC units,
+  dishes, and on tall roofs a lit helipad; industry gets vents joined by a
+  pipe run. A pass rather than an edit to some forty forms.
+- **Neither draws from a building's random stream.** Each helper already
+  consumes it in a fixed order, and one more draw would redesign every
+  building after it. Choices come from `FacadeDetail.roll`, a hash of the
+  part's own geometry.
+- **Finding roofs by what covers them.** The first roof pass asked whether
+  anything stood on a roof's centre and found almost none, because most
+  roofs carry a parapet or a lit crown band across the whole top. A box
+  now counts as a roof while less than half of it is covered, so the
+  parapet's own top becomes the roof.
+- **Closest camera on Apex**: 56,402 triangles before P3, then 61,506
+  after the facades and 77,760 after the roofs; 5.40 → 5.75 ms; lights 282
+  → 285, from the lit pools and helipads.
+
 ## Looking at the art without playing to it
 
 There are two renders, and they answer different questions.

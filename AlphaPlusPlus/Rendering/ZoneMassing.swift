@@ -12,6 +12,17 @@ import SpriteKit
 enum ZoneMassing {
 
     static func make(for zone: ZoneType, density: Int, seed: GridPosition) -> BuildingMassing? {
+        guard var massing = generate(for: zone, density: density, seed: seed) else { return nil }
+        // Roof clutter for the near tier, over every growable building's
+        // finished massing — see `RoofDetail` for why a pass rather than a
+        // change to each generator.
+        if zone.maxDensity > 0 {
+            RoofDetail.dress(&massing, zone: zone, footprint: CGFloat(zone.footprintSize))
+        }
+        return massing
+    }
+
+    private static func generate(for zone: ZoneType, density: Int, seed: GridPosition) -> BuildingMassing? {
         let footprint = CGFloat(zone.footprintSize)
         // Level 6 is its own kind of building, shared by housing and shops.
         if RenderPalette.growthTier(for: density) >= 4, zone == .residential || zone == .commercial {
