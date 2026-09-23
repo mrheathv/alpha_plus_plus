@@ -8407,6 +8407,12 @@ Every existing form is still in each list, so nothing was removed.
   the buildings they stand on. By day 200 the suburb reads as designed. The
   harness zones a whole map at once, which overstates it, but a player
   zoning a district at a time sees the same thing locally.
+- **Fixed in Metal by making the deck the mark.** `MetalOverlay.scaffold`
+  no longer draws the ring at the coming roofline, the posts are faint and
+  rise only as far as the work has, and the climbing deck is calmer
+  (1.6× amber rather than 3×). Re-rendered, day 45 reads as a city being
+  built rather than a lattice. SpriteKit's scaffold is unchanged, since
+  Metal is the renderer being carried forward.
 
 ## Looking at the art without playing to it
 
