@@ -22,7 +22,7 @@ struct IsoTileRenderer {
     /// why it is a texture rather than a second renderer.
     var detail: IsometricBuilding.Detail = .standard
 
-    private static let groundNodeName = "isoGround"
+    static let groundNodeName = "isoGround"
 
     /// Shared by every water tile — see `WaterShader`.
     static let water: SKShader = {
@@ -83,13 +83,18 @@ struct IsoTileRenderer {
     /// parent's children: `GameScene.rebuildRegion` adds and removes nodes in a
     /// small window without touching the rest, and re-sorting a whole tile
     /// layer per placement would undo the saving that exists for.
-    func makeNode(for tile: Tile, roadNeighbours: Int = 0b1111) -> SKNode {
+    /// `owned` has to be passed here as well as to `update`, and it was not:
+    /// founding a city builds every tile through this and refreshes nothing,
+    /// so every tile was born looking owned and only the ones something later
+    /// redrew came out dark — a staircase of darkness cutting into the
+    /// starting square, reported from play.
+    func makeNode(for tile: Tile, roadNeighbours: Int = 0b1111, owned: Bool = true) -> SKNode {
         let footprint = tile.zone.footprintSize
         let node = SKNode()
         node.name = Self.nodeName(for: tile.position)
         node.position = projection.project(CGFloat(tile.position.x), CGFloat(tile.position.y), 0)
         node.zPosition = Isometric.depth(of: tile.position, footprint: footprint)
-        update(node, for: tile, roadNeighbours: roadNeighbours)
+        update(node, for: tile, roadNeighbours: roadNeighbours, owned: owned)
         return node
     }
 

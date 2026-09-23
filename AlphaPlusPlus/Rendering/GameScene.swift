@@ -1164,7 +1164,8 @@ final class GameScene: SKScene {
     /// `CityHazards`), so it never needs a sprite of its own to represent.
     private func buildTileNodes() {
         for tile in map.tiles where tile.isBuildingAnchor {
-            let node = tileRenderer.makeNode(for: tile, roadNeighbours: roadNeighbourMask(at: tile.position))
+            let node = tileRenderer.makeNode(for: tile, roadNeighbours: roadNeighbourMask(at: tile.position),
+                                             owned: map.isOwned(tile.position))
             tileLayer.addChild(node)
             tileNodes[tile.position] = node
             syncTrafficAnimation(at: tile.position)
@@ -1431,7 +1432,8 @@ final class GameScene: SKScene {
             for dx in -radius ... radius {
                 let cell = GridPosition(x: position.x + dx, y: position.y + dy)
                 guard map.contains(cell), map[cell].isBuildingAnchor else { continue }
-                let node = tileRenderer.makeNode(for: map[cell], roadNeighbours: roadNeighbourMask(at: cell))
+                let node = tileRenderer.makeNode(for: map[cell], roadNeighbours: roadNeighbourMask(at: cell),
+                                                 owned: map.isOwned(cell))
                 tileLayer.addChild(node)
                 tileNodes[cell] = node
                 // **A full refresh, not two hand-picked decorations.** This

@@ -209,4 +209,41 @@ final class LandOwnershipTests: XCTestCase {
         game.capture("land view — owned, for sale, out of reach; one parcel just bought")
         game.writeFilmstrip(named: "land")
     }
+
+    /// **Every tile says whether it is yours, however it was last drawn.**
+    ///
+    /// Reported from play as a starting square that "doesn't render
+    /// properly": the dark edge of the land you do not own came out as a
+    /// staircase cutting into the square. Tiles are drawn by two paths — built
+    /// fresh, and refreshed — and only the refresh path had been told about
+    /// ownership, so whichever path a tile last went through decided whether
+    /// it looked owned. `SceneAgreement` compares two scenes built the same
+    /// wrong way, so it agreed; this asks the picture the question directly,
+    /// after the three things that draw tiles: a fresh map, a building placed
+    /// near the boundary (which rebuilds a window round it), and a tick.
+    func testUnownedGroundIsDarkEverywhereAndOwnedGroundNowhere() {
+        var map = CityMap(width: 32, height: 32)
+        map.land = .starting(width: 32, height: 32)
+        let game = ScenePlaytest(map: map)
+
+        func check(_ when: String) {
+            for (position, node) in game.scene.tileNodesForTesting {
+                guard let ground = node.childNode(withName: IsoTileRenderer.groundNodeName) as? SKSpriteNode
+                else { continue }
+                let dark = ground.colorBlendFactor > 0
+                XCTAssertEqual(dark, !game.controller.map.isOwned(position),
+                               "\(position) \(dark ? "dark" : "bright") \(when)")
+            }
+        }
+        check("on a fresh map")
+        // Founding a city rebuilds the whole grid and refreshes nothing
+        // (`GameView`'s `cityGeneration` handler) — the route play took and the
+        // harness, which refreshes after building, never did.
+        game.scene.rebuildEntireGrid()
+        check("straight after a rebuild, as founding a city does")
+        game.click(.residential, at: GridPosition(x: 9, y: 9))   // rebuilds 5...13
+        check("after placing near the boundary")
+        game.tick(1)
+        check("after a day")
+    }
 }
